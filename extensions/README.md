@@ -38,15 +38,15 @@ A public registry browser is also available from the CLI
 These ship as standalone repos and exercise nearly every capability. When in
 doubt, copy the one closest to what you are building.
 
-| Extension                 | Install string                          | Demonstrates                                                                                                                                                                                                             |
-| ------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| **Beautify**              | `IlhamriSKY/TEDI.beautify`              | `headerbar:write` with `placement:"left"`, `editor:read`/`editor:write` live-buffer round-trip, native sidecar via `shell_bg_spawn_direct` + `READY {port,token}` handshake, multi-language formatting in a Rust binary. |
-| **Discord Rich Presence** | `IlhamriSKY/TEDI.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binary.                                                                                                     |
-| **SQL Explorer**          | `IlhamriSKY/TEDI.sql-explorer`          | `panels[]` with `surface:"tab"` + `tabs:open`, `headerbar:write`, `settings:*`, `secrets:*`, sidecar HTTP server, `ctx.ui.codeEditor` (SQL).                                                                             |
-| **Secondary Folder Tree** | `IlhamriSKY/TEDI.secondary-folder-tree` | `panels[]` `surface:"right"`, `commands` + `keybindings`, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                    |
+| Extension                 | Install string                          | Demonstrates                                                                                                                                                                                                                                      |
+| ------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Beautify**              | `IlhamriSKY/TEDI.beautify`              | `headerbar:write` with `placement:"left"`, `editor:read`/`editor:write` live-buffer round-trip, native sidecar via `shell_bg_spawn_direct` + `READY {port,token}` handshake, multi-language formatting in a Rust binary.                          |
+| **Discord Rich Presence** | `IlhamriSKY/TEDI.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binary.                                                                                                                              |
+| **SQL Explorer**          | `IlhamriSKY/TEDI.sql-explorer`          | `panels[]` with `surface:"tab"` + `tabs:open`, `headerbar:write`, `settings:*`, `secrets:*`, sidecar HTTP server, `ctx.ui.codeEditor` (SQL).                                                                                                      |
+| **Secondary Folder Tree** | `IlhamriSKY/TEDI.secondary-folder-tree` | `panels[]` `surface:"right"`, `commands` + `keybindings`, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                                             |
 | **API Client**            | `IlhamriSKY/TEDI.api-client`            | `invoke:http_stream` / `invoke:http_abort` as the entire backend (no sidecar), two `ctx.sidebar` sections at once, `ctx.storage` for bulk data with `ctx.secrets` for the values that must not hit disk, `ctx.ui.codeEditor` (JSON + JavaScript). |
-| **Screenshot**            | `IlhamriSKY/TEDI.screenshot`            | `panels[]` used only to mint a status-bar toggle, then a capture-phase click interception, native sidecar.                                                                                                               |
-| **RTK Bridge**            | `IlhamriSKY/TEDI.rtk-bridge`            | `shell:transform` rewriting every AI shell command (RTK pattern).                                                                                                                                                        |
+| **Screenshot**            | `IlhamriSKY/TEDI.screenshot`            | `panels[]` used only to mint a status-bar toggle, then a capture-phase click interception, native sidecar.                                                                                                                                        |
+| **RTK Bridge**            | `IlhamriSKY/TEDI.rtk-bridge`            | `shell:transform` rewriting every AI shell command (RTK pattern).                                                                                                                                                                                 |
 
 ---
 
@@ -124,12 +124,12 @@ resolve through the link. Edit `extension.js` (or, if you build from `src/`, run
 (Ctrl+R)** or toggle the extension in _Settings → Extensions_ to pick up the
 change (the loader re-reads the live file).
 
-| Command | What it does |
-| --- | --- |
-| `pnpm tauri:dev:ext` | Link all repo extensions, then `pnpm tauri:dev`. |
-| `pnpm link:ext` | Just create the links (add `tedi.sql-explorer …` to limit to ids; or `TEDI_DEV_EXT_IDS=`). |
-| `pnpm relink:ext` | `--force`: replace a previously **installed** dev copy with the live link. |
-| `pnpm unlink:ext` | Remove the dev links (never touches your repo source). |
+| Command              | What it does                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------------ |
+| `pnpm tauri:dev:ext` | Link all repo extensions, then `pnpm tauri:dev`.                                           |
+| `pnpm link:ext`      | Just create the links (add `tedi.sql-explorer …` to limit to ids; or `TEDI_DEV_EXT_IDS=`). |
+| `pnpm relink:ext`    | `--force`: replace a previously **installed** dev copy with the live link.                 |
+| `pnpm unlink:ext`    | Remove the dev links (never touches your repo source).                                     |
 
 The links live only in the **dev** profile (`…tedi.dev`), so they never affect a
 real install. If an id was previously installed into the dev build, `link:ext`
@@ -271,16 +271,16 @@ Each contribution array is independently parsed. Every per-item schema below is
 Rendered as controls on the extension card; values round-trip through the
 namespaced `ext:<id>:<key>` settings keys via `ctx.settings`.
 
-| Field         | Required | Notes                                                                                                                                                                                      |
-| ------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `id`          | yes      | The setting key (namespaced to `ext:<id>:<id>` on disk).                                                                                                                                   |
-| `type`        | yes      | `"string" \| "number" \| "boolean" \| "select"`.                                                                                                                                           |
-| `label`       | yes      | Display label.                                                                                                                                                                             |
-| `description` | no       | Helper text.                                                                                                                                                                               |
-| `default`     | no       | `string \| number \| boolean \| null`.                                                                                                                                                     |
+| Field         | Required | Notes                                                                                                                                                                                     |
+| ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `id`          | yes      | The setting key (namespaced to `ext:<id>:<id>` on disk).                                                                                                                                  |
+| `type`        | yes      | `"string" \| "number" \| "boolean" \| "select"`.                                                                                                                                          |
+| `label`       | yes      | Display label.                                                                                                                                                                            |
+| `description` | no       | Helper text.                                                                                                                                                                              |
+| `default`     | no       | `string \| number \| boolean \| null`.                                                                                                                                                    |
 | `options`     | no       | `{ value: string; label: string }[]`. Used by `select`. **Note:** the schema does _not_ enforce that a `select` has options, a select with no options parses fine, so always supply them. |
-| `section`     | no       | `string`. Parsed but **not currently used** by the card (flat list).                                                                                                                       |
-| `secret`      | no       | `boolean`. Renders a password input. The schema allows `secret` on any type, not just `string`.                                                                                            |
+| `section`     | no       | `string`. Parsed but **not currently used** by the card (flat list).                                                                                                                      |
+| `secret`      | no       | `boolean`. Renders a password input. The schema allows `secret` on any type, not just `string`.                                                                                           |
 
 ```json
 "settings": [
@@ -319,10 +319,10 @@ settings section and are fired by the keybinding dispatcher.
 
 #### `contributes.keybindings[]`
 
-| Field     | Required | Notes                                                     |
-| --------- | -------- | --------------------------------------------------------- |
-| `command` | yes      | A `commands[]` id.                                        |
-| `key`     | yes      | e.g. `"Mod+Alt+D"`. `Mod` = Cmd on macOS, Ctrl elsewhere. |
+| Field     | Required | Notes                                                                                                                                                                                           |
+| --------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `command` | yes      | A `commands[]` id.                                                                                                                                                                              |
+| `key`     | yes      | e.g. `"Mod+Alt+D"`. `Mod` = Cmd on macOS, Ctrl elsewhere.                                                                                                                                       |
 | `when`    | no       | **Parsed but NOT evaluated in this version.** A binding with a registered handler fires globally, including while a terminal or the editor is focused. Do not rely on it to scope a keybinding. |
 
 Bindings are matched on a capture-phase `keydown` listener. User overrides
@@ -379,7 +379,7 @@ permission and open it via `ctx.tabs.openExtensionTab`.
 | ------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `name`        | yes      | Tool name the model sees; bind a handler via `ctx.registerAiToolHandler(name, fn)`.                                                                                                                                                                                                                |
 | `description` | yes      | Tool description shown to the model.                                                                                                                                                                                                                                                               |
-| `parameters`  | yes      | `Record<string, unknown>`, a JSON Schema for the args (wrapped via the AI SDK `jsonSchema()` helper).                                                                                                                                                                                             |
+| `parameters`  | yes      | `Record<string, unknown>`, a JSON Schema for the args (wrapped via the AI SDK `jsonSchema()` helper).                                                                                                                                                                                              |
 | `approval`    | no       | `"auto" \| "needsApproval"`, defaults to `"auto"`. **Advisory in this version:** every extension tool call routes through the user's tool-approval flow regardless (it prompts in Ask mode, and is auto-approved only if the user enabled that), because the handler is unvetted third-party code. |
 
 **Wired.** Contributed AI tools are merged into the main agent's tool set each
@@ -407,13 +407,7 @@ type AppContextSnapshot = {
   activeFileName: string | null;
   terminalCount: number; // terminal leaves in the ACTIVE workspace
   activeTabKind:
-    | "terminal"
-    | "ssh"
-    | "editor"
-    | "diff"
-    | "browser"
-    | "ext"
-    | null;
+    "terminal" | "ssh" | "editor" | "diff" | "browser" | "ext" | null;
   workspaceCount: number; // >= 1
   terminalCountAll: number; // sum across all workspaces
   // Every live terminal, across all workspaces. See the disclosure note below.
@@ -463,9 +457,7 @@ type ExtensionContext = {
     createWorkspace(
       name: string,
     ): Promise<{ ok: boolean; wsId?: string; error?: string }>; // workspaces:manage
-    setActiveWorkspace(
-      wsId: string,
-    ): Promise<{ ok: boolean; error?: string }>; // workspaces:manage
+    setActiveWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }>; // workspaces:manage
   };
 
   settings: {
@@ -644,16 +636,20 @@ large state that does not belong in app settings.
   includes each terminal's captured OSC 0/2 title, which for an AI CLI is the
   task the user is running, plus the detected idle/working/blocking state, for
   every workspace. An extension that declares no permissions at all can read it,
-  so it is part of what installing *any* extension grants.
+  so it is part of what installing _any_ extension grants.
 - `onContextChange(cb): Disposer`: fires **once immediately** with the current
   snapshot, then on each shallow-different snapshot. Auto-disposed.
 - `setSidebarVisible(visible)`: show/hide the **left** sidebar (file explorer +
   SCM). The host remembers prior visibility and auto-restores it when the user
   switches off your tab.
-- `setRightSidebarVisible(visible)`: show/hide the **right** aux column. On
-  `false` it closes whichever surface is open (AI chat / ext panel / SCM); on
-  `true` it is a no-op (the host can't infer which to reopen). Both are no-ops
-  with a `console.warn` before the App has wired the setter.
+- `setRightSidebarVisible(visible)`: show/hide the **right** aux column. Exact
+  mirror of `setSidebarVisible`: it minimizes the column and back, closing
+  nothing, so what you hide is what comes back and `true` really shows it. The
+  host remembers prior visibility and auto-restores it when the user switches
+  off your tab. Before v0.4.25 this CLOSED the open surfaces instead and `true`
+  was a no-op; an extension that relied on the close to tear panels down should
+  call the relevant close itself. Both are no-ops with a `console.warn` before
+  the App has wired the setter, and while nothing is docked in the column.
 - `createWorkspace(name): Promise<{ ok, wsId?, error? }>`: _requires
   `workspaces:manage`._ Creates a workspace and switches to it. The fresh
   workspace auto-seeds a default terminal tab so a mirror can see it.
@@ -717,8 +713,11 @@ another host), and the debug capture (it snapshots full prompts).
 ```js
 export function activate(ctx) {
   const s = ctx.ai.getState();
-  ctx.logger.info(`model=${s.modelId} provider=${s.provider} hasKey=${s.hasKey}`);
-  if (s.approvalMode !== "ask") ctx.ui.toast("Heads up: AI approval mode is relaxed.");
+  ctx.logger.info(
+    `model=${s.modelId} provider=${s.provider} hasKey=${s.hasKey}`,
+  );
+  if (s.approvalMode !== "ask")
+    ctx.ui.toast("Heads up: AI approval mode is relaxed.");
 
   ctx.ai.onStateChange((next) => {
     ctx.statusBar.setItem({
@@ -740,7 +739,7 @@ ctx.invoke<T>(command, args?): Promise<T>
 
 Calls a Rust Tauri command. Gated by an `invoke:<command>` permission match
 (exact, prefix `invoke:*`, glob `invoke:foo_*`, or `*`). Four keychain
-commands, `secrets_get_all`, `secrets_get`, `secrets_set`, `secrets_delete`, 
+commands, `secrets_get_all`, `secrets_get`, `secrets_set`, `secrets_delete`,
 are **hard-denied** even with `*`. Use `ctx.secrets` instead.
 
 ```js
@@ -781,7 +780,8 @@ await ctx.invokeChannel(
     body: null,
   },
   (ev) => {
-    if (ev.type === "meta") status = ev.status; // may never arrive
+    if (ev.type === "meta")
+      status = ev.status; // may never arrive
     else if (ev.type === "chunk")
       parts.push(Uint8Array.from(atob(ev.data), (c) => c.charCodeAt(0))); // base64
     else if (ev.type === "error") {
@@ -963,11 +963,11 @@ list.
 
 ### `ctx.tabs`: `tabs:open`
 
-- `openExtensionTab({ panelId, title, icon?, reuseKey? }): number | null`: 
+- `openExtensionTab({ panelId, title, icon?, reuseKey? }): number | null`:
   opens a full workspace tab that mounts the renderer registered for `panelId`
   (pair with a `panels[]` entry whose `surface` is `"tab"`). `reuseKey` dedupes
   (same key focuses the existing tab). Returns the tab index or `null`.
-- `openExtensionPane({ panelId, title, icon?, reuseKey? }): number | null`: 
+- `openExtensionPane({ panelId, title, icon?, reuseKey? }): number | null`:
   same as `openExtensionTab`, but mounts the panel as a native split-pane leaf
   (same frame as a terminal/editor/browser, splittable and joinable) instead of
   a standalone tab.
@@ -1072,7 +1072,7 @@ ctx.contribute.commands([{ id: "acme.run", title: "Run" }]);
 ### `ctx.addDisposer(d)`: none
 
 Pushes `d` onto the disposer stack (run in **reverse** order on deactivate, each
-wrapped in try/catch). Most `ctx` wrappers already register their own disposers, 
+wrapped in try/catch). Most `ctx` wrappers already register their own disposers,
 use this only for resources the host can't see (timers, third-party listeners).
 
 ---
@@ -1146,29 +1146,29 @@ checks the extension's declared `permissions[]` (recorded at install as
 `approved_permissions`). Risk tiers drive the color badges in the install dialog
 (high = red, medium = amber, low = neutral).
 
-| Permission         | Risk    | Gates / grants                                                                                                                                                                                                                                                                                                                                                                                           |
-| ------------------ | ------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `settings:read`    | low     | `ctx.settings.get`, `ctx.settings.onChange` (own `ext:<id>:*` keys only).                                                                                                                                                                                                                                                                                                                                |
-| `ai:configure`     | high    | `ctx.ai.setModel`, `ctx.ai.setSubagentsEnabled`. Retargets the agent and spends the user's API credit. There is no `setApprovalMode` at any tier.                                                                                                                                                                                                                                          |
-| `ai:prompt`        | high    | `ctx.ai.sendPrompt`. Submits agent turns as if the user typed them.                                                                                                                                                                                                                                                                                                                      |
-| `settings:write`   | medium  | `ctx.settings.set`.                                                                                                                                                                                                                                                                                                                                                                                      |
-| `secrets:read`     | high    | `ctx.secrets.get` (service `tedi-ext:<id>`).                                                                                                                                                                                                                                                                                                                                                             |
-| `secrets:write`    | high    | `ctx.secrets.set`.                                                                                                                                                                                                                                                                                                                                                                                       |
-| `invoke:<command>` | medium† | `ctx.invoke(command, …)`. Matches exact, family-glob (`invoke:foo_*`), or `invoke:*`. **†Rated HIGH** when the command is `fs_*`, `shell_*`, `secrets_*`, `pty_*`, `ssh_*`, or `fmt_run_external` (code-exec / remote-shell / arbitrary-binary; `mcp_*` too, since `mcp_spawn` launches a binary), and for **any glob** (`invoke:*`, `invoke:git_*`, …) since a glob spans a whole command family. Otherwise medium. Prefer exact, least-privilege grants. Some commands (the keychain and extension-management families) are hard-denied outright, see the list below. |
-| `events:emit`      | low     | `ctx.events.emit` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                     |
-| `events:listen`    | low     | `ctx.events.on` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                       |
-| `ui:toast`         | low     | `ctx.ui.toast`. (`mountFolderTree` / `codeEditor` / `icon` need no permission.)                                                                                                                                                                                                                                                                                                                          |
-| `panels:register`  | low     | `ctx.registerPanelRenderer`, `ctx.panel.open`, `ctx.panel.toggle`, and the runtime `ctx.contribute.panels`. (`ctx.panel.close` is ungated, and a manifest `contributes.panels[]` entry is seeded without it.)                                                                                                                                                                                                                                                                                  |
-| `statusbar:write`  | low     | `ctx.statusBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
-| `headerbar:write`  | low     | `ctx.headerBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                         |
-| `sidebar:write`    | low     | `ctx.sidebar.setSection`. (`removeSection` ungated.)                                                                                                                                                                                                                                                                                                                                                     |
-| `tabs:open`        | low     | `ctx.tabs.openExtensionTab`, `ctx.tabs.openExtensionPane`, `ctx.tabs.setExtensionTabState`.                                                                                                                                                                                                                                                                                                              |
-| `editor:read`      | medium  | `ctx.editor.getActive`.                                                                                                                                                                                                                                                                                                                                                                                  |
-| `editor:write`     | medium  | `ctx.editor.setActiveContent`.                                                                                                                                                                                                                                                                                                                                                                           |
-| `workspaces:manage`| medium  | `ctx.app.createWorkspace`, `ctx.app.setActiveWorkspace`.                                                                                                                                                                                                                                                                                                                                                 |
-| `ssh:connections`  | high    | `ctx.ssh.*` (open/close saved SSH connections by id; the extension never sees a password or key).                                                                                                                                                                                                                                                                                                        |
-| `shell:transform`  | high    | `ctx.shell.registerCommandTransformer` (rewrites every AI shell command).                                                                                                                                                                                                                                                                                                                                |
-| `*`                | high    | Everything checkPermission-gated. Does **not** override the hard-deny set.                                                                                                                                                                                                                                                                                                                               |
+| Permission          | Risk    | Gates / grants                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| ------------------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `settings:read`     | low     | `ctx.settings.get`, `ctx.settings.onChange` (own `ext:<id>:*` keys only).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `ai:configure`      | high    | `ctx.ai.setModel`, `ctx.ai.setSubagentsEnabled`. Retargets the agent and spends the user's API credit. There is no `setApprovalMode` at any tier.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `ai:prompt`         | high    | `ctx.ai.sendPrompt`. Submits agent turns as if the user typed them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `settings:write`    | medium  | `ctx.settings.set`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `secrets:read`      | high    | `ctx.secrets.get` (service `tedi-ext:<id>`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `secrets:write`     | high    | `ctx.secrets.set`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `invoke:<command>`  | medium† | `ctx.invoke(command, …)`. Matches exact, family-glob (`invoke:foo_*`), or `invoke:*`. **†Rated HIGH** when the command is `fs_*`, `shell_*`, `secrets_*`, `pty_*`, `ssh_*`, or `fmt_run_external` (code-exec / remote-shell / arbitrary-binary; `mcp_*` too, since `mcp_spawn` launches a binary), and for **any glob** (`invoke:*`, `invoke:git_*`, …) since a glob spans a whole command family. Otherwise medium. Prefer exact, least-privilege grants. Some commands (the keychain and extension-management families) are hard-denied outright, see the list below. |
+| `events:emit`       | low     | `ctx.events.emit` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `events:listen`     | low     | `ctx.events.on` on `ext://<id>/*`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `ui:toast`          | low     | `ctx.ui.toast`. (`mountFolderTree` / `codeEditor` / `icon` need no permission.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `panels:register`   | low     | `ctx.registerPanelRenderer`, `ctx.panel.open`, `ctx.panel.toggle`, and the runtime `ctx.contribute.panels`. (`ctx.panel.close` is ungated, and a manifest `contributes.panels[]` entry is seeded without it.)                                                                                                                                                                                                                                                                                                                                                           |
+| `statusbar:write`   | low     | `ctx.statusBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `headerbar:write`   | low     | `ctx.headerBar.setItem`. (`removeItem` ungated.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `sidebar:write`     | low     | `ctx.sidebar.setSection`. (`removeSection` ungated.)                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `tabs:open`         | low     | `ctx.tabs.openExtensionTab`, `ctx.tabs.openExtensionPane`, `ctx.tabs.setExtensionTabState`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `editor:read`       | medium  | `ctx.editor.getActive`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+| `editor:write`      | medium  | `ctx.editor.setActiveContent`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `workspaces:manage` | medium  | `ctx.app.createWorkspace`, `ctx.app.setActiveWorkspace`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `ssh:connections`   | high    | `ctx.ssh.*` (open/close saved SSH connections by id; the extension never sees a password or key).                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `shell:transform`   | high    | `ctx.shell.registerCommandTransformer` (rewrites every AI shell command).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+| `*`                 | high    | Everything checkPermission-gated. Does **not** override the hard-deny set.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
 Members with **no** permission: `ctx.id`, `ctx.installPath`, `ctx.os`,
 `ctx.paths.home`, `ctx.storage.*`, `ctx.app.getContext`/`onContextChange`/

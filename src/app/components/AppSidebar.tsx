@@ -1,22 +1,20 @@
 import { ResizablePanel } from "@/components/ui/resizable";
 import { FileExplorer } from "@/modules/explorer";
 import {
-  BUILTIN_SECTION_EXT,
   ExtensionSidebarSection,
-  MOVABLE_BUILTIN_SECTIONS,
-  sectionPanelId,
   sidebarSectionsRegistry,
   useRegistry,
-  useRightPanelStore,
   useSidebarPlacementStore,
-  type BuiltinSectionId,
 } from "@/modules/extensions";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import { Suspense, useMemo, type ReactNode, type RefObject } from "react";
+import { Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
+import { canDockRight, dockRight } from "../lib/sectionDock";
+import { aiStackSection } from "./aiSection";
+import { SectionDropRail, useExpandOnSectionArrival } from "./SectionDropRail";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 import { SectionStack, type StackSection } from "./SectionStack";
 
@@ -64,6 +62,13 @@ type Props = {
   activeLeafId: number | null;
   /** Live SSH status per leaf, so a connected host is green in Workspaces too. */
   sshStatuses: Map<number, SshStatus>;
+  /** The AI panel docks to either column now. These three are the same values
+   *  `AppRightSlot` gates it on; whichever column the placement names renders
+   *  it, and the other drops it. */
+  aiPanelOpen: boolean;
+  aiKeysLoaded: boolean;
+  hasComposer: boolean;
+  onAddProviderKey: () => void;
 } & Pick<TabsApi, "openGitDiffTab" | "openScmTab" | "openBoardTab">;
 
 // The reorderable built-in sidebar sections, in canonical order. Extension
@@ -91,18 +96,16 @@ const EXT_KEY_PREFIX = "xsec:";
 const extSectionKey = (extensionId: string, sectionId: string): string =>
   `${EXT_KEY_PREFIX}${extensionId}:${sectionId}`;
 
-/** The built-in section `key` is, when it is one that may be docked right. */
-const movableBuiltin = (key: string): BuiltinSectionId | null =>
-  MOVABLE_BUILTIN_SECTIONS.find((s) => s.id === key)?.id ?? null;
-
 // Persisted in localStorage (sidebar lives in the main window only).
 const ORDER_LS_KEY = "tedi:sidebar:sectionOrder";
 
 /**
  * The left sidebar column. Sections (Files, Remote/SSH, Source Control,
- * Workspaces) are stacked resizable panels, collapsible to their header and
- * drag-reorderable by the grip in that header - all of which lives in the
- * shared `SectionStack`, so the right column behaves identically.
+ * Workspaces, plus the AI panel when it is docked here) are stacked resizable
+ * panels, collapsible to their header and drag-reorderable by the grip in that
+ * header - all of which lives in the shared `SectionStack`, so the right column
+ * behaves identically. Which column a section sits in is `lib/sectionDock`'s
+ * call, and the whole column minimizes via `sidebarRef`.
  */
 export function AppSidebar({
   sidebarRef,
@@ -131,6 +134,10 @@ export function AppSidebar({
   onCloseEntry,
   activeLeafId,
   sshStatuses,
+  aiPanelOpen,
+  aiKeysLoaded,
+  hasComposer,
+  onAddProviderKey,
   openGitDiffTab,
   openScmTab,
   openBoardTab,
@@ -154,37 +161,37 @@ export function AppSidebar({
   // Extension sections moved to the right slot (placement === "right") leave the
   // left sidebar; they're reachable from a status-bar icon instead.
   const placement = useSidebarPlacementStore((s) => s.placement);
+  // The AI panel is the one surface whose HOME is the right column, so it takes
+  // the opposite default: it appears here only once explicitly docked left.
+  const aiInSidebar = placement.ai === "left" && aiKeysLoaded && aiPanelOpen;
 
-  // Dock a built-in section (Files / Workspaces) into the right column,
-  // mirroring how Source Control / SSH / extension sections move right: persist
-  // the placement (so AppSidebar drops it from the left) and open it in the
-  // right column via the shared right-panel store.
-  const moveSectionRight = (key: BuiltinSectionId) => {
-    useSidebarPlacementStore.getState().moveRight(key);
-    useRightPanelStore.getState().open(BUILTIN_SECTION_EXT, sectionPanelId(key));
-  };
+  // With AI docked here, opening it from the status bar while the sidebar is
+  // shut would otherwise do nothing visible. Expand for that one transition
+  // only - NOT on any section appearing: Remote and Source Control show up on
+  // their own when a host connects or a repo opens, and popping the sidebar back
+  // open for those would fight a user who deliberately closed it.
+  const aiWasInSidebar = useRef(aiInSidebar);
+  useEffect(() => {
+    const panel = sidebarRef.current;
+    if (panel && aiInSidebar && !aiWasInSidebar.current && panel.getSize().asPercentage <= 0) {
+      panel.expand();
+    }
+    aiWasInSidebar.current = aiInSidebar;
+  }, [aiInSidebar, sidebarRef]);
+  // A section dragged in from the right column opens the sidebar if it is shut,
+  // so the drop is never invisible. Same rule the right column follows.
+  useExpandOnSectionArrival("left", sidebarRef);
 
   /**
    * Drag-to-dock: a section handed to the right column by dragging its grip
-   * across, rather than by its header's "Move to right panel" button. The rule
-   * for WHICH sections may go is read off the same list the move BUTTON uses
-   * (`MOVABLE_BUILTIN_SECTIONS` / the section's `movableToRight`), so the two
-   * routes can never disagree.
+   * across, rather than by its header's "Move to right panel" button. Both routes
+   * now run through `lib/sectionDock`, so they cannot disagree about which
+   * sections may go or about what moving one means. The only rule this component
+   * still owns is an extension section's own `movableToRight` opt-in, which is
+   * in its manifest and only reachable from the registry here.
    */
-  const canDockRight = (key: string): boolean =>
-    movableBuiltin(key) !== null || !!extByKey.get(key)?.section.movableToRight;
-  const dockRight = (key: string): void => {
-    const builtin = movableBuiltin(key);
-    if (builtin) {
-      moveSectionRight(builtin);
-      return;
-    }
-    const ext = extByKey.get(key);
-    if (!ext) return;
-    // Same pair ExtensionSidebarSection's own move button fires.
-    useSidebarPlacementStore.getState().moveRight(key);
-    useRightPanelStore.getState().open(ext.extensionId, sectionPanelId(ext.section.id));
-  };
+  const canDrag = (key: string): boolean =>
+    canDockRight(key, (k) => !!extByKey.get(k)?.section.movableToRight);
 
   const renderBuiltin = (key: BuiltinKey, controls: ReactNode, collapsed: boolean): ReactNode => {
     // When the panel is collapsed to its header, sections skip rendering the
@@ -203,7 +210,7 @@ export function AppSidebar({
             dragHandle={controls}
             collapsed={collapsed}
             activeFilePath={activeFilePath}
-            onMoveToRight={() => moveSectionRight("files")}
+            onMoveToRight={() => dockRight("files")}
             hideSort
           />
         );
@@ -251,7 +258,7 @@ export function AppSidebar({
             activeLeafId={activeLeafId}
             sshStatuses={sshStatuses}
             dragHandle={controls}
-            onMoveToRight={() => moveSectionRight("workspaces")}
+            onMoveToRight={() => dockRight("workspaces")}
           />
         );
     }
@@ -285,6 +292,10 @@ export function AppSidebar({
       ),
     });
   }
+  // The AI panel, when the user has docked it left. Its open/closed state is the
+  // chat store's `panelOpen`, shared with the right column, so only the
+  // placement decides which side it appears on.
+  if (aiInSidebar) sections.push(aiStackSection(hasComposer, onAddProviderKey));
 
   return (
     <ResizablePanel
@@ -308,14 +319,17 @@ export function AppSidebar({
           1px-bordered `bg-sidebar` card, stacked with a gap, so the tray shows
           between them like the reference layout. */}
       {/* `data-section-column` is the drop target the OTHER stack tests against
-          when a drag ends outside its own column. */}
+          when a drag ends outside its own column. Zero-width while the sidebar
+          is minimized shut, which is not aimable - `SectionDropRail` stands in
+          for exactly that case, so a drag from the right lands somewhere. */}
+      <SectionDropRail column="left" />
       <div data-section-column="left" className="flex h-full flex-col">
         <SectionStack
           sections={sections}
           orderStorageKey={ORDER_LS_KEY}
           idPrefix="sidebar"
           column="left"
-          canMoveColumn={canDockRight}
+          canMoveColumn={canDrag}
           onMoveColumn={dockRight}
         />
       </div>

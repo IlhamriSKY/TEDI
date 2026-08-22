@@ -7,24 +7,9 @@ import {
   type OpenExtensionTabOpts,
   type SetExtensionTabStateOpts,
 } from "@/modules/extensions/tabsBridge";
-import { useChatStore } from "@/modules/ai";
-import { useRightPanelStore } from "@/modules/extensions";
-import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import type { Tab } from "@/modules/tabs";
 import { useEffect, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
-
-/** Snapshot of the auto-restorable right-column surfaces (the AI chat and every
- *  open extension panel) at the moment an extension asked the column to close.
- *  The column stacks its surfaces, so this records ALL of them, not just the
- *  newest — a bare "hide" that came back with one panel out of three would read
- *  as data loss. `null` means the column was either empty or held only Source
- *  Control: SCM is manual-only and is never auto-restored, so it gets closed
- *  alongside the others on hide but is never recorded for replay. */
-export type RightAuxSnapshot = {
-  chat: boolean;
-  panels: Array<{ extensionId: string; panelId: string }>;
-} | null;
 
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
@@ -32,13 +17,14 @@ type Params = {
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
+  /** Twin of `sidebarRef` for the right column. It only became collapsible in
+   *  its own right recently; before that, hiding it meant CLOSING its surfaces,
+   *  which is why this file used to carry a snapshot/replay machine. */
+  rightSlotRef: RefObject<PanelImperativeHandle | null>;
   /** App's single source of truth for the sidebar's closed-by-intent state. This
    *  hook keeps it in sync when it programmatically shows/hides the sidebar, so
    *  App's minimize->restore guard never reads a stale collapse intent. */
-  rightSidebarHiderRef: RefObject<{
-    extensionId: string;
-    prior: RightAuxSnapshot;
-  } | null>;
+  rightSidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
   activeTab: Tab | undefined;
   tabs: Tab[];
 };
@@ -70,6 +56,7 @@ export function useExtensionSidebarBridges({
   setExtensionTabState,
   sidebarRef,
   sidebarHiderRef,
+  rightSlotRef,
   rightSidebarHiderRef,
   activeTab,
   tabs,
@@ -122,80 +109,54 @@ export function useExtensionSidebarBridges({
     return () => setSidebarSetter(null);
   }, []);
 
-  // Mirror of the left-sidebar setter for the right-side aux column. The
-  // three right surfaces (AI chat, extension right panel, SCM right panel)
-  // are mutually exclusive so we just snapshot whichever was open, close
-  // them all on hide, and replay the snapshot when the owning ext tab goes
-  // away. `visible === true` clears the latch (no re-open: the user can
-  // toggle it manually).
+  // TRUE mirror of the left-sidebar setter now: it collapses the column and
+  // closes nothing.
   //
-  // Source Control is intentionally excluded from the snapshot: the user
-  // has asked for SCM to be strictly status-bar-icon-driven, so even if
-  // it was open when the extension hid the sidebar, we don't auto-restore
-  // it. They close behind the extension and stay closed.
+  // It used to close the surfaces themselves - the AI chat, every extension
+  // panel, the SCM panel - and then replay a snapshot to put them back, because
+  // the right column had no collapse of its own to reach for. That was the one
+  // place the two host APIs were documented as twins and were not: hiding the
+  // left sidebar lost nothing and restored exactly, hiding the right one tore
+  // its contents down and rebuilt them approximately (a panel whose extension
+  // had since been uninstalled simply never came back, and Source Control was
+  // carved out of the replay entirely, so it closed and stayed closed).
+  // Collapsing has nothing to lose, so the snapshot, the replay and the carve-out
+  // are all gone with it - and `visible: true` is a real show instead of the
+  // no-op it had to be when the host could not infer what to reopen.
   useEffect(() => {
     setRightSidebarSetter((visible, ownerExtensionId) => {
-      const chat = useChatStore.getState();
-      const rightPanel = useRightPanelStore.getState();
-      const scm = useScmRightPanelStore.getState();
-      const snapshot: RightAuxSnapshot =
-        chat.panelOpen || rightPanel.panels.length > 0
-          ? { chat: chat.panelOpen, panels: rightPanel.panels.map((p) => ({ ...p })) }
-          : null;
+      const p = rightSlotRef.current;
+      // Null while nothing is docked right: the column renders no panel, so
+      // there is neither anything to hide nor anything to remember.
+      if (!p) return;
+      const visibleNow = p.getSize().asPercentage > 0;
       if (ownerExtensionId && !visible) {
         if (!rightSidebarHiderRef.current) {
-          rightSidebarHiderRef.current = { extensionId: ownerExtensionId, prior: snapshot };
+          rightSidebarHiderRef.current = { extensionId: ownerExtensionId, prior: visibleNow };
         }
       } else {
         rightSidebarHiderRef.current = null;
       }
-      if (!visible) {
-        if (chat.panelOpen) chat.closePanel();
-        if (rightPanel.panels.length > 0) rightPanel.close();
-        if (scm.open) scm.closePanel();
-      }
-      // `visible === true` is a no-op: we don't know which of the three
-      // surfaces to reopen from a bare call. The owner-restore effect
-      // below handles the actual replay when the ext tab goes away.
+      setSidebarVisibleImperative(p, visible);
     });
     return () => setRightSidebarSetter(null);
   }, []);
 
-  // Auto-restore the right-side aux column around the ext tab that hid
-  // it. Same shape as the left-sidebar effect above. Restoring is a
-  // best-effort replay: if the panel the user had open no longer exists
-  // (extension uninstalled), we silently skip rather than show an empty
-  // slot.
+  // Auto-restore / re-hide the right column around the ext tab that requested a
+  // hide. Line for line the left sidebar's effect below, which is the point.
   useEffect(() => {
     const hider = rightSidebarHiderRef.current;
     if (!hider) return;
+    const p = rightSlotRef.current;
+    if (!p) return;
     const stillOpen = tabs.some((t) => t.kind === "ext" && t.extensionId === hider.extensionId);
-    const replay = (): void => {
-      const prior = hider.prior;
-      if (!prior) return;
-      // SCM is deliberately not in the snapshot: see the setter above. The
-      // user must reopen it via the status-bar GitBranch icon.
-      if (prior.chat) useChatStore.getState().openPanel();
-      for (const p of prior.panels) {
-        useRightPanelStore.getState().open(p.extensionId, p.panelId);
-      }
-    };
     if (!stillOpen) {
-      replay();
+      setSidebarVisibleImperative(p, hider.prior);
       rightSidebarHiderRef.current = null;
       return;
     }
     const onHiderTab = activeTab?.kind === "ext" && activeTab.extensionId === hider.extensionId;
-    if (onHiderTab) {
-      const chat = useChatStore.getState();
-      const rightPanel = useRightPanelStore.getState();
-      const scm = useScmRightPanelStore.getState();
-      if (chat.panelOpen) chat.closePanel();
-      if (rightPanel.panels.length > 0) rightPanel.close();
-      if (scm.open) scm.closePanel();
-    } else {
-      replay();
-    }
+    setSidebarVisibleImperative(p, onHiderTab ? false : hider.prior);
   }, [activeTab, tabs]);
 
   // Auto-restore / re-hide the sidebar around the ext tab that requested

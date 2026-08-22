@@ -233,11 +233,11 @@ export type ExtensionContext = {
      *  sidebar toggle in the header. */
     setSidebarVisible(visible: boolean): void;
     /** Same as `setSidebarVisible` but for the right-side aux column
-     *  (AI chat / extension right panel / SCM right panel). Closes
-     *  whichever of the three is open; on `visible: true` it's a no-op
-     *  (we can't infer which surface to reopen). The host snapshots the
-     *  prior surface so it can replay when the extension's tab goes
-     *  away. */
+     *  (AI chat / extension right panel / SCM right panel). Minimizes the
+     *  whole column and back; nothing is closed, so what you hide is exactly
+     *  what comes back, and `visible: true` really shows it. The host
+     *  remembers the prior visibility and auto-restores it when the user
+     *  switches off your tab. */
     setRightSidebarVisible(visible: boolean): void;
     /** Create a new workspace and switch to it; resolves with its id. Requires
      *  `workspaces:manage`. Switching to the fresh (empty) workspace auto-seeds

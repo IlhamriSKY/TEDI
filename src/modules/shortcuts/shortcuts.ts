@@ -29,6 +29,7 @@ export type ShortcutId =
   | "shortcuts.open"
   | "settings.open"
   | "sidebar.toggle"
+  | "rightPanel.toggle"
   | "scm.open"
   | "view.zoomIn"
   | "view.zoomOut"
@@ -270,6 +271,14 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Toggle file explorer",
     group: "View",
     defaultBindings: [{ [MOD_PROP]: true, key: "b" }],
+  },
+  {
+    // The right column (AI panel, docked sections, extension panels). VS Code
+    // parity for its secondary side bar: Mod+Alt+B, beside the sidebar’s Mod+B.
+    id: "rightPanel.toggle",
+    label: "Toggle right panel",
+    group: "View",
+    defaultBindings: [{ [MOD_PROP]: true, alt: true, key: "b" }],
   },
   {
     id: "scm.open",
