@@ -19,6 +19,9 @@ export type TerminalPaneHandle = {
   focus: () => void;
   getBuffer: (maxLines?: number) => string | null;
   getSelection: () => string | null;
+  /** Drop the highlight. After a bare-Ctrl+C copy this is what lets the NEXT
+   *  Ctrl+C fall through to the shell as SIGINT (see `terminal.copy`). */
+  clearSelection: () => void;
   /** Bracketed-paste-aware insert. Prevents multi-line snippets from auto-executing under bash/zsh. */
   paste: (data: string) => void;
   /** True when the cursor sits on a shell prompt (PS1/zsh/pwsh/cmd) on the
@@ -167,6 +170,7 @@ export function TerminalPane({
       focus: () => session.focus(),
       getBuffer: (max?: number) => session.getBuffer(max),
       getSelection: () => session.getSelection(),
+      clearSelection: () => session.clearSelection(),
       paste: (data: string) => session.paste(data),
       launchAgent: session.launchAgent,
       isAtPrompt: () => session.isAtPrompt(),

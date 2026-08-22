@@ -338,20 +338,35 @@ export const SHORTCUTS: Shortcut[] = [
     readOnly: true,
   },
   {
-    // Ctrl+C in a shell is SIGINT, so copy is Ctrl+Shift+C on Linux/Windows.
-    // Matches GNOME Terminal, Konsole, Windows Terminal, VS Code. On macOS
-    // the convention (Terminal.app, iTerm2) is Cmd+C - Cmd is not a shell
-    // signal, so it's safe to bind unconditionally.
+    // Ctrl+C in a shell is SIGINT, so the primary copy chord is Ctrl+Shift+C on
+    // Linux/Windows - GNOME Terminal, Konsole, Windows Terminal, VS Code. Bare
+    // Ctrl+C is a SECOND binding for Termius / Windows Terminal muscle memory:
+    // App's `isDisabled` lets it through only when the focused terminal has a
+    // selection, and the handler then clears that selection, so pressing Ctrl+C
+    // again falls through to the shell as SIGINT. On macOS the convention
+    // (Terminal.app, iTerm2) is Cmd+C - Cmd is not a shell signal, so it's safe
+    // to bind unconditionally.
     id: "terminal.copy",
     label: "Copy selection",
     group: "Terminal",
-    defaultBindings: IS_MAC ? [{ meta: true, key: "c" }] : [{ ctrl: true, shift: true, key: "c" }],
+    defaultBindings: IS_MAC
+      ? [{ meta: true, key: "c" }]
+      : [
+          { ctrl: true, shift: true, key: "c" },
+          { ctrl: true, key: "c" },
+        ],
   },
   {
     // Uses xterm's bracketed-paste so multi-line snippets aren't executed
-    // line-by-line. Cmd+V on macOS; Ctrl+Shift+V elsewhere. Shift+Insert is
-    // a de-facto universal terminal paste on Linux/Windows - included as a
-    // secondary default for muscle memory from other emulators.
+    // line-by-line. Cmd+V on macOS; Ctrl+Shift+V elsewhere, with bare Ctrl+V and
+    // Shift+Insert as secondary defaults. Ctrl+V is what Termius and Windows
+    // Terminal bind, and it is the chord people actually reach for when pasting
+    // something from the PC into an SSH session (a Claude Code login code, an
+    // API key, a long command). Without it xterm maps Ctrl+V to ^V and the PC
+    // clipboard simply never reaches the remote shell.
+    //
+    // Cost: the shell no longer receives ^V (readline quoted-insert, nano's
+    // page-down). Clear or rebind this in Settings > Shortcuts to get it back.
     id: "terminal.paste",
     label: "Paste from clipboard",
     group: "Terminal",
@@ -359,6 +374,7 @@ export const SHORTCUTS: Shortcut[] = [
       ? [{ meta: true, key: "v" }]
       : [
           { ctrl: true, shift: true, key: "v" },
+          { ctrl: true, key: "v" },
           { shift: true, key: "Insert" },
         ],
   },

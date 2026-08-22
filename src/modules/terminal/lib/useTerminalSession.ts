@@ -20,6 +20,7 @@ export { disconnectSsh, reconnectSsh, respawnSession };
 export {
   writeToLeaf,
   findLeafIdFromPoint,
+  focusedTerminalLeafId,
   disposeSession,
   acknowledgeAiCli,
 } from "./session-lifecycle";

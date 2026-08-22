@@ -3,6 +3,7 @@ export {
   disposeSession,
   respawnSession,
   acknowledgeAiCli,
+  focusedTerminalLeafId,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
