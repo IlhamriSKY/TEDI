@@ -212,6 +212,7 @@ export function ensureSession(
     lastH: 0,
     lastCwd: null,
     lastDetectedUrl: null,
+    lastEmittedUrl: null,
     pendingExit: null,
     webglEnabled,
     webglAddon: null,
@@ -681,7 +682,9 @@ export function attachSession(
 
   // Re-sync App state after re-attach. Prior detach cleared callbacks.
   if (s.lastCwd !== null) callbacks.onCwd?.(s.lastCwd);
-  if (s.lastDetectedUrl !== null) callbacks.onDetectedLocalUrl?.(s.lastDetectedUrl);
+  // `lastEmittedUrl`, not `lastDetectedUrl`: over SSH those differ and only the
+  // former is an address on THIS machine (see sessionState).
+  if (s.lastEmittedUrl !== null) callbacks.onDetectedLocalUrl?.(s.lastEmittedUrl);
   callbacks.onSearchReady?.(s.searchAddon);
   if (s.sshConnectionId) {
     // Re-emit status so pill/dot redraw after split or workspace-switch reattach.

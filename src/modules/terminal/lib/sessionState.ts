@@ -46,7 +46,14 @@ export type Session = {
   lastW: number;
   lastH: number;
   lastCwd: string | null;
+  /** What the shell PRINTED. The dedupe key only, so a server reprinting its
+   *  banner does not re-fire. Over SSH this is the REMOTE address. */
   lastDetectedUrl: string | null;
+  /** What was actually OFFERED to the app, i.e. what re-attach replays. Equal to
+   *  `lastDetectedUrl` locally, but over SSH it is the tunnelled 127.0.0.1
+   *  address, and replaying the remote one there would hand the app a local port
+   *  the tunnel never bound. One field cannot be both. */
+  lastEmittedUrl: string | null;
   pendingExit: number | null;
   webglEnabled: boolean;
   webglAddon: WebglAddon | null;
