@@ -24,6 +24,22 @@ pub fn daemon_log_path() -> PathBuf {
     dir.join("tedi-ptyd.log")
 }
 
+/// Debug builds talk to their OWN daemon.
+///
+/// `BUNDLE_ID` above already carries a `.dev` suffix under `debug_assertions`
+/// so a dev run reads and writes a separate data dir from an installed release.
+/// The daemon socket was the one piece left out of that isolation, and it is the
+/// piece that leaks the most: the daemon is a shared, persistent process holding
+/// live PTYs, and the GUI's adoption poller pulls in any session it does not own
+/// that was created after it started watching. Sharing one daemon therefore made
+/// a terminal opened in `pnpm tauri dev` sprout a CLONED tab in the installed
+/// app the developer was using at the time (the dev side is spared only because
+/// its poller is off under `import.meta.env.DEV`).
+///
+/// Empty in release, so a shipped build keeps the exact name it has always used
+/// and can still reattach to a daemon left running by the previous version.
+const PROFILE_SUFFIX: &str = if cfg!(debug_assertions) { "-dev" } else { "" };
+
 /// Unix domain socket path. Prefers `$XDG_RUNTIME_DIR/tedi-ptyd.sock`
 /// (per-user, tmpfs-backed on systemd distros, auto-cleaned on logout).
 /// Falls back to `$TMPDIR/tedi-ptyd-<USER>.sock` (or `/tmp` if `TMPDIR`
@@ -32,14 +48,14 @@ pub fn daemon_log_path() -> PathBuf {
 pub fn socket_path() -> PathBuf {
     if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
         let mut p = PathBuf::from(dir);
-        p.push("tedi-ptyd.sock");
+        p.push(format!("tedi-ptyd{PROFILE_SUFFIX}.sock"));
         return p;
     }
     let tmp = std::env::var_os("TMPDIR")
         .map(PathBuf::from)
         .unwrap_or_else(|| PathBuf::from("/tmp"));
     let user = std::env::var("USER").unwrap_or_else(|_| "default".into());
-    tmp.join(format!("tedi-ptyd-{user}.sock"))
+    tmp.join(format!("tedi-ptyd-{user}{PROFILE_SUFFIX}.sock"))
 }
 
 /// Windows named-pipe name. The kernel namespace is shared across the
@@ -49,7 +65,7 @@ pub fn socket_path() -> PathBuf {
 #[cfg(windows)]
 pub fn socket_name() -> String {
     let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".into());
-    format!("tedi-ptyd-{:08x}", fnv1a(user.as_bytes()))
+    format!("tedi-ptyd-{:08x}{PROFILE_SUFFIX}", fnv1a(user.as_bytes()))
 }
 
 #[cfg(windows)]
@@ -81,5 +97,19 @@ mod tests {
         let b = socket_name();
         assert_eq!(a, b, "socket name must be deterministic for one user");
         assert!(a.starts_with("tedi-ptyd-"));
+    }
+
+    /// A dev run must not share the installed app's daemon: they hold live PTYs
+    /// in common, and the GUI adoption poller turns that into cloned tabs.
+    #[test]
+    fn debug_builds_get_their_own_daemon() {
+        if cfg!(debug_assertions) {
+            assert_eq!(PROFILE_SUFFIX, "-dev", "a dev build needs its own socket");
+        } else {
+            assert_eq!(
+                PROFILE_SUFFIX, "",
+                "a release build must keep the shipped name"
+            );
+        }
     }
 }
