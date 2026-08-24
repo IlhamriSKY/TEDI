@@ -15,6 +15,7 @@ import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-
 import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { readSectionOrder, reconcileSectionOrder, writeSectionOrder } from "../lib/sectionOrder";
+import { panelCollapsed, setPanelCollapsed } from "../lib/panelSize";
 import { ChevronRight, GripVertical } from "lucide-react";
 import { useSectionDragStore, type SectionColumn } from "@/lib/sectionDrag";
 
@@ -179,14 +180,20 @@ export function SectionStack({
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const syncCollapsed = (key: string) => {
-    const isCollapsed = panelRefs.current[key]?.isCollapsed() ?? false;
+    // `?.` covers a missing ref, not the throw a mounted-but-unlaid-out panel
+    // raises; `panelCollapsed` covers both.
+    const isCollapsed = panelCollapsed(panelRefs.current[key]) ?? false;
     setCollapsed((prev) => (prev[key] === isCollapsed ? prev : { ...prev, [key]: isCollapsed }));
   };
   const toggleCollapse = (key: string) => {
     const ref = panelRefs.current[key];
     if (!ref) return;
-    if (ref.isCollapsed()) {
-      ref.expand();
+    const state = panelCollapsed(ref);
+    // No layout yet: the section has only just mounted and the user cannot
+    // have seen it, so there is nothing to toggle.
+    if (state === null) return;
+    if (state) {
+      setPanelCollapsed(ref, false);
       return;
     }
     // Collapsing pushes the freed space onto the NEXT panel, and when that one
@@ -198,14 +205,14 @@ export function SectionStack({
     //
     // Three passes because each collapse can disturb at most one neighbour, and
     // the loop exits as soon as nothing changed - it is not a spin.
-    const desired = visible.filter((k) => panelRefs.current[k]?.isCollapsed());
+    const desired = visible.filter((k) => panelCollapsed(panelRefs.current[k]) === true);
     desired.push(key);
     for (let pass = 0; pass < 3; pass++) {
       let changed = false;
       for (const k of desired) {
         const panel = panelRefs.current[k];
-        if (panel && !panel.isCollapsed()) {
-          panel.collapse();
+        if (panelCollapsed(panel) === false) {
+          setPanelCollapsed(panel, true);
           changed = true;
         }
       }

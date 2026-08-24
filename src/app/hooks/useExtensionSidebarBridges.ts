@@ -10,6 +10,7 @@ import {
 import type { Tab } from "@/modules/tabs";
 import { useEffect, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
+import { isPanelOpen, setPanelOpen } from "@/app/lib/panelSize";
 
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
@@ -37,9 +38,9 @@ type Params = {
  *  calls so a redundant show/hide is a no-op, but always writes the intended
  *  state. */
 function setSidebarVisibleImperative(p: PanelImperativeHandle, visible: boolean): void {
-  const visibleNow = p.getSize().asPercentage > 0;
-  if (visible && !visibleNow) p.expand();
-  else if (!visible && visibleNow) p.collapse();
+  // Guarded: expand() and collapse() throw from the same lookups getSize()
+  // does, so reading safely and then acting blind still crashed.
+  setPanelOpen(p, visible);
 }
 
 /**
@@ -96,7 +97,7 @@ export function useExtensionSidebarBridges({
     setSidebarSetter((visible, ownerExtensionId) => {
       const p = sidebarRef.current;
       if (!p) return;
-      const visibleNow = p.getSize().asPercentage > 0;
+      const visibleNow = isPanelOpen(p);
       if (ownerExtensionId && !visible) {
         if (!sidebarHiderRef.current) {
           sidebarHiderRef.current = { extensionId: ownerExtensionId, prior: visibleNow };
@@ -129,7 +130,7 @@ export function useExtensionSidebarBridges({
       // Null while nothing is docked right: the column renders no panel, so
       // there is neither anything to hide nor anything to remember.
       if (!p) return;
-      const visibleNow = p.getSize().asPercentage > 0;
+      const visibleNow = isPanelOpen(p);
       if (ownerExtensionId && !visible) {
         if (!rightSidebarHiderRef.current) {
           rightSidebarHiderRef.current = { extensionId: ownerExtensionId, prior: visibleNow };
