@@ -21,9 +21,26 @@ import { commandsRegistry } from "./registries";
 
 const EXT_CHANGED_EVENT = "tedi://ext-changed";
 
-type ExtChangedPayload =
-  | { kind: "installed" | "reloaded"; id: string }
-  | { kind: "removed"; id: string };
+type ExtChangedPayload = {
+  kind: "installed" | "reloaded" | "removed";
+  id: string;
+  /** Label of the webview that made the change. Tauri v2 self-delivers
+   *  emit(), so without this the announcing window ran the whole
+   *  deactivate/activate cycle a SECOND time on top of the one it had just
+   *  performed directly. Harmless-looking when it happened once per
+   *  install; very visible now that saving a file can trigger it. Same
+   *  dedupe convention as SELF_LABEL in modules/settings/store.ts. */
+  source?: string;
+};
+
+/** This webview's label, stamped onto every announce so it can ignore its own. */
+function selfLabel(): string {
+  try {
+    return getCurrentWindow().label;
+  } catch {
+    return "main";
+  }
+}
 
 function isMainWindow(): boolean {
   try {
@@ -36,7 +53,7 @@ function isMainWindow(): boolean {
 
 async function announce(payload: ExtChangedPayload): Promise<void> {
   try {
-    await emit(EXT_CHANGED_EVENT, payload);
+    await emit(EXT_CHANGED_EVENT, { ...payload, source: selfLabel() });
   } catch {
     // Tauri may not be available in some test contexts.
   }
@@ -111,6 +128,10 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
         // Cross-window sync: settings installs an ext, main reloads.
         const unlisten = await listen<ExtChangedPayload>(EXT_CHANGED_EVENT, async (e) => {
           const payload = e.payload;
+          // Our own announce: whichever action emitted it has already run
+          // the activate/deactivate and set the list. Handling it again
+          // here is a second full reload of the same extension.
+          if (payload.source === selfLabel()) return;
           if (isMainWindow()) {
             try {
               if (payload.kind === "removed") {
@@ -131,6 +152,14 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
           }
           set({ list });
         });
+        // Watch the files of every enabled extension and reload the ones that
+        // change. Main only: it is the window that activates extensions, and
+        // two watchers would race each other over the same reload. Imported
+        // dynamically because autoReload imports THIS module - a static import
+        // either way would be a cycle.
+        if (isMainWindow()) {
+          void import("./autoReload").then((m) => m.startExtensionAutoReload());
+        }
         // Stash unlisten on a global for HMR cleanup.
         if (typeof window !== "undefined") {
           const w = window as unknown as { __tediExtUnlisten?: () => void };

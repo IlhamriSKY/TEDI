@@ -9,7 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
 use super::github::{
@@ -176,6 +176,88 @@ pub async fn ext_read_manifest(app: tauri::AppHandle, id: String) -> Result<Mani
     let manifest_path = root.join(&id).join("manifest.json");
     let text = fs::read_to_string(&manifest_path).map_err(|e| format!("read manifest: {e}"))?;
     Manifest::parse(&text)
+}
+
+/// One extension's files to stamp, as asked for by the frontend.
+#[derive(Debug, Clone, Deserialize)]
+pub struct ExtStampRequest {
+    pub id: String,
+    /// Paths relative to the extension root. The caller already knows
+    /// `manifest.main` from `ext_list`, so Rust never has to re-read and
+    /// re-parse a manifest just to learn which bundle to watch.
+    pub files: Vec<String>,
+}
+
+/// One extension's current stamp.
+#[derive(Debug, Clone, Serialize)]
+pub struct ExtStamp {
+    pub id: String,
+    /// Folds every requested file's mtime and length into one number.
+    /// `0` means nothing could be stat'd (extension gone, or every path bad),
+    /// which is itself a change worth noticing.
+    pub stamp: u64,
+}
+
+/// Cheap change-detection for the frontend's extension hot-reload poll.
+///
+/// Stats only - no file is read. The poll runs a few times a minute while the
+/// window is visible, and the bundles it watches are hundreds of kilobytes
+/// each, so reading them across IPC every tick to diff their contents would
+/// cost thousands of times more than comparing two integers.
+///
+/// Length is folded in alongside mtime because esbuild rebuilds in
+/// milliseconds: two saves inside the same filesystem timestamp tick are
+/// entirely possible, and mtime alone would call that "unchanged".
+///
+/// Unreadable or missing paths contribute nothing rather than erroring: an
+/// author mid-rebuild routinely has no `extension.js` for a few milliseconds,
+/// and that is a stamp change, not a failure.
+#[tauri::command]
+pub async fn ext_stamps(
+    app: tauri::AppHandle,
+    requests: Vec<ExtStampRequest>,
+) -> Result<Vec<ExtStamp>, String> {
+    let root = extensions_root(&app)?;
+    let mut out = Vec::with_capacity(requests.len());
+    for req in requests {
+        // Skip rather than fail the whole batch: one bad id must not blind the
+        // poll to every other extension.
+        if super::manifest::validate_id(&req.id).is_err() {
+            continue;
+        }
+        let stamp = stamp_files(&root.join(&req.id), &req.files);
+        out.push(ExtStamp { id: req.id, stamp });
+    }
+    Ok(out)
+}
+
+/// The stamping itself, separated from the command so it can be tested against
+/// a real directory without an `AppHandle`.
+pub(crate) fn stamp_files(ext_root: &Path, files: &[String]) -> u64 {
+    let mut stamp: u64 = 0;
+    for rel in files {
+        let Ok(path) = resolve_asset(ext_root, rel) else {
+            continue;
+        };
+        let Ok(meta) = fs::metadata(&path) else {
+            continue;
+        };
+        let mtime = meta
+            .modified()
+            .ok()
+            .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        // Rotate between files so the position of a file in the list matters:
+        // without it, two watched files swapping contents would fold to the
+        // same number and read as "unchanged".
+        stamp = stamp
+            .rotate_left(17)
+            .wrapping_add(mtime)
+            .wrapping_mul(31)
+            .wrapping_add(meta.len());
+    }
+    stamp
 }
 
 #[tauri::command]
@@ -645,4 +727,107 @@ pub async fn github_repo_text_files(owner: String, repo: String) -> Result<RepoT
             .map(|(path, content)| RepoTextFile { path, content })
             .collect(),
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::stamp_files;
+    use std::fs;
+    use std::path::PathBuf;
+
+    /// Own scratch dir per test, cleaned on drop. No dev-dependency for two
+    /// tests' worth of temp files.
+    struct Scratch(PathBuf);
+
+    impl Scratch {
+        fn new(name: &str) -> Self {
+            let dir =
+                std::env::temp_dir().join(format!("tedi-stamp-{name}-{}", std::process::id()));
+            let _ = fs::remove_dir_all(&dir);
+            fs::create_dir_all(&dir).expect("mkdir scratch");
+            Self(dir)
+        }
+        fn write(&self, rel: &str, body: &str) {
+            fs::write(self.0.join(rel), body).expect("write");
+        }
+    }
+
+    impl Drop for Scratch {
+        fn drop(&mut self) {
+            let _ = fs::remove_dir_all(&self.0);
+        }
+    }
+
+    fn files() -> Vec<String> {
+        vec!["manifest.json".to_string(), "extension.js".to_string()]
+    }
+
+    /// The property the whole hot-reload loop rests on: editing a watched file
+    /// must move the stamp. Length is folded in alongside mtime precisely so
+    /// this holds even when a rebuild lands inside the same filesystem
+    /// timestamp tick, which esbuild does routinely.
+    #[test]
+    fn stamp_changes_when_a_watched_file_changes() {
+        let s = Scratch::new("edit");
+        s.write("manifest.json", r#"{"id":"a.b"}"#);
+        s.write("extension.js", "export function activate() {}");
+        let before = stamp_files(&s.0, &files());
+
+        s.write(
+            "extension.js",
+            "export function activate() { /* edited */ }",
+        );
+        let after = stamp_files(&s.0, &files());
+        assert_ne!(before, after, "an edited bundle must change the stamp");
+
+        // And editing the OTHER watched file counts too - adding a command or a
+        // permission is a manifest edit, and it needs a reload just as much.
+        s.write("manifest.json", r#"{"id":"a.b","main":"extension.js"}"#);
+        assert_ne!(after, stamp_files(&s.0, &files()));
+    }
+
+    /// Equally important, and easier to get wrong: an untouched extension must
+    /// stamp identically every time, or the poll would reload it forever.
+    #[test]
+    fn stamp_is_stable_while_nothing_changes() {
+        let s = Scratch::new("stable");
+        s.write("manifest.json", r#"{"id":"a.b"}"#);
+        s.write("extension.js", "export function activate() {}");
+        let a = stamp_files(&s.0, &files());
+        let b = stamp_files(&s.0, &files());
+        assert_eq!(a, b, "re-stamping an untouched extension must not differ");
+    }
+
+    /// A missing file contributes nothing rather than erroring, so a bundle
+    /// deleted mid-rebuild still produces a (different) stamp instead of
+    /// blinding the poll.
+    #[test]
+    fn missing_files_still_produce_a_distinct_stamp() {
+        let s = Scratch::new("missing");
+        s.write("manifest.json", r#"{"id":"a.b"}"#);
+        s.write("extension.js", "export function activate() {}");
+        let present = stamp_files(&s.0, &files());
+        fs::remove_file(s.0.join("extension.js")).expect("rm");
+        assert_ne!(present, stamp_files(&s.0, &files()));
+    }
+
+    /// Path traversal is refused by `resolve_asset`, so a hostile `files` entry
+    /// cannot be used to stat outside the extension root.
+    #[test]
+    fn escaping_paths_are_ignored() {
+        let s = Scratch::new("escape");
+        s.write("manifest.json", r#"{"id":"a.b"}"#);
+        let only_manifest = stamp_files(&s.0, &["manifest.json".to_string()]);
+        let with_escape = stamp_files(
+            &s.0,
+            &[
+                "manifest.json".to_string(),
+                "../../../etc/hosts".to_string(),
+            ],
+        );
+        assert_eq!(
+            only_manifest, with_escape,
+            "escaping path must contribute nothing"
+        );
+    }
 }
