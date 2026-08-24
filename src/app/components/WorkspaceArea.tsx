@@ -34,9 +34,12 @@ type Props = {
   mdPreviewLeafIds: ReadonlySet<number>;
   /** Flip a markdown editor leaf between source and preview, from its pane header. */
   onToggleMdPreview: (leafId: number) => void;
-  /** Detected local dev-server URL, resolved against the ACTIVE leaf. Renders
-   *  the globe on the focused pane's header, beside the float button. */
+  /** Detected local dev-server URL. Renders the globe beside the float button
+   *  on the header of `previewLeafId`. */
   previewUrl?: string | null;
+  /** Pane that carries the globe: the leaf that printed the url, so it does not
+   *  hop between headers as panes take focus. */
+  previewLeafId?: number | null;
   /** Opens `previewUrl` as a preview tab. */
   onOpenPreview?: () => void;
   hasAiDiffTab: boolean;
@@ -83,6 +86,7 @@ export function WorkspaceArea({
   mdPreviewLeafIds,
   onToggleMdPreview,
   previewUrl,
+  previewLeafId,
   onOpenPreview,
   hasAiDiffTab,
   hasGitDiffTab,
@@ -134,6 +138,7 @@ export function WorkspaceArea({
               mdPreviewLeafIds={mdPreviewLeafIds}
               onToggleMdPreview={onToggleMdPreview}
               previewUrl={previewUrl}
+              previewLeafId={previewLeafId}
               onOpenPreview={onOpenPreview}
               onFocusLeaf={paneHandles.handleFocusLeaf}
               onMovePaneLeaf={movePaneLeafToEdge}

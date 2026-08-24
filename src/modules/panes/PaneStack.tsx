@@ -56,13 +56,14 @@ type Props = {
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   /** Flip a markdown editor leaf between source and preview, from its pane header. */
   onToggleMdPreview?: (leafId: number) => void;
-  /** Detected local dev-server URL, already resolved against the ACTIVE leaf.
-   *  Renders the globe on the focused pane's header, beside the float button.
-   *  `null` hides it. */
+  /** Detected local dev-server URL. Renders the globe beside the float button
+   *  on the header of `previewLeafId`. `null` hides it. */
   previewUrl?: string | null;
+  /** Pane that carries the globe: the leaf that printed the url, so it does not
+   *  hop between headers as panes take focus. */
+  previewLeafId?: number | null;
   /** Opens `previewUrl` as a preview tab. */
   onOpenPreview?: () => void;
-  /** Detected local URL for the focused pane header's "open preview" globe. */
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Live SSH status per terminal leaf id. Colors the SSH header label, mirroring the tab strip. */
@@ -102,6 +103,7 @@ export function PaneStack({
   onSetTerminalTheme,
   onToggleMdPreview,
   previewUrl,
+  previewLeafId,
   onOpenPreview,
   onSplitSizes,
   sshStatuses,
@@ -239,6 +241,7 @@ export function PaneStack({
               onSetTerminalTheme={onSetTerminalTheme}
               onToggleMdPreview={onToggleMdPreview}
               previewUrl={previewUrl}
+              previewLeafId={previewLeafId}
               onOpenPreview={onOpenPreview}
               // A board leaf charts the WHOLE workspace, so it gets every tab,
               // not just the one it happens to live in.

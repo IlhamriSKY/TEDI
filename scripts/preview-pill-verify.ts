@@ -118,7 +118,7 @@ console.log("2. liveness has exactly one authority, and it never stops polling")
   );
 }
 
-console.log("3. the globe lives on the focused pane header, and the status bar has none");
+console.log("3. the globe sits on the pane that PRINTED the url, not the focused one");
 {
   // PLACEMENT REVERSED ON REQUEST (v0.4.27). It used to sit in the status bar
   // precisely because that is always visible, and this trade is now accepted
@@ -128,15 +128,21 @@ console.log("3. the globe lives on the focused pane header, and the status bar h
   // no second, differently-gated copy to disagree with.
   const paneTree = read("src/modules/panes/PaneTreeView.tsx");
   assert(/\bGlobe\b/.test(paneTree), "PaneTreeView imports the globe icon");
+  // Anchored to a leaf id, NOT to `onlyHere`: focus is not what makes a dev
+  // server run, so the offer must not hop from header to header (or blink out)
+  // as the user clicks around a split. Still exactly one globe, because leaf
+  // ids are unique and the id is resolved into the visible tab before it here.
   assert(
-    /\{onlyHere && previewUrl && onOpenPreview && \(/.test(paneTree),
-    "it renders on the FOCUSED pane only, so a split shows one globe",
+    /\{node\.id === previewLeafId && previewUrl && onOpenPreview && \(/.test(paneTree),
+    "it renders on the pane that printed the url, not on whichever has focus",
   );
+  assert(!/\{onlyHere && previewUrl/.test(paneTree), "and no focus gate is left on it");
   // The prop rides PaneDndContext, like every other pane-header action.
   assert(
     /previewUrl\?: string \| null;/.test(paneTree) &&
+      /previewLeafId\?: number \| null;/.test(paneTree) &&
       /onOpenPreview\?: \(\) => void;/.test(paneTree),
-    "the context carries the url and the opener",
+    "the context carries the url, its pane and the opener",
   );
 
   const statusBar = read("src/modules/statusbar/StatusBar.tsx");
@@ -150,9 +156,26 @@ console.log("3. the globe lives on the focused pane header, and the status bar h
     /previewUrl=\{detectedBrowserUrl\}/.test(read("src/app/App.tsx")),
     "App feeds it the live url",
   );
+  assert(
+    /previewLeafId=\{previewLeafId\}/.test(read("src/app/App.tsx")),
+    "App feeds it the pane that printed it",
+  );
   for (const rel of ["src/app/components/WorkspaceArea.tsx", "src/modules/panes/PaneStack.tsx"]) {
-    assert(/previewUrl=\{previewUrl\}/.test(read(rel)), `${rel} passes it through`);
+    assert(
+      /previewUrl=\{previewUrl\}/.test(read(rel)) &&
+        /previewLeafId=\{previewLeafId\}/.test(read(rel)),
+      `${rel} passes both through`,
+    );
   }
+  // The resolution itself: the printing leaf while it is in the visible tab,
+  // else the active leaf - a project-config url belongs to no pane, and a url
+  // printed in ANOTHER tab should follow the user there rather than vanish.
+  assert(
+    /previewLeafId = useMemo\([\s\S]{0,800}?return inActiveTab \? owner : activeLeafIdInTab;/.test(
+      read("src/app/hooks/useActiveLeafSurface.ts"),
+    ),
+    "useActiveLeafSurface resolves the owning pane, falling back to the active leaf",
+  );
 }
 
 console.log("4. an SSH leaf replays the url it EMITTED, not the one it printed");
