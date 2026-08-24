@@ -43,8 +43,13 @@ function ScrollBar({
       // which read as a thinner scrollbar than native - inconsistent
       // between panels with <ScrollArea> (file explorer / source control
       // / workspaces) and panels with plain `overflow-auto`.
+      // `z-10`: the Radix scrollbar is absolutely positioned at z-index auto,
+      // so any sticky content inside the viewport that carries a z-index (the
+      // Source Control / Pull Requests section headers) paints over it and the
+      // thumb disappears under the header. Sitting above the content is what a
+      // native scrollbar does anyway.
       className={cn(
-        "flex touch-none transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-vertical:h-full data-vertical:w-2.5",
+        "z-10 flex touch-none transition-colors select-none data-horizontal:h-2.5 data-horizontal:flex-col data-vertical:h-full data-vertical:w-2.5",
         className,
       )}
       {...props}

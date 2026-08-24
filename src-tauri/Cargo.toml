@@ -122,7 +122,7 @@ url = "2"
 # Windows. Use ring instead - pure-Rust + assembly, no toolchain hassle.
 russh = { version = "0.60", default-features = false, features = ["ring", "flate2", "rsa"] }
 russh-sftp = "2.1"
-tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "sync", "time", "io-util", "net", "fs"] }
 # Extension system: zip extraction with path-traversal guards via
 # `ZipFile::enclosed_name()`. Tracks the same major line that
 # `tauri-plugin-updater` already pulls in (zip 4.x) so the build ships one

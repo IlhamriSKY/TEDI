@@ -13,6 +13,12 @@ import { findLeafIdFromPoint, writeToLeaf } from "./useTerminalSession";
 //      Synthesized from raw mouse events by `ensureFsDragListener`
 //      (HTML5 drag-drop is unreliable inside the WebView because the
 //      Tauri intercept consumes drag events before HTML sees them).
+//   3. Internal drops from a file explorer row → any element carrying
+//      `data-fs-drop="<destination dir>"`. Same synthesized gesture as (2);
+//      instead of writing to a PTY it fires `FS_DROP_EVENT` on the zone, so
+//      the panel that owns the zone decides what the drop means (the SSH
+//      tree reads it as a remote move, or an upload when the source row is
+//      a local one). Keeps this bridge free of any panel's semantics.
 //
 // `quoteForShell` is shared by both paths and the only OS-specific bit
 // in this file. PowerShell + cmd accept double-quoted paths on Windows;
@@ -27,6 +33,27 @@ export function quoteForShell(path: string): string {
   // POSIX: single-quote, escape embedded single quotes via `'\''`.
   if (!/[\s"'\\$`!*?(){}[\];<>|&#~]/.test(path)) return path;
   return `'${path.replace(/'/g, `'\\''`)}'`;
+}
+
+/** Fired on a `data-fs-drop` element when an explorer row is released over
+ *  it. Bubbles, so a panel listens once on its container. */
+export const FS_DROP_EVENT = "tedi-fs-drop";
+
+export type FsDropDetail = {
+  /** `data-fs-path` of the dragged row. */
+  path: string;
+  /** `data-fs-drop` of the zone it landed on: the destination directory. */
+  dir: string;
+  /** The dragged row itself, so a listener can tell its own rows (a move)
+   *  from another tree's (a transfer). */
+  sourceEl: HTMLElement;
+};
+
+/** Nearest element under the cursor that accepts an fs drop: an internal drop
+ *  zone or a terminal pane. `closest` picks whichever is nearer, so a zone
+ *  nested inside a pane still wins. */
+function dropTargetFromPoint(under: Element | null): HTMLElement | null {
+  return (under?.closest?.("[data-fs-drop],[data-terminal-leaf-id]") ?? null) as HTMLElement | null;
 }
 
 // Module-scope guards.
@@ -66,6 +93,7 @@ const DRAG_ACTIVATION_PX = 5;
 
 type SyntheticDragState = {
   path: string;
+  sourceEl: HTMLElement;
   startX: number;
   startY: number;
   active: boolean;
@@ -91,7 +119,10 @@ body.tedi-fs-dragging * {
   cursor: copy !important;
   user-select: none !important;
 }
-body.tedi-fs-dragging [data-terminal-leaf-id].tedi-fs-drop-target {
+/* Not gated on the body class: the OS-level drop path (an external file
+   dragged in) has no synthesized gesture to set it, and marks its target
+   row with the same class. */
+.tedi-fs-drop-target {
   outline: 2px solid var(--ring, #3b82f6);
   outline-offset: -2px;
   transition: outline-color 80ms;
@@ -138,6 +169,7 @@ export function ensureFsDragListener(): void {
       if (!path) return;
       drag = {
         path,
+        sourceEl: el as HTMLElement,
         startX: e.clientX,
         startY: e.clientY,
         active: false,
@@ -158,16 +190,16 @@ export function ensureFsDragListener(): void {
         drag.active = true;
         document.body.classList.add("tedi-fs-dragging");
       }
-      // Highlight the terminal pane under the cursor. `elementFromPoint`
+      // Highlight the drop target under the cursor. `elementFromPoint`
       // is more reliable than `e.target` here because the cursor may be
       // over an element our `mousemove` listener doesn't bubble to
       // (e.g. xterm internal layers).
       const under = document.elementFromPoint(e.clientX, e.clientY);
-      const leafEl = (under?.closest?.("[data-terminal-leaf-id]") ?? null) as HTMLElement | null;
-      if (leafEl !== drag.currentTarget) {
+      const targetEl = dropTargetFromPoint(under);
+      if (targetEl !== drag.currentTarget) {
         drag.currentTarget?.classList.remove("tedi-fs-drop-target");
-        drag.currentTarget = leafEl;
-        leafEl?.classList.add("tedi-fs-drop-target");
+        drag.currentTarget = targetEl;
+        targetEl?.classList.add("tedi-fs-drop-target");
       }
     },
     true,
@@ -179,26 +211,38 @@ export function ensureFsDragListener(): void {
       if (!drag) return;
       const wasActive = drag.active;
       const path = drag.path;
-      const targetLeaf = drag.currentTarget;
+      const sourceEl = drag.sourceEl;
+      const lastTarget = drag.currentTarget;
       // Any button release ends the gesture and clears `tedi-fs-dragging` FIRST,
       // so the body class (which forces cursor:copy + user-select:none app-wide)
       // can never get stuck if the terminating release isn't the left button
-      // (chorded click, or a WebView2 quirk). Only a left-button release over a
-      // terminal commits a drop; a right-click mid-drag still just cancels.
+      // (chorded click, or a WebView2 quirk). Only a left-button release over
+      // a drop zone or terminal commits; a right-click mid-drag just cancels.
       reset();
       if (e.button !== 0) return;
       // Below the activation threshold → treat as a click; let onClick
       // on the source row run normally (we never preventDefault on
       // mousedown, so the click event still fires).
       if (!wasActive) return;
-      // Drop ONLY counts if released over a terminal pane. Use
-      // `elementFromPoint` at release time in case the cursor moved
+      // Drop ONLY counts if released over a drop zone or a terminal pane.
+      // Use `elementFromPoint` at release time in case the cursor moved
       // off the highlighted target in the final frame.
       const under = document.elementFromPoint(e.clientX, e.clientY);
-      const leafEl =
-        (under?.closest("[data-terminal-leaf-id]") as HTMLElement | null) ?? targetLeaf;
-      if (!leafEl) return;
-      const leafIdAttr = leafEl.getAttribute("data-terminal-leaf-id");
+      const targetEl = dropTargetFromPoint(under) ?? lastTarget;
+      if (!targetEl) return;
+      // An internal drop zone claims the drop and just gets told what landed
+      // on it. Dropping a row on its own zone is a no-op the owner filters.
+      const dir = targetEl.getAttribute("data-fs-drop");
+      if (dir !== null) {
+        targetEl.dispatchEvent(
+          new CustomEvent<FsDropDetail>(FS_DROP_EVENT, {
+            bubbles: true,
+            detail: { path, dir, sourceEl },
+          }),
+        );
+        return;
+      }
+      const leafIdAttr = targetEl.getAttribute("data-terminal-leaf-id");
       const leafId = leafIdAttr ? Number(leafIdAttr) : NaN;
       if (Number.isNaN(leafId)) return;
       writeToLeaf(leafId, quoteForShell(path));

@@ -8,9 +8,13 @@ export type DirEntry = {
   kind: "file" | "dir" | "symlink";
   size: number;
   mtime: number;
-  /** Unix `"rwxr-xr-x"` mode summary. Only set for remote (SFTP) entries; the
-   *  local explorer leaves it undefined. Shown by the shared FileTreeNode. */
+  /** Unix `"drwxr-xr-x"` (`ls -l` form) mode summary. Only set for remote
+   *  (SFTP) entries; the local explorer leaves it undefined. Shown by the
+   *  shared FileTreeNode. */
   permissions?: string;
+  /** Remote only. True when the entry is a symlink - `kind` then describes
+   *  what it RESOLVES to, so a linked directory still expands. */
+  symlink?: boolean;
 };
 
 export type SortMode = "default" | "name-asc" | "name-desc" | "modified-desc" | "modified-asc";
