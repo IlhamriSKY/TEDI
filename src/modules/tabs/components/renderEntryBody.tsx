@@ -113,11 +113,12 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const renaming = isPaneLeaf && e.kind === "pane-leaf" && renamingLeafId === e.leafId;
   const isPinned = e.pinned === true;
   /**
-   * Chrome-style compaction: a pinned tab drops its label and its close
-   * button and shrinks to roughly a square. Suspended while renaming, since
-   * the rename field needs somewhere to live.
+   * A pinned tab shows a pin where its title would be. The tab keeps its normal
+   * padding and sizing: it ends up narrower simply because a glyph is narrower
+   * than a name, not because a special compact rule is applied. Suspended while
+   * renaming, since the rename field needs the title's place back.
    */
-  const compactPinned = isPinned && !renaming;
+  const pinInsteadOfTitle = isPinned && !renaming;
   const trigger = (
     <TabsTrigger
       key={e.key}
@@ -147,8 +148,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         // A pinned tab has no label and no close button, so it only needs
         // room for its icon: even padding, and no space reserved for a
         // trailing control that is not there.
-        compactPinned ? "justify-center px-1.5!" : null,
-        !compactPinned && (compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!"),
+        compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!",
         // Divider on every entry except the first in a split group.
         isSplit &&
           idx > 0 &&
@@ -178,7 +178,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           // Cap tab width so long page titles (browser panes) don't make tabs
           // huge; the inner label truncates with an ellipsis past this. A
           // pinned tab has no label to cap.
-          compactPinned ? "gap-1" : compact ? "max-w-32" : "max-w-44",
+          compact ? "max-w-32" : "max-w-44",
         )}
       >
         <EntryIcon entry={e} />
@@ -190,9 +190,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
             Only on the first entry, because a split group is several chips but
             ONE pinned tab - repeating the glyph on all six panes of a split
             would be noise that also implies each pane is pinned separately. */}
-        {compactPinned && idx === 0 && (
-          <Pin aria-hidden strokeWidth={2.5} className="size-2.5 shrink-0 opacity-70" />
-        )}
+
         {renaming && e.kind === "pane-leaf" ? (
           // `stopPropagation` on pointerdown so a drag-to-reorder gesture cannot
           // start from inside the field: the drag listeners live on the trigger
@@ -215,7 +213,12 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
               onCancel={() => onSetRenaming?.(null)}
             />
           </span>
-        ) : compactPinned ? null : (
+        ) : pinInsteadOfTitle ? (
+          // Where the title used to be. TabsTrigger forces `size-4` on any svg
+          // without a size- CLASS, so the class is what sets this, not a size
+          // attribute.
+          <Pin aria-label="Pinned" strokeWidth={2.25} className="size-3 shrink-0 opacity-80" />
+        ) : (
           <span
             className={cn(
               "truncate",
@@ -243,7 +246,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
             point of pinning is that the tab survives, and a 1-pixel miss on
             a chip this small should not be able to end it. Close stays
             reachable from the right-click menu after unpinning. */}
-        {canClose && !renaming && !compactPinned && (
+        {canClose && !renaming && (
           <TrailingIconButton
             icon={X}
             label="Close"
@@ -295,7 +298,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         : // A compact pinned tab shows no label at all, so the hover is the
           // only way left to tell two pinned terminals apart. This is not a
           // nicety: without it, compaction destroys information.
-          compactPinned
+          pinInsteadOfTitle
           ? "pinned"
           : null;
   const PRIVATE_HINT = "Not visible to the native AI agent";
@@ -400,7 +403,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {wrapped}
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-0.5 text-[11px]">
-            {compactPinned ? <span>{e.label}</span> : null}
+            {pinInsteadOfTitle ? <span>{e.label}</span> : null}
             <span>
               SSH · {sshHost!.user}@{sshHost!.host}:{sshHost!.port}
             </span>
@@ -437,7 +440,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {wrapped}
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-0.5 text-[11px]">
-            {compactPinned ? <span>{e.label}</span> : null}
+            {pinInsteadOfTitle ? <span>{e.label}</span> : null}
             <span>{aiCliLabel(ai)}</span>
             {isPrivate ? <span className="text-destructive">{PRIVATE_HINT}</span> : null}
           </div>

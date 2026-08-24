@@ -91,27 +91,31 @@ check(
 );
 check("the pin action targets the tab id", render.includes("onSetTabPinned!(e.tabId"), true);
 
-console.log("\n[C2] a pinned tab is compact: no label, no close button");
-check("label is dropped while pinned", render.includes("compactPinned ? null : ("), true);
-check("close button is hidden while pinned", render.includes("!compactPinned && ("), true);
-// Compaction removes the only on-screen identification, so the hover has to put
-// it back or two pinned terminals become indistinguishable.
+console.log("\n[C2] a pinned tab swaps its title for a pin and keeps its sizing");
+check("the title is replaced by a pin", render.includes("pinInsteadOfTitle ? ("), true);
+// The tab must NOT get a compact padding rule of its own. It narrows because a
+// glyph is narrower than a name, which is a consequence of losing the title
+// rather than a second, competing sizing decision.
+check("no compact padding override", /justify-center px-1\.5!/.test(render), false);
+check(
+  "padding is the same expression every tab uses",
+  render.includes('compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!"'),
+  true,
+);
+// Only the title was meant to go, so a pinned tab can still be closed.
+check("close button still renders", render.includes("{canClose && !renaming && ("), true);
+// Losing the title removes the only on-screen identification, so the hover has
+// to put it back or two pinned terminals become indistinguishable.
 check("a pinned tab gets a label tooltip", render.includes('? "pinned"'), true);
-// TabsTrigger forces `size-4` on any svg without a size- CLASS, so the marker
-// must set one or it renders as large as the identity icon.
+// TabsTrigger forces `size-4` on any svg without a size- CLASS, so the pin must
+// set one or it renders as large as the identity icon.
 check(
-  "the pin marker opts out of the primitive's svg sizing",
-  /<Pin aria-hidden strokeWidth=\{2\.5\} className="size-2\.5/.test(render),
+  "the pin sizes itself by CLASS, not attribute",
+  /<Pin aria-label="Pinned" strokeWidth=\{2\.25\} className="size-3/.test(render),
   true,
 );
-// One tab, one pin: a split group is several chips but a single pinned unit.
-check(
-  "the pin marker renders once per group",
-  render.includes("compactPinned && idx === 0 &&"),
-  true,
-);
-// Renaming needs the label area back.
-check("compaction pauses while renaming", render.includes("isPinned && !renaming"), true);
+// Renaming needs the title's place back.
+check("the swap pauses while renaming", render.includes("isPinned && !renaming"), true);
 
 console.log("\n[D] both surfaces re-impose the invariant where order comes from outside");
 const useTabs = read("src/modules/tabs/lib/useTabs.ts");
