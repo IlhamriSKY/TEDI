@@ -17,6 +17,7 @@ import { aiStackSection } from "./aiSection";
 import { SectionDropRail, useExpandOnSectionArrival } from "./SectionDropRail";
 import { SourceControlPanel, SshFileExplorer } from "./lazyPanels";
 import { SectionStack, type StackSection } from "./SectionStack";
+import { expandIfShut } from "@/app/lib/panelSize";
 
 type Props = {
   sidebarRef: RefObject<PanelImperativeHandle | null>;
@@ -173,9 +174,7 @@ export function AppSidebar({
   const aiWasInSidebar = useRef(aiInSidebar);
   useEffect(() => {
     const panel = sidebarRef.current;
-    if (panel && aiInSidebar && !aiWasInSidebar.current && panel.getSize().asPercentage <= 0) {
-      panel.expand();
-    }
+    if (aiInSidebar && !aiWasInSidebar.current) expandIfShut(panel);
     aiWasInSidebar.current = aiInSidebar;
   }, [aiInSidebar, sidebarRef]);
   // A section dragged in from the right column opens the sidebar if it is shut,

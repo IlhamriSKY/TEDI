@@ -16,6 +16,8 @@ import { WorkspacesPanel } from "@/modules/workspaces";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import type { PanelImperativeHandle } from "react-resizable-panels";
+
+import { expandIfShut } from "@/app/lib/panelSize";
 import { Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
 import { canDockLeft, dockLeft as dockSectionLeft } from "../lib/sectionDock";
@@ -333,9 +335,10 @@ function useOpenExpandsColumn(count: number, ref: RefObject<PanelImperativeHandl
   const prev = useRef(count);
   useEffect(() => {
     const panel = ref.current;
-    // Null while the column holds nothing: it renders no panel then, and the
-    // remount that a first section triggers starts it at `defaultSize` anyway.
-    if (panel && count > prev.current && panel.getSize().asPercentage <= 0) panel.expand();
+    // `expandIfShut` also covers the case this used to crash on: the first
+    // section both MOUNTS the panel and bumps `count`, so the ref is set while
+    // the group still has no layout for it, and a bare getSize() threw.
+    if (count > prev.current) expandIfShut(panel);
     prev.current = count;
   }, [count, ref]);
 }

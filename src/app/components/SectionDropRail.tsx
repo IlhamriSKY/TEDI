@@ -3,6 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { useSectionDragStore, type SectionColumn } from "@/lib/sectionDrag";
+import { expandIfShut } from "@/app/lib/panelSize";
 
 /**
  * The drop target a column puts up while the OTHER one is dragging a section
@@ -81,8 +82,8 @@ export function useExpandOnSectionArrival(
     seen.current = seq;
     if (revealed !== column) return;
     const panel = ref.current;
-    // Null while the column holds nothing: it renders no panel then, and the
-    // mount the arriving section triggers starts it at `defaultSize` anyway.
-    if (panel && panel.getSize().asPercentage <= 0) panel.expand();
+    // Also safe on the frame the arriving section mounts the panel, when the
+    // group has no layout for it yet.
+    expandIfShut(panel);
   }, [seq, revealed, column, ref]);
 }

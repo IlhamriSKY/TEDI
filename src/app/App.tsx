@@ -73,6 +73,8 @@ import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
+
+import { togglePanelOpen } from "@/app/lib/panelSize";
 import { buildShortcutHandlers } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
@@ -263,8 +265,7 @@ export default function App() {
     const p = sidebarRef.current;
     if (!p) return;
     sidebarHiderRef.current = null;
-    if (p.getSize().asPercentage <= 0) p.expand();
-    else p.collapse();
+    togglePanelOpen(p);
   }, []);
   // Twin of `sidebarRef` for the right column, so it minimizes shut and back the
   // same way. Only the panel's own width moves: what is docked there, and each
@@ -275,8 +276,7 @@ export default function App() {
   const toggleRightSlot = useCallback(() => {
     const p = rightSlotRef.current;
     if (p) {
-      if (p.getSize().asPercentage <= 0) p.expand();
-      else p.collapse();
+      togglePanelOpen(p);
       return;
     }
     // Null means NOTHING is docked right, so the column renders no panel and
