@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { sortPinnedFirst } from "@/lib/pinned";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { create } from "zustand";
 
@@ -123,6 +124,10 @@ export type SavedPaneTab = {
   paneTree: SavedPaneNode;
   /** Index of the active leaf when reading from `leaves(paneTree)`. */
   activeLeafIndex: number;
+  /** Pinned tabs sort ahead of the rest and render compact. Persisted because
+   *  a pin the user has to redo on every launch is not a pin. Absent on state
+   *  written before pinning existed, which reads as unpinned. */
+  pinned?: boolean;
 };
 
 /**
@@ -144,6 +149,19 @@ export type Workspace = {
   name: string;
   tabs: SavedTab[];
   activeTabIndex: number;
+  /**
+   * Pinned workspaces sort to the top of the panel and show a pin instead of
+   * the close button.
+   *
+   * A SEPARATE AXIS from a pinned TAB, and worth keeping straight: pinning a
+   * workspace says "keep this project at the top of my list", while pinning a
+   * tab inside it says "keep this tab at the front of that workspace's strip".
+   * A workspace can be unpinned and still contain pinned tabs, and vice versa;
+   * neither implies the other. The two surfaces are far apart on screen and
+   * each names its own subject in the menu ("Pin Workspace" vs "Pin Tab"), so
+   * the only real hazard is documentation, which this comment is.
+   */
+  pinned?: boolean;
 };
 
 type State = {
@@ -163,6 +181,8 @@ type Actions = {
   /** Create an empty workspace. Caller must save prior tabs and call setActiveId to switch. */
   createWorkspace: (name: string) => Workspace;
   renameWorkspace: (id: string, name: string) => void;
+  /** Pin or unpin a workspace, re-sorting so pinned ones stay on top. */
+  setWorkspacePinned: (id: string, pinned: boolean) => void;
   removeWorkspace: (id: string) => void;
   /** Replace a workspace's saved tabs. Used before a switch. `liveTabCount` is
    *  the number of LIVE tabs the snapshot came from (before serialization drops
@@ -246,7 +266,11 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
         return;
       }
       set({
-        workspaces: list,
+        // Re-impose the invariant on read. The saved order is normally already
+        // correct, but state written by an older build (or by hand) has never
+        // been through it, and a pinned workspace sitting below unpinned ones
+        // would stay stuck there until something happened to reorder the list.
+        workspaces: sortPinnedFirst(list),
         activeId: active ?? list[0]?.id ?? null,
         hydrated: true,
       });
@@ -324,6 +348,16 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       if (changed) void persist();
     },
 
+    setWorkspacePinned(id, pinned) {
+      const list = get().workspaces;
+      const target = list.find((w) => w.id === id);
+      if (!target || (target.pinned ?? false) === pinned) return;
+      set({
+        workspaces: sortPinnedFirst(list.map((w) => (w.id === id ? { ...w, pinned } : w))),
+      });
+      void persist();
+    },
+
     reorderWorkspaces(activeId, overId) {
       if (activeId === overId) return;
       const list = get().workspaces;
@@ -334,7 +368,9 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
       const next = list.slice();
       const [moved] = next.splice(from, 1);
       next.splice(to, 0, moved);
-      set({ workspaces: next });
+      // Then re-impose the pinned split, so a drag across the boundary lands at
+      // the nearest legal slot rather than being ignored.
+      set({ workspaces: sortPinnedFirst(next) });
       void persist();
     },
   };

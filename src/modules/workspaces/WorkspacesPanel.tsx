@@ -9,6 +9,13 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Button } from "@/components/ui/button";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -47,6 +54,8 @@ import {
   PanelLeft,
   PanelRight,
   Pencil,
+  Pin,
+  PinOff,
   Plus,
   X,
 } from "lucide-react";
@@ -210,6 +219,7 @@ function WorkspacesPanelInner({
   const workspaces = useWorkspacesStore((s) => s.workspaces);
   const activeId = useWorkspacesStore((s) => s.activeId);
   const rename = useWorkspacesStore((s) => s.renameWorkspace);
+  const setPinned = useWorkspacesStore((s) => s.setWorkspacePinned);
   const reorder = useWorkspacesStore((s) => s.reorderWorkspaces);
 
   const [editingId, setEditingId] = useState<string | null>(null);
@@ -370,6 +380,7 @@ function WorkspacesPanelInner({
                   onSwitch={onSwitch}
                   onClose={onClose}
                   onStartEdit={startEdit}
+                  onSetPinned={setPinned}
                   onDraftChange={setDraft}
                   onCommitEdit={commitEdit}
                   onCancelEdit={cancelEdit}
@@ -389,6 +400,9 @@ function WorkspacesPanelInner({
             {draggedWorkspace && (
               <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded px-1.5 text-xs shadow-lg ring-1 backdrop-blur-sm">
                 <Folder size={13} strokeWidth={1.75} className="shrink-0" />
+                {draggedWorkspace.pinned && (
+                  <Pin aria-hidden size={10} strokeWidth={2.25} className="shrink-0 opacity-70" />
+                )}
                 <span className="truncate">{draggedWorkspace.name}</span>
               </div>
             )}
@@ -412,6 +426,9 @@ type RowProps = {
   onSwitch: (id: string) => void;
   onClose: (id: string) => void;
   onStartEdit: (id: string, current: string) => void;
+  /** Pin or unpin this workspace. Distinct from pinning a TAB inside it;
+   *  see the note on Workspace.pinned in the store. */
+  onSetPinned: (id: string, pinned: boolean) => void;
   onDraftChange: (value: string) => void;
   onCommitEdit: () => void;
   onCancelEdit: () => void;
@@ -445,6 +462,7 @@ function SortableWorkspaceRow({
   onSwitch,
   onClose,
   onStartEdit,
+  onSetPinned,
   onDraftChange,
   onCommitEdit,
   onCancelEdit,
@@ -502,123 +520,172 @@ function SortableWorkspaceRow({
       {...listeners}
       className={cn("flex flex-col", sortable && "cursor-grab active:cursor-grabbing")}
     >
-      <div
-        className={cn(
-          "group relative flex h-7 items-center gap-1 rounded px-1.5 text-xs",
-          isDragging && "opacity-30",
-          isActive
-            ? "bg-accent text-accent-foreground"
-            : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
-        )}
-      >
-        <button
-          type="button"
-          // Stop the drag listeners; a click only toggles the tab list.
-          onPointerDown={(e) => e.stopPropagation()}
-          onClick={() => hasRows && onToggleExpanded(w.id)}
-          aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
-          aria-expanded={isExpanded}
-          disabled={!hasRows}
-          className={cn(
-            "flex size-4 shrink-0 items-center justify-center rounded transition-colors",
-            hasRows ? "hover:bg-foreground/10" : "opacity-0",
-          )}
-        >
-          {/* One chevron that rotates, not two that swap: a ternary between two
-              icons replaces the DOM node, so it can never animate. */}
-          <ChevronRight
-            size={11}
-            strokeWidth={2.25}
-            className={cn("transition-transform", isExpanded && "rotate-90")}
-          />
-        </button>
-        <Folder size={13} strokeWidth={1.75} className="shrink-0" />
-        {isEditing ? (
-          <input
-            autoFocus
-            aria-label="Workspace name"
-            value={draft}
-            onChange={(e) => onDraftChange(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Enter") onCommitEdit();
-              else if (e.key === "Escape") onCancelEdit();
-            }}
-            onBlur={onCommitEdit}
-            className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
-          />
-        ) : (
-          <button
-            type="button"
-            onClick={() => {
-              if (!isActive) onSwitch(w.id);
-            }}
-            onDoubleClick={() => onStartEdit(w.id, w.name)}
-            className="min-w-0 flex-1 truncate text-left"
+      <ContextMenu>
+        <ContextMenuTrigger asChild>
+          <div
+            className={cn(
+              "group relative flex h-7 items-center gap-1 rounded px-1.5 text-xs",
+              isDragging && "opacity-30",
+              isActive
+                ? "bg-accent text-accent-foreground"
+                : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
+            )}
           >
-            {w.name}
-          </button>
-        )}
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <span
-              className={cn(
-                "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
-                isActive ? "text-accent-foreground/80" : "text-muted-foreground",
-                "group-hover:opacity-0",
-              )}
-              aria-label={`${tabCount} tabs open`}
-            >
-              {tabCount}
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
-          </TooltipContent>
-        </Tooltip>
-        <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-          {canOpenBoard && (
-            <IconTooltip label="Board: terminals by AI status">
-              <Button
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => onOpenBoard?.()}
-                aria-label="Open workspace board"
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground size-5 rounded"
-              >
-                <Kanban size={11} strokeWidth={1.75} />
-              </Button>
-            </IconTooltip>
-          )}
-          <IconTooltip label="Rename">
-            <Button
-              // Stop the pointerdown from reaching the row's drag listeners.
+            <button
+              type="button"
+              // Stop the drag listeners; a click only toggles the tab list.
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => onStartEdit(w.id, w.name)}
-              aria-label="Rename workspace"
-              variant="ghost"
-              size="icon-sm"
-              className="text-muted-foreground size-5 rounded"
+              onClick={() => hasRows && onToggleExpanded(w.id)}
+              aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
+              aria-expanded={isExpanded}
+              disabled={!hasRows}
+              className={cn(
+                "flex size-4 shrink-0 items-center justify-center rounded transition-colors",
+                hasRows ? "hover:bg-foreground/10" : "opacity-0",
+              )}
             >
-              <Pencil size={11} strokeWidth={1.75} />
-            </Button>
-          </IconTooltip>
-          {canClose && (
-            <IconTooltip label="Close workspace">
-              <Button
-                onPointerDown={(e) => e.stopPropagation()}
-                onClick={() => (tabCount > 0 ? setConfirmingClose(true) : onClose(w.id))}
-                aria-label="Close workspace"
-                variant="ghost"
-                size="icon-sm"
-                className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
+              {/* One chevron that rotates, not two that swap: a ternary between two
+              icons replaces the DOM node, so it can never animate. */}
+              <ChevronRight
+                size={11}
+                strokeWidth={2.25}
+                className={cn("transition-transform", isExpanded && "rotate-90")}
+              />
+            </button>
+            <Folder size={13} strokeWidth={1.75} className="shrink-0" />
+            {/* Always visible, unlike the hover actions: a pin nobody can see
+            without hovering does not explain why this workspace sits at the
+            top of the list. */}
+            {w.pinned && (
+              <Pin
+                aria-label="Pinned"
+                size={10}
+                strokeWidth={2.25}
+                className="shrink-0 opacity-70"
+              />
+            )}
+            {isEditing ? (
+              <input
+                autoFocus
+                aria-label="Workspace name"
+                value={draft}
+                onChange={(e) => onDraftChange(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") onCommitEdit();
+                  else if (e.key === "Escape") onCancelEdit();
+                }}
+                onBlur={onCommitEdit}
+                className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!isActive) onSwitch(w.id);
+                }}
+                onDoubleClick={() => onStartEdit(w.id, w.name)}
+                className="min-w-0 flex-1 truncate text-left"
               >
-                <X size={11} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
+                {w.name}
+              </button>
+            )}
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <span
+                  className={cn(
+                    "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
+                    isActive ? "text-accent-foreground/80" : "text-muted-foreground",
+                    "group-hover:opacity-0",
+                  )}
+                  aria-label={`${tabCount} tabs open`}
+                >
+                  {tabCount}
+                </span>
+              </TooltipTrigger>
+              <TooltipContent side="right">
+                {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
+              </TooltipContent>
+            </Tooltip>
+            <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+              {canOpenBoard && (
+                <IconTooltip label="Board: terminals by AI status">
+                  <Button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => onOpenBoard?.()}
+                    aria-label="Open workspace board"
+                    variant="ghost"
+                    size="icon-sm"
+                    className="text-muted-foreground size-5 rounded"
+                  >
+                    <Kanban size={11} strokeWidth={1.75} />
+                  </Button>
+                </IconTooltip>
+              )}
+              <IconTooltip label={w.pinned ? "Unpin workspace" : "Pin workspace"}>
+                <Button
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => onSetPinned(w.id, !w.pinned)}
+                  aria-label={w.pinned ? "Unpin workspace" : "Pin workspace"}
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground size-5 rounded"
+                >
+                  {w.pinned ? (
+                    <PinOff size={11} strokeWidth={1.75} />
+                  ) : (
+                    <Pin size={11} strokeWidth={1.75} />
+                  )}
+                </Button>
+              </IconTooltip>
+              <IconTooltip label="Rename">
+                <Button
+                  // Stop the pointerdown from reaching the row's drag listeners.
+                  onPointerDown={(e) => e.stopPropagation()}
+                  onClick={() => onStartEdit(w.id, w.name)}
+                  aria-label="Rename workspace"
+                  variant="ghost"
+                  size="icon-sm"
+                  className="text-muted-foreground size-5 rounded"
+                >
+                  <Pencil size={11} strokeWidth={1.75} />
+                </Button>
+              </IconTooltip>
+              {canClose && (
+                <IconTooltip label="Close workspace">
+                  <Button
+                    onPointerDown={(e) => e.stopPropagation()}
+                    onClick={() => (tabCount > 0 ? setConfirmingClose(true) : onClose(w.id))}
+                    aria-label="Close workspace"
+                    variant="ghost"
+                    size="icon-sm"
+                    className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
+                  >
+                    <X size={11} strokeWidth={2} />
+                  </Button>
+                </IconTooltip>
+              )}
+            </span>
+          </div>
+        </ContextMenuTrigger>
+        <ContextMenuContent className="min-w-44">
+          <ContextMenuItem onSelect={() => onStartEdit(w.id, w.name)}>Rename</ContextMenuItem>
+          {/* Says Workspace, not just Pin. The tab strip has its own Pin Tab
+              item, and the two mean different things; naming the subject in
+              both places is what keeps them apart. */}
+          <ContextMenuItem onSelect={() => onSetPinned(w.id, !w.pinned)}>
+            {w.pinned ? "Unpin Workspace" : "Pin Workspace"}
+          </ContextMenuItem>
+          {canClose && <ContextMenuSeparator />}
+          {canClose && (
+            <ContextMenuItem
+              variant="destructive"
+              onSelect={() => (tabCount > 0 ? setConfirmingClose(true) : onClose(w.id))}
+            >
+              Close Workspace
+            </ContextMenuItem>
           )}
-        </span>
-      </div>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <AlertDialog open={confirmingClose} onOpenChange={setConfirmingClose}>
         <AlertDialogContent>

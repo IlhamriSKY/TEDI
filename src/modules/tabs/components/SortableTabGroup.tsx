@@ -40,6 +40,8 @@ type SortableTabGroupProps = {
   onRotateLeafSplit?: (leafId: number) => void;
   /** Toggle privacy on a single leaf. */
   onTogglePrivate?: (leafId: number) => void;
+  /** Pin or unpin the whole tab this group belongs to. */
+  onSetTabPinned?: (tabId: number, pinned: boolean) => void;
   /** Leaf currently being renamed inline, or null. Owned by TabBar. */
   renamingLeafId?: number | null;
   /** Enter (leafId) or leave (null) inline rename. */
@@ -73,6 +75,7 @@ export function SortableTabGroup({
   onMoveLeafToNewTab,
   onRotateLeafSplit,
   onTogglePrivate,
+  onSetTabPinned,
   renamingLeafId,
   onSetRenaming,
   onRename,
@@ -128,6 +131,7 @@ export function SortableTabGroup({
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
           onTogglePrivate={onTogglePrivate}
+          onSetTabPinned={onSetTabPinned}
           renamingLeafId={renamingLeafId}
           onSetRenaming={onSetRenaming}
           onRename={onRename}
@@ -157,6 +161,7 @@ export function SortableTabGroup({
       onMoveLeafToNewTab,
       onRotateLeafSplit,
       onTogglePrivate,
+      onSetTabPinned,
       renamingLeafId,
       onSetRenaming,
       onRename,

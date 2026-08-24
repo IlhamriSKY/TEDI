@@ -150,6 +150,7 @@ export default function App() {
     movePaneLeafToEdge,
     moveExtTabToPane,
     togglePrivate,
+    setTabPinned,
     renameLeaf,
     setLeafTerminalTheme,
   } = useTabs();
@@ -971,6 +972,7 @@ export default function App() {
             onNewTerminal={openNewTab}
             onNewPrivateTerminal={openNewPrivateTab}
             onTogglePrivate={togglePrivate}
+            onSetTabPinned={setTabPinned}
             onRenameLeaf={renameLeaf}
             onNewPreview={handleHeaderNewPreview}
             onOpenAgents={() => setAgentDialogOpen(true)}

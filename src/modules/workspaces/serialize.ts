@@ -192,6 +192,9 @@ function tabToSaved(tab: Tab): SavedTab | null {
     title: tab.title,
     paneTree,
     activeLeafIndex: Math.max(0, idx),
+    // Written only when true, so an unpinned tab does not grow every saved
+    // workspace by a redundant flag.
+    ...(tab.pinned ? { pinned: true } : {}),
   };
 }
 
@@ -315,12 +318,13 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
   const paneTree = savedToNode(saved.paneTree, allocId, leafIds);
   const activeLeafId =
     leafIds[Math.min(Math.max(0, saved.activeLeafIndex), leafIds.length - 1)] ?? leafIds[0];
-  const tab: PaneTab = {
+  const tab: Tab = {
     id,
     kind: "pane",
     title: saved.title ?? "",
     paneTree,
     activeLeafId,
+    ...(saved.pinned ? { pinned: true } : {}),
   };
   return tab;
 }

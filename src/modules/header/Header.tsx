@@ -28,6 +28,8 @@ type Props = {
   onNewPrivateTerminal?: () => void;
   /** Toggle the per-leaf privacy flag from the tab right-click menu. */
   onTogglePrivate?: (leafId: number) => void;
+  /** Pin or unpin a whole tab. See `TabBar`. */
+  onSetTabPinned?: (tabId: number, pinned: boolean) => void;
   /** Set a leaf's tab name, or `null` to fall back to the derived one. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
   onNewPreview: () => void;
@@ -104,6 +106,7 @@ function HeaderImpl({
   onNewTerminal,
   onNewPrivateTerminal,
   onTogglePrivate,
+  onSetTabPinned,
   onRenameLeaf,
   onNewPreview,
   onOpenAgents,
@@ -269,6 +272,7 @@ function HeaderImpl({
           onNewTerminal={onNewTerminal}
           onNewPrivateTerminal={onNewPrivateTerminal}
           onTogglePrivate={onTogglePrivate}
+          onSetTabPinned={onSetTabPinned}
           onRenameLeaf={onRenameLeaf}
           onNewPreview={onNewPreview}
           onOpenAgents={onOpenAgents}
