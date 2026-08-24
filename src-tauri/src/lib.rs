@@ -803,6 +803,7 @@ pub fn run() {
             extensions::commands::ext_read_manifest,
             extensions::commands::ext_read_asset,
             extensions::commands::ext_read_asset_bytes,
+            extensions::commands::ext_stamps,
             extensions::commands::ext_install_from_zip,
             extensions::commands::ext_install_from_github,
             extensions::commands::ext_peek_zip,
