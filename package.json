@@ -1,7 +1,7 @@
 {
   "name": "tedi",
   "private": true,
-  "version": "0.4.25",
+  "version": "0.4.26",
   "description": "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces.",
   "author": "IlhamriSKY",
   "license": "Apache-2.0",

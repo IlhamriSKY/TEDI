@@ -6757,7 +6757,7 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.4.25"
+version = "0.4.26"
 dependencies = [
  "arboard",
  "base64 0.22.1",
