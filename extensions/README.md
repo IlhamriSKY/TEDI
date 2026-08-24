@@ -52,6 +52,38 @@ doubt, copy the one closest to what you are building.
 
 ## 2. Quick start
 
+### Scaffold one (recommended)
+
+```bash
+tedi ext create acme.hello
+cd acme.hello
+npm install        # esbuild + the type checker
+npm run watch      # src/ -> extension.js on every save
+```
+
+That writes a working extension with the typed API already wired up:
+
+| File                   | Why it is there                                                                    |
+| ---------------------- | ---------------------------------------------------------------------------------- |
+| `manifest.json`        | Points `$schema` at the file below, so your editor completes and validates it.     |
+| `manifest.schema.json` | JSON Schema for the manifest, generated from the same schema the host parses with. |
+| `tedi.d.ts`            | The typed `ctx` API. Standalone, no dependencies.                                  |
+| `jsconfig.json`        | Turns `tedi.d.ts` on for plain JavaScript (`checkJs`).                             |
+| `src/index.js`         | `activate(ctx)` / `deactivate()`, with the JSDoc that binds `ctx` to its type.     |
+| `build.mjs`            | esbuild config. Reads `manifest.main`, so it needs no editing.                     |
+| `package.json`         | `build` / `watch` / `check` scripts.                                               |
+
+Both `tedi.d.ts` and `manifest.schema.json` are written **from the TEDI binary
+you ran the command with**, so they describe the host you are testing against.
+After upgrading TEDI, run `tedi ext types` in the folder to refresh them.
+
+Before publishing, run `tedi ext validate` (see
+[Packaging](#packaging)). It catches the mistakes that are otherwise invisible
+at runtime: a keybinding pointing at a command id that does not exist, a
+misspelled permission, a missing `main` file.
+
+### Or by hand
+
 A complete hello-world extension is two files.
 
 `manifest.json`:
@@ -102,6 +134,45 @@ Zip both files at the archive root, install via _Settings -> Extensions ->
 From file_, review the permission dialog, click **Install**. That is the whole
 loop.
 
+### Types, without TypeScript
+
+`tedi.d.ts` is the typed contract for `ctx`. It is one standalone file with no
+imports and no dependencies, so plain JavaScript gets full completion and real
+diagnostics from it:
+
+```js
+/** @param {import("./tedi").ExtensionContext} ctx */
+export async function activate(ctx) {
+  ctx.ui.tost("hi");
+  //     ~~~~ Property 'tost' does not exist. Did you mean 'toast'?
+}
+```
+
+This matters more than it looks. An extension's mistakes usually surface inside
+an async click handler, where a `TypeError` becomes an unhandled rejection: the
+button still looks fine, nothing appears, and there is no stack unless DevTools
+happened to be open. The checker moves that to the editor.
+
+Bring it into an existing extension with:
+
+```bash
+tedi ext types          # writes tedi.d.ts + manifest.schema.json here
+```
+
+then add a `jsconfig.json` with `"checkJs": true` and annotate wherever you keep
+`ctx`:
+
+```js
+/** @type {import("../tedi").ExtensionContext | null} */
+let ctx = null;
+```
+
+TypeScript extensions import the same file directly:
+
+```ts
+import type { ExtensionContext } from "./tedi";
+```
+
 ### Local development (no zip, no publish)
 
 Iterating through "zip → install → test" for every change is slow. When you
@@ -118,11 +189,10 @@ build's app-data extensions folder (`<appData>/id.ilhamrisky.tedi.dev/extensions
 to your repo working copy, no copying. `ext_list` follows the link and, with no
 `state.json` entry, loads the extension **enabled with all its manifest
 permissions auto-approved**; `extension.js`, assets, and `ctx.installPath`
-resolve through the link. Edit `extension.js` (or, if you build from `src/`, run
-`npm run build` to regenerate it, see
-[Build pipeline](#build-pipeline-src--extensionjs)), then **reload the window
-(Ctrl+R)** or toggle the extension in _Settings → Extensions_ to pick up the
-change (the loader re-reads the live file).
+resolve through the link. Edit `extension.js` (or run `npm run watch` and edit `src/`, see
+[Build pipeline](#build-pipeline-src--extensionjs)) and the host reloads the
+extension on its own, see [Hot reload](#hot-reload). Ctrl+R still works if you
+ever want to reset everything at once.
 
 | Command              | What it does                                                                               |
 | -------------------- | ------------------------------------------------------------------------------------------ |
@@ -150,11 +220,20 @@ The convention (use any official extension as a template):
 │   ├── index.js         entry: exports activate(ctx) / deactivate()
 │   ├── runtime.js       shared state singletons + constants + setters
 │   └── …                one cohesive concern per file
-├── build.mjs            esbuild config (bundle, format:"esm", target:"es2022")
+├── manifest.json        "$schema": "./manifest.schema.json" on the first line
+├── manifest.schema.json from `tedi ext types`
+├── tedi.d.ts            from `tedi ext types`
+├── jsconfig.json        "checkJs": true, so tedi.d.ts actually bites
+├── build.mjs            esbuild config, identical in every extension
 ├── package.json         "build": "node build.mjs"
 ├── .gitignore           ignores /extension.js and node_modules/
 └── extension.js         GENERATED, never committed
 ```
+
+`build.mjs` reads the entry point, the output path and the banner from
+`manifest.json`, so it carries nothing extension-specific and can be copied
+between extensions without edits. Every bundled TEDI extension runs a
+byte-identical copy.
 
 ```bash
 npm install        # once
@@ -173,6 +252,16 @@ Key rules that keep the fleet consistent:
 - **Share mutable state via setters.** Put singletons + `setX()` writers in one
   `runtime.js`; other modules import the live bindings (esbuild preserves ESM
   live-binding semantics across the bundle) instead of duplicating state.
+- **Type the `ctx` singleton.** One JSDoc line on the declaration turns on
+  checking for every `ctx.*` call in the bundle:
+
+  ```js
+  /** @type {import("../tedi").ExtensionContext | null} */
+  export let ctx = null;
+  ```
+
+  `npm run typecheck` then reports a misspelled member or a wrong argument
+  before you ever load the extension.
 
 CI builds the same bundle into the release zip, see
 [Packaging](#packaging) and [Releasing via CI](#releasing-via-ci) below.
@@ -223,23 +312,37 @@ when every entry shares one top-level segment **and** that segment contains a
 ### `manifest.json` fields
 
 The schema is validated by Zod on the frontend (`manifest.ts`) and mirrored in
-Rust (`manifest.rs`). The top-level object is **strict** on the TS side: any
-unknown top-level key fails the parse and the extension is dropped from the list
-with a console warning.
+Rust (`manifest.rs`). **Every object in the manifest tolerates unknown keys**,
+top level included. That is a deliberate invariant, not an oversight: Rust
+decides what installs and the Zod schema only decides what renders, so a key
+Rust accepts and Zod rejects produces a _ghost_ - the install reports success,
+then the entry vanishes from Settings, never activates, and cannot be
+uninstalled from the UI. It shipped once, in v0.2.15..v0.2.19, when
+`contributes.panels[].compact` was added.
+
+Two consequences worth relying on:
+
+- A manifest written for a newer TEDI still installs on an older one. The host
+  iterates only the keys it knows; the rest sit inert.
+- `"$schema": "./manifest.schema.json"` is just such a key. Put it on the first
+  line and your editor gives you completion, hover docs and inline validation
+  while you write the file. `tedi ext create` and `tedi ext types` write that
+  schema next to your manifest, generated from the very schema the host parses
+  with.
 
 | Field         | Required | Type / rules                                                                                                                                                                                                                                                            |
 | ------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `id`          | yes      | `string`, 3–64 chars, regex `^[a-z0-9][a-z0-9\-_.]*[a-z0-9]$` (lowercase kebab/dotted), no leading/trailing dot. Re-validated on every install/read/enable/disable/uninstall to block path traversal. Use a `<publisher>.<feature>` prefix, e.g. `acme.my-integration`. |
 | `name`        | yes      | `string`, non-empty (whitespace-only rejected).                                                                                                                                                                                                                         |
-| `version`     | yes      | `string`, semver-ish `^\d+\.\d+\.\d+([\-+].*)?$` (TS-strict; Rust only checks non-empty).                                                                                                                                                                               |
+| `version`     | yes      | `string`, non-empty. Compared leniently (digit runs only), so `1.2.3` and `1.2.3-beta` rank equal. Neither side enforces a semver shape: a regex here would only ghost an extension Rust was happy to install.                                                          |
 | `description` | no       | `string` or `null`.                                                                                                                                                                                                                                                     |
 | `author`      | no       | `string` or `null`.                                                                                                                                                                                                                                                     |
 | `homepage`    | no       | `string` or `null` (not URL-validated).                                                                                                                                                                                                                                 |
 | `icon`        | no       | `string` path inside the package. Read and base64'd for the install dialog; missing icon is non-fatal (falls back to a letter avatar). 5 MiB cap when read live.                                                                                                        |
 | `main`        | no       | `string` JS entry path relative to the root. Omit for declarative-only packs. If present it must resolve inside the root and exist, or install fails.                                                                                                                   |
-| `permissions` | no       | `string[]`, defaults to `[]`. Glob-style kebab strings (see [Section 6](#6-permissions-reference)). Recorded verbatim at install; no per-string schema validation.                                                                                                      |
+| `permissions` | no       | `string[]`, defaults to `[]`. Glob-style kebab strings (see [Section 6](#6-permissions-reference)). Recorded verbatim at install; any string is accepted, so a typo grants nothing rather than failing the install. `tedi ext validate` catches one.                    |
 | `contributes` | no       | `object`, defaults to `{}`. Unknown contribution categories are tolerated and ignored (`passthrough`).                                                                                                                                                                  |
-| `engines`     | no       | `object` with single optional `tedi: string` semver constraint. **Strict** object (no other keys). Checked at install AND activation.                                                                                                                                   |
+| `engines`     | no       | `object` with an optional `tedi: string` constraint. Checked at install AND at activation.                                                                                                                                                                              |
 
 #### `engines.tedi` constraint grammar
 
@@ -257,9 +360,13 @@ loader toasts a warning and skips `activate`).
 
 ### `contributes.*` reference
 
-Each contribution array is independently parsed. Every per-item schema below is
-**strict** except `panels[]`, which is `passthrough` (so future panel keys, e.g.
-`compact`, do not break installs on older hosts).
+Each contribution array is independently parsed, and every per-item schema
+tolerates unknown keys, for the reason given above: a newer manifest key must
+never break an install on an older host.
+
+The flip side is that a key an older host does not know is silently ignored, so
+you cannot tell from the outside whether it took effect. `ctx.has()` is how you
+ask - see [Feature detection](#feature-detection).
 
 > **Wiring status (read this).** All five contribution categories are fully
 > consumed by built-in code: `settings`, `commands`, `keybindings`, `panels`,
@@ -394,7 +501,16 @@ receive extension tools.)
 
 ## 4. The `ctx` API reference
 
-`ctx` is the host facade passed to `activate(ctx)`. Its full TypeScript shape:
+`ctx` is the host facade passed to `activate(ctx)`.
+
+> **The authoritative copy of everything in this section is `tedi.d.ts`**, which
+> `tedi ext create` / `tedi ext types` write into your extension folder. It is
+> generated from the same host source this prose describes and a compile-time
+> parity check in the TEDI repo fails the build if the two ever disagree, so it
+> cannot drift the way a hand-copied type dump can. Prefer hovering the type in
+> your editor; read on for the rules the types cannot express.
+
+The shape, abridged:
 
 ```ts
 type ExtensionOs = {
@@ -604,6 +720,53 @@ type ExtensionContext = {
 The permission required by each member is listed below. Members marked **none**
 have no permission gate by design.
 
+### Feature detection
+
+The API is **additive only**: nothing documented here is ever removed or
+renamed. New API arrives in two shapes, and they are detected differently.
+
+**A new method or facade** is already visible - just look:
+
+```js
+if (typeof ctx.headerBar?.setItem === "function") ctx.headerBar.setItem({ ... });
+```
+
+**A new option field or callback argument** is not. An older host reads your
+object, ignores the key it does not know, and quietly gives you the old
+behaviour with no error anywhere. `ctx.has(feature)` is the only way to ask:
+
+```js
+ctx.ui.codeEditor(el, {
+  language: "sql",
+  // Silently dropped by hosts older than the release that added it.
+  completions: ctx.has?.("codeEditor.completions") ? suggest : undefined,
+});
+```
+
+Call it optionally (`ctx.has?.(...)`): a host older than `ctx.has` itself has no
+such method, and `undefined` is correctly falsy.
+
+| Feature string               | Guards                                                          |
+| ---------------------------- | --------------------------------------------------------------- |
+| `codeEditor.completions`     | `CodeEditorOptions.completions`                                 |
+| `panel.compact`              | `contributes.panels[].compact`                                  |
+| `panel.kind.action`          | `contributes.panels[].kind: "action"`                           |
+| `panelRenderer.mountContext` | the `{ surface, reuseKey }` second argument to a panel renderer |
+| `statusItem.progress`        | `StatusItem.label` / `.progress` / `.detail` / `.kind`          |
+| `sidebarSection.contextMenu` | `SidebarSection.onItemContextMenu`                              |
+
+Prefer this over raising `engines.tedi`. Feature detection degrades on an old
+host; an engine bump locks you out of it entirely.
+
+### `ctx.has`: none
+
+```ts
+has(feature: string): boolean;
+```
+
+Ungated. Returns `false` for anything this host has never heard of, which is
+the whole point of asking.
+
 ### `ctx.id` / `ctx.installPath` / `ctx.os` / `ctx.paths`: none
 
 - `ctx.id`: your extension id.
@@ -734,20 +897,53 @@ export function activate(ctx) {
 ### `ctx.invoke`: `invoke:<command>`
 
 ```ts
+// Known command: resolves to its real shape.
+ctx.invoke("shell_bg_logs", args): Promise<{ bytes: string; ... }>
+// Anything else: resolves to `unknown`, or `<T>` if you supply one.
 ctx.invoke<T>(command, args?): Promise<T>
 ```
 
 Calls a Rust Tauri command. Gated by an `invoke:<command>` permission match
-(exact, prefix `invoke:*`, glob `invoke:foo_*`, or `*`). Four keychain
-commands, `secrets_get_all`, `secrets_get`, `secrets_set`, `secrets_delete`,
-are **hard-denied** even with `*`. Use `ctx.secrets` instead.
+(exact, prefix `invoke:*`, glob `invoke:foo_*`, or `*`). Nine commands are
+**hard-denied** even under `*`, see
+[Hard-denied `invoke` commands](#hard-denied-invoke-commands).
 
 ```js
 // permission: "invoke:shell_bg_spawn_direct"
-const { pid } = await ctx.invoke("shell_bg_spawn_direct", {
+// Resolves to the background HANDLE (a number), not an object.
+const handle = await ctx.invoke("shell_bg_spawn_direct", {
   program: `${ctx.installPath}/sidecar/server`,
   args: [],
 });
+```
+
+#### Typed results
+
+The commands extensions call most resolve to a real shape rather than
+`unknown`, so plain JavaScript can read fields off them without a cast:
+
+| Command                 | Resolves to                                                      |
+| ----------------------- | ---------------------------------------------------------------- |
+| `shell_run_command`     | `{ stdout, stderr, exit_code, timed_out, truncated }`            |
+| `shell_bg_spawn_direct` | `number` (the handle)                                            |
+| `shell_bg_logs`         | `{ bytes, next_offset, dropped, exited, exit_code }`             |
+| `shell_bg_kill`         | `null`                                                           |
+| `shell_bg_list`         | `{ handle, command, cwd, started_at_ms, exited, exit_code }[]`   |
+| `fs_read_file`          | tagged union on `kind`: `text` / `image` / `binary` / `toolarge` |
+| `fs_glob`               | `{ hits: { path, rel }[], truncated }`                           |
+| `ssh_list_sessions`     | `{ id, host, user, cols, rows, alive, createdAtMs }[]`           |
+
+Each entry is transcribed from the Rust struct that produces it, casing
+included, and a verify script in the TEDI repo reads those structs back and
+fails if the two diverge - a shape written from memory would be a type that
+lies, which is worse than `unknown`.
+
+Every other command still works exactly the same and resolves to `unknown`.
+Narrow it yourself:
+
+```js
+const res = await ctx.invoke("my_command", { a: 1 });
+const ok = /** @type {{ ok: boolean }} */ (res).ok;
 ```
 
 > The hard-deny applies only to `ctx.invoke`. A raw `import { invoke } from
@@ -1255,12 +1451,45 @@ Each activation reads your JS text, wraps it in a `Blob`, mints a new
 browser treats it as a **fresh module instance**, module-level state resets
 cleanly between enable/disable cycles. The Blob URL is revoked on deactivate.
 
-### No file-watch hot-reload
+### Hot reload
 
-"Dynamic" means no recompile and runtime load/unload, it does **not** mean a
-disk edit is auto-picked-up. To see code changes, re-install (or trigger a
-reload). `bootAll` activates all enabled extensions once at app boot, sequentially
-(so contributions other extensions depend on are present).
+Save your bundle and the running extension restarts by itself, typically within
+a second or two. No window reload, no re-install, no toggling it off and on.
+`manifest.json` counts too, so adding a command, a panel or a permission also
+takes effect on save.
+
+```bash
+npm run watch     # src/ -> extension.js on every save; TEDI does the rest
+```
+
+What actually happens: the host polls the mtime and length of your
+`manifest.json` and `manifest.main` about once a second (only while the window
+is visible), and when they change it runs the ordinary
+deactivate -> activate cycle - the same one an update or a manual toggle uses.
+So the rules below about disposers and idempotent `deactivate` apply on every
+save, and a leak that only shows up after ten reloads will now show up in the
+first minute of development. That is a feature.
+
+Three details worth knowing:
+
+- **A change has to settle before it reloads.** A bundler writes its output in
+  chunks, so the host waits until the file stops changing between two polls
+  before importing it. Without that, a poll landing mid-write imports a
+  truncated module and fails activation for code you wrote correctly.
+- **A broken `manifest.json` is recoverable.** An unparseable manifest drops
+  the extension out of the list, but the host keeps watching its files anyway,
+  so fixing the typo brings it straight back rather than needing a restart.
+- **An `activate` that throws is not fatal.** The failure is toasted, your
+  declarative contributions stay seeded, and the next save tries again.
+
+Still restart-only: adding a **brand new** extension folder while the app is
+running. `ext_list` enumerates at boot and on demand, so link or install it and
+the usual install flow picks it up.
+
+`bootAll` activates every enabled extension in parallel at app boot
+(`Promise.allSettled`), so one extension that awaits the network inside
+`activate` no longer delays every other extension's contributions from
+appearing.
 
 ### Two-window sync
 
@@ -1296,6 +1525,25 @@ If your extension builds from `src/` (see
 ```bash
 npm install && npm run build
 ```
+
+Then check it before you ship:
+
+```bash
+tedi ext validate         # in the extension folder, or pass its path
+```
+
+Errors mean something is definitely broken and exit non-zero. Warnings are
+things the host tolerates on purpose and exit zero, so this is safe in CI.
+
+| Reported as | Examples                                                                                                                                                                                                                                                      |
+| ----------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **error**   | `main` or `icon` names a file that is not there; a keybinding or `toggleCommand` targets a command id that does not exist; `contributes.panels` without `panels:register`; a `select` setting with no `options`; duplicate ids.                               |
+| **warn**    | a permission that matches nothing this host checks (almost always a typo); a hard-denied or glob `invoke:`; no `description` / `icon` / `author` / `engines.tedi` / `$schema`; ids not namespaced under your extension id; scaffold placeholder text left in. |
+
+Every one of those is invisible at runtime otherwise: a keybinding pointing at
+a missing command does not throw, it just does nothing, and a misspelled
+permission denies a call inside an async handler where the rejection is
+unhandled and the button still looks fine.
 
 Then zip the folder so `manifest.json` is at the archive root (single-root
 archives auto-unwrap, so a GitHub source zip works too):
@@ -1353,6 +1601,19 @@ tedi ext enable  [<id>]
 tedi ext disable [<id>]
 tedi ext                     # interactive menu on a TTY, help otherwise
 ```
+
+Authoring, none of which touches installed state:
+
+```
+tedi ext create [<id>]       # scaffold into ./<id>/  (aliases: init, new)
+tedi ext types  [<dir>]      # refresh tedi.d.ts + manifest.schema.json
+tedi ext validate [<dir>]    # pre-publish check     (alias: check)
+```
+
+`create` and `types` write `tedi.d.ts` and `manifest.schema.json` **out of the
+running binary**, so the API you code against always matches the host you are
+testing on. Re-run `tedi ext types` after upgrading TEDI to pick up newly added
+API; it is the only step needed to stay current.
 
 > The CLI and GUI write the same `state.json` with **no file lock** between
 > processes, the later writer wins. Avoid running both against the same install

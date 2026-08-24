@@ -11,8 +11,9 @@
  *     manifest permission auto-approved.
  *   - `ext_read_asset` / `ctx.installPath` resolve `<root>/<rel>` through the
  *     junction, so `extension.js`, assets, and the sidecar binary all come from
- *     the repo working copy. Edit the file, reload the window (Ctrl+R) or toggle
- *     the extension in Settings → Extensions, and the change is live.
+ *     the repo working copy. Edit the file and the host reloads the extension on
+ *     its own (it polls each extension's manifest + bundle while the window is
+ *     visible); Ctrl+R still works as a hard reset.
  *
  * A junction/symlink (not a copy) is used on purpose: copying would duplicate
  * heavy build artifacts (e.g. the SQL Explorer's `sidecar-src/target/`) and go
