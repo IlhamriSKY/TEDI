@@ -980,7 +980,6 @@ export default function App() {
             onReorderTabs={reorderTabs}
             onReorderLeafInGroup={reorderLeafInGroup}
             onToggleSidebar={toggleSidebar}
-            onToggleRightPanel={toggleRightSlot}
             onOpenFolder={openWorkspaceFolder}
             onSplit={splitActivePaneInActiveTab}
             canSplit={headerCanSplit}
@@ -1039,6 +1038,8 @@ export default function App() {
               />
               <ResizableHandle withHandle />
               <WorkspaceArea
+                previewUrl={detectedBrowserUrl}
+                onOpenPreview={handleOpenDetectedPreview}
                 tabs={tabs}
                 activeId={activeId}
                 activeTab={activeTab}
@@ -1124,8 +1125,6 @@ export default function App() {
             sshRoute={
               activeLeafIdInTab != null ? sshStatuses.get(activeLeafIdInTab)?.route : undefined
             }
-            previewUrl={detectedBrowserUrl}
-            onOpenPreview={handleOpenDetectedPreview}
           />
 
           {hasComposer ? (

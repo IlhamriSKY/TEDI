@@ -15,9 +15,12 @@
  *     caller, so a restarted server can only return via the next tick. Its
  *     effect must also key on the JOINED candidate string: the caller's memo
  *     recomputes on every `tabs` change and would otherwise rebuild the timer.
- *  3. PLACEMENT. The pane header can NOT satisfy "always visible" - WorkspaceArea
- *     blanks the whole pane stack on any non-pane tab - so the pill lives in the
- *     status bar, uncompacted, and the pane-header globe is gone.
+ *  3. PLACEMENT. The globe sits on the FOCUSED pane header, beside float, and
+ *     nowhere else. That is a deliberate reversal (v0.4.27): the pane header
+ *     cannot be always-visible, since WorkspaceArea blanks the pane stack on any
+ *     non-pane tab, and that limitation is accepted so the url sits next to the
+ *     terminal that printed it. What must not happen is TWO copies with
+ *     different gates, so the status-bar pill is asserted gone.
  *  4. SSH EMITS A DIFFERENT URL THAN IT DEDUPES ON. Over SSH the shell prints a
  *     REMOTE address and the app is handed the TUNNELLED local one. Re-attach
  *     must replay what was EMITTED; replaying the printed one offers a local
@@ -115,30 +118,41 @@ console.log("2. liveness has exactly one authority, and it never stops polling")
   );
 }
 
-console.log("3. the pill is in the status bar, uncompacted, and the pane globe is gone");
+console.log("3. the globe lives on the focused pane header, and the status bar has none");
 {
-  const statusBar = read("src/modules/statusbar/StatusBar.tsx");
-  assert(/function PreviewUrlPill\(/.test(statusBar), "StatusBar declares the pill");
-  // Compact mode folds its neighbours away; this one must not fold.
+  // PLACEMENT REVERSED ON REQUEST (v0.4.27). It used to sit in the status bar
+  // precisely because that is always visible, and this trade is now accepted
+  // knowingly: `WorkspaceArea` blanks the whole pane stack on any Source
+  // Control, diff or extension tab, so the offer is unreachable from those.
+  // The url is most useful next to the terminal that printed it, and there is
+  // no second, differently-gated copy to disagree with.
+  const paneTree = read("src/modules/panes/PaneTreeView.tsx");
+  assert(/\bGlobe\b/.test(paneTree), "PaneTreeView imports the globe icon");
   assert(
-    /\{previewUrl && onOpenPreview && \(\s*\n?\s*<PreviewUrlPill/.test(statusBar) &&
-      !/compact \? null : \(?\s*<PreviewUrlPill/.test(statusBar),
-    "it renders without a compact gate",
+    /\{onlyHere && previewUrl && onOpenPreview && \(/.test(paneTree),
+    "it renders on the FOCUSED pane only, so a split shows one globe",
   );
+  // The prop rides PaneDndContext, like every other pane-header action.
+  assert(
+    /previewUrl\?: string \| null;/.test(paneTree) &&
+      /onOpenPreview\?: \(\) => void;/.test(paneTree),
+    "the context carries the url and the opener",
+  );
+
+  const statusBar = read("src/modules/statusbar/StatusBar.tsx");
+  assert(!/PreviewUrlPill/.test(statusBar), "the status-bar pill is gone");
+  assert(!/\bGlobe\b/.test(statusBar), "and so is its Globe import");
+  assert(!/previewUrl/.test(statusBar), "StatusBar no longer takes the url at all");
+
+  // The chain App -> WorkspaceArea -> PaneStack -> PaneTreeView must be whole,
+  // or the globe silently never appears.
   assert(
     /previewUrl=\{detectedBrowserUrl\}/.test(read("src/app/App.tsx")),
     "App feeds it the live url",
   );
-  // The pane header cannot be always-visible, so the old globe must not linger
-  // and draw a second, differently-gated copy.
-  const paneTree = read("src/modules/panes/PaneTreeView.tsx");
-  assert(!/detectedBrowserUrl/.test(paneTree), "PaneTreeView no longer knows about the url");
-  assert(!/\bGlobe\b/.test(paneTree), "and its Globe import is gone");
-  assert(
-    !/detectedBrowserUrl/.test(read("src/modules/panes/PaneStack.tsx")) &&
-      !/detectedBrowserUrl/.test(read("src/app/components/WorkspaceArea.tsx")),
-    "the prop chain that fed it is gone too",
-  );
+  for (const rel of ["src/app/components/WorkspaceArea.tsx", "src/modules/panes/PaneStack.tsx"]) {
+    assert(/previewUrl=\{previewUrl\}/.test(read(rel)), `${rel} passes it through`);
+  }
 }
 
 console.log("4. an SSH leaf replays the url it EMITTED, not the one it printed");

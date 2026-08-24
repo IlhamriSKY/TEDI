@@ -56,6 +56,12 @@ type Props = {
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   /** Flip a markdown editor leaf between source and preview, from its pane header. */
   onToggleMdPreview?: (leafId: number) => void;
+  /** Detected local dev-server URL, already resolved against the ACTIVE leaf.
+   *  Renders the globe on the focused pane's header, beside the float button.
+   *  `null` hides it. */
+  previewUrl?: string | null;
+  /** Opens `previewUrl` as a preview tab. */
+  onOpenPreview?: () => void;
   /** Detected local URL for the focused pane header's "open preview" globe. */
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
@@ -95,6 +101,8 @@ export function PaneStack({
   onSplitWithExtTab,
   onSetTerminalTheme,
   onToggleMdPreview,
+  previewUrl,
+  onOpenPreview,
   onSplitSizes,
   sshStatuses,
   aiCliStatuses,
@@ -230,6 +238,8 @@ export function PaneStack({
               }
               onSetTerminalTheme={onSetTerminalTheme}
               onToggleMdPreview={onToggleMdPreview}
+              previewUrl={previewUrl}
+              onOpenPreview={onOpenPreview}
               // A board leaf charts the WHOLE workspace, so it gets every tab,
               // not just the one it happens to live in.
               boardTabs={tabs}

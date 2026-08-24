@@ -14,7 +14,7 @@ import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionH
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import { FolderOpen, PanelLeft, PanelRight, Puzzle, Settings } from "lucide-react";
+import { FolderOpen, PanelLeft, Puzzle, Settings } from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -43,7 +43,6 @@ type Props = {
   onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
   onToggleSidebar: () => void;
   /** Minimizes the whole right column shut / back, the twin of onToggleSidebar. */
-  onToggleRightPanel: () => void;
   onOpenFolder: () => void;
   /** Split the active pane. Forwarded to the TabBar's `+` dropdown. */
   onSplit: (dir: "row" | "col") => void;
@@ -114,7 +113,6 @@ function HeaderImpl({
   onReorderTabs,
   onReorderLeafInGroup,
   onToggleSidebar,
-  onToggleRightPanel,
   onOpenFolder,
   onSplit,
   canSplit,
@@ -226,20 +224,6 @@ function HeaderImpl({
         <ExtensionHeaderItems />
         {extensionsButton}
         {settingsButton}
-
-        {/* Twin of the sidebar toggle at the far left, and at the far right for
-            the same reason: each sits on the edge of the column it minimizes. */}
-        <IconTooltip label="Toggle right panel">
-          <Button
-            onClick={onToggleRightPanel}
-            aria-label="Toggle right panel"
-            variant="ghost"
-            size="icon-sm"
-            className={cn("text-muted-foreground", TOOLBAR_HOVER, "shrink-0 rounded-md")}
-          >
-            <PanelRight size={16} strokeWidth={1.75} />
-          </Button>
-        </IconTooltip>
 
         {USE_CUSTOM_WINDOW_CONTROLS && (
           <>
