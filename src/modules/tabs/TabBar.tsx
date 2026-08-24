@@ -45,6 +45,9 @@ type Props = {
   onOpenAgents: () => void;
   /** Flip the `private` flag on a single leaf (per-tab in the strip, not the whole split group). */
   onTogglePrivate?: (leafId: number) => void;
+  /** Pin or unpin a whole tab. Pinned tabs sort to the front of the strip and
+   *  render compact. Acts on the TAB, so any leaf of a split pins the group. */
+  onSetTabPinned?: (tabId: number, pinned: boolean) => void;
   /** Set a leaf's tab name, or `null` to fall back to the derived one (folder
    *  basename, file name, page title). Backs the right-click Rename. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
@@ -85,7 +88,7 @@ const DROP_ANIMATION: DropAnimation = {
  * see leaves. Without this filter, dragging a tab past the last entry can
  * flicker onto a leaf in another group's split.
  */
-function makeScopedCollisionDetection(): CollisionDetection {
+function makeScopedCollisionDetection(pinnedTabIds: ReadonlySet<number>): CollisionDetection {
   return (args) => {
     const activeId = String(args.active.id);
     const prefix = activeId.startsWith("tab:")
@@ -94,7 +97,21 @@ function makeScopedCollisionDetection(): CollisionDetection {
         ? "leaf:"
         : "";
     if (!prefix) return closestCenter(args);
-    const filtered = args.droppableContainers.filter((d) => String(d.id).startsWith(prefix));
+    let filtered = args.droppableContainers.filter((d) => String(d.id).startsWith(prefix));
+    if (prefix === "tab:") {
+      // Pinned and unpinned tabs are two separate runs, so a tab may only be
+      // dropped among its own kind. `reorderTabs` re-partitions afterwards
+      // regardless, but without this the tab visibly follows the cursor into
+      // the other run and then jumps back on release, which reads as the drag
+      // having failed rather than as a boundary being enforced.
+      const activePinned = pinnedTabIds.has(Number(activeId.slice(4)));
+      const sameRun = filtered.filter(
+        (d) => pinnedTabIds.has(Number(String(d.id).slice(4))) === activePinned,
+      );
+      // Never hand back an empty set: with nothing to collide against the drag
+      // would have no drop target at all.
+      if (sameRun.length > 0) filtered = sameRun;
+    }
     return closestCenter({ ...args, droppableContainers: filtered });
   };
 }
@@ -122,6 +139,7 @@ export function TabBar({
   onNewPreview,
   onOpenAgents,
   onTogglePrivate,
+  onSetTabPinned,
   onRenameLeaf,
   onPinLeaf,
   onReorderTabs,
@@ -212,6 +230,11 @@ export function TabBar({
     if (idx < 0) return;
     for (let i = idx + 1; i < entries.length; i++) {
       const target = entries[i];
+      // Pinned tabs are skipped, the way Chrome skips them. Pinning is a
+      // promise that the tab stays put, and it would be a poor one if a bulk
+      // close taken from the pinned run itself swept the rest of that run away.
+      // Only reachable from a pinned tab, since pinned tabs sort first.
+      if (target.pinned) continue;
       onCloseEntry(target.tabId, target.kind === "pane-leaf" ? target.leafId : null);
     }
   };
@@ -282,8 +305,16 @@ export function TabBar({
   // Pointer DnD via dnd-kit. 5px activation distance prevents click-to-select drags.
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
-  // Memoize so DndContext keeps a stable reference.
-  const collisionDetection = useMemo(() => makeScopedCollisionDetection(), []);
+  // Memoize so DndContext keeps a stable reference. Rebuilt when the pinned set
+  // changes, which is rare (a pin toggle), not per drag frame.
+  const pinnedTabIds = useMemo(
+    () => new Set(tabs.filter((t) => t.pinned).map((t) => t.id)),
+    [tabs],
+  );
+  const collisionDetection = useMemo(
+    () => makeScopedCollisionDetection(pinnedTabIds),
+    [pinnedTabIds],
+  );
 
   // Outer SortableContext: one item per top-level tab. String ids coexist with inner `leaf:<n>` ids.
   const sortableIds = useMemo(() => tabs.map((t) => `tab:${t.id}`), [tabs]);
@@ -422,6 +453,7 @@ export function TabBar({
                       onMoveLeafToNewTab={onMoveLeafToNewTab}
                       onRotateLeafSplit={onRotateLeafSplit}
                       onTogglePrivate={onTogglePrivate}
+                      onSetTabPinned={onSetTabPinned}
                       renamingLeafId={renamingLeafId}
                       onSetRenaming={setRenamingLeafId}
                       onRename={onRenameLeaf}

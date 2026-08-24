@@ -23,6 +23,14 @@ type EntryBase = {
   italic?: boolean;
   /** Yellow dot for unsaved edits. */
   dirty?: boolean;
+  /**
+   * Owning TAB's pinned flag, copied onto every entry of that tab.
+   *
+   * It lives on the tab, not the leaf, so all entries of a split group carry
+   * the same value and the whole cluster renders compact together. Rendering
+   * reads it here rather than looking the tab back up per entry.
+   */
+  pinned?: boolean;
 };
 
 export type PaneEntry = EntryBase & {
@@ -211,6 +219,7 @@ export function buildEntries(
           extIcon: leaf.leafKind === "extension-panel" ? leaf.icon : undefined,
           renamed: leaf.customTitle !== undefined,
           renameSeed: leafRenameSeed(leaf, sshHosts, t.cwd),
+          pinned: t.pinned === true,
         });
       }
       continue;
@@ -221,6 +230,7 @@ export function buildEntries(
         key: `tab-${t.id}`,
         tabId: t.id,
         label: t.title,
+        pinned: t.pinned === true,
       });
       continue;
     }
@@ -230,6 +240,7 @@ export function buildEntries(
         key: `tab-${t.id}`,
         tabId: t.id,
         label: t.title,
+        pinned: t.pinned === true,
       });
       continue;
     }
@@ -239,6 +250,7 @@ export function buildEntries(
         key: `tab-${t.id}`,
         tabId: t.id,
         label: t.title,
+        pinned: t.pinned === true,
       });
       continue;
     }
@@ -252,6 +264,7 @@ export function buildEntries(
       panelId: t.panelId,
       icon: t.icon,
       state: t.state,
+      pinned: t.pinned === true,
     });
   }
   return out;

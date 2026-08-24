@@ -36,7 +36,7 @@ import {
 } from "@/modules/terminal/lib/panes";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
-import { syncPaneMirror } from "./tabHelpers";
+import { sortPinnedFirst, syncPaneMirror } from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
 
 // Re-export the tab types from their new home so existing imports of
@@ -798,10 +798,16 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       }
       return { ...node, children: node.children.map(stamp) };
     };
-    const stamped = nextTabs.map((t) =>
+    // Annotated `Tab[]`: `syncPaneMirror` is declared to return `PaneTab`,
+    // which does not mention `pinned`, so without this the element type loses
+    // the flag even though the spread inside it carries the value at runtime.
+    const stamped: Tab[] = nextTabs.map((t) =>
       t.kind === "pane" ? syncPaneMirror({ ...t, paneTree: stamp(t.paneTree) }) : t,
     );
-    setTabs(stamped);
+    // Restoring a workspace is the one path that adopts an order this module
+    // did not produce, so it is where a stale or hand-edited file could seat a
+    // pinned tab behind unpinned ones.
+    setTabs(sortPinnedFirst(stamped));
     if (nextActiveId !== null) setActiveId(nextActiveId);
     nextIdRef.current = Math.max(nextIdRef.current, maxId + 1);
     nextOrdinalRef.current = nextOrdinal;
@@ -1036,12 +1042,29 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       const from = curr.find((t) => t.id === fromTabId);
       if (!from) return curr;
       const others = curr.filter((t) => t.id !== fromTabId);
-      if (beforeTabId === null) return [...others, from];
+      // Apply the move first, then re-impose the pinned/unpinned split. Doing
+      // it in that order means a drag across the boundary lands at the nearest
+      // legal slot instead of being dropped on the floor.
+      if (beforeTabId === null) return sortPinnedFirst([...others, from]);
       const idx = others.findIndex((t) => t.id === beforeTabId);
-      if (idx < 0) return [...others, from];
+      if (idx < 0) return sortPinnedFirst([...others, from]);
       const result = [...others];
       result.splice(idx, 0, from);
-      return result;
+      return sortPinnedFirst(result);
+    });
+  }, []);
+
+  /**
+   * Pin or unpin a whole tab. Pinning moves it to the end of the pinned run;
+   * unpinning moves it to the front of the unpinned run - both fall out of
+   * `sortPinnedFirst` being a stable partition, so the tab lands next to its
+   * new neighbours rather than jumping to either extreme of the strip.
+   */
+  const setTabPinned = useCallback((tabId: number, pinned: boolean) => {
+    setTabs((curr) => {
+      const target = curr.find((t) => t.id === tabId);
+      if (!target || (target.pinned ?? false) === pinned) return curr;
+      return sortPinnedFirst(curr.map((t) => (t.id === tabId ? { ...t, pinned } : t)));
     });
   }, []);
 
@@ -1136,6 +1159,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     replaceAllTabs,
     allocId,
     reorderTabs,
+    setTabPinned,
     reorderLeafInGroup,
     movePaneLeafToEdge,
     togglePrivate,

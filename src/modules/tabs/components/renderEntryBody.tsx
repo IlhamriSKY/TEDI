@@ -15,7 +15,7 @@ import { MAX_PANES_PER_TAB } from "../lib/useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { hopDotClass, sshHopDetail, statusLabel } from "@/modules/ssh/status";
 import { aiCliLabel } from "@/modules/terminal/lib/aiCliStatus";
-import { X } from "lucide-react";
+import { Pin, X } from "lucide-react";
 import { useSortable } from "@dnd-kit/sortable";
 import { Fragment } from "react";
 import type { ReactNode } from "react";
@@ -57,6 +57,12 @@ export type RenderEntryArgs = {
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   onRotateLeafSplit?: (leafId: number) => void;
   onTogglePrivate?: (leafId: number) => void;
+  /**
+   * Pin or unpin the whole owning TAB. Deliberately not a per-leaf action -
+   * see the note on the Tab type in tabTypes.ts for why pinning cannot mean
+   * anything at leaf level.
+   */
+  onSetTabPinned?: (tabId: number, pinned: boolean) => void;
   paneGroupsForMove: PaneGroupForMove[];
   /** Leaf currently being renamed inline, or null. Owned by the caller because
    *  this is a plain render function, not a component, so it holds no state. */
@@ -91,6 +97,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     onMoveLeafToNewTab,
     onRotateLeafSplit,
     onTogglePrivate,
+    onSetTabPinned,
     paneGroupsForMove,
     renamingLeafId,
     onSetRenaming,
@@ -104,6 +111,13 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   // further down would be a use-before-init at render time.
   const canRename = isPaneLeaf && !!onRename && !!onSetRenaming;
   const renaming = isPaneLeaf && e.kind === "pane-leaf" && renamingLeafId === e.leafId;
+  const isPinned = e.pinned === true;
+  /**
+   * Chrome-style compaction: a pinned tab drops its label and its close
+   * button and shrinks to roughly a square. Suspended while renaming, since
+   * the rename field needs somewhere to live.
+   */
+  const compactPinned = isPinned && !renaming;
   const trigger = (
     <TabsTrigger
       key={e.key}
@@ -130,7 +144,11 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         "data-[state=active]:bg-accent data-[state=active]:text-accent-foreground data-[state=active]:font-semibold",
         // Inside a split cluster, entries are flat; outside they keep the pill look.
         isSplit ? "rounded-none" : "rounded-md",
-        compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!",
+        // A pinned tab has no label and no close button, so it only needs
+        // room for its icon: even padding, and no space reserved for a
+        // trailing control that is not there.
+        compactPinned ? "justify-center px-1.5!" : null,
+        !compactPinned && (compact ? "px-2!" : totalEntries === 1 ? "px-2.5!" : "ps-2.5! pe-1.5!"),
         // Divider on every entry except the first in a split group.
         isSplit &&
           idx > 0 &&
@@ -158,11 +176,23 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           // badge. `min-w-0` keeps flex-shrink so the inner label can ellipsize.
           "flex min-w-0 items-center gap-1.5",
           // Cap tab width so long page titles (browser panes) don't make tabs
-          // huge; the inner label `truncate`s with an ellipsis past this.
-          compact ? "max-w-32" : "max-w-44",
+          // huge; the inner label truncates with an ellipsis past this. A
+          // pinned tab has no label to cap.
+          compactPinned ? "gap-1" : compact ? "max-w-32" : "max-w-44",
         )}
       >
         <EntryIcon entry={e} />
+        {/* The pin marker. Sits NEXT TO the identity icon rather than replacing
+            it: which tab this is matters more than the fact that it is pinned,
+            and swapping the icon out would make a row of pinned tabs
+            indistinguishable from one another.
+
+            Only on the first entry, because a split group is several chips but
+            ONE pinned tab - repeating the glyph on all six panes of a split
+            would be noise that also implies each pane is pinned separately. */}
+        {compactPinned && idx === 0 && (
+          <Pin aria-hidden strokeWidth={2.5} className="size-2.5 shrink-0 opacity-70" />
+        )}
         {renaming && e.kind === "pane-leaf" ? (
           // `stopPropagation` on pointerdown so a drag-to-reorder gesture cannot
           // start from inside the field: the drag listeners live on the trigger
@@ -185,7 +215,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
               onCancel={() => onSetRenaming?.(null)}
             />
           </span>
-        ) : (
+        ) : compactPinned ? null : (
           <span
             className={cn(
               "truncate",
@@ -209,7 +239,11 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           Hidden while renaming: it crowds the field, and clicking it mid-rename would
           close the very tab being named. */}
       <span className="ms-1.5 flex shrink-0 items-center gap-0.5">
-        {canClose && !renaming && (
+        {/* Pinned tabs hide the close button, exactly as Chrome does: the
+            point of pinning is that the tab survives, and a 1-pixel miss on
+            a chip this small should not be able to end it. Close stays
+            reachable from the right-click menu after unpinning. */}
+        {canClose && !renaming && !compactPinned && (
           <TrailingIconButton
             icon={X}
             label="Close"
@@ -230,20 +264,40 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const canLeaveGroup = isPaneLeaf && isSplit && !!onMoveLeafToNewTab;
   const canMove = moveTargets.length > 0;
   const canTogglePrivate = isPaneLeaf && !!onTogglePrivate;
+  const canPin = !!onSetTabPinned;
+  /**
+   * A split group is several chips in the strip but ONE tab, so pinning any
+   * of its leaves pins all of them. Saying Group rather than Tab here is the
+   * whole disambiguation: without it, right-clicking one pane of a split and
+   * choosing Pin Tab reads like a promise to pull that single pane out to
+   * the front of the strip, which is not a thing a leaf can do.
+   */
+  const pinLabel = isSplit ? "Group" : "Tab";
   const canCloseToRight = lastEntryKey !== null && e.key !== lastEntryKey;
   const hasContextActions =
-    canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate || canCloseToRight;
+    canRename ||
+    canRotate ||
+    canLeaveGroup ||
+    canMove ||
+    canTogglePrivate ||
+    canPin ||
+    canCloseToRight;
   const hasLeafActions = canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate;
   // Private tabs always get a tooltip explaining the AI-visibility implication;
   // SSH / AI-CLI tooltips win the slot when both apply and append the private
   // note as an extra line.
-  const tooltipMode: "ssh" | "ai" | "private" | null = sshHost
+  const tooltipMode: "ssh" | "ai" | "private" | "pinned" | null = sshHost
     ? "ssh"
     : isPaneLeaf && e.aiCliStatus
       ? "ai"
       : isPrivate
         ? "private"
-        : null;
+        : // A compact pinned tab shows no label at all, so the hover is the
+          // only way left to tell two pinned terminals apart. This is not a
+          // nicety: without it, compaction destroys information.
+          compactPinned
+          ? "pinned"
+          : null;
   const PRIVATE_HINT = "Not visible to the native AI agent";
 
   // Build innermost-out. TabsTrigger must be the DOM child of every asChild
@@ -323,7 +377,12 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
               <span className="flex-1">{isPrivate ? "Mark as Public" : "Mark as Private"}</span>
             </ContextMenuItem>
           )}
-          {canCloseToRight && hasLeafActions && <ContextMenuSeparator />}
+          {canPin && (
+            <ContextMenuItem onSelect={() => onSetTabPinned!(e.tabId, !isPinned)}>
+              <span className="flex-1">{`${isPinned ? "Unpin" : "Pin"} ${pinLabel}`}</span>
+            </ContextMenuItem>
+          )}
+          {canCloseToRight && (hasLeafActions || canPin) && <ContextMenuSeparator />}
           {canCloseToRight && (
             <ContextMenuItem onSelect={() => onCloseEntriesAfter(e)}>
               Close Tabs to the Right
@@ -341,6 +400,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {wrapped}
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-0.5 text-[11px]">
+            {compactPinned ? <span>{e.label}</span> : null}
             <span>
               SSH · {sshHost!.user}@{sshHost!.host}:{sshHost!.port}
             </span>
@@ -377,8 +437,21 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         {wrapped}
         <TooltipContent side="bottom">
           <div className="flex flex-col gap-0.5 text-[11px]">
+            {compactPinned ? <span>{e.label}</span> : null}
             <span>{aiCliLabel(ai)}</span>
             {isPrivate ? <span className="text-destructive">{PRIVATE_HINT}</span> : null}
+          </div>
+        </TooltipContent>
+      </Tooltip>
+    );
+  } else if (tooltipMode === "pinned") {
+    wrapped = (
+      <Tooltip>
+        {wrapped}
+        <TooltipContent side="bottom">
+          <div className="flex items-center gap-1.5 text-[11px]">
+            <Pin aria-hidden size={10} strokeWidth={2} />
+            <span>{e.label}</span>
           </div>
         </TooltipContent>
       </Tooltip>

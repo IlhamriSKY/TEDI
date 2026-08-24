@@ -161,3 +161,8 @@ export function isTerminalLikeTab(tab: Tab): boolean {
 export function isEditorLikeTab(tab: Tab): boolean {
   return tab.kind === "pane" && activeLeafKind(tab) === "editor";
 }
+
+// The pinned-first invariant is shared with the Workspaces panel, so it lives
+// in `@/lib/pinned`. Re-exported here because the tab code reads more
+// naturally importing it alongside the other tab helpers.
+export { sortPinnedFirst } from "@/lib/pinned";

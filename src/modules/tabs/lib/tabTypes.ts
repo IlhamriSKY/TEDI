@@ -35,14 +35,7 @@ export type AiDiffTab = {
 };
 
 export type GitChangeStatusTab =
-  | "modified"
-  | "added"
-  | "deleted"
-  | "renamed"
-  | "copied"
-  | "untracked"
-  | "conflicted"
-  | "ignored";
+  "modified" | "added" | "deleted" | "renamed" | "copied" | "untracked" | "conflicted" | "ignored";
 
 export type GitDiffTab = {
   id: number;
@@ -90,12 +83,7 @@ export type ScmTab = {
  * `disconnected`/`error` → red, `idle`/undefined → default.
  */
 export type ExtensionTabState =
-  | "idle"
-  | "connecting"
-  | "reconnecting"
-  | "connected"
-  | "disconnected"
-  | "error";
+  "idle" | "connecting" | "reconnecting" | "connected" | "disconnected" | "error";
 
 /**
  * Extension-owned tab. The content is mounted by `ExtensionTabStack`
@@ -118,4 +106,22 @@ export type ExtensionTab = {
   state?: ExtensionTabState;
 };
 
-export type Tab = PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab;
+/**
+ * Any tab, plus the flags that apply to every kind.
+ *
+ * `pinned` is an intersection rather than a field repeated on all five kinds so
+ * there is one place to read the contract from, and so a new tab kind gets it
+ * automatically instead of silently being unpinnable.
+ *
+ * PINNING IS A PROPERTY OF THE TAB, NEVER OF A PANE LEAF. The strip draws one
+ * chip per leaf, so a split tab looks like several tabs - but the unit that can
+ * actually be reordered is the tab (`tab:<id>` to dnd-kit); a leaf can only move
+ * within its own split. Since pinning means "sit at the front of the strip and
+ * stay there", it can only mean something at the tab level. Right-clicking any
+ * leaf of a split therefore pins the whole group, and the menu says "Pin Group"
+ * so nobody expects one pane of a split to fly out on its own.
+ */
+export type Tab = (PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab) & {
+  /** Pinned tabs sort ahead of unpinned ones and render compact. */
+  pinned?: boolean;
+};
