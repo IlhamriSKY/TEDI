@@ -847,7 +847,23 @@ export default function App() {
       // a keystroke a shell needed.
       if (id === "terminal.copy" || id === "terminal.paste") {
         const leafId = focusedTerminalLeafId();
-        if (leafId === null) return true;
+        if (leafId === null) {
+          // Focus sits outside every terminal: on a tab button, a pane-header
+          // icon, the SSH menu that just opened this very session. Ctrl+Shift+C
+          // / Ctrl+Shift+V, Shift+Insert and Cmd+C/V are terminal-only chords,
+          // so they act on the ACTIVE pane the way Termius does instead of
+          // silently doing nothing - `copyPasteTarget` falls back to the same
+          // leaf. Two exclusions: the BARE Ctrl+C / Ctrl+V variants stay pinned
+          // to a really-focused terminal (elsewhere they are the OS copy/paste
+          // and the shell's SIGINT), and an editable target keeps its native
+          // paste - Chromium's Ctrl+Shift+V is paste-as-plain-text and
+          // Shift+Insert pastes too, both of which the AI composer needs.
+          const el = document.activeElement as HTMLElement | null;
+          if (e.ctrlKey && !e.shiftKey && !e.altKey && !e.metaKey) return true;
+          if (el?.isContentEditable || el?.tagName === "INPUT" || el?.tagName === "TEXTAREA")
+            return true;
+          return activeLeafKindCurrent !== "terminal" || activeLeafIdInTab === null;
+        }
         // Bare Ctrl+C is the shell's SIGINT unless there is something to copy;
         // the handler then clears the selection so the NEXT press interrupts.
         // Ctrl+Shift+C / Cmd+C carry a second modifier, are no control code,
