@@ -1,0 +1,16 @@
+{
+  "name": "__PKG_NAME__",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Build tooling for the __NAME__ TEDI extension. The shipped artifact is the bundled extension.js; source lives in src/.",
+  "scripts": {
+    "build": "node build.mjs",
+    "watch": "node build.mjs --watch",
+    "check": "tsc -p jsconfig.json && node --check extension.js"
+  },
+  "devDependencies": {
+    "esbuild": "^0.28.1",
+    "typescript": "^5.9.0"
+  }
+}

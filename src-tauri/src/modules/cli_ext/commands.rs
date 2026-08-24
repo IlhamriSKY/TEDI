@@ -41,6 +41,8 @@ pub(super) fn cmd_menu() -> Result<(), String> {
         ("Enable an extension", "enable"),
         ("Disable an extension", "disable"),
         ("Uninstall an extension", "uninstall"),
+        ("Create a new extension", "create"),
+        ("Validate an extension folder", "validate"),
         ("Quit", "quit"),
     ];
     let labels: Vec<&str> = actions.iter().map(|(l, _)| *l).collect();
@@ -62,6 +64,11 @@ pub(super) fn cmd_menu() -> Result<(), String> {
         "enable" => cmd_set_enabled(&[], true),
         "disable" => cmd_set_enabled(&[], false),
         "uninstall" => cmd_uninstall(&[]),
+        // Authoring actions take their target interactively (create prompts
+        // for an id, validate defaults to the cwd), so an empty arg list is
+        // the right call here.
+        "create" => super::scaffold::cmd_create(&[]),
+        "validate" => super::validate::cmd_validate(&[]),
         _ => Ok(()),
     }
 }

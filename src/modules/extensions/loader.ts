@@ -78,6 +78,19 @@ export type UpdateCheckResult = {
   source: string;
 };
 
+/** How long an extension took to come up, split the way VS Code splits it.
+ *  `load` scales with bundle size, `activate` with what the extension does in
+ *  `activate()`; blaming the wrong one sends an author optimising the wrong
+ *  thing. */
+export type ActivationTiming = {
+  id: string;
+  name: string;
+  /** ms to read `manifest.main` off disk and instantiate the Blob module. */
+  loadMs: number;
+  /** ms inside the extension's own `activate(ctx)`. */
+  activateMs: number;
+};
+
 type ActiveRecord = {
   context: ExtensionContext;
   dispose: () => Promise<void>;
@@ -85,9 +98,26 @@ type ActiveRecord = {
   scriptUrl: string | null;
   /** Optional `deactivate` export from the extension module. */
   userDeactivate: (() => void | Promise<void>) | null;
+  timing: ActivationTiming;
 };
 
 const active = new Map<string, ActiveRecord>();
+
+/** An `activate()` slower than this is worth naming out loud. Extensions
+ *  activate in parallel, so this is not additive launch cost - but it IS the
+ *  extension's own contribution to time-to-interactive, and the only way to
+ *  attribute it today is a bisect. */
+const SLOW_ACTIVATE_MS = 500;
+
+/** Timings for every currently-active extension, slowest first. Exported for
+ *  diagnostics; the Settings window runs in a separate webview and does not
+ *  share this module's state, which is why the summary is logged rather than
+ *  rendered on the extension cards. */
+export function activationTimings(): ActivationTiming[] {
+  return [...active.values()]
+    .map((r) => r.timing)
+    .sort((a, b) => b.loadMs + b.activateMs - (a.loadMs + a.activateMs));
+}
 
 /** Cached host version. Resolved once on first need so the loader's hot
  *  path stays sync after boot. `Promise<string>` is stored so concurrent
@@ -160,9 +190,16 @@ export async function activate(ext: InstalledExtension): Promise<void> {
 
   let scriptUrl: string | null = null;
   let userDeactivate: ActiveRecord["userDeactivate"] = null;
+  const timing: ActivationTiming = {
+    id: ext.id,
+    name: ext.manifest.name,
+    loadMs: 0,
+    activateMs: 0,
+  };
 
   if (ext.manifest.main) {
     try {
+      const loadStart = performance.now();
       const text = await invoke<string>("ext_read_asset", {
         id: ext.id,
         relPath: ext.manifest.main,
@@ -170,6 +207,7 @@ export async function activate(ext: InstalledExtension): Promise<void> {
       const blob = new Blob([text], { type: "text/javascript" });
       scriptUrl = URL.createObjectURL(blob);
       const module: unknown = await import(/* @vite-ignore */ scriptUrl);
+      timing.loadMs = Math.round(performance.now() - loadStart);
       const mod = module as {
         activate?: (ctx: ExtensionContext) => unknown;
         deactivate?: () => unknown;
@@ -181,7 +219,17 @@ export async function activate(ext: InstalledExtension): Promise<void> {
         userDeactivate = deactivateFn as () => void | Promise<void>;
       }
       if (typeof activateFn === "function") {
+        const activateStart = performance.now();
         await Promise.resolve(activateFn(context));
+        timing.activateMs = Math.round(performance.now() - activateStart);
+        // Warns in release too, not just dev: a slow activate is the kind of
+        // thing that only shows up on a user's machine, and `warn` survives
+        // the build while `info` does not.
+        if (timing.activateMs >= SLOW_ACTIVATE_MS) {
+          console.warn(
+            `[extensions] ${ext.id} spent ${timing.activateMs}ms in activate() (+${timing.loadMs}ms loading). Move slow work off the activate path.`,
+          );
+        }
       } else {
         console.warn(
           `[extensions] ${ext.id} has manifest.main but no activate() export. Declarative contributions still applied.`,
@@ -205,7 +253,7 @@ export async function activate(ext: InstalledExtension): Promise<void> {
     }
   }
 
-  active.set(ext.id, { context, dispose, scriptUrl, userDeactivate });
+  active.set(ext.id, { context, dispose, scriptUrl, userDeactivate, timing });
 }
 
 export async function deactivate(id: string): Promise<void> {
@@ -261,7 +309,34 @@ export async function bootAll(): Promise<InstalledExtension[]> {
         }),
       ),
   );
+  logActivationSummary();
   return installed;
+}
+
+/**
+ * One line per extension after boot, slowest first. `console.info` so it stops
+ * at the dev build - this is developer chatter, and the release-build signal is
+ * the `SLOW_ACTIVATE_MS` warning inside `activate`.
+ *
+ * The Settings window is a separate webview that never runs this module, so
+ * there is no extension card to hang these numbers off; the console is where
+ * an author iterating on their own extension is already looking.
+ */
+function logActivationSummary(): void {
+  if (!import.meta.env.DEV) return;
+  const rows = activationTimings();
+  if (rows.length === 0) return;
+  // eslint-disable-next-line no-console
+  console.info(
+    `[extensions] activated ${rows.length}:\n` +
+      rows
+        .map(
+          (t) =>
+            `  ${String(t.loadMs + t.activateMs).padStart(5)}ms  ${t.id}` +
+            `  (load ${t.loadMs}ms, activate ${t.activateMs}ms)`,
+        )
+        .join("\n"),
+  );
 }
 
 export async function reload(id: string, fresh?: InstalledExtension): Promise<void> {

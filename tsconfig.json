@@ -23,6 +23,6 @@
       "@/*": ["./src/*"]
     }
   },
-  "include": ["src"],
+  "include": ["src", "scripts/ext-api-parity.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

@@ -1,0 +1,415 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 3,
+      "maxLength": 64,
+      "pattern": "^[a-z0-9][a-z0-9\\-_.]*[a-z0-9]$",
+      "description": "Unique id, lowercase, 3-64 chars, letters/digits/dot/dash/underscore. Convention: <publisher>.<name>. Also the install folder name, so it can never contain a path separator.",
+      "examples": [
+        "acme.hello"
+      ]
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "description": "Display name, shown in Settings, the install dialog and the registry."
+    },
+    "version": {
+      "type": "string",
+      "minLength": 1,
+      "description": "This release's version. Compared leniently (digits only), so `1.2.3` and `1.2.3-beta` rank equal. Bump it on every published release: the updater compares it against the upstream tag.",
+      "examples": [
+        "0.1.0"
+      ]
+    },
+    "description": {
+      "description": "One or two sentences, shown on the Settings card and in the install dialog.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "author": {
+      "description": "Author name, optionally with a URL.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "homepage": {
+      "description": "Project or docs URL, linked from the Settings card.",
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "icon": {
+      "description": "Relative path to a PNG/SVG inside the package, used as the extension icon. 64x64 or larger.",
+      "examples": [
+        "logo.png"
+      ],
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "main": {
+      "description": "Relative path to the ES-module entry point exporting `activate(ctx)`. The host imports exactly this one file, so bundle your sources into it. Omit for a declarative-only pack (settings, no code).",
+      "examples": [
+        "extension.js"
+      ],
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "permissions": {
+      "default": [],
+      "description": "What the user is asked to approve at install time. Every gated `ctx.*` call checks this list, and it is FROZEN at install: an update that needs a new permission re-prompts, so ask for the narrowest set that works.",
+      "type": "array",
+      "items": {
+        "anyOf": [
+          {
+            "type": "string",
+            "enum": [
+              "settings:read",
+              "settings:write",
+              "secrets:read",
+              "secrets:write",
+              "events:emit",
+              "events:listen",
+              "ui:toast",
+              "tabs:open",
+              "panels:register",
+              "statusbar:write",
+              "headerbar:write",
+              "sidebar:write",
+              "editor:read",
+              "editor:write",
+              "ssh:connections",
+              "workspaces:manage",
+              "shell:transform",
+              "ai:configure",
+              "ai:prompt"
+            ],
+            "description": "settings:read - Read this extension's own namespaced app settings.\nsettings:write - Write this extension's own namespaced app settings.\nsecrets:read - Read from the OS keychain, namespaced to tedi-ext:<id>.\nsecrets:write - Write and delete in that keychain namespace.\nevents:emit - Emit on this extension's ext://<id>/<name> event channel.\nevents:listen - Listen on that event channel.\nui:toast - Show a toast notification.\ntabs:open - Open an extension tab or split-pane leaf and set its title state.\npanels:register - Declare panels and mount, open or toggle them.\nstatusbar:write - Add an item to the bottom-right status bar.\nheaderbar:write - Add an item to the top header bar.\nsidebar:write - Add a section to the left sidebar.\neditor:read - Read the focused editor's live (possibly unsaved) buffer.\neditor:write - Replace the focused editor's buffer.\nssh:connections - List saved SSH hosts and open or port-forward one by id. Credentials never cross the boundary, but this opens a remote shell.\nworkspaces:manage - Create workspaces and switch the active one.\nshell:transform - Rewrite every shell command the AI agent runs before it executes.\nai:configure - Retarget the AI agent's model/provider and toggle sub-agents.\nai:prompt - Submit a prompt to the AI agent as if the user typed it."
+          },
+          {
+            "type": "string",
+            "description": "Any other permission. `invoke:<command>` grants one Rust command (globs allowed, e.g. `invoke:git_*`, but an exact id is what the install dialog rewards)."
+          }
+        ]
+      }
+    },
+    "contributes": {
+      "default": {},
+      "type": "object",
+      "properties": {
+        "settings": {
+          "description": "Rows on this extension's Settings card. Read them back with `ctx.settings.get(id)`.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Key passed to `ctx.settings.get(id)` / `.set(id, value)`."
+              },
+              "type": {
+                "type": "string",
+                "enum": [
+                  "string",
+                  "number",
+                  "boolean",
+                  "select",
+                  "note"
+                ],
+                "description": "Control to render. `note` is read-only explanatory text; `select` requires `options`."
+              },
+              "label": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Row label on the Settings card."
+              },
+              "description": {
+                "description": "Helper text under the label.",
+                "type": "string"
+              },
+              "default": {
+                "description": "Value used until the user changes it.",
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "boolean"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "options": {
+                "description": "Choices for `type: \"select\"`.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "value": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "value",
+                    "label"
+                  ]
+                }
+              },
+              "section": {
+                "description": "Parsed but not currently used.",
+                "type": "string"
+              },
+              "secret": {
+                "description": "Store this value in the OS keychain instead of the settings store.",
+                "type": "boolean"
+              }
+            },
+            "required": [
+              "id",
+              "type",
+              "label"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "commands": {
+          "description": "Commands shown in the Command Palette. Bind each one with `ctx.registerCommandHandler(id, fn)` from `activate()`.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Command id, namespaced under your extension id so it cannot collide. Bind it with `ctx.registerCommandHandler`.",
+                "examples": [
+                  "acme.hello.greet"
+                ]
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Label shown in the Command Palette."
+              },
+              "category": {
+                "description": "Palette group heading, usually your extension's short name.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "title"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "keybindings": {
+          "description": "Default keyboard shortcuts for contributed commands.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "command": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Id of a command from `contributes.commands`."
+              },
+              "key": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Chord. `Mod` is Ctrl on Windows/Linux and Cmd on macOS. Combine with `Alt`, `Shift`, `Ctrl`.",
+                "examples": [
+                  "Mod+Alt+B"
+                ]
+              },
+              "when": {
+                "description": "Advisory in this version; not evaluated.",
+                "type": "string"
+              }
+            },
+            "required": [
+              "command",
+              "key"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "panels": {
+          "description": "Panel surfaces. Bind each one with `ctx.registerPanelRenderer(id, fn)`. Requires the `panels:register` permission.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Panel id, passed to `ctx.registerPanelRenderer(id, fn)`."
+              },
+              "title": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Panel header text and tab label."
+              },
+              "surface": {
+                "type": "string",
+                "enum": [
+                  "sidebar-bottom",
+                  "statusbar-right",
+                  "right",
+                  "tab"
+                ],
+                "description": "`right` is the slide-out slot beside the workspace, with an auto-rendered status-bar toggle. `tab` mounts the renderer as a full workspace tab or split pane, opened via `ctx.tabs.openExtensionTab` / `openExtensionPane`. `sidebar-bottom` and `statusbar-right` are reserved and currently inert."
+              },
+              "icon": {
+                "description": "`lucide:<Name>`, `ext-asset:<relPath>` from your package, or a `data:` URL.",
+                "examples": [
+                  "lucide:Database"
+                ],
+                "type": "string"
+              },
+              "defaultOpen": {
+                "type": "boolean"
+              },
+              "toggleCommand": {
+                "type": "string"
+              },
+              "hideHostHeader": {
+                "type": "boolean"
+              },
+              "compact": {
+                "type": "boolean"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "panel",
+                  "action"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "title",
+              "surface"
+            ],
+            "additionalProperties": {}
+          }
+        },
+        "aiTools": {
+          "description": "Tools the AI agent can call. Prefer declaring these from `activate()` via `ctx.contribute.aiTools()` so a tool is never published without its handler.",
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "description": "Tool name the model calls. Bind it with `ctx.registerAiToolHandler(name, fn)`."
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "description": "What the tool does and when to use it. This text is injected into the model's context on EVERY turn and is shown to the user in the install review dialog, so keep it short, honest and free of instructions aimed at the user."
+              },
+              "parameters": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {},
+                "description": "JSON Schema for the arguments object the model must produce."
+              },
+              "approval": {
+                "default": "auto",
+                "description": "Advisory only: the host forces approval on every extension tool regardless of this value.",
+                "type": "string",
+                "enum": [
+                  "auto",
+                  "needsApproval"
+                ]
+              }
+            },
+            "required": [
+              "name",
+              "description",
+              "parameters"
+            ],
+            "additionalProperties": {}
+          }
+        }
+      },
+      "additionalProperties": {},
+      "description": "Declarative contributions. These are seeded BEFORE `activate()` runs and survive an activate that throws, so the user can always reach the Settings card to disable or uninstall."
+    },
+    "engines": {
+      "anyOf": [
+        {
+          "type": "object",
+          "properties": {
+            "tedi": {
+              "description": "Minimum TEDI version this extension needs. Checked at install AND at activate, so an older host refuses rather than half-working. Name the version that ADDED the newest API you call; leave it off if you only use API from your first release.",
+              "examples": [
+                ">=0.4.25"
+              ],
+              "type": "string"
+            }
+          },
+          "additionalProperties": {},
+          "description": "Host-version constraints."
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "name",
+    "version"
+  ],
+  "additionalProperties": {},
+  "title": "TEDI extension manifest",
+  "description": "manifest.json for a TEDI extension. Run `tedi ext validate` to check one, and `tedi ext types` to refresh the matching tedi.d.ts.",
+  "$id": "https://tedi.ilhamriski.com/schema/manifest.schema.json"
+}

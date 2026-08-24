@@ -17,6 +17,10 @@
  *
  * Run: `npx tsx scripts/ext-permissions-verify.ts`.
  */
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import {
   checkPermission,
   isInvokeAllowed,
@@ -69,7 +73,10 @@ for (const p of [
 }
 
 console.log("\n[B] hard-denied commands are unreachable, even with a wildcard");
-for (const cmd of [
+/** The commands `ctx.invoke` must never reach. Shared by section [B] (they
+ *  really are unreachable through the TS gate) and section [E] (the Rust CLI
+ *  mirrors this list to warn about a dead grant at authoring time). */
+const DENIED_IN_TS = [
   "secrets_get_all",
   "secrets_get",
   "secrets_set",
@@ -79,7 +86,8 @@ for (const cmd of [
   "ext_enable",
   "ext_disable",
   "ext_uninstall",
-]) {
+];
+for (const cmd of DENIED_IN_TS) {
   check(`isInvokeAllowed(["*"], "${cmd}")`, isInvokeAllowed(["*"], cmd), false);
 }
 // The gate must not over-reach: read-only extension commands stay callable.
@@ -105,6 +113,33 @@ check(
   checkPermission(["invoke:git_*"], "invoke:git_status"),
   true,
 );
+
+console.log("\n[E] the Rust CLI's copy of the hard-deny list still matches this one");
+// `tedi ext validate` warns when a manifest asks for a permission that can
+// never be granted, which needs the same list on the Rust side. It is a
+// warning-only mirror of the enforcing set here, but a mirror that silently
+// drifts stops warning about exactly the grants that matter most. Read it back
+// out of the source rather than trusting a comment to keep them in step.
+{
+  const rustSource = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "src-tauri/src/modules/cli_ext/validate.rs"),
+    "utf8",
+  );
+  const block = /const HARD_DENIED: &\[&str\] = &\[([\s\S]*?)\];/.exec(rustSource)?.[1] ?? "";
+  const rustList = [...block.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]).sort();
+  // The TS list is private to `permissions.ts`; probe it through the gate
+  // instead, which is the behaviour that actually matters.
+  const tsList = rustList.filter((cmd) => !isInvokeAllowed(["*"], cmd));
+  check("rust HARD_DENIED is non-empty", rustList.length > 0, true);
+  check(
+    `every rust entry is truly hard-denied in TS (${rustList.length})`,
+    tsList.length === rustList.length,
+    true,
+  );
+  for (const cmd of DENIED_IN_TS) {
+    check(`rust list covers "${cmd}"`, rustList.includes(cmd), true);
+  }
+}
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nAll checks passed: risk tier follows the grant, hard-denies hold, low stays low.");
