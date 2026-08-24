@@ -15,12 +15,15 @@
  *     caller, so a restarted server can only return via the next tick. Its
  *     effect must also key on the JOINED candidate string: the caller's memo
  *     recomputes on every `tabs` change and would otherwise rebuild the timer.
- *  3. PLACEMENT. The globe sits on the FOCUSED pane header, beside float, and
- *     nowhere else. That is a deliberate reversal (v0.4.27): the pane header
- *     cannot be always-visible, since WorkspaceArea blanks the pane stack on any
- *     non-pane tab, and that limitation is accepted so the url sits next to the
- *     terminal that printed it. What must not happen is TWO copies with
- *     different gates, so the status-bar pill is asserted gone.
+ *  3. PLACEMENT. The globe sits on the header of the pane that PRINTED the url,
+ *     beside float, and nowhere else. Moving it off the status bar was a
+ *     deliberate reversal (v0.4.27): the pane header cannot be always-visible,
+ *     since WorkspaceArea blanks the pane stack on any non-pane tab, and that
+ *     limitation is accepted so the url sits next to the terminal that printed
+ *     it. Anchoring it to that terminal rather than to focus came next
+ *     (v0.4.28), because a server keeps running when the pane loses the caret.
+ *     What must not happen is TWO copies with different gates, so the
+ *     status-bar pill is asserted gone.
  *  4. SSH EMITS A DIFFERENT URL THAN IT DEDUPES ON. Over SSH the shell prints a
  *     REMOTE address and the app is handed the TUNNELLED local one. Re-attach
  *     must replay what was EMITTED; replaying the printed one offers a local
