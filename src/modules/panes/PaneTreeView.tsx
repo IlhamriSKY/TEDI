@@ -185,10 +185,13 @@ type Props = {
   /** Flip a markdown editor leaf between source and preview. Backs the pane
    *  header's book/code toggle (it used to live in the app toolbar). */
   onToggleMdPreview?: (leafId: number) => void;
-  /** Detected local dev-server URL, already resolved against the ACTIVE leaf.
-   *  Renders the globe on the focused pane's header, beside the float button.
-   *  `null` hides it. */
+  /** Detected local dev-server URL. Renders the globe beside the float button
+   *  on the header of `previewLeafId`. `null` hides it. */
   previewUrl?: string | null;
+  /** Pane that carries the globe: the leaf that printed the url, so it does not
+   *  hop between headers as panes take focus. Already resolved into the visible
+   *  tab, and leaf ids are unique, so this shows exactly one globe. */
+  previewLeafId?: number | null;
   /** Opens `previewUrl` as a preview tab. */
   onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
@@ -224,6 +227,7 @@ type PaneDndValue = {
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   onToggleMdPreview?: (leafId: number) => void;
   previewUrl?: string | null;
+  previewLeafId?: number | null;
   onOpenPreview?: () => void;
 };
 
@@ -571,6 +575,7 @@ function PaneLeafFrame({
     onSetTerminalTheme,
     onToggleMdPreview,
     previewUrl,
+    previewLeafId,
     onOpenPreview,
   } = use(PaneDndContext);
   const {
@@ -867,15 +872,19 @@ function PaneLeafFrame({
                 </button>
               </IconTooltip>
             )}
-            {/* Detected dev-server URL. On the FOCUSED pane only, so a split
-                does not show the same globe three times, and beside float
-                because that is where the pane's own actions live.
+            {/* Detected dev-server URL, beside float because that is where the
+                pane's own actions live. Anchored to `previewLeafId` - the pane
+                that PRINTED the url - and not to `onlyHere`: focus is not what
+                makes a server run, so the offer stays put while the user works
+                in another pane of the split instead of chasing the caret. Leaf
+                ids are unique and the id is pre-resolved into the visible tab,
+                so a split still shows exactly one globe.
 
                 Trade-off worth knowing: the pane header is not rendered at all
                 on a Source Control, diff or extension tab, so the offer is
                 unreachable from those - which is exactly why it had been moved
                 to the status bar. Put back here on request. */}
-            {onlyHere && previewUrl && onOpenPreview && (
+            {node.id === previewLeafId && previewUrl && onOpenPreview && (
               <IconTooltip label={`Open ${previewUrl} as a preview tab`} side="bottom">
                 <button
                   type="button"
@@ -1118,6 +1127,7 @@ export function PaneTreeView({
   onSetTerminalTheme,
   onToggleMdPreview,
   previewUrl,
+  previewLeafId,
   onOpenPreview,
   onSplitSizes,
   sshHosts,
@@ -1205,6 +1215,7 @@ export function PaneTreeView({
       onSetTerminalTheme,
       onToggleMdPreview,
       previewUrl,
+      previewLeafId,
       onOpenPreview,
     }),
     [
@@ -1216,6 +1227,7 @@ export function PaneTreeView({
       onSetTerminalTheme,
       onToggleMdPreview,
       previewUrl,
+      previewLeafId,
       onOpenPreview,
     ],
   );

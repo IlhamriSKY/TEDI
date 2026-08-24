@@ -698,21 +698,26 @@ export default function App() {
 
   // On active leaf/tab change, surface the focused leaf's search addon,
   // editor handle, and detected URL to the chrome; track browser-pane titles.
-  const { handleSearchReady, handleDetectedLocalUrl, handleProjectUrl, detectedBrowserUrl } =
-    useActiveLeafSurface({
-      searchAddons,
-      editorRefs,
-      detectedUrls,
-      activeId,
-      activeLeafIdInTab,
-      activeLeafKindCurrent,
-      tabs,
-      setActiveSearchAddon,
-      setActiveEditorHandle,
-      setBrowserLeafTitle,
-      autoOpenProjectUrl,
-      openPreviewTab,
-    });
+  const {
+    handleSearchReady,
+    handleDetectedLocalUrl,
+    handleProjectUrl,
+    detectedBrowserUrl,
+    previewLeafId,
+  } = useActiveLeafSurface({
+    searchAddons,
+    editorRefs,
+    detectedUrls,
+    activeId,
+    activeLeafIdInTab,
+    activeLeafKindCurrent,
+    tabs,
+    setActiveSearchAddon,
+    setActiveEditorHandle,
+    setBrowserLeafTitle,
+    autoOpenProjectUrl,
+    openPreviewTab,
+  });
 
   // The other half of the open-in-browser pill: finds a server the terminal
   // never saw start by reading the url the project declares for itself.
@@ -1055,6 +1060,7 @@ export default function App() {
               <ResizableHandle withHandle />
               <WorkspaceArea
                 previewUrl={detectedBrowserUrl}
+                previewLeafId={previewLeafId}
                 onOpenPreview={handleOpenDetectedPreview}
                 tabs={tabs}
                 activeId={activeId}

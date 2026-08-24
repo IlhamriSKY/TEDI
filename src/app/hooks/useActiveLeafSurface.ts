@@ -72,6 +72,7 @@ export function useActiveLeafSurface({
   handleDetectedLocalUrl: (leafId: number, url: string) => void;
   handleProjectUrl: (url: string | null) => void;
   detectedBrowserUrl: string | null;
+  previewLeafId: number | null;
 } {
   const [activeDetectedUrl, setActiveDetectedUrl] = useState<string | null>(null);
   // The open project's own url, resolved from its config by `useProjectUrl`.
@@ -150,6 +151,29 @@ export function useActiveLeafSurface({
   // offering a dev server the user has since stopped.
   const detectedBrowserUrl = useLiveUrl(previewCandidates);
 
+  // Which pane header carries the globe. It is the leaf that actually PRINTED
+  // the url, not whichever pane happens to be focused, so clicking around a
+  // split leaves the offer sitting on the terminal that owns it instead of
+  // hopping from header to header. Still exactly one globe, because leaf ids are
+  // unique. Falls back to the active leaf for the two cases that belong to no
+  // pane in view: the project's declared url, and a terminal that printed in
+  // ANOTHER tab (the offer should follow the user there rather than vanish).
+  const previewLeafId = useMemo(() => {
+    if (!detectedBrowserUrl) return null;
+    const owner =
+      activeDetectedUrl === detectedBrowserUrl
+        ? activeLeafIdInTab
+        : lastDetected?.url === detectedBrowserUrl
+          ? lastDetected.leafId
+          : null;
+    const activeTab = tabs.find((t) => t.id === activeId);
+    const inActiveTab =
+      owner !== null &&
+      activeTab?.kind === "pane" &&
+      leaves(activeTab.paneTree).some((l) => l.id === owner);
+    return inActiveTab ? owner : activeLeafIdInTab;
+  }, [detectedBrowserUrl, activeDetectedUrl, lastDetected, activeLeafIdInTab, tabs, activeId]);
+
   // Fires for either source: the project's declared url AND one a terminal
   // printed, so `php artisan serve` / `npm run dev` opens the browser the same
   // way an already-running server does.
@@ -204,5 +228,6 @@ export function useActiveLeafSurface({
     handleDetectedLocalUrl,
     handleProjectUrl: setProjectUrl,
     detectedBrowserUrl,
+    previewLeafId,
   };
 }
