@@ -136,12 +136,33 @@ console.log("3. App decides them off REAL keyboard focus, not the active leaf");
   const app = read("src/app/App.tsx");
   // The regression that costs the most: keyed off `activeLeafKindCurrent`, a
   // bare Ctrl+V typed into the AI composer still matches terminal.paste, gets
-  // preventDefault()ed, and then pastes nowhere.
+  // preventDefault()ed, and then pastes nowhere. So with nothing focused the
+  // BARE pair, and any editable target, must still be disabled.
   assert(
-    /id === "terminal\.copy" \|\| id === "terminal\.paste"[\s\S]{0,400}?focusedTerminalLeafId\(\)[\s\S]{0,120}?return true;/.test(
+    /id === "terminal\.copy" \|\| id === "terminal\.paste"[\s\S]{0,200}?focusedTerminalLeafId\(\)[\s\S]{0,80}?if \(leafId === null\) \{/.test(
       app,
     ),
-    "both are disabled unless a terminal pane holds keyboard focus",
+    "the gate branches on whether a terminal pane holds keyboard focus",
+  );
+  assert(
+    /if \(leafId === null\) \{[\s\S]{0,1400}?e\.ctrlKey && !e\.shiftKey && !e\.altKey && !e\.metaKey\) return true;/.test(
+      app,
+    ),
+    "with no terminal focused the bare Ctrl+C / Ctrl+V variants stay disabled",
+  );
+  assert(
+    /if \(leafId === null\) \{[\s\S]{0,1600}?isContentEditable[\s\S]{0,140}?return true;/.test(app),
+    "and an editable target keeps its native paste (Ctrl+Shift+V, Shift+Insert)",
+  );
+  // The mirror-image failure, and the one users actually hit: clicking a tab, a
+  // pane-header icon or the SSH menu that opened the session leaves focus on a
+  // BUTTON, so a null leaf must fall back to the active pane rather than make
+  // Ctrl+Shift+C / Ctrl+Shift+V silently do nothing (Termius parity).
+  assert(
+    /if \(leafId === null\) \{[\s\S]{0,1800}?return activeLeafKindCurrent !== "terminal" \|\| activeLeafIdInTab === null;/.test(
+      app,
+    ),
+    "otherwise they act on the ACTIVE terminal pane instead of doing nothing",
   );
   // ...and the mirror-image regression: consume bare Ctrl+C with nothing
   // selected and the shell never sees SIGINT.
