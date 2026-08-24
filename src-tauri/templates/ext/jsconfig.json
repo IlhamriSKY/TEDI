@@ -1,0 +1,13 @@
+{
+  "//": "Turns on type checking for plain JavaScript, so `tedi.d.ts` actually bites: a typo in a `ctx.*` call is a red squiggle in the editor instead of a runtime TypeError inside an async onClick, which is the single most common way an extension breaks invisibly. No install needed - any TypeScript-aware editor reads this file.",
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "lib": ["ES2022", "DOM", "DOM.Iterable"],
+    "checkJs": true,
+    "strict": true,
+    "noEmit": true
+  },
+  "include": ["src/**/*.js", "tedi.d.ts"]
+}

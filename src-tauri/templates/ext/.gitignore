@@ -1,0 +1,4 @@
+node_modules/
+# Build artifact: rebuilt from src/ by `npm run build` and by CI into the
+# release zip. Committing it would make every diff unreadable.
+/extension.js

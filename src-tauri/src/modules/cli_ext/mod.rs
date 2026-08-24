@@ -17,6 +17,9 @@
 //!   tedi ext uninstall [<id>]    # arrow-pick when id omitted
 //!   tedi ext enable [<id>]
 //!   tedi ext disable [<id>]
+//!   tedi ext create [<id>]      # scaffold a new extension in ./<id>/
+//!   tedi ext types [<dir>]      # refresh tedi.d.ts + manifest.schema.json
+//!   tedi ext validate [<dir>]   # pre-publish check of an extension folder
 //!
 //! Concurrency: `state.json` is also written by the running GUI. There is
 //! no file lock; the later writer wins, matching the behaviour two GUI
@@ -26,7 +29,9 @@ mod commands;
 mod helpers;
 mod install;
 mod registry;
+mod scaffold;
 mod types;
+mod validate;
 
 use std::io::Write;
 
@@ -36,6 +41,8 @@ use commands::{
     cmd_install, cmd_list, cmd_list_installed, cmd_menu, cmd_set_enabled, cmd_uninstall, cmd_update,
 };
 use helpers::print_help;
+use scaffold::{cmd_create, cmd_types};
+use validate::cmd_validate;
 
 /// Scan argv for the `ext` subcommand or `--extension` flag, run it, then
 /// `process::exit`. Returns without acting when neither form is present.
@@ -88,6 +95,11 @@ fn run_subcommand(args: &[String]) -> Result<(), String> {
         "uninstall" => cmd_uninstall(rest),
         "enable" => cmd_set_enabled(rest, true),
         "disable" => cmd_set_enabled(rest, false),
+        // Authoring side. These three never touch installed state, so they
+        // work with no extension installed and outside any app data dir.
+        "create" | "init" | "new" => cmd_create(rest),
+        "types" => cmd_types(rest),
+        "validate" | "check" => cmd_validate(rest),
         "help" | "-h" | "--help" => {
             print_help();
             Ok(())
@@ -126,6 +138,9 @@ mod tests {
             "uninstall",
             "enable",
             "disable",
+            "create",
+            "types",
+            "validate",
             "help",
         ] {
             assert!(h.contains(sub), "expected subcommand `{sub}` in help");

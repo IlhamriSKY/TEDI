@@ -1,0 +1,29 @@
+{
+  "$schema": "./manifest.schema.json",
+  "id": "__ID__",
+  "name": "__NAME__",
+  "version": "0.1.0",
+  "description": "__NAME__ for TEDI.",
+  "author": "",
+  "homepage": "",
+  "main": "extension.js",
+  "permissions": ["ui:toast", "statusbar:write"],
+  "contributes": {
+    "commands": [
+      {
+        "id": "__ID__.greet",
+        "title": "Say hello",
+        "category": "__NAME__"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "__ID__.greet",
+        "key": "Mod+Alt+H"
+      }
+    ]
+  },
+  "engines": {
+    "tedi": ">=__HOST_VERSION__"
+  }
+}

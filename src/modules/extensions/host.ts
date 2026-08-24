@@ -126,6 +126,134 @@ async function detectHome(): Promise<string> {
   return cachedHome;
 }
 
+/**
+ * Capabilities an extension can ask about at runtime via `ctx.has(feature)`.
+ *
+ * ONLY for things `typeof` cannot see. A whole facade or method is already
+ * detectable - `typeof ctx.headerBar?.setItem === "function"` needs nothing
+ * from the host - and duplicating those here would be a second list to keep
+ * true. What is NOT detectable is an OPTION FIELD or a CALLBACK ARGUMENT the
+ * host added later: an older host reads the object, ignores the key it does
+ * not know, and the extension silently gets the old behaviour with no way to
+ * find out. Every entry below is exactly that shape.
+ *
+ * Adding one is free and additive. The rule for a new entry: does the host
+ * accept the value and quietly do nothing with it on an older build? Then it
+ * belongs here, named `<surface>.<field>`.
+ *
+ * This exists so an extension can opt into new behaviour WITHOUT raising
+ * `engines.tedi`, which would lock it out of older hosts entirely. Feature
+ * detection degrades; an engine bump excludes.
+ */
+export const HOST_FEATURES = [
+  /** `CodeEditorOptions.completions` - autocomplete in `ctx.ui.codeEditor`. */
+  "codeEditor.completions",
+  /** `ContributedPanel.compact` - cluster the status-bar toggle with the
+   *  borderless extension icons. */
+  "panel.compact",
+  /** `ContributedPanel.kind: "action"` - the toggle runs `toggleCommand`
+   *  instead of opening a panel. */
+  "panel.kind.action",
+  /** The second argument to a `PanelRenderer` (`{ surface, reuseKey }`), which
+   *  is how a panel that runs one instance per key tells its mounts apart. */
+  "panelRenderer.mountContext",
+  /** `StatusItem.label` / `.progress` / `.detail` / `.kind` - a status item
+   *  that displays data rather than just an icon. */
+  "statusItem.progress",
+  /** `SidebarSection.onItemContextMenu` - right-click a row. */
+  "sidebarSection.contextMenu",
+] as const;
+
+export type HostFeature = (typeof HOST_FEATURES)[number];
+
+const HOST_FEATURE_SET: ReadonlySet<string> = new Set(HOST_FEATURES);
+
+/**
+ * Result shapes for the Rust commands extensions actually call, so
+ * `ctx.invoke("shell_bg_logs", …)` resolves to something with fields on it
+ * instead of `unknown`.
+ *
+ * Why this exists: `ctx.invoke` is generic, and a TypeScript extension can
+ * write `ctx.invoke<Foo>(…)`. Plain-JavaScript extensions - which is all nine
+ * of the bundled ones - cannot, so every property read off a result was a type
+ * error, and the only escape was a JSDoc cast per call site asserting a shape
+ * nobody had checked against Rust. Naming the shapes once, here, replaces
+ * every one of those casts with a fact.
+ *
+ * The set is deliberately the commands the fleet demonstrably uses, not the
+ * whole 100+ command surface: a shape written from memory rather than from the
+ * Rust struct would be a type that LIES, which is worse than `unknown`. Every
+ * entry below is transcribed from its `#[derive(Serialize)]` struct, including
+ * its `serde(rename_all)` casing. `scripts/ext-invoke-types-verify.ts` reads
+ * those structs back out of the Rust source and fails if the field names
+ * diverge.
+ *
+ * Adding a command here is additive and safe. An unlisted command still works
+ * exactly as before and resolves to `unknown` (or whatever `<T>` a TypeScript
+ * caller supplies).
+ */
+export type InvokeResults = {
+  /** `shell::CommandOutput` */
+  shell_run_command: {
+    stdout: string;
+    stderr: string;
+    exit_code: number | null;
+    timed_out: boolean;
+    truncated: boolean;
+  };
+  /** The new background handle. */
+  shell_bg_spawn_direct: number;
+  /** `shell::background::BackgroundLogResponse` */
+  shell_bg_logs: {
+    bytes: string;
+    next_offset: number;
+    dropped: number;
+    exited: boolean;
+    exit_code: number | null;
+  };
+  shell_bg_kill: null;
+  /** `shell::background::BackgroundProcInfo` */
+  shell_bg_list: {
+    handle: number;
+    command: string;
+    cwd: string | null;
+    started_at_ms: number;
+    exited: boolean;
+    exit_code: number | null;
+  }[];
+  /** `fs::file::ReadResult`, an internally-tagged enum. Switch on `kind`. */
+  fs_read_file:
+    | { kind: "text"; content: string; size: number }
+    | { kind: "image"; dataUrl: string; mime: string; size: number }
+    | { kind: "binary"; size: number }
+    | { kind: "toolarge"; size: number; limit: number };
+  /** `fs::grep::GlobResponse` */
+  fs_glob: { hits: { path: string; rel: string }[]; truncated: boolean };
+  /** `ssh::SshSessionInfo` (camelCased by serde). */
+  ssh_list_sessions: {
+    id: number;
+    host: string;
+    user: string;
+    cols: number;
+    rows: number;
+    alive: boolean;
+    createdAtMs: number;
+  }[];
+};
+
+/**
+ * `ctx.invoke`'s two call signatures. The known-command overload comes first
+ * so a literal command string picks it up; anything else falls through to the
+ * generic form, which is exactly what the API was before.
+ */
+export type InvokeFn = {
+  <K extends keyof InvokeResults>(
+    command: K,
+    args?: Record<string, unknown>,
+  ): Promise<InvokeResults[K]>;
+  <T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
+};
+
 type Disposer = () => void;
 
 /** App-state snapshot exposed to extensions. Add fields when needed. */
@@ -284,8 +412,10 @@ export type ExtensionContext = {
      *  do it from the UI. */
     stop(): void;
   };
-  /** Invoke a Rust command. Each command id needs an `invoke:` permission. */
-  invoke<T = unknown>(command: string, args?: Record<string, unknown>): Promise<T>;
+  /** Invoke a Rust command. Each command id needs an `invoke:` permission.
+   *  Commands listed in {@link InvokeResults} resolve to their real shape;
+   *  anything else is `unknown` unless the caller supplies `<T>`. */
+  invoke: InvokeFn;
   /** Invoke a Rust command that streams events through a Tauri `Channel`
    *  (e.g. `pty_attach`, `ssh_attach`). The channel is created internally and
    *  passed as the `onEvent` arg. Gated by the same `invoke:<command>`
@@ -482,6 +612,23 @@ export type ExtensionContext = {
     warn(...args: unknown[]): void;
     error(...args: unknown[]): void;
   };
+  /**
+   * Does this host support `feature`? Ungated.
+   *
+   * Only needed for option fields and callback arguments a newer host added,
+   * which an older one accepts and silently ignores. A whole method or facade
+   * is already detectable without this:
+   *
+   * ```js
+   * if (typeof ctx.headerBar?.setItem === "function") { ... }   // no ctx.has
+   * if (ctx.has?.("codeEditor.completions")) { ... }            // needs it
+   * ```
+   *
+   * Call it optionally (`ctx.has?.(...)`): a host older than `ctx.has` itself
+   * has no such method, and `undefined` is correctly falsy.
+   */
+  has(feature: string): boolean;
+
   /** Registers a disposer to run on deactivate. The wrappers above already
    *  call this; most callers don't need it. */
   addDisposer(d: Disposer): void;
@@ -1010,6 +1157,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       warn: (...args) => log("warn", args),
       error: (...args) => log("error", args),
     },
+    has: (feature) => HOST_FEATURE_SET.has(feature),
     addDisposer,
   };
 

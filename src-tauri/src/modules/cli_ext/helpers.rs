@@ -117,6 +117,11 @@ pub(super) fn help_text() -> String {
          {c_disable} {i}         Disable an installed extension\n  \
          {c_help}                  Print this help\n\
          \n\
+         {authoring}\n  \
+         {c_create} {i}          Scaffold a new extension into ./<id>/\n  \
+         {c_types} {d}          Refresh tedi.d.ts + manifest.schema.json from this binary\n  \
+         {c_validate} {d}       Pre-publish check of an extension folder\n\
+         \n\
          {dim_registry}\n",
         title = paint_brand(&format!("tedi ext  {}", env!("CARGO_PKG_VERSION"))),
         tag = paint_dim("· manage TEDI extensions"),
@@ -141,6 +146,11 @@ pub(super) fn help_text() -> String {
         c_disable = paint_id("disable  "),
         c_help = paint_id("help             "),
         dim_registry = paint_dim("Registry: https://tedi.ilhamriski.com/extensions/"),
+        authoring = paint_header("AUTHORING"),
+        d = paint_dim("[<DIR>]"),
+        c_create = paint_id("create   "),
+        c_types = paint_id("types    "),
+        c_validate = paint_id("validate "),
         i = i,
     )
 }

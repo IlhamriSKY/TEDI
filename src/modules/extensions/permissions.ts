@@ -13,6 +13,79 @@
  * Anything undeclared is denied; the host throws `PermissionDeniedError`.
  */
 
+/**
+ * Every fixed permission the host actually gates on, with the one-line
+ * rationale an author sees while writing their manifest.
+ *
+ * This is a NON-EXHAUSTIVE catalogue, deliberately. `checkPermission` still
+ * accepts any string, because `invoke:<command>` is unbounded and because an
+ * extension written for a newer TEDI must keep installing on an older one -
+ * an unknown permission is inert, never a rejection. So nothing here is
+ * enforced; it feeds three things that were previously hand-maintained copies
+ * of each other:
+ *
+ *   - the `permissions` enum in `extensions/manifest.schema.json`, which gives
+ *     authors editor autocomplete inside `manifest.json`;
+ *   - the `KnownPermission` union in `extensions/tedi.d.ts` (kept identical by
+ *     `scripts/ext-api-parity.ts`);
+ *   - `tedi ext validate`, which warns on a permission that matches nothing
+ *     here and is not an `invoke:` grant, since that is almost always a typo
+ *     that would otherwise fail silently at runtime.
+ *
+ * ADDING one is free. REMOVING one, or newly gating a call that used to be
+ * ungated, is a BREAKING change: an installed extension's approved list is
+ * frozen at install time and there is no re-consent path short of
+ * reinstalling. Gate new surface, never existing surface.
+ */
+export const KNOWN_PERMISSIONS = [
+  "settings:read",
+  "settings:write",
+  "secrets:read",
+  "secrets:write",
+  "events:emit",
+  "events:listen",
+  "ui:toast",
+  "tabs:open",
+  "panels:register",
+  "statusbar:write",
+  "headerbar:write",
+  "sidebar:write",
+  "editor:read",
+  "editor:write",
+  "ssh:connections",
+  "workspaces:manage",
+  "shell:transform",
+  "ai:configure",
+  "ai:prompt",
+] as const;
+
+export type KnownPermission = (typeof KNOWN_PERMISSIONS)[number];
+
+/** Author-facing blurb per permission. Keyed so a missing entry is a type
+ *  error rather than a silently undocumented grant. */
+export const PERMISSION_DESCRIPTIONS: Record<KnownPermission, string> = {
+  "settings:read": "Read this extension's own namespaced app settings.",
+  "settings:write": "Write this extension's own namespaced app settings.",
+  "secrets:read": "Read from the OS keychain, namespaced to tedi-ext:<id>.",
+  "secrets:write": "Write and delete in that keychain namespace.",
+  "events:emit": "Emit on this extension's ext://<id>/<name> event channel.",
+  "events:listen": "Listen on that event channel.",
+  "ui:toast": "Show a toast notification.",
+  "tabs:open": "Open an extension tab or split-pane leaf and set its title state.",
+  "panels:register": "Declare panels and mount, open or toggle them.",
+  "statusbar:write": "Add an item to the bottom-right status bar.",
+  "headerbar:write": "Add an item to the top header bar.",
+  "sidebar:write": "Add a section to the left sidebar.",
+  "editor:read": "Read the focused editor's live (possibly unsaved) buffer.",
+  "editor:write": "Replace the focused editor's buffer.",
+  "ssh:connections":
+    "List saved SSH hosts and open or port-forward one by id. Credentials never cross the boundary, but this opens a remote shell.",
+  "workspaces:manage": "Create workspaces and switch the active one.",
+  "shell:transform": "Rewrite every shell command the AI agent runs before it executes.",
+  "ai:configure": "Retarget the AI agent's model/provider and toggle sub-agents.",
+  "ai:prompt": "Submit a prompt to the AI agent as if the user typed it.",
+};
+
 export class PermissionDeniedError extends Error {
   constructor(
     public readonly extensionId: string,
