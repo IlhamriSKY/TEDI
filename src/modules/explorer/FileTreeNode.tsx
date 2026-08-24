@@ -44,8 +44,15 @@ type Props = {
   selectedPath: string | null;
   onSelectPath: (path: string) => void;
   /** Set by the SFTP tree. Hides actions that only make sense for a path on
-   *  this machine, so a remote row never offers something guaranteed to fail. */
+   *  this machine, so a remote row never offers something guaranteed to fail,
+   *  and turns every row into a drop zone for the remote transfer gestures. */
   remote?: boolean;
+  /** Remote only. Pick local files (or one folder) and send them into `dir`. */
+  onUpload?: (dir: string, what: "files" | "folder") => void;
+  /** Remote only. Save this entry (a folder included) to a local folder. */
+  onDownload?: (path: string) => void;
+  /** Remote only. Open the properties + permissions dialog. */
+  onProperties?: (path: string) => void;
 };
 
 function FileTreeNodeImpl({
@@ -61,6 +68,9 @@ function FileTreeNodeImpl({
   selectedPath,
   onSelectPath,
   remote = false,
+  onUpload,
+  onDownload,
+  onProperties,
 }: Props) {
   const path = tree.joinPath(parentPath, entry.name);
   const isDir = entry.kind === "dir";
@@ -132,6 +142,20 @@ function FileTreeNodeImpl({
               // against `[data-terminal-leaf-id]`. See that file for the
               // full rationale.
               data-fs-kind={entry.kind}
+              // Remote rows accept an fs drop: a folder takes it directly, a
+              // file hands it to the folder it lives in - the same target
+              // rule the OS-level drop path uses. `ensureFsDragListener`
+              // fires FS_DROP_EVENT here; the SSH panel decides what it means.
+              data-fs-drop={remote ? (isDir ? path : parentPath) : undefined}
+              // Says the row's path lives on the remote, not this machine, so
+              // a drop handler can tell a move from a transfer. Separate from
+              // `data-fs-drop` on purpose: that one is about accepting drops,
+              // this one is about what the path MEANS.
+              data-fs-remote={remote ? "" : undefined}
+              // `kind` describes what a symlink RESOLVES to, so without this
+              // a linked directory is indistinguishable from a real one on a
+              // server that reports no mode string.
+              title={entry.symlink ? `${entry.name} (symlink)` : undefined}
               onClick={handleNodeSelect}
               onDoubleClick={() => !isDir && tree.beginRename(path)}
               className={cn(
@@ -230,6 +254,28 @@ function FileTreeNodeImpl({
             New Folder
           </ContextMenuItem>
           <ContextMenuSeparator />
+          {onUpload && (
+            <>
+              <ContextMenuItem
+                className={COMPACT_ITEM}
+                onSelect={() => onUpload(createTarget, "files")}
+              >
+                Upload Files Here…
+              </ContextMenuItem>
+              <ContextMenuItem
+                className={COMPACT_ITEM}
+                onSelect={() => onUpload(createTarget, "folder")}
+              >
+                Upload Folder Here…
+              </ContextMenuItem>
+            </>
+          )}
+          {onDownload && (
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onDownload(path)}>
+              Download…
+            </ContextMenuItem>
+          )}
+          <ContextMenuSeparator />
           <ContextMenuItem className={COMPACT_ITEM} onSelect={() => void copyToClipboard(path)}>
             Copy Path
           </ContextMenuItem>
@@ -251,6 +297,11 @@ function FileTreeNodeImpl({
           <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.beginRename(path)}>
             Rename
           </ContextMenuItem>
+          {onProperties && (
+            <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onProperties(path)}>
+              Permissions…
+            </ContextMenuItem>
+          )}
           <ContextMenuItem
             className={COMPACT_ITEM}
             variant="destructive"
@@ -354,6 +405,9 @@ function FileTreeNodeImpl({
             selectedPath={selectedPath}
             onSelectPath={onSelectPath}
             remote={remote}
+            onUpload={onUpload}
+            onDownload={onDownload}
+            onProperties={onProperties}
           />
         ))}
     </>

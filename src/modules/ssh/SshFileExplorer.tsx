@@ -20,6 +20,8 @@ import {
 import { COMPACT_CONTENT, COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
 import type { useFileTree } from "@/modules/explorer/lib/useFileTree";
 import { basename } from "@/lib/path";
+import { formatBytes } from "@/lib/format";
+import { FS_DROP_EVENT, type FsDropDetail } from "@/modules/terminal";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { humanizeFsError } from "@/lib/fsError";
@@ -27,10 +29,12 @@ import { segmentsFromCwd } from "@/modules/statusbar/lib/pathUtils";
 import { setColumnPlacement, usePreferencesStore } from "@/modules/settings/preferences";
 import { revealColumn } from "@/lib/sectionDrag";
 
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
-import { sftpHome } from "./sftp";
+import { remoteDirname, sftpHome } from "./sftp";
+import { SshPermissionsDialog } from "./SshPermissionsDialog";
 import { useSshFileTree } from "./useSshFileTree";
-import { useSshFileDrop } from "./useSshFileDrop";
+import { useSshTransfers } from "./useSshTransfers";
 import { useSshNav } from "./useSshNav";
 import { useSshRightPanelStore } from "./sshRightPanelStore";
 import { useSshBrowseStore } from "./sshBrowseStore";
@@ -48,6 +52,7 @@ import {
   PanelRight,
   RefreshCw,
   Server,
+  Upload,
   X,
 } from "lucide-react";
 
@@ -95,6 +100,8 @@ export function SshFileExplorer({
   const [rootError, setRootError] = useState<string | null>(null);
   // Highlights the clicked row, matching the local file tree.
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
+  // Remote path whose permissions dialog is open, or null.
+  const [permissionsPath, setPermissionsPath] = useState<string | null>(null);
 
   // Resolve the remote home once per session. Used as fallback when the
   // active terminal leaf has not yet reported a cwd via OSC 7.
@@ -141,8 +148,9 @@ export function SshFileExplorer({
     publishBrowseRoot(sessionId, rootPath);
   }, [publishBrowseRoot, sessionId, rootPath]);
 
-  // Drag-and-drop upload: drop OS files onto this panel to SFTP them to the
-  // remote folder under the cursor. Refresh (and reveal) the target dir after.
+  // Every byte in or out of this panel: OS file drops, the Upload/Download
+  // menu items, and rows dragged between trees. Refresh (and reveal) the
+  // target dir once something lands in it.
   const containerRef = useRef<HTMLDivElement>(null);
   const onUploaded = useCallback(
     (dir: string) => {
@@ -151,10 +159,64 @@ export function SshFileExplorer({
     },
     [tree, rootPath],
   );
-  const upload = useSshFileDrop({ sessionId, rootPath, containerRef, onUploaded });
-  // total 0 = size not known yet (first event) -> show indeterminate-ish 0%.
-  const uploadPct =
-    upload && upload.total > 0 ? Math.round((upload.written / upload.total) * 100) : 0;
+  const { transfer, runUpload, runDownload } = useSshTransfers({
+    sessionId,
+    containerRef,
+    onUploaded,
+  });
+  // bytesTotal 0 = the Rust side is still walking the tree, so no total is
+  // known yet; the strip says "Preparing" instead of claiming 0%.
+  const transferPct =
+    transfer && transfer.bytesTotal > 0
+      ? Math.round((transfer.bytesDone / transfer.bytesTotal) * 100)
+      : 0;
+
+  /** Pick local files (or one folder) and send them into `dir`. */
+  const pickAndUpload = useCallback(
+    async (dir: string, what: "files" | "folder") => {
+      const picked = await openDialog({
+        multiple: what === "files",
+        directory: what === "folder",
+        title: what === "folder" ? "Upload folder" : "Upload files",
+      });
+      if (!picked) return;
+      await runUpload(Array.isArray(picked) ? picked : [picked], dir);
+    },
+    [runUpload],
+  );
+
+  /** Ask for a local folder, then pull `path` into it. */
+  const pickAndDownload = useCallback(
+    async (path: string) => {
+      const target = await openDialog({ directory: true, multiple: false, title: "Download to" });
+      if (typeof target !== "string") return;
+      await runDownload([path], target);
+    },
+    [runDownload],
+  );
+
+  // Held in a ref, not the dep array: `tree` is a fresh object on every listing
+  // poll, so depending on it would tear the listener down and rebuild it every
+  // few seconds for no reason.
+  const dropActions = useRef({ move: tree.movePath, upload: runUpload });
+  dropActions.current = { move: tree.movePath, upload: runUpload };
+
+  // Internal drags, synthesized by `ensureFsDragListener` and delivered to the
+  // `data-fs-drop` zone the row landed on. A row from a remote tree is a move
+  // (both SSH panels always show the same session, so the source cannot be a
+  // different host); anything else came from the local explorer and is a path
+  // on this machine, so it uploads.
+  useEffect(() => {
+    const el = containerRef.current;
+    if (!el || sessionId === null) return;
+    const onFsDrop = (event: Event) => {
+      const { path, dir, sourceEl } = (event as CustomEvent<FsDropDetail>).detail;
+      if (sourceEl.hasAttribute("data-fs-remote")) void dropActions.current.move(path, dir);
+      else void dropActions.current.upload([path], dir);
+    };
+    el.addEventListener(FS_DROP_EVENT, onFsDrop);
+    return () => el.removeEventListener(FS_DROP_EVENT, onFsDrop);
+  }, [sessionId]);
 
   const accordion = !!onToggleCollapsed;
   const headerLabel = rootPath ? basename(rootPath) : (hostLabel ?? "SSH");
@@ -254,6 +316,17 @@ export function SshFileExplorer({
                 aria-label="New folder"
               >
                 <FolderPlus size={13} strokeWidth={2} />
+              </Button>
+            </IconTooltip>
+            <IconTooltip label="Upload files here" side="bottom">
+              <Button
+                variant="ghost"
+                size="icon"
+                className="tedi-header-optional text-muted-foreground hover:text-foreground size-6"
+                onClick={() => void pickAndUpload(rootPath, "files")}
+                aria-label="Upload files here"
+              >
+                <Upload size={13} strokeWidth={2} />
               </Button>
             </IconTooltip>
             <IconTooltip label="Refresh" side="bottom">
@@ -408,21 +481,28 @@ export function SshFileExplorer({
         </div>
       ) : null}
 
-      {upload && !collapsed ? (
+      {transfer && !collapsed ? (
         <div className="border-border/60 shrink-0 border-b px-2 py-1.5">
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
             <span className="text-foreground/80 min-w-0 truncate">
-              Uploading {upload.name}
-              {upload.count > 1 ? ` (${upload.index}/${upload.count})` : ""}
+              {transfer.count === 0
+                ? "Preparing transfer…"
+                : `${transfer.kind === "upload" ? "Uploading" : "Downloading"} ${transfer.name}`}
+              {transfer.count > 1 ? ` (${transfer.index}/${transfer.count})` : ""}
             </span>
-            <span className="text-muted-foreground shrink-0 tabular-nums">{uploadPct}%</span>
+            <span className="text-muted-foreground shrink-0 tabular-nums">{transferPct}%</span>
           </div>
           <div className="bg-muted h-1 w-full overflow-hidden rounded-full">
             <div
               className="bg-primary h-full rounded-full transition-[width] duration-150"
-              style={{ width: `${uploadPct}%` }}
+              style={{ width: `${transferPct}%` }}
             />
           </div>
+          {transfer.bytesTotal > 0 ? (
+            <div className="text-muted-foreground mt-1 text-right text-[10px] tabular-nums">
+              {formatBytes(transfer.bytesDone)} / {formatBytes(transfer.bytesTotal)}
+            </div>
+          ) : null}
         </div>
       ) : null}
 
@@ -449,7 +529,10 @@ export function SshFileExplorer({
 
           <ContextMenu>
             <ContextMenuTrigger asChild>
-              <ScrollArea className="min-h-0 flex-1">
+              {/* The whole tree body is a drop zone for the current root, so
+                  a drop on empty space below the rows still has a destination.
+                  A row's own `data-fs-drop` is nearer, so it wins. */}
+              <ScrollArea className="min-h-0 flex-1" data-fs-drop={rootPath}>
                 <div className="py-1">
                   {pendingAtRoot && (
                     <div
@@ -536,6 +619,9 @@ export function SshFileExplorer({
                         selectedPath={selectedPath}
                         onSelectPath={setSelectedPath}
                         remote
+                        onUpload={(dir, what) => void pickAndUpload(dir, what)}
+                        onDownload={(p) => void pickAndDownload(p)}
+                        onProperties={setPermissionsPath}
                       />
                     ))}
                 </div>
@@ -562,9 +648,34 @@ export function SshFileExplorer({
               <ContextMenuSeparator />
               <ContextMenuItem
                 className={COMPACT_ITEM}
+                onSelect={() => void pickAndUpload(rootPath, "files")}
+              >
+                Upload Files Here…
+              </ContextMenuItem>
+              <ContextMenuItem
+                className={COMPACT_ITEM}
+                onSelect={() => void pickAndUpload(rootPath, "folder")}
+              >
+                Upload Folder Here…
+              </ContextMenuItem>
+              <ContextMenuItem
+                className={COMPACT_ITEM}
+                onSelect={() => void pickAndDownload(rootPath)}
+              >
+                Download Folder…
+              </ContextMenuItem>
+              <ContextMenuSeparator />
+              <ContextMenuItem
+                className={COMPACT_ITEM}
                 onSelect={() => void copyToClipboard(rootPath)}
               >
                 Copy Path
+              </ContextMenuItem>
+              <ContextMenuItem
+                className={COMPACT_ITEM}
+                onSelect={() => setPermissionsPath(rootPath)}
+              >
+                Permissions…
               </ContextMenuItem>
               <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refreshAllLoaded()}>
                 Refresh
@@ -573,6 +684,18 @@ export function SshFileExplorer({
           </ContextMenu>
         </>
       )}
+
+      <SshPermissionsDialog
+        sessionId={sessionId}
+        path={permissionsPath}
+        onClose={() => setPermissionsPath(null)}
+        onChanged={(p) => {
+          // A row's own mode string lives in its PARENT's listing; a recursive
+          // apply also changed every child the tree is already showing.
+          tree.refresh(remoteDirname(p));
+          if (tree.expanded.has(p)) tree.refresh(p);
+        }}
+      />
     </div>
   );
 }

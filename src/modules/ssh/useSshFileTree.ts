@@ -1,7 +1,15 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 
+import { toast } from "@/components/ui/toast";
 import { sameEntries } from "@/modules/explorer/lib/useFileTree";
-import { sftpCreateDir, sftpCreateFile, sftpDelete, sftpReadDir, sftpRename } from "./sftp";
+import {
+  sftpCreateDir,
+  sftpCreateFile,
+  sftpDelete,
+  sftpExists,
+  sftpReadDir,
+  sftpRename,
+} from "./sftp";
 import { coalesceResume } from "@/lib/windowResume";
 
 // SFTP-backed file tree. Same shape as `useFileTree` so `FileTreeNode` can
@@ -15,13 +23,24 @@ import { coalesceResume } from "@/lib/windowResume";
 
 export type SshDirEntry = {
   name: string;
+  /** For a symlink this is what the link RESOLVES to, so a linked directory
+   *  still expands. `symlink` says whether it is a link. */
   kind: "file" | "dir" | "symlink";
   size: number;
   mtime: number;
-  /** Unix `"rwxr-xr-x"` mode summary from the SFTP metadata. Empty when the
-   *  server did not report a mode. Shown in the tree row. */
+  /** Unix `"drwxr-xr-x"` (`ls -l` form) mode summary from the SFTP metadata.
+   *  Empty when the server did not report a mode. Shown in the tree row. */
   permissions?: string;
+  symlink?: boolean;
 };
+
+/** Surface a failed remote mutation. The Rust side already returns a short,
+ *  specific string ("permission denied"), and a console line is invisible to
+ *  the person whose rename silently did nothing. */
+function reportFailure(action: string, e: unknown): void {
+  console.error(`ssh ${action.toLowerCase()} failed:`, e);
+  toast(`${action} failed: ${String(e)}`, { variant: "error" });
+}
 
 type ChildrenState =
   | { status: "idle" }
@@ -288,7 +307,7 @@ export function useSshFileTree(
         }
         await fetchChildren(pendingCreate.parentPath);
       } catch (e) {
-        console.error(`ssh create ${pendingCreate.kind} failed:`, e);
+        reportFailure(pendingCreate.kind === "dir" ? "Create folder" : "Create file", e);
       } finally {
         setPendingCreate(null);
       }
@@ -318,7 +337,7 @@ export function useSshFileTree(
         await sftpRename(sessionId, renaming, to);
         await fetchChildren(parent);
       } catch (e) {
-        console.error("ssh rename failed:", e);
+        reportFailure("Rename", e);
       } finally {
         setRenaming(null);
       }
@@ -333,7 +352,37 @@ export function useSshFileTree(
         await sftpDelete(sessionId, path);
         await fetchChildren(dirname(path));
       } catch (e) {
-        console.error("ssh delete failed:", e);
+        reportFailure("Delete", e);
+      }
+    },
+    [fetchChildren, sessionId],
+  );
+
+  /** Move an entry into another remote directory - what a drag between rows
+   *  means. SFTP has no "move": this is a rename, which servers refuse across
+   *  filesystems, so a failure is reported rather than papered over with a
+   *  copy-then-delete the user did not ask for. */
+  const movePath = useCallback(
+    async (from: string, toDir: string) => {
+      if (sessionId === null) return;
+      const name = from.slice(from.lastIndexOf("/") + 1);
+      const to = joinPath(toDir, name);
+      if (to === from) return; // dropped back where it already lives
+      // Into itself or its own subtree would detach the folder entirely.
+      if (toDir === from || toDir.startsWith(`${from}/`)) {
+        toast("Cannot move a folder into itself", { variant: "warning" });
+        return;
+      }
+      try {
+        if (await sftpExists(sessionId, to)) {
+          toast(`"${name}" already exists in ${toDir}`, { variant: "warning" });
+          return;
+        }
+        await sftpRename(sessionId, from, to);
+        await Promise.all([fetchChildren(dirname(from)), fetchChildren(toDir)]);
+        toast(`Moved ${name} to ${toDir}`, { variant: "success" });
+      } catch (e) {
+        reportFailure("Move", e);
       }
     },
     [fetchChildren, sessionId],
@@ -357,6 +406,7 @@ export function useSshFileTree(
       cancelRename,
       commitRename,
       deletePath,
+      movePath,
       joinPath,
     }),
     [
@@ -376,6 +426,7 @@ export function useSshFileTree(
       cancelRename,
       commitRename,
       deletePath,
+      movePath,
     ],
   );
 }

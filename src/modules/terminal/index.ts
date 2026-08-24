@@ -7,7 +7,12 @@ export {
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
-export { useTerminalFileDrop, ensureFsDragListener } from "./lib/useTerminalFileDrop";
+export {
+  useTerminalFileDrop,
+  ensureFsDragListener,
+  FS_DROP_EVENT,
+  type FsDropDetail,
+} from "./lib/useTerminalFileDrop";
 export {
   subscribeTerminalOutput,
   terminalSize,
