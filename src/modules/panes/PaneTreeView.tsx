@@ -73,6 +73,7 @@ import {
   BookOpen,
   Cloud,
   FileCode,
+  Globe,
   GripVertical,
   Settings,
   SquareArrowOutUpRight,
@@ -184,9 +185,12 @@ type Props = {
   /** Flip a markdown editor leaf between source and preview. Backs the pane
    *  header's book/code toggle (it used to live in the app toolbar). */
   onToggleMdPreview?: (leafId: number) => void;
-  /** Detected local URL for the "open preview" globe, already resolved against
-   *  the *active* leaf. Shown on the focused pane's header (it used to sit in
-   *  the app toolbar); `null` hides it. */
+  /** Detected local dev-server URL, already resolved against the ACTIVE leaf.
+   *  Renders the globe on the focused pane's header, beside the float button.
+   *  `null` hides it. */
+  previewUrl?: string | null;
+  /** Opens `previewUrl` as a preview tab. */
+  onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
   /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
@@ -219,6 +223,8 @@ type PaneDndValue = {
   onSplitWithExtTab?: (extTabId: number, leafId: number, dir: SplitDir) => void;
   onSetTerminalTheme?: (leafId: number, themeId: string | null) => void;
   onToggleMdPreview?: (leafId: number) => void;
+  previewUrl?: string | null;
+  onOpenPreview?: () => void;
 };
 
 const PaneDndContext = createContext<PaneDndValue>({
@@ -564,6 +570,8 @@ function PaneLeafFrame({
     onSplitWithExtTab,
     onSetTerminalTheme,
     onToggleMdPreview,
+    previewUrl,
+    onOpenPreview,
   } = use(PaneDndContext);
   const {
     sshHosts,
@@ -859,6 +867,29 @@ function PaneLeafFrame({
                 </button>
               </IconTooltip>
             )}
+            {/* Detected dev-server URL. On the FOCUSED pane only, so a split
+                does not show the same globe three times, and beside float
+                because that is where the pane's own actions live.
+
+                Trade-off worth knowing: the pane header is not rendered at all
+                on a Source Control, diff or extension tab, so the offer is
+                unreachable from those - which is exactly why it had been moved
+                to the status bar. Put back here on request. */}
+            {onlyHere && previewUrl && onOpenPreview && (
+              <IconTooltip label={`Open ${previewUrl} as a preview tab`} side="bottom">
+                <button
+                  type="button"
+                  aria-label={`Open ${previewUrl} as a preview tab`}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenPreview();
+                  }}
+                  className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+                >
+                  <Globe size={12} strokeWidth={2} />
+                </button>
+              </IconTooltip>
+            )}
             {/* Per-pane terminal theme, moved out of the right-click menu into a
                 gear dropdown that sits between the float + close buttons. */}
             {node.leafKind === "terminal" && onSetTerminalTheme && (
@@ -1086,6 +1117,8 @@ export function PaneTreeView({
   onSplitWithExtTab,
   onSetTerminalTheme,
   onToggleMdPreview,
+  previewUrl,
+  onOpenPreview,
   onSplitSizes,
   sshHosts,
   sshStatuses,
@@ -1171,6 +1204,8 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
+      previewUrl,
+      onOpenPreview,
     }),
     [
       drag,
@@ -1180,6 +1215,8 @@ export function PaneTreeView({
       onSplitWithExtTab,
       onSetTerminalTheme,
       onToggleMdPreview,
+      previewUrl,
+      onOpenPreview,
     ],
   );
   const metaValue = useMemo<PaneMetaValue>(
