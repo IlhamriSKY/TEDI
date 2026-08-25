@@ -536,7 +536,6 @@ export function armAltExitRepaintWatchdog(s: Session): void {
     } catch {
       return;
     }
-    nudgeResizeRoundTrip(s, epoch);
   }, ALT_EXIT_REPAINT_DELAY_MS);
 }
 
