@@ -2,7 +2,8 @@
 //!
 //! Reads a .zip from disk, bytes, or URL, validates it, extracts into
 //! `<extensions_dir>/<id>/`, then updates the persisted state entry. Any
-//! existing folder for the same id is wiped first.
+//! existing folder for the same id is replaced only after the new package
+//! validates.
 //!
 //! Guards: `enclosed_name()` rejects zip entries that resolve outside the
 //! destination root. Symlinks are written as data files (not followed).
@@ -660,8 +661,6 @@ fn read_entry(
     strip_prefix: Option<&str>,
     target_rel: &str,
 ) -> Result<Option<Vec<u8>>, String> {
-    use std::io::Read;
-
     let needle = match strip_prefix {
         Some(prefix) => format!("{prefix}/{target_rel}"),
         None => target_rel.to_string(),

@@ -135,7 +135,7 @@ function paletteFromColors(name: string, c: ThemeColors): TerminalPalette {
   };
 }
 
-export type TerminalPreset = { id: string; palette: TerminalPalette };
+type TerminalPreset = { id: string; palette: TerminalPalette };
 
 /**
  * Prebuilt terminal palettes. Derived from the app presets' DARK variants:

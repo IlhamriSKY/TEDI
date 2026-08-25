@@ -234,43 +234,8 @@ fn track_spawned(
         _job: job,
     });
 
-    {
-        let proc_ref = proc.clone();
-        let mut pipe = stdout_pipe;
-        thread::spawn(move || {
-            let mut buf = [0u8; 8192];
-            loop {
-                // Bounded exit: stop reading once `kill`/the wait-thread signals
-                // (child reaped + grace) so a grandchild holding the pipe can't
-                // leak this thread + FD. Checked between reads.
-                if proc_ref.stop_readers.load(Ordering::Acquire) {
-                    break;
-                }
-                match pipe.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => proc_ref.buffer.lock_or_recover().push(&buf[..n]),
-                    Err(_) => break,
-                }
-            }
-        });
-    }
-    {
-        let proc_ref = proc.clone();
-        let mut pipe = stderr_pipe;
-        thread::spawn(move || {
-            let mut buf = [0u8; 8192];
-            loop {
-                if proc_ref.stop_readers.load(Ordering::Acquire) {
-                    break;
-                }
-                match pipe.read(&mut buf) {
-                    Ok(0) => break,
-                    Ok(n) => proc_ref.buffer.lock_or_recover().push(&buf[..n]),
-                    Err(_) => break,
-                }
-            }
-        });
-    }
+    spawn_reader_thread(proc.clone(), stdout_pipe);
+    spawn_reader_thread(proc.clone(), stderr_pipe);
     {
         let proc_ref = proc.clone();
         let child_for_wait = proc.child.clone();
@@ -295,4 +260,26 @@ fn track_spawned(
     }
 
     Ok(proc)
+}
+
+/// Spawn a thread draining `pipe` into `proc`'s ring buffer until EOF, an
+/// error, or `proc.stop_readers` is set. Shared by the stdout and stderr
+/// readers in [`track_spawned`] - identical loop, different pipe.
+fn spawn_reader_thread(proc: Arc<BackgroundProc>, mut pipe: impl Read + Send + 'static) {
+    thread::spawn(move || {
+        let mut buf = [0u8; 8192];
+        loop {
+            // Bounded exit: stop reading once `kill`/the wait-thread signals
+            // (child reaped + grace) so a grandchild holding the pipe can't
+            // leak this thread + FD. Checked between reads.
+            if proc.stop_readers.load(Ordering::Acquire) {
+                break;
+            }
+            match pipe.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => proc.buffer.lock_or_recover().push(&buf[..n]),
+                Err(_) => break,
+            }
+        }
+    });
 }

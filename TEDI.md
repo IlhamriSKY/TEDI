@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.28.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.29.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -37,7 +37,7 @@ Six invariants (rationale in [ARCHITECTURE.md](ARCHITECTURE.md#2-design-principl
 1. **Two processes.** Frontend (`src/`, React webview) owns UI; backend
    (`src-tauri/`, Rust) owns every OS resource. The webview reaches the OS only
    via `invoke("cmd", args)`; streaming output returns over a Tauri `Channel`.
-   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 103
+   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 124
    commands) which is the whole backend API index.
 2. **Two webviews.** The main window and a separate Settings window
    (`src/settings/`). They share state via `tauri-plugin-store`, not React.
@@ -55,7 +55,7 @@ pointer-events-none` so PTYs and dev servers keep streaming.
 
 ```
 src-tauri/                      Backend (Rust)
-  src/lib.rs                    invoke_handler (all 103 commands) + boot + CLI dispatch
+  src/lib.rs                    invoke_handler (all 124 commands) + boot + CLI dispatch
   src/main.rs                   thin shim
   src/modules/
     pty/{mod,session,shell_init,job,path_probe}.rs + scripts/   interactive PTYs
@@ -65,17 +65,19 @@ src-tauri/                      Backend (Rust)
     git/{mod,commands,...}.rs   scm backend
     ssh/{mod,session,sftp}.rs   ssh + sftp + ProxyJump
     extensions/{mod,commands,install,github,manifest,state,version}.rs
-    cli_ext/{mod,commands,registry,install,helpers,types}.rs    headless `tedi ext`
-    preview/{mod,embed,proxy,util}.rs   native-webview preview backend
-    format.rs secrets.rs net.rs mcp.rs
+    cli_ext/{mod,commands,registry,install,helpers,types,scaffold,validate}.rs    headless `tedi ext`
+    preview/{mod,embed,proxy,util,browser_ext}.rs   native-webview preview backend
+    format.rs secrets.rs net.rs mcp.rs backup.rs clipboard.rs appimage.rs
     cli.rs cli_theme.rs cli_update.rs cli_paint.rs events.rs ids.rs lockext.rs
   tedi-cli/                     Windows console-subsystem `tedi` launcher (separate crate)
   capabilities/                 plugin API allowlist for the webview
 
 src/                            Frontend (React webview), alias @/* -> src/*
   main.tsx                      main-window entry -> app/App
-  app/App.tsx                   top-level coordinator (~1000 lines; wiring, not features)
+  app/App.tsx                   top-level coordinator (~1200 lines; wiring, not features)
   settings/                     Settings UI (SEPARATE webview, entry settings/main.tsx)
+  debug/                        AI debug-capture viewer (SEPARATE webview, entry debug.html)
+  float/                        Floated pane window (SEPARATE webview, entry float.html)
   components/ui/                shadcn (generated; don't hand-edit)
   components/ai-elements/       Vercel AI Elements (generated; don't hand-edit)
   components/BrandIcon.tsx      provider/brand marks without a Lucide equivalent
@@ -90,21 +92,23 @@ src/                            Frontend (React webview), alias @/* -> src/*
 
 ## Backend (`src-tauri/src/modules/`)
 
-| Module        | Key commands / role                                                                                                                                                                                                                                                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `pty/`        | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                                                                                                                                            |
-| `pty_daemon/` | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                                                                                                                                                |
-| `fs/`         | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                                                                                                                                                    |
-| `shell/`      | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                                                                                                                                            |
-| `git/`        | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                                                                                                                                              |
-| `ssh/`        | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                                                                                                                                               |
-| `extensions/` | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                                                                                                                                                |
-| `preview/`    | `preview_embed_*` native-webview compositing (update/navigate/dispatch/read/act/console/screenshot/set_bg/close); `tedi-frame://` proxy for remote marketplace icons. Every pane gets a document-start script that records console errors, uncaught exceptions, and unhandled rejections into a capped ring, drained by `preview_embed_console`. |
-| `format.rs`   | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                                                                                                                                                    |
-| `secrets.rs`  | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                                                                                                                                                   |
-| `net.rs`      | `http_ping` dev-server probe.                                                                                                                                                                                                                                                                                                                    |
-| `mcp.rs`      | Model Context Protocol support for the AI subsystem.                                                                                                                                                                                                                                                                                             |
-| `cli*.rs`     | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                                                                                                                                                   |
+| Module         | Key commands / role                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`         | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                                                                                                                                                                                                                                   |
+| `pty_daemon/`  | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                                                                                                                                                                                                                                       |
+| `fs/`          | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                                                                                                                                                                                                                                           |
+| `shell/`       | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                                                                                                                                                                                                                                   |
+| `git/`         | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                                                                                                                                                                                                                                     |
+| `ssh/`         | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                                                                                                                                                                                                                                      |
+| `extensions/`  | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                                                                                                                                                                                                                                       |
+| `preview/`     | `preview_embed_*` native-webview compositing (update/navigate/dispatch/read/act/console/screenshot/set_bg/close); `tedi-frame://` proxy for remote marketplace icons; `browser_ext_*` manages MV3 extensions loaded into the preview webview (Windows only). Every pane gets a document-start script that records console errors, uncaught exceptions, and unhandled rejections into a capped ring, drained by `preview_embed_console`. |
+| `format.rs`    | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                                                                                                                                                                                                                                           |
+| `secrets.rs`   | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                                                                                                                                                                                                                                          |
+| `net.rs`       | `http_ping` dev-server probe.                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `mcp.rs`       | Model Context Protocol support for the AI subsystem.                                                                                                                                                                                                                                                                                                                                                                                    |
+| `backup.rs`    | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                                                                                                                                                                                                                                       |
+| `clipboard.rs` | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                                                                                                                                                                                                                                                  |
+| `cli*.rs`      | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                                                                                                                                                                                                                                          |
 
 Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
 `autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
@@ -188,7 +192,7 @@ there. Keys live only in the keychain via `secrets_*`.
 
 **Local models** run through either LM Studio (keyless, own base URL) or
 OpenAI-compatible, which accepts several endpoints at once. `OPENAI_COMPATIBLE_PRESETS`
-ships Ollama / llama.cpp / vLLM / OpenRouter / 9Router base URLs. A loopback base
+ships OpenAI / Ollama / llama.cpp / vLLM / OpenRouter / 9Router base URLs. A loopback base
 URL is treated as keyless (`isLoopbackBaseURL`), so a local server needs no API key
 while a remote gateway still gets the actionable "add a key" error.
 

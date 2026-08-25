@@ -4,14 +4,13 @@ import { CommandDialog, CommandEmpty, CommandGroup, CommandItem } from "@/compon
 import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
-  getBindingTokens,
   SHORTCUTS,
+  shortcutHint,
   type Shortcut,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
 import { runCommand } from "@/modules/shortcuts";
 import { Kbd } from "@/components/ui/kbd";
-import { KEY_SEP } from "@/lib/platform";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { invoke } from "@tauri-apps/api/core";
 import { File, Search, X } from "lucide-react";
@@ -132,15 +131,6 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
     return groups;
   }, []);
 
-  const bindingTokens = useCallback(
-    (s: Shortcut): string[] => {
-      const bindings = userShortcuts[s.id] || s.defaultBindings;
-      if (!bindings || bindings.length === 0) return [];
-      return getBindingTokens(bindings[0]);
-    },
-    [userShortcuts],
-  );
-
   return (
     <CommandDialog
       open={open}
@@ -214,7 +204,7 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
             {[...items.entries()].map(([group, shortcuts]) => (
               <CommandGroup key={group} heading={group}>
                 {shortcuts.map((s) => {
-                  const tokens = bindingTokens(s);
+                  const hint = shortcutHint(s.id, userShortcuts);
                   return (
                     <CommandItem
                       key={s.id}
@@ -223,9 +213,7 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
                       onSelect={() => selectCommand(s.id)}
                     >
                       <span className="flex-1">{s.label}</span>
-                      {tokens.length > 0 ? (
-                        <Kbd className="ml-auto">{tokens.join(KEY_SEP)}</Kbd>
-                      ) : null}
+                      {hint ? <Kbd className="ml-auto">{hint}</Kbd> : null}
                     </CommandItem>
                   );
                 })}

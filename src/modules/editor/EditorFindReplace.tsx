@@ -8,7 +8,7 @@ import {
 } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn } from "@/lib/utils";
 import { useEffect, useImperativeHandle, useMemo, useRef, useState, type Ref } from "react";
@@ -30,7 +30,9 @@ type Props = {
 };
 
 // Cap match counting so a query like "a" on a huge file doesn't freeze the UI.
-const MAX_MATCH_COUNT = 999;
+// Shared with MarkdownFindBar's DOM-range scan so both search surfaces cap
+// (and read "999+") at the same count.
+export const MAX_MATCH_COUNT = 999;
 
 export type MatchPos = { current: number; total: number };
 
@@ -275,57 +277,48 @@ export function EditorFindReplace({ getView, ref }: Props) {
           </div>
         </div>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={runFindPrev}
-              disabled={pos.total === 0}
-              aria-label="Previous match"
-              className={cn(
-                "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-              )}
-            >
-              <ChevronUp size={11} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Previous match (Shift+Enter)</TooltipContent>
-        </Tooltip>
+        <IconTooltip label="Previous match (Shift+Enter)" side="bottom">
+          <button
+            type="button"
+            onClick={runFindPrev}
+            disabled={pos.total === 0}
+            aria-label="Previous match"
+            className={cn(
+              "shrink-0 cursor-pointer rounded p-1 transition-colors",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+            )}
+          >
+            <ChevronUp size={11} strokeWidth={2} />
+          </button>
+        </IconTooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={runFindNext}
-              disabled={pos.total === 0}
-              aria-label="Next match"
-              className={cn(
-                "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-              )}
-            >
-              <ChevronDown size={11} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Next match (Enter)</TooltipContent>
-        </Tooltip>
+        <IconTooltip label="Next match (Enter)" side="bottom">
+          <button
+            type="button"
+            onClick={runFindNext}
+            disabled={pos.total === 0}
+            aria-label="Next match"
+            className={cn(
+              "shrink-0 cursor-pointer rounded p-1 transition-colors",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+            )}
+          >
+            <ChevronDown size={11} strokeWidth={2} />
+          </button>
+        </IconTooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={closeAndFocusEditor}
-              aria-label="Close"
-              className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1"
-            >
-              <X size={11} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Close (Esc)</TooltipContent>
-        </Tooltip>
+        <IconTooltip label="Close (Esc)" side="bottom">
+          <button
+            type="button"
+            onClick={closeAndFocusEditor}
+            aria-label="Close"
+            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1"
+          >
+            <X size={11} strokeWidth={2} />
+          </button>
+        </IconTooltip>
       </div>
 
       {/* Replace row (always rendered — no accordion). */}
@@ -349,42 +342,36 @@ export function EditorFindReplace({ getView, ref }: Props) {
           placeholder="Replace"
           className="h-7 flex-1 pl-2 text-xs"
         />
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={runReplaceNext}
-              disabled={pos.total === 0}
-              aria-label="Replace"
-              className={cn(
-                "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-              )}
-            >
-              <Replace size={11} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Replace next (Enter)</TooltipContent>
-        </Tooltip>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={runReplaceAll}
-              disabled={pos.total === 0}
-              aria-label="Replace all"
-              className={cn(
-                "shrink-0 cursor-pointer rounded p-1 transition-colors",
-                "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-              )}
-            >
-              <ReplaceAll size={11} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Replace all (Mod+Enter)</TooltipContent>
-        </Tooltip>
+        <IconTooltip label="Replace next (Enter)" side="bottom">
+          <button
+            type="button"
+            onClick={runReplaceNext}
+            disabled={pos.total === 0}
+            aria-label="Replace"
+            className={cn(
+              "shrink-0 cursor-pointer rounded p-1 transition-colors",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+            )}
+          >
+            <Replace size={11} strokeWidth={2} />
+          </button>
+        </IconTooltip>
+        <IconTooltip label="Replace all (Mod+Enter)" side="bottom">
+          <button
+            type="button"
+            onClick={runReplaceAll}
+            disabled={pos.total === 0}
+            aria-label="Replace all"
+            className={cn(
+              "shrink-0 cursor-pointer rounded p-1 transition-colors",
+              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+            )}
+          >
+            <ReplaceAll size={11} strokeWidth={2} />
+          </button>
+        </IconTooltip>
         {/* Invisible placeholder matching the find row's close (×) button
               slot so both inputs share the same flex-1 width and the
               right-side button columns line up. */}

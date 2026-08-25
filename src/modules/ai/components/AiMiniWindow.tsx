@@ -136,7 +136,6 @@ function Body({
               error={helpers.error}
               clearError={helpers.clearError}
               addToolApprovalResponse={helpers.addToolApprovalResponse}
-              stop={helpers.stop}
             />
           </div>
         )}

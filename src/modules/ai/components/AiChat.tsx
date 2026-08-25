@@ -208,7 +208,6 @@ type Props = {
   error: Error | undefined;
   clearError: () => void;
   addToolApprovalResponse: (arg: ApprovalArg) => void | PromiseLike<void>;
-  stop: () => void | PromiseLike<void>;
 };
 
 export function AiChatView({

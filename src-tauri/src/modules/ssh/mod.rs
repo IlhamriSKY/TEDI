@@ -185,22 +185,32 @@ pub async fn ssh_open(
     Ok(id)
 }
 
-#[tauri::command]
-pub async fn ssh_write(
-    state: tauri::State<'_, SshState>,
+/// Look up a live session by id, erroring with "no session" and a
+/// `cmd`-tagged log line on a miss. Every session-scoped command starts here.
+async fn get_session(
+    state: &tauri::State<'_, SshState>,
     id: u32,
-    data: String,
-) -> Result<(), String> {
-    let session = state
+    cmd: &str,
+) -> Result<Arc<SshSession>, String> {
+    state
         .sessions
         .read()
         .await
         .get(&id)
         .cloned()
         .ok_or_else(|| {
-            log::warn!("ssh_write: unknown id={id}");
+            log::warn!("{cmd}: unknown id={id}");
             "no session".to_string()
-        })?;
+        })
+}
+
+#[tauri::command]
+pub async fn ssh_write(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    data: String,
+) -> Result<(), String> {
+    let session = get_session(&state, id, "ssh_write").await?;
     session.write(data.as_bytes()).await
 }
 
@@ -211,16 +221,7 @@ pub async fn ssh_resize(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let session = state
-        .sessions
-        .read()
-        .await
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| {
-            log::warn!("ssh_resize: unknown id={id}");
-            "no session".to_string()
-        })?;
+    let session = get_session(&state, id, "ssh_resize").await?;
     session.resize(cols, rows).await
 }
 
@@ -259,16 +260,7 @@ pub async fn ssh_forward_open(
     if remote_port == 0 {
         return Err("ssh: port forward needs a remote port".into());
     }
-    let session = state
-        .sessions
-        .read()
-        .await
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| {
-            log::warn!("ssh_forward_open: unknown id={id}");
-            "no session".to_string()
-        })?;
+    let session = get_session(&state, id, "ssh_forward_open").await?;
     // Bind and accept on the SSH runtime, not tauri's: the listener and the
     // russh channels it feeds must be driven by the same reactor.
     ssh_runtime()
@@ -343,16 +335,7 @@ pub async fn ssh_attach(
     id: u32,
     on_event: Channel<SshEvent>,
 ) -> Result<bool, String> {
-    let session = state
-        .sessions
-        .read()
-        .await
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| {
-            log::warn!("ssh_attach: unknown id={id}");
-            "no session".to_string()
-        })?;
+    let session = get_session(&state, id, "ssh_attach").await?;
     Ok(session.add_mirror_sink(on_event))
 }
 

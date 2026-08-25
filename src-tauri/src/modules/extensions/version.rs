@@ -1,7 +1,7 @@
 //! Lenient version comparison and `engines.tedi` constraint matching.
 //!
 //! Neutral logic shared by the Tauri command surface (`commands.rs`) and the
-//! headless CLI (`cli_ext.rs`, `cli_update.rs`). Lives here so neither the
+//! headless CLI (`cli_ext/`, `cli_update.rs`). Lives here so neither the
 //! command layer nor the CLI owns it.
 
 pub(crate) fn strip_v_prefix(tag: &str) -> String {

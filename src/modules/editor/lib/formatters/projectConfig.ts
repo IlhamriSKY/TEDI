@@ -29,7 +29,8 @@
  * before the prettierrc layer (prettierrc wins).
  */
 
-import { joinPath, parentDir, tryReadText } from "./configWalk";
+import { joinPath } from "@/lib/path";
+import { parentDir, tryReadText } from "./configWalk";
 
 export type PartialPrettierOptions = Partial<{
   semi: boolean;

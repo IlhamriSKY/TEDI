@@ -241,6 +241,13 @@ impl PtyClient {
         }
     }
 
+    /// Write one frame under `write_lock` so length-prefix + body land
+    /// atomically on the socket. Shared by `send_oneway` and `send_request`.
+    fn write_locked(&self, msg: &ClientMsg) -> std::io::Result<()> {
+        let _guard = self.state.write_lock.lock().unwrap();
+        transport::write_msg(&mut (&*self.state.stream), msg)
+    }
+
     /// Write a request frame and return without waiting for the daemon's
     /// reply. Used by the sync Tauri commands on the hot paths - `pty_write`
     /// (every keystroke), `pty_resize` (every pane drag / window restore) and
@@ -258,11 +265,7 @@ impl PtyClient {
         if !self.state.alive.load(Ordering::Acquire) {
             return Err("daemon connection dropped".into());
         }
-        let write_result = {
-            let _guard = self.state.write_lock.lock().unwrap();
-            transport::write_msg(&mut (&*self.state.stream), msg)
-        };
-        if let Err(e) = write_result {
+        if let Err(e) = self.write_locked(msg) {
             // Same reasoning as `send_request`: a failed socket write means the
             // connection is gone, so mark it dead now and let the next op
             // reconnect via `get_live` instead of waiting for the reader thread
@@ -279,12 +282,7 @@ impl PtyClient {
         }
         let (tx, rx) = sync_channel::<DaemonMsg>(1);
         self.state.pending.lock().unwrap().insert(req_id, tx);
-        // Write under lock so frame prefix + body are atomic.
-        let write_result = {
-            let _guard = self.state.write_lock.lock().unwrap();
-            transport::write_msg(&mut (&*self.state.stream), msg)
-        };
-        if let Err(e) = write_result {
+        if let Err(e) = self.write_locked(msg) {
             self.state.pending.lock().unwrap().remove(&req_id);
             // A failed socket write means the connection is gone. Mark it dead
             // now so the backend reconnects on the next op instead of waiting

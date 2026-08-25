@@ -202,6 +202,17 @@ export function buildScheduleTools(ctx: ToolContext) {
           };
         }
         const t = normalizeTarget(target);
+        // Same guard as run_in_terminal_by_id: a raw PTY write into a running
+        // command or a full-screen TUI lands in THAT program's input buffer,
+        // appended to whatever the user was already typing, instead of
+        // pre-filling a shell prompt.
+        if (ctx.isTerminalBusy(t)) {
+          return {
+            error:
+              "target terminal is busy (a command is running or a full-screen TUI is open); typing into it would corrupt that program's input. Wait for it to finish or target another terminal.",
+            text: trimmed,
+          };
+        }
         const ok = ctx.injectIntoTerminal(t, effective);
         if (!ok) return { error: "target terminal not found", text: trimmed };
         return { text: trimmed, injected: true, target: t };

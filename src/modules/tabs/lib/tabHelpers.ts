@@ -1,5 +1,5 @@
 import { basename } from "@/lib/path";
-import { findLeaf, type PaneLeaf } from "@/modules/terminal/lib/panes";
+import { findLeaf, hasLeaf, type PaneLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { type PaneTab, type Tab } from "./tabTypes";
 
@@ -137,6 +137,29 @@ export function syncPaneMirror(tab: PaneTab): PaneTab {
     delete next.preview;
   }
   return next;
+}
+
+/**
+ * Apply `update` to the pane tree of whichever tab holds `leafId`, and re-sync
+ * that tab's mirror. Every other tab, and a tab whose tree is unchanged by
+ * `update`, comes back by reference so callers can bail on a no-op. Shared
+ * shape behind `renameLeaf`, `setLeafTerminalTheme`, `setLeafPtyId`,
+ * `reorderLeafInGroup` (useTabs.ts) and `setBrowserLeafUrl`/
+ * `setBrowserLeafTitle` (useAuxTabs.ts) - each just picks which `panes.ts`
+ * mutator `update` calls.
+ */
+export function updateLeafTree(
+  tabs: Tab[],
+  leafId: number,
+  update: (tree: PaneNode) => PaneNode,
+): Tab[] {
+  return tabs.map((t) => {
+    if (t.kind !== "pane") return t;
+    if (!hasLeaf(t.paneTree, leafId)) return t;
+    const paneTree = update(t.paneTree);
+    if (paneTree === t.paneTree) return t;
+    return syncPaneMirror({ ...t, paneTree });
+  });
 }
 
 /** Helpers for discriminating on the active leaf kind. */

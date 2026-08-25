@@ -22,15 +22,6 @@ use session::Session;
 use crate::modules::pty_daemon::client::PtyClient;
 use crate::modules::pty_daemon::protocol::SessionInfo;
 
-/// Two-mode PTY backend. The daemon mode (default) routes every operation
-/// through the sidecar process so sessions outlive the GUI window. The
-/// in-process mode is the legacy path retained as a fallback when the
-/// daemon refuses to spawn (rare; we log loudly when it happens).
-///
-/// The decision is made once at startup in `PtyState::new`. We do not
-/// switch mid-flight - mixing live sessions across modes would let the
-/// numeric id `1` map to two different shells depending on backend, which
-/// is the kind of confusion no error message can untangle.
 /// Holds the daemon client behind a swap-on-death indirection. The daemon is
 /// a separate process that can die (crash, idle-shutdown, an OOM, or the
 /// pre-fix pty-race abort) while the GUI keeps running. The GUI opens ONE
@@ -116,6 +107,15 @@ impl DaemonClientHolder {
     }
 }
 
+/// Two-mode PTY backend. The daemon mode (default) routes every operation
+/// through the sidecar process so sessions outlive the GUI window. The
+/// in-process mode is the legacy path retained as a fallback when the
+/// daemon refuses to spawn (rare; we log loudly when it happens).
+///
+/// The decision is made once at startup in `PtyState::new`. We do not
+/// switch mid-flight - mixing live sessions across modes would let the
+/// numeric id `1` map to two different shells depending on backend, which
+/// is the kind of confusion no error message can untangle.
 enum PtyBackend {
     Daemon {
         client: Arc<DaemonClientHolder>,

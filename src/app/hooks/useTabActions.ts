@@ -1,4 +1,5 @@
 import { toast } from "@/components/ui/toast";
+import { toForwardSlash } from "@/lib/path";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/browser/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
 import {
@@ -205,7 +206,7 @@ export function useTabActions({
       // Breadcrumb click = open this folder. Updates the workspace root so
       // the explorer, AI workspace context, and inherited cwd follow.
       // Persisted across reloads.
-      const normalized = path.replace(/\\/g, "/");
+      const normalized = toForwardSlash(path);
       // Under SSH the breadcrumb path is REMOTE: pointing the local workspace
       // root at it makes the local explorer read a non-existent local path
       // ("the system cannot find the path") and persists that across reloads.

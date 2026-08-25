@@ -1,13 +1,11 @@
 import { toForwardSlash } from "@/lib/path";
 
 /** Canonical form for path comparison: forward slashes, no trailing slash, lowercase. */
-export function normalizePath(path: string): string {
+function normalizePath(path: string): string {
   return toForwardSlash(path).replace(/\/$/, "").toLowerCase();
 }
 
 export type PathChangeBus = {
-  /** True when `path` is one this bus cares about (checked against the normalized form). */
-  isRelated: (path: string) => boolean;
   /** Broadcast a normalized path change to subscribers, if the path is related. */
   notify: (path: string) => void;
   /** Subscribe to normalized path changes. Returns an unsubscribe. */
@@ -25,7 +23,6 @@ export function createPathChangeBus(
 ): PathChangeBus {
   const related = (path: string) => isRelated(normalizePath(path));
   return {
-    isRelated: related,
     notify(path: string): void {
       if (!related(path) || typeof window === "undefined") return;
       window.dispatchEvent(new CustomEvent<string>(eventName, { detail: normalizePath(path) }));

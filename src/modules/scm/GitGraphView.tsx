@@ -90,8 +90,6 @@ type LaidOut = {
   laneIn: (string | null)[];
   /** Snapshot AFTER this row was processed. */
   laneOut: (string | null)[];
-  /** Lanes (other than `lane`) that were waiting for this SHA - they merge in. */
-  mergedLanes: number[];
   /** Lanes newly opened for extra parents (merge commits with 2+ parents). */
   branchedLanes: number[];
 };
@@ -117,15 +115,11 @@ function layoutCommits(commits: GitCommit[]): { rows: LaidOut[]; laneCount: numb
     const laneIn = [...active];
 
     let myLane = active.findIndex((s) => s === c.sha);
-    const mergedLanes: number[] = [];
     if (myLane === -1) {
       myLane = firstNullSlot();
     } else {
       for (let i = 0; i < active.length; i++) {
-        if (i !== myLane && active[i] === c.sha) {
-          mergedLanes.push(i);
-          active[i] = null;
-        }
+        if (i !== myLane && active[i] === c.sha) active[i] = null;
       }
     }
 
@@ -148,7 +142,6 @@ function layoutCommits(commits: GitCommit[]): { rows: LaidOut[]; laneCount: numb
       lane: myLane,
       laneIn,
       laneOut: [...active],
-      mergedLanes,
       branchedLanes,
     });
   }
@@ -458,7 +451,7 @@ type RowProps = {
 };
 
 function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect }: RowProps) {
-  const { commit, lane, laneIn, laneOut, mergedLanes, branchedLanes } = row;
+  const { commit, lane, laneIn, laneOut, branchedLanes } = row;
   const midY = ROW_H / 2;
   const myX = laneX(lane, laneW);
   const refChips = useMemo(() => parseRefs(commit.refs), [commit.refs]);
@@ -558,10 +551,6 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
       );
     }
   }
-
-  // Suppress unused-var warning if mergedLanes happens to be empty; it's
-  // implicitly walked above via `inSha === commit.sha`.
-  void mergedLanes;
 
   const rowEl = (
     <div

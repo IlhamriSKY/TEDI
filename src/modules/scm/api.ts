@@ -43,7 +43,7 @@ export function gitFileAt(
   return invoke<FileReadResult>("git_file_at", { repoPath, rev, relative });
 }
 
-export function gitDiffFull(repoPath: string, maxBytes?: number): Promise<string> {
+function gitDiffFull(repoPath: string, maxBytes?: number): Promise<string> {
   return invoke<string>("git_diff_full", { repoPath, maxBytes });
 }
 

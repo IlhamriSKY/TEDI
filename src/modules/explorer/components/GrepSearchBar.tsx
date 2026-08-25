@@ -1,5 +1,5 @@
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
@@ -121,19 +121,16 @@ export function GrepSearchBar({
           />
           <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5">
             {query ? (
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <button
-                    type="button"
-                    onClick={() => setQuery("")}
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5"
-                    aria-label="Clear search"
-                  >
-                    <X size={11} strokeWidth={2} />
-                  </button>
-                </TooltipTrigger>
-                <TooltipContent side="bottom">Clear</TooltipContent>
-              </Tooltip>
+              <IconTooltip label="Clear" side="bottom">
+                <button
+                  type="button"
+                  onClick={() => setQuery("")}
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive cursor-pointer rounded p-0.5"
+                  aria-label="Clear search"
+                >
+                  <X size={11} strokeWidth={2} />
+                </button>
+              </IconTooltip>
             ) : null}
             <SearchOptionToggle
               label="Aa"
@@ -151,19 +148,16 @@ export function GrepSearchBar({
             />
           </div>
         </div>
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={onRequestClose}
-              className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 cursor-pointer rounded p-1"
-              aria-label="Close search"
-            >
-              <X size={13} strokeWidth={2} />
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="bottom">Close (Esc)</TooltipContent>
-        </Tooltip>
+        <IconTooltip label="Close (Esc)" side="bottom">
+          <button
+            type="button"
+            onClick={onRequestClose}
+            className="text-muted-foreground hover:bg-accent hover:text-accent-foreground shrink-0 cursor-pointer rounded p-1"
+            aria-label="Close search"
+          >
+            <X size={13} strokeWidth={2} />
+          </button>
+        </IconTooltip>
       </div>
       {useRegex && regexError ? (
         <div className="text-destructive mt-1 pl-7 text-[10px]">{regexError}</div>
@@ -205,34 +199,34 @@ export function GrepSearchBar({
               replaceArmed && "border-icon-working/70 focus-visible:ring-icon-working/40",
             )}
           />
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <button
-                type="button"
-                onClick={requestReplaceAll}
-                disabled={replacing || hits.length === 0 || (useRegex && !!regexError) || !active}
-                aria-label={replaceArmed ? "Confirm replace all" : "Replace all"}
-                className={cn(
-                  "absolute top-1/2 right-1 -translate-y-1/2 cursor-pointer rounded p-1 transition-colors",
-                  replaceArmed
-                    ? "bg-icon-working/15 text-icon-working hover:bg-icon-working/25 text-icon-working"
-                    : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-                  "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-                )}
-              >
-                <Replace size={11} strokeWidth={2} />
-              </button>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">
-              {replacing
+          <IconTooltip
+            label={
+              replacing
                 ? "Replacing…"
                 : hits.length === 0
                   ? "No matches to replace"
                   : replaceArmed
                     ? `Press Enter again to confirm (${hits.length} in ${fileCount})`
-                    : `Replace all (${hits.length} in ${fileCount})`}
-            </TooltipContent>
-          </Tooltip>
+                    : `Replace all (${hits.length} in ${fileCount})`
+            }
+            side="bottom"
+          >
+            <button
+              type="button"
+              onClick={requestReplaceAll}
+              disabled={replacing || hits.length === 0 || (useRegex && !!regexError) || !active}
+              aria-label={replaceArmed ? "Confirm replace all" : "Replace all"}
+              className={cn(
+                "absolute top-1/2 right-1 -translate-y-1/2 cursor-pointer rounded p-1 transition-colors",
+                replaceArmed
+                  ? "bg-icon-working/15 text-icon-working hover:bg-icon-working/25 text-icon-working"
+                  : "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+                "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+              )}
+            >
+              <Replace size={11} strokeWidth={2} />
+            </button>
+          </IconTooltip>
         </div>
       </div>
       {replaceArmed && hits.length > 0 ? (

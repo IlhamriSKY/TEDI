@@ -28,7 +28,8 @@
  */
 
 import type { PartialPrettierOptions } from "./projectConfig";
-import { joinPath, parentDir, tryReadText } from "./configWalk";
+import { joinPath } from "@/lib/path";
+import { parentDir, tryReadText } from "./configWalk";
 
 type Section = {
   pattern: string;

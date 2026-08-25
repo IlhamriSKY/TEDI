@@ -20,9 +20,9 @@ pub struct DirEntry {
     pub mtime: u64,
 }
 
-/// List immediate children of `path`. Dirs first, then files, each sorted
-/// case-insensitively. Hidden (dot-prefix) entries filtered unless
-/// `include_hidden` is true.
+/// List immediate children of `path`. Dirs first, then symlinks, then files,
+/// each group sorted case-insensitively. Hidden (dot-prefix) entries filtered
+/// unless `include_hidden` is true.
 ///
 /// Offloaded like `git_status`: a sync `#[tauri::command]` runs on the WebView2
 /// UI (main) thread on Windows, and this one costs a `read_dir` plus a

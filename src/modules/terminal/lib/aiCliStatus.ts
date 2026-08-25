@@ -64,21 +64,13 @@ export function aiCliStateColorClass(state: AiCliState): string {
 }
 
 /**
- * Just the themable text color for the terminal-leaf icon, WITHOUT any
- * animation. The building block for {@link aiCliIconClass}.
- */
-export function aiCliIconColorClass(s: NonNullable<AiCliStatus>): string {
-  return aiCliStateColorClass(s.state);
-}
-
-/**
  * Tailwind classes for the terminal-leaf icon when an AI CLI is active:
  * themable color + a smooth "breathing" pulse while working / blocking so an
  * active prompt is always visible. Idle stays solid (no animation). Color
  * resolves from the themable `--tedi-icon-*` CSS variables.
  */
 export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
-  const color = aiCliIconColorClass(s);
+  const color = aiCliStateColorClass(s.state);
   return s.state === "idle" ? color : `${color} animate-ai-breathe`;
 }
 

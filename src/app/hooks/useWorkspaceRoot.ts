@@ -1,5 +1,6 @@
 import { toast } from "@/components/ui/toast";
 import { IPC_EVENTS } from "@/lib/ipc";
+import { toForwardSlash } from "@/lib/path";
 import { runCommand, type ShortcutId } from "@/modules/shortcuts";
 import { activeLeaf, type PaneTab, type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
@@ -72,7 +73,7 @@ export function useWorkspaceRoot({ tabs, activePaneTab, newTab, openFileTab }: P
       title: "Open Folder",
     });
     if (typeof selected !== "string") return;
-    const normalized = selected.replace(/\\/g, "/");
+    const normalized = toForwardSlash(selected);
     setPickedRoot(normalized);
     try {
       localStorage.setItem("tedi.workspaceRoot", normalized);
@@ -86,7 +87,7 @@ export function useWorkspaceRoot({ tabs, activePaneTab, newTab, openFileTab }: P
   useEffect(() => {
     // Forward slashes so explorerRoot matches across home and OSC 7.
     homeDir()
-      .then((p) => setHome(p.replace(/\\/g, "/")))
+      .then((p) => setHome(toForwardSlash(p)))
       .catch(() => setHome(null));
   }, []);
 

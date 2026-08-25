@@ -1,6 +1,6 @@
 import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { invoke } from "@tauri-apps/api/core";
@@ -277,41 +277,38 @@ export function ExplorerSearch({
                 const url = hit.is_dir ? null : fileIconUrl(hit.name);
                 const isActive = index === clampedActive;
                 return (
-                  <Tooltip key={hit.path}>
-                    <TooltipTrigger asChild>
-                      <button
-                        type="button"
-                        data-result-idx={index}
-                        onMouseEnter={() => setActiveIdx(index)}
-                        onClick={() => openHit(hit)}
-                        className={cn(
-                          "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
-                          isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
-                        )}
-                      >
-                        {url ? (
-                          <img src={url} alt="" className="size-3.5 shrink-0" />
-                        ) : (
-                          <Folder
-                            size={13}
-                            strokeWidth={1.75}
-                            className="text-muted-foreground shrink-0"
-                          />
-                        )}
-                        <span className="truncate">
-                          <Highlighted
-                            text={hit.name}
-                            matches={hit.name_match ?? []}
-                            fallbackQuery={query}
-                          />
-                        </span>
-                        <span className="text-muted-foreground ml-auto truncate text-[10px]">
-                          <Highlighted text={hit.rel} matches={[]} fallbackQuery={query} />
-                        </span>
-                      </button>
-                    </TooltipTrigger>
-                    <TooltipContent side="right">{hit.path}</TooltipContent>
-                  </Tooltip>
+                  <IconTooltip key={hit.path} label={hit.path} side="right">
+                    <button
+                      type="button"
+                      data-result-idx={index}
+                      onMouseEnter={() => setActiveIdx(index)}
+                      onClick={() => openHit(hit)}
+                      className={cn(
+                        "flex w-full cursor-pointer items-center gap-1.5 px-2 py-1 text-left text-xs",
+                        isActive ? "bg-accent text-accent-foreground" : "hover:bg-accent/60",
+                      )}
+                    >
+                      {url ? (
+                        <img src={url} alt="" className="size-3.5 shrink-0" />
+                      ) : (
+                        <Folder
+                          size={13}
+                          strokeWidth={1.75}
+                          className="text-muted-foreground shrink-0"
+                        />
+                      )}
+                      <span className="truncate">
+                        <Highlighted
+                          text={hit.name}
+                          matches={hit.name_match ?? []}
+                          fallbackQuery={query}
+                        />
+                      </span>
+                      <span className="text-muted-foreground ml-auto truncate text-[10px]">
+                        <Highlighted text={hit.rel} matches={[]} fallbackQuery={query} />
+                      </span>
+                    </button>
+                  </IconTooltip>
                 );
               })
             )}

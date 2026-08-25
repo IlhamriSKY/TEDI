@@ -5,6 +5,7 @@ import { cn } from "@/lib/utils";
 import type { TerminalInfo } from "@/modules/scheduler/types";
 import type { SlashCommandMeta } from "../lib/slashCommands";
 import type { Snippet } from "../lib/snippets";
+import { SectionHeader } from "./MentionPicker";
 
 export type PickerItem =
   | { kind: "terminal"; terminal: TerminalInfo }
@@ -197,13 +198,5 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
         </div>
       )}
     </PopoverContent>
-  );
-}
-
-function SectionHeader({ label }: { label: string }) {
-  return (
-    <div className="text-muted-foreground/70 px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide uppercase">
-      {label}
-    </div>
   );
 }

@@ -8,6 +8,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
+import { joinPath } from "@/lib/path";
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
 import { File } from "lucide-react";
@@ -18,11 +19,6 @@ type Props = {
   rootPath: string | null;
   onCreated: (path: string) => void;
 };
-
-function joinPath(parent: string, name: string): string {
-  if (parent.endsWith("/")) return `${parent}${name}`;
-  return `${parent}/${name}`;
-}
 
 export function NewEditorDialog({ open, onOpenChange, rootPath, onCreated }: Props) {
   const [name, setName] = useState("untitled.txt");

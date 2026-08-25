@@ -1,5 +1,4 @@
 import { Button } from "@/components/ui/button";
-import { cn } from "@/lib/utils";
 import type { ToolUIPart } from "ai";
 import { memo } from "react";
 import { applyShellTransformers } from "../tools/shell";
@@ -109,21 +108,13 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
     return (
       <div className="space-y-1.5">
         {cwd && <div className="text-muted-foreground font-mono text-[10.5px]">{cwd}</div>}
-        <pre
-          className={cn(
-            "bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed",
-          )}
-        >
+        <pre className="bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed">
           {raw}
         </pre>
         {effective !== raw && (
           <div className="space-y-0.5">
             <div className="text-muted-foreground/80 text-[10px]">Runs as (after extensions):</div>
-            <pre
-              className={cn(
-                "bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed",
-              )}
-            >
+            <pre className="bg-muted/60 max-h-40 overflow-auto rounded-md p-2 font-mono text-[11px] leading-relaxed">
               {effective}
             </pre>
           </div>

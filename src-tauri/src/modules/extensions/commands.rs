@@ -9,6 +9,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
 
+use base64::Engine as _;
 use serde::{Deserialize, Serialize};
 use tauri::Manager;
 
@@ -283,7 +284,6 @@ pub async fn ext_read_asset_bytes(
     id: String,
     rel_path: String,
 ) -> Result<String, String> {
-    use base64::Engine as _;
     super::manifest::validate_id(&id)?;
     let root = extensions_root(&app)?.join(&id);
     let target = resolve_asset(&root, &rel_path)?;
@@ -387,8 +387,6 @@ pub async fn ext_peek_github(repo: String) -> Result<PeekResult, String> {
 /// downloading the release zip. Errors when the manifest is absent at the repo
 /// root or unparseable, so the caller can fall back to the full-zip peek.
 async fn peek_github_via_raw(owner_repo: &str, tag: &str) -> Result<PeekResult, String> {
-    use base64::Engine as _;
-
     // Git refs are already constrained (no spaces, no `..`), but bail to the
     // full-zip fallback rather than splice an unexpected character straight
     // into a raw.githubusercontent.com path. The fallback reads the real zip

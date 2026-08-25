@@ -345,27 +345,6 @@ export function armNoDataWatchdog(s: Session, epoch: number): void {
 }
 
 /**
- * Arm a one-shot blank-viewport repaint check for the current spawn. A short
- * time after a byte that should have painted, if the normal-screen viewport is
- * still empty while the shell is live, force the shell's line editor
- * (PSReadLine / readline / zle / fish) to repaint its prompt via a SIGWINCH
- * round-trip (toggle the PTY row count). It injects no input, the alt-screen
- * guard skips TUIs, and a healthy spawn (prompt already painted) never trips
- * the blank check - so it is inert except in the broken case.
- *
- * Covers two distinct ways a pane ends up live-but-blank with every recovery
- * path disarmed (the arriving byte cleared the no-data watchdog, and `s.pty`
- * being set makes Enter-to-retry and stuck-recovery no-ops):
- *   1. An `alive` daemon reattach whose raw scrollback replay nets to an empty
- *      screen (saved tail ended on a clear, the 1 MiB ring was front-trimmed
- *      mid-escape, or ConPTY re-rendered at a new size).
- *   2. A fresh spawn whose prompt-bearing bytes were lost upstream (a transient
- *      routing drop) while a later non-visible chunk survived to clear the
- *      placeholder and disarm the watchdog.
- * Guarded by `blankRepaintEpoch` so it arms at most once per spawn even when
- * both the reattach and first-byte call sites fire for the same epoch.
- */
-/**
  * Toggle the PTY row count off by one then restore it after a gap, floored to
  * MIN_PTY_DIM. The two spaced resizes defeat ConPTY's same-size coalescing so
  * the foreground program redraws at the correct current size. Shared by the
@@ -396,6 +375,27 @@ export function nudgeResizeRoundTrip(s: Session, epoch: number): void {
   }, REATTACH_REPAINT_NUDGE_GAP_MS);
 }
 
+/**
+ * Arm a one-shot blank-viewport repaint check for the current spawn. A short
+ * time after a byte that should have painted, if the normal-screen viewport is
+ * still empty while the shell is live, force the shell's line editor
+ * (PSReadLine / readline / zle / fish) to repaint its prompt via a SIGWINCH
+ * round-trip (toggle the PTY row count). It injects no input, the alt-screen
+ * guard skips TUIs, and a healthy spawn (prompt already painted) never trips
+ * the blank check - so it is inert except in the broken case.
+ *
+ * Covers two distinct ways a pane ends up live-but-blank with every recovery
+ * path disarmed (the arriving byte cleared the no-data watchdog, and `s.pty`
+ * being set makes Enter-to-retry and stuck-recovery no-ops):
+ *   1. An `alive` daemon reattach whose raw scrollback replay nets to an empty
+ *      screen (saved tail ended on a clear, the 1 MiB ring was front-trimmed
+ *      mid-escape, or ConPTY re-rendered at a new size).
+ *   2. A fresh spawn whose prompt-bearing bytes were lost upstream (a transient
+ *      routing drop) while a later non-visible chunk survived to clear the
+ *      placeholder and disarm the watchdog.
+ * Guarded by `blankRepaintEpoch` so it arms at most once per spawn even when
+ * both the reattach and first-byte call sites fire for the same epoch.
+ */
 function armBlankViewportRepaint(s: Session, epoch: number): void {
   if (s.blankRepaintEpoch === epoch) return; // already armed for this spawn
   s.blankRepaintEpoch = epoch;

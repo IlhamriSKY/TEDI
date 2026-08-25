@@ -1,7 +1,8 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_REFRESH_EVENT } from "./fsRefresh";
-import { coalesceResume } from "@/lib/windowResume";
+import { joinPath } from "@/lib/path";
+import { useVisibilityPoll } from "@/lib/windowResume";
 
 export type DirEntry = {
   name: string;
@@ -86,11 +87,6 @@ export type PendingCreate = {
   parentPath: string;
   kind: "file" | "dir";
 };
-
-export function joinPath(parent: string, name: string): string {
-  if (parent.endsWith("/")) return `${parent}${name}`;
-  return `${parent}/${name}`;
-}
 
 export function dirname(path: string): string {
   // Accept `/` and `\` so the tree doesn't collapse to root after a
@@ -227,40 +223,12 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // Auto-refresh to track external mutations without a backend FS watcher.
   // Triggers: window focus/visibility (immediate), interval while focused,
   // FS_REFRESH_EVENT (targeted or full). Polling pauses on blur/hidden.
+  useVisibilityPoll(() => refreshAllLoadedRef.current(), AUTO_REFRESH_MS, Boolean(rootPath));
+
+  // A targeted refresh, deliberately NOT coalesced: it answers a mutation the
+  // app just made, so it must never be dropped for landing near a focus change.
   useEffect(() => {
     if (!rootPath) return;
-
-    let intervalId: number | null = null;
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") {
-          refreshAllLoadedRef.current();
-        }
-      }, AUTO_REFRESH_MS);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    // Both events fire on a return from lock, so share one coalescer between
-    // them; the FS_REFRESH_EVENT path below deliberately does not use it.
-    const refreshOnResume = coalesceResume(() => refreshAllLoadedRef.current());
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refreshOnResume();
-        start();
-      } else {
-        stop();
-      }
-    };
-    const onFocus = () => {
-      refreshOnResume();
-      start();
-    };
-    const onBlur = () => stop();
     const onRefreshEvent = (ev: Event) => {
       const detail = (ev as CustomEvent<{ path?: string } | undefined>).detail;
       if (detail?.path) {
@@ -273,19 +241,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
         refreshAllLoadedRef.current();
       }
     };
-
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
     window.addEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
-    };
+    return () => window.removeEventListener(FS_REFRESH_EVENT, onRefreshEvent as EventListener);
     // Skip `nodes` from deps: `onRefreshEvent` reads it via ref, so
     // depending on it would re-subscribe listeners on every tree change.
     // eslint-disable-next-line react-hooks/exhaustive-deps

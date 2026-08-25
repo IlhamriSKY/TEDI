@@ -5,10 +5,8 @@
 use std::fs;
 use std::path::PathBuf;
 
-use crate::modules::cli_paint::{paint_brand, paint_dim, paint_header, paint_id};
+use crate::modules::cli_paint::{color_enabled, paint_brand, paint_dim, paint_header, paint_id};
 use dialoguer::theme::{ColorfulTheme, Theme};
-
-use crate::modules::cli_paint::color_enabled;
 
 /// `ColorfulTheme` brings dialoguer's coloured prompt + active-item ">"
 /// indicator. Wrapped in a small selector so non-TTY shells still get the

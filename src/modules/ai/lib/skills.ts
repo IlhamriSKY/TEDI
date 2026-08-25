@@ -532,6 +532,61 @@ async function writeSkillSiblings(
 }
 
 /**
+ * Write one resolved skill (SKILL.md + bundled siblings) into `destDir`, record
+ * `slug` in `done`, and push its skillState entry. Shared by
+ * installSkillsFromGithub and updateSkillGroup, whose per-skill write step was
+ * identical apart from the `source` label and which list the slug lands in.
+ * Records `slug` in `failed` instead on a missing map entry or a write failure.
+ */
+async function writeSkillEntry(
+  slug: string,
+  filePath: string,
+  destDir: string,
+  fileMap: Map<string, string>,
+  meta: { sha: string | null; source: string; branch: string },
+  done: string[],
+  failed: string[],
+  stateEntries: [string, SkillState][],
+): Promise<void> {
+  const content = fileMap.get(filePath);
+  if (content === undefined) {
+    failed.push(slug);
+    return;
+  }
+  try {
+    await native.createDir(destDir); // recursive; throws if it already exists
+  } catch {
+    /* already there - we overwrite the SKILL.md below */
+  }
+  try {
+    await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
+  } catch {
+    failed.push(slug); // skip on write failure so state stays in sync with disk
+    return;
+  }
+  // Counted as done once SKILL.md lands: the siblings below report their own
+  // failures and never throw, so a sibling problem must not un-install a skill.
+  done.push(slug);
+
+  // Write bundled siblings from the same archive so a multi-file skill isn't
+  // half-installed.
+  await writeSkillSiblings(filePath, destDir, fileMap);
+  // Parse frontmatter for version and requires.
+  const fm = parseFrontmatter(content);
+  stateEntries.push([
+    destDir,
+    {
+      sha: meta.sha,
+      source: meta.source,
+      installedAt: new Date().toISOString(),
+      version: fm.version ?? null,
+      requires: fm.requires ?? [],
+      branch: meta.branch,
+    },
+  ]);
+}
+
+/**
  * Install every `SKILL.md` in a GitHub repo into a skills root: the workspace
  * when `workspaceRoot` is given, else global. The repo is fetched once via
  * codeload (no API, no rate limit, no token) and written from that in-memory
@@ -579,42 +634,17 @@ export async function installSkillsFromGithub(
     // resolveSkillSlugs already sanitized the slug; keep idempotent guard.
     const slug = sanitizeSlug(rawSlug);
     if (!slug) continue;
-    const content = fileMap.get(filePath);
-    if (content === undefined) {
-      failed.push(slug);
-      continue;
-    }
     const destDir = `${groupDir}/${slug}`;
-    try {
-      await native.createDir(destDir); // recursive; throws if it already exists
-    } catch {
-      /* already there - we overwrite the SKILL.md below */
-    }
-    try {
-      await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
-    } catch {
-      failed.push(slug); // skip on write failure so state stays in sync with disk
-      continue;
-    }
-    installed.push(slug);
-
-    // Write bundled siblings from the same archive so a multi-file skill isn't
-    // half-installed.
-    await writeSkillSiblings(filePath, destDir, fileMap);
-
-    // Parse frontmatter for version and requires.
-    const fm = parseFrontmatter(content);
-    stateEntries.push([
+    await writeSkillEntry(
+      slug,
+      filePath,
       destDir,
-      {
-        sha,
-        source: `${owner}/${repo}`,
-        installedAt: new Date().toISOString(),
-        version: fm.version ?? null,
-        requires: fm.requires ?? [],
-        branch,
-      },
-    ]);
+      fileMap,
+      { sha, source: `${owner}/${repo}`, branch },
+      installed,
+      failed,
+      stateEntries,
+    );
   }
 
   if (installed.length === 0) throw new Error("Found SKILL.md files but none could be downloaded.");
@@ -771,43 +801,20 @@ export async function updateSkillGroup(group: string): Promise<{
     for (const [rawSlug, filePath] of bySlug) {
       const slug = sanitizeSlug(rawSlug);
       if (!slug) continue;
-      const content = fileMap.get(filePath);
-      if (content === undefined) {
-        failed.push(slug);
-        continue;
-      }
       const destDir = `${groupDir}/${slug}`;
-      // A slug added upstream since install has no directory yet, so create it,
-      // and guard the write: a single failure must not abort the whole loop and
+      // A slug added upstream since install has no directory yet; writeSkillEntry
+      // creates it. A single write failure must not abort the whole loop and
       // leave the written files out of sync with the state map recorded below.
-      try {
-        await native.createDir(destDir); // recursive; throws if it already exists
-      } catch {
-        /* already there - we overwrite the SKILL.md below */
-      }
-      try {
-        await native.writeFile(`${destDir}/${SKILL_FILE}`, content);
-      } catch {
-        failed.push(slug); // skip on write failure so state stays in sync with disk
-        continue;
-      }
-      updated.push(slug);
-
-      await writeSkillSiblings(filePath, destDir, fileMap);
-
-      const fm = parseFrontmatter(content);
-      stateEntries.push([
+      await writeSkillEntry(
+        slug,
+        filePath,
         destDir,
-        {
-          sha,
-          source: meta.source,
-          installedAt: new Date().toISOString(),
-          // Per-skill defaults (not the first sibling's old state).
-          version: fm.version ?? null,
-          requires: fm.requires ?? [],
-          branch,
-        },
-      ]);
+        fileMap,
+        { sha, source: meta.source, branch },
+        updated,
+        failed,
+        stateEntries,
+      );
     }
   }
 

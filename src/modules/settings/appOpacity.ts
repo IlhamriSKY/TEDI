@@ -35,11 +35,6 @@ function writeShadow(value: number): void {
 }
 
 /**
- * Apply whole-app opacity to the main window: set `--tedi-app-opacity` and
- * toggle `data-tedi-glass`, which globals.css uses to fade the canvas +
- * surfaces. Settings window opts out so its controls stay readable.
- */
-/**
  * CSS-only apply: set the var + glass attr + nudge the terminal canvases. No
  * persistence. Settings window opts out so its controls stay solid/readable.
  */

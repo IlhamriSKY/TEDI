@@ -1,4 +1,6 @@
+import { useEffect, useState } from "react";
 import type { Extension } from "@codemirror/state";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { EditorThemeId } from "@/modules/settings/store";
 
 /** Per-theme dynamic loaders. Each `@uiw/codemirror-theme-*` is ~10-25 KB;
@@ -31,4 +33,35 @@ export async function loadEditorTheme(id: EditorThemeId): Promise<Extension> {
  *  to `loadEditorTheme` when null. */
 export function tryEditorTheme(id: EditorThemeId): Extension | null {
   return themeCache.get(id) ?? null;
+}
+
+/**
+ * The current editor theme as a CodeMirror Extension, for a pane that renders
+ * one. Returns the cached Extension immediately when there is one, so switching
+ * back to a theme already loaded does not flash unstyled, and otherwise null
+ * until the dynamic import lands.
+ *
+ * Every pane that shows an editor wants exactly this, so it lives beside the
+ * loaders rather than being rebuilt per pane.
+ */
+export function useEditorTheme(): Extension | null {
+  const id = usePreferencesStore((s) => s.editorTheme);
+  const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(id));
+
+  useEffect(() => {
+    const cached = tryEditorTheme(id);
+    if (cached) {
+      setThemeExt(cached);
+      return;
+    }
+    let cancelled = false;
+    void loadEditorTheme(id).then((ext) => {
+      if (!cancelled) setThemeExt(ext);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [id]);
+
+  return themeExt;
 }

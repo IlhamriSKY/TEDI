@@ -216,6 +216,36 @@ async function applyEditsLocked(
   }
 }
 
+/** Shared pre-flight for `edit`/`multi_edit`: abort check, out-of-scope
+ *  refusal, writable check, and the read-before-edit invariant. Resolves
+ *  `path` and returns it to proceed with, or the error result to return as-is. */
+async function guardEditPath(
+  path: string,
+  ctx: ToolContext,
+  refuseMut: boolean,
+): Promise<{ ok: true; abs: string } | { ok: false; result: { error: string; path: string } }> {
+  throwIfAborted(ctx);
+  const abs = resolvePath(path, ctx.getCwd());
+  if (refuseMut && isReadOutsideScope(path, ctx)) {
+    return {
+      ok: false,
+      result: { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs },
+    };
+  }
+  const safety = await checkWritableResolved(abs);
+  if (!safety.ok) return { ok: false, result: { error: safety.reason, path: abs } };
+  if (!ctx.readCache.has(abs)) {
+    return {
+      ok: false,
+      result: {
+        error: "must call read_file on this path first (read-before-edit invariant).",
+        path: abs,
+      },
+    };
+  }
+  return { ok: true, abs };
+}
+
 export function buildEditTools(
   ctx: ToolContext,
   opts: {
@@ -246,24 +276,10 @@ export function buildEditTools(
       }),
       needsApproval: approve,
       execute: async ({ path, old_string, new_string, replace_all }) => {
-        throwIfAborted(ctx);
-        const abs = resolvePath(path, ctx.getCwd());
-        if (refuseMut && isReadOutsideScope(path, ctx)) {
-          return {
-            error: "refused: a subagent may not mutate outside the workspace/cwd",
-            path: abs,
-          };
-        }
-        const safety = await checkWritableResolved(abs);
-        if (!safety.ok) return { error: safety.reason, path: abs };
-        if (!ctx.readCache.has(abs)) {
-          return {
-            error: "must call read_file on this path first (read-before-edit invariant).",
-            path: abs,
-          };
-        }
+        const guard = await guardEditPath(path, ctx, refuseMut);
+        if (!guard.ok) return guard.result;
         return applyEdits(
-          abs,
+          guard.abs,
           [{ old_string, new_string, replace_all }],
           "edit",
           ctx.getSessionId(),
@@ -289,23 +305,9 @@ export function buildEditTools(
       }),
       needsApproval: approve,
       execute: async ({ path, edits }) => {
-        throwIfAborted(ctx);
-        const abs = resolvePath(path, ctx.getCwd());
-        if (refuseMut && isReadOutsideScope(path, ctx)) {
-          return {
-            error: "refused: a subagent may not mutate outside the workspace/cwd",
-            path: abs,
-          };
-        }
-        const safety = await checkWritableResolved(abs);
-        if (!safety.ok) return { error: safety.reason, path: abs };
-        if (!ctx.readCache.has(abs)) {
-          return {
-            error: "must call read_file on this path first (read-before-edit invariant).",
-            path: abs,
-          };
-        }
-        return applyEdits(abs, edits, "multi_edit", ctx.getSessionId(), ctx, ignorePlan);
+        const guard = await guardEditPath(path, ctx, refuseMut);
+        if (!guard.ok) return guard.result;
+        return applyEdits(guard.abs, edits, "multi_edit", ctx.getSessionId(), ctx, ignorePlan);
       },
       toModelOutput: ({ output }) => ({ type: "text", value: leanEditOutput(output) }),
     }),

@@ -32,14 +32,11 @@ export const PANE_HEADER_HOVER =
 export const TOOLBAR_EXPANDED =
   "aria-expanded:bg-accent aria-expanded:text-accent-foreground dark:aria-expanded:bg-accent dark:aria-expanded:text-accent-foreground";
 
-/** Accent fill for a toggle button's active state (markdown preview, word wrap). */
-export const TOOLBAR_ACTIVE = "bg-accent text-accent-foreground";
-
 /**
  * A PANEL-HEADER toggle that is currently on: the file tree's Search and
  * Search-in-files buttons, which open a surface below the header.
  *
- * A coloured glyph rather than the accent FILL `TOOLBAR_ACTIVE` uses. These sit
+ * A coloured glyph rather than an accent FILL. These sit
  * in a dense 32px header row beside half a dozen other icon buttons, where a
  * filled pill reads as a different KIND of control; a primary glyph reads as
  * "this one is open" without changing the row's shape.

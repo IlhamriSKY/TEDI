@@ -164,8 +164,8 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture (the two-process mod
 
 ```
 src-tauri/        Rust backend (every #[tauri::command] is registered in src/lib.rs)
-  src/modules/    pty, pty_daemon, fs, shell, git, ssh, extensions (+ cli*.rs,
-                  format.rs, preview.rs, secrets.rs, net.rs)
+  src/modules/    pty, pty_daemon, fs, shell, git, ssh, extensions, preview (+
+                  cli*.rs, format.rs, secrets.rs, net.rs)
   tedi-cli/       Windows console-subsystem `tedi` launcher
 src/
   app/App.tsx     Top-level coordinator (cross-module wiring, not feature logic)

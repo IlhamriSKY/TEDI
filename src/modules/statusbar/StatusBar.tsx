@@ -14,14 +14,13 @@ import {
 import { SchedulerStatusPill } from "@/modules/scheduler";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
-import { SshRoutePill } from "@/modules/ssh/SshRoutePill";
 import type { SshRouteHop } from "@/modules/ssh/status";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setStatusBarCompact } from "@/modules/settings/store";
 import { UpdaterPill } from "@/modules/updater";
 import { cn } from "@/lib/utils";
-import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
+import { OsPill } from "./OsPill";
 import { ZoomControl } from "./ZoomControl";
 import { GitBranch, Server } from "lucide-react";
 
@@ -34,20 +33,17 @@ type Props = {
   /** Whether any SSH leaf is connected. Gates the right-slot Remote toggle so
    *  it appears only alongside a live session, mirroring the left sidebar. */
   hasAnySshLeaf: boolean;
-  /** True when the ACTIVE pane is a live SSH session. Hides the local-OS badge,
-   *  which would otherwise misrepresent the remote shell the breadcrumb points at. */
-  activeIsSsh?: boolean;
-  /** SFTP session id of the active SSH leaf (set only when `activeIsSsh`). Lets
-   *  the breadcrumb browse subfolders remotely instead of hitting the local
-   *  filesystem with a remote path. */
+  /** SFTP session id of the active SSH leaf (set only when it is connected).
+   *  Lets the breadcrumb browse subfolders remotely instead of hitting the
+   *  local filesystem with a remote path, and tells the OS pill whose
+   *  `/etc/os-release` to read. */
   sshSessionId?: number | null;
-  /** ProxyJump chain of the active SSH leaf, when it has one. Takes the slot
-   *  the local-OS badge vacates on an SSH pane, which is the honest thing to
-   *  put there: what this shell is actually reached through. */
+  /** ProxyJump chain of the active SSH leaf, when it has one. Colours the OS
+   *  pill while the chain comes up, and spells itself out in its tooltip. */
   sshRoute?: SshRouteHop[];
-  /** A detected dev-server url. Set ONLY while that port is actually answering
-   *  (see `useLiveUrl`), so its absence is itself the "nothing is running"
-   *  signal and the pill needs no live/stale dot. */
+  /** Name of the host the active SSH leaf is on. Names a DIRECT connection,
+   *  which has no route to name it. */
+  sshHostLabel?: string | null;
 };
 
 /** One status-bar group. The hairline that separates it from the group before
@@ -68,9 +64,9 @@ function StatusBarInner({
   onCd,
   onOpenMini,
   hasAnySshLeaf,
-  activeIsSsh,
   sshSessionId,
   sshRoute,
+  sshHostLabel,
 }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const togglePanel = useChatStore((s) => s.togglePanel);
@@ -79,15 +75,10 @@ function StatusBarInner({
   return (
     <footer className="border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]">
       <div className="flex min-w-0 flex-1 items-center gap-1.5 truncate">
-        {/* One slot, two readings of "where am I". A jump chain wins whenever
-            there is one - deliberately NOT gated on `activeIsSsh`, which is
-            only true once the session is fully connected: the route is most
-            worth showing while the chain is still coming up, and afterwards if
-            it broke. Otherwise the local-OS badge, except on a connected SSH
-            pane where it would misdescribe the remote shell the breadcrumb
-            points at. A direct connection has no route, so that case is
-            unchanged: an empty slot. */}
-        {sshRoute?.length ? <SshRoutePill route={sshRoute} /> : activeIsSsh ? null : <OsBadge />}
+        {/* Whose filesystem the breadcrumb is showing, as one logo. Route is
+            passed even while the chain is still coming up (before the session
+            connects), so a stalled or broken jump still colours the pill. */}
+        <OsPill sshSessionId={sshSessionId} sshRoute={sshRoute} sshHostLabel={sshHostLabel} />
         <CwdBreadcrumb
           cwd={cwd}
           filePath={filePath}
@@ -202,16 +193,6 @@ function CompactToggle({ compact }: { compact: boolean }) {
 // snapping and animate nothing.
 const BAR =
   "absolute top-[6.95px] left-[2.25px] h-[1.1px] w-[10.5px] rounded-full bg-current transition-[translate,rotate,scale,opacity] duration-200 ease-out motion-reduce:transition-none";
-
-function OsBadge() {
-  const label = IS_WINDOWS ? "Windows" : IS_MAC ? "macOS" : IS_LINUX ? "Linux" : null;
-  if (!label) return null;
-  return (
-    <span className="border-border bg-muted/40 text-muted-foreground inline-flex h-5 shrink-0 items-center rounded-full border px-2 text-[11px] font-medium">
-      {label}
-    </span>
-  );
-}
 
 /**
  * Source Control status-bar toggle. Shown whenever the user has opted in to the

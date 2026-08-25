@@ -71,7 +71,7 @@ import {
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 
-export type ExtensionRuntime = {
+type ExtensionRuntime = {
   id: string;
   /** Absolute path of the extension's install folder. Used to build sidecar
    *  binary paths before spawning via `shell_bg_spawn`. */

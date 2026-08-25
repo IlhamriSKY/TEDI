@@ -231,8 +231,3 @@ export function stopExtensionAutoReload(): void {
   pending.clear();
   watched.clear();
 }
-
-/** Test seam: whether the watcher is currently running. */
-export function isExtensionAutoReloadRunning(): boolean {
-  return timer !== null;
-}

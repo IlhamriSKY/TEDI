@@ -38,7 +38,7 @@ import { friendlyGhError, ghFor } from "./gh";
 import type { GitChange, GitChangeStatus, GitInProgress, GitStatus, OpenDiffInput } from "./types";
 import { cn } from "@/lib/utils";
 import { CircleAlert, FolderGit2, X } from "lucide-react";
-import { coalesceResume } from "@/lib/windowResume";
+import { useVisibilityPoll } from "@/lib/windowResume";
 
 type Props = {
   rootPath: string | null;
@@ -352,51 +352,13 @@ export function SourceControlPanel({
     void fetchStatus(true);
   }, [fetchStatus, collapsed, sshSessionId, sshAnchor]);
 
-  useEffect(() => {
-    // Collapsed to its header: the change list / graph aren't rendered, so
-    // don't poll git status (subprocess spawn every 2.5s) for an unseen view.
-    if ((!rootPath && !remote) || collapsed) return;
-    let intervalId: number | null = null;
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") void fetchStatus(true);
-      }, AUTO_REFRESH_MS);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    // Both events fire on a return from lock; one coalescer between them
-    // stops the panel doing its whole refresh twice.
-    const refreshOnResume = coalesceResume(() => fetchStatus(true));
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refreshOnResume();
-        start();
-      } else {
-        stop();
-      }
-    };
-    const onFocus = () => {
-      refreshOnResume();
-      start();
-    };
-    const onBlur = () => stop();
-
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [rootPath, fetchStatus, collapsed, remote]);
+  // Collapsed to its header: the change list / graph aren't rendered, so don't
+  // poll git status (subprocess spawn every 2.5s) for an unseen view.
+  useVisibilityPoll(
+    () => void fetchStatus(true),
+    AUTO_REFRESH_MS,
+    (Boolean(rootPath) || Boolean(remote)) && !collapsed,
+  );
 
   const sorted = useMemo(() => {
     if (!status) return [] as GitChange[];

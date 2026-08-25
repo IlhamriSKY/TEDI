@@ -1,7 +1,7 @@
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ChevronDown, ChevronsDownUp, ChevronsUpDown, ChevronUp } from "lucide-react";
 import { invoke } from "@tauri-apps/api/core";
 import { requestReveal } from "@/modules/editor/lib/reveal";
@@ -398,56 +398,45 @@ export function ExplorerGrep({
                 {fileCount === 1 ? "file" : "files"}
               </span>
               <div className="flex shrink-0 items-center gap-0.5">
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => gotoHit(-1)}
-                      disabled={hitCount === 0}
-                      aria-label="Previous match"
-                      className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                    >
-                      <ChevronUp size={11} strokeWidth={2} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Previous match (↑)</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={() => gotoHit(1)}
-                      disabled={hitCount === 0}
-                      aria-label="Next match"
-                      className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
-                    >
-                      <ChevronDown size={11} strokeWidth={2} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">Next match (↓)</TooltipContent>
-                </Tooltip>
-                <Tooltip>
-                  <TooltipTrigger asChild>
-                    <button
-                      type="button"
-                      onClick={toggleAllGroups}
-                      className="hover:bg-accent hover:text-accent-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5"
-                      aria-label={allCollapsed ? "Expand all" : "Collapse all"}
-                    >
-                      {allCollapsed ? (
-                        <ChevronsUpDown size={11} strokeWidth={2} />
-                      ) : (
-                        <ChevronsDownUp size={11} strokeWidth={2} />
-                      )}
-                      <span className="hidden @[220px]:inline">
-                        {allCollapsed ? "Expand all" : "Collapse all"}
-                      </span>
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="bottom">
-                    {allCollapsed ? "Expand all" : "Collapse all"}
-                  </TooltipContent>
-                </Tooltip>
+                <IconTooltip label="Previous match (↑)" side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => gotoHit(-1)}
+                    disabled={hitCount === 0}
+                    aria-label="Previous match"
+                    className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <ChevronUp size={11} strokeWidth={2} />
+                  </button>
+                </IconTooltip>
+                <IconTooltip label="Next match (↓)" side="bottom">
+                  <button
+                    type="button"
+                    onClick={() => gotoHit(1)}
+                    disabled={hitCount === 0}
+                    aria-label="Next match"
+                    className="hover:bg-accent hover:text-accent-foreground cursor-pointer rounded p-0.5 disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent"
+                  >
+                    <ChevronDown size={11} strokeWidth={2} />
+                  </button>
+                </IconTooltip>
+                <IconTooltip label={allCollapsed ? "Expand all" : "Collapse all"} side="bottom">
+                  <button
+                    type="button"
+                    onClick={toggleAllGroups}
+                    className="hover:bg-accent hover:text-accent-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5"
+                    aria-label={allCollapsed ? "Expand all" : "Collapse all"}
+                  >
+                    {allCollapsed ? (
+                      <ChevronsUpDown size={11} strokeWidth={2} />
+                    ) : (
+                      <ChevronsDownUp size={11} strokeWidth={2} />
+                    )}
+                    <span className="hidden @[220px]:inline">
+                      {allCollapsed ? "Expand all" : "Collapse all"}
+                    </span>
+                  </button>
+                </IconTooltip>
               </div>
             </div>
           ) : null}

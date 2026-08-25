@@ -2,15 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { invoke } from "@tauri-apps/api/core";
 import { MergeView, type DiffConfig } from "@codemirror/merge";
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { usePreferencesStore } from "@/modules/settings/preferences";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
-import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
+import { useEditorTheme } from "@/modules/editor/lib/themes";
 import type { GitChangeStatusTab } from "@/modules/tabs";
 import { gitFileAt, gitFileHead, type FileReadResult } from "./api";
 
@@ -131,24 +130,7 @@ export function GitDiffPane({
   const langA = useRef(new Compartment()).current;
   const langB = useRef(new Compartment()).current;
 
-  const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(editorThemeId));
-  useEffect(() => {
-    let cancelled = false;
-    const cached = tryEditorTheme(editorThemeId);
-    if (cached) {
-      setThemeExt(cached);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void loadEditorTheme(editorThemeId).then((ext) => {
-      if (!cancelled) setThemeExt(ext);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [editorThemeId]);
+  const themeExt = useEditorTheme();
 
   const [content, setContent] = useState<{
     orig: FileReadResult;

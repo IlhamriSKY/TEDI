@@ -42,7 +42,7 @@ type Props = {
   /** Drag-and-drop reorder inside a split group. */
   onReorderLeafInGroup?: (leafId: number, beforeLeafId: number | null) => void;
   onToggleSidebar: () => void;
-  /** Minimizes the whole right column shut / back, the twin of onToggleSidebar. */
+  /** Open a folder as the new workspace root. */
   onOpenFolder: () => void;
   /** Split the active pane. Forwarded to the TabBar's `+` dropdown. */
   onSplit: (dir: "row" | "col") => void;

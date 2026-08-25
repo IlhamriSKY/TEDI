@@ -13,8 +13,6 @@ pub(super) struct RegistryDoc {
 #[derive(serde::Deserialize, Clone)]
 pub(super) struct RegistryEntry {
     pub(super) id: String,
-    #[allow(dead_code)]
-    pub(super) name: String,
     #[serde(default)]
     pub(super) publisher: String,
     #[serde(default)]

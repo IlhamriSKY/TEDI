@@ -134,24 +134,6 @@ pub struct TransferSummary {
     pub failed: Vec<String>,
 }
 
-/// Look up an SSH session by id and clone its `Arc<SshSession>`. Every
-/// command starts with this prelude.
-async fn get_session(
-    state: &tauri::State<'_, SshState>,
-    id: u32,
-) -> Result<Arc<SshSession>, String> {
-    state
-        .sessions
-        .read()
-        .await
-        .get(&id)
-        .cloned()
-        .ok_or_else(|| {
-            log::warn!("ssh_sftp: unknown session id={id}");
-            "no ssh session".to_string()
-        })
-}
-
 /// Shared SFTP command scaffolding: resolve the session, open the sftp
 /// subsystem, and run `f` on the daemon runtime, mapping the join error.
 async fn on_sftp<F, Fut, T>(state: &tauri::State<'_, SshState>, id: u32, f: F) -> Result<T, String>
@@ -160,7 +142,16 @@ where
     Fut: std::future::Future<Output = Result<T, String>> + Send,
     T: Send + 'static,
 {
-    let session = get_session(state, id).await?;
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| {
+            log::warn!("ssh_sftp: unknown session id={id}");
+            "no ssh session".to_string()
+        })?;
     ssh_runtime()
         .spawn(async move {
             let sftp = session.ensure_sftp().await?;
@@ -941,8 +932,10 @@ pub async fn ssh_sftp_delete(
     .await
 }
 
-/// Open the SFTP subsystem if not already open. Exposed via SshSession so
-/// the mod.rs commands stay decoupled from the SSH handshake details.
+/// Open the SFTP subsystem on `session`'s handle. Lives here, not as a
+/// method on `SshSession`, so `session.rs` stays decoupled from the SFTP
+/// wire-protocol details; `SshSession::ensure_sftp` calls this and caches
+/// the result.
 pub(super) async fn open_sftp_on_handle(session: &SshSession) -> Result<Arc<SftpSession>, String> {
     let handle_guard = session.handle.lock().await;
     let handle = handle_guard

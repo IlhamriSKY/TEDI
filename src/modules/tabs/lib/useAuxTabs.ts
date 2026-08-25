@@ -1,7 +1,6 @@
 import { useCallback, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { basename } from "@/lib/path";
 import {
-  hasLeaf,
   leaves,
   updateBrowserLeaf as updateBrowserLeafInTree,
   updateBrowserLeafTitle as updateBrowserLeafTitleInTree,
@@ -16,7 +15,7 @@ import {
   type ScmTab,
   type Tab,
 } from "./tabTypes";
-import { syncPaneMirror, titleFromUrl } from "./tabHelpers";
+import { syncPaneMirror, titleFromUrl, updateLeafTree } from "./tabHelpers";
 
 /**
  * Shared mutable handles `useTabs` threads into the aux-tab sub-hook. These
@@ -442,13 +441,7 @@ export function useAuxTabs({
    *  leaf is active. Driven by the browser pane reporting in-page navigation. */
   const setBrowserLeafUrl = useCallback((leafId: number, url: string) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = updateBrowserLeafInTree(t.paneTree, leafId, url);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => updateBrowserLeafInTree(tree, leafId, url)),
     );
   }, []);
 
@@ -456,13 +449,7 @@ export function useAuxTabs({
    *  document.title). Re-syncs the tab/pane label. */
   const setBrowserLeafTitle = useCallback((leafId: number, title: string) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = updateBrowserLeafTitleInTree(t.paneTree, leafId, title);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => updateBrowserLeafTitleInTree(tree, leafId, title)),
     );
   }, []);
 

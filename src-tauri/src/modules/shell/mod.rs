@@ -117,8 +117,8 @@ pub(crate) fn run_blocking(
     #[cfg(windows)]
     let _job = crate::modules::pty::job::PtyJob::create_for(child.id()).ok();
 
-    let mut stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
-    let mut stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
+    let stdout_pipe = child.stdout.take().ok_or("no stdout pipe")?;
+    let stderr_pipe = child.stderr.take().ok_or("no stderr pipe")?;
 
     // Drain stdout/stderr on background threads so a full pipe buffer cannot
     // deadlock the child. The threads write into shared buffers and signal
@@ -136,26 +136,13 @@ pub(crate) fn run_blocking(
     let stdout_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
     let stderr_buf: Arc<Mutex<(Vec<u8>, bool)>> = Arc::new(Mutex::new((Vec::new(), false)));
     let (done_tx, done_rx) = mpsc::channel::<()>();
-    {
-        let buf = stdout_buf.clone();
-        let tx = done_tx.clone();
-        let stop = stop.clone();
-        thread::spawn(move || {
-            let res = drain(&mut stdout_pipe, &stop);
-            *buf.lock().unwrap() = res;
-            let _ = tx.send(());
-        });
-    }
-    {
-        let buf = stderr_buf.clone();
-        let tx = done_tx;
-        let stop = stop.clone();
-        thread::spawn(move || {
-            let res = drain(&mut stderr_pipe, &stop);
-            *buf.lock().unwrap() = res;
-            let _ = tx.send(());
-        });
-    }
+    spawn_drain_thread(
+        stdout_pipe,
+        stop.clone(),
+        stdout_buf.clone(),
+        done_tx.clone(),
+    );
+    spawn_drain_thread(stderr_pipe, stop.clone(), stderr_buf.clone(), done_tx);
 
     let started = Instant::now();
     let mut timed_out = false;
@@ -441,4 +428,20 @@ fn drain<R: Read>(reader: &mut R, stop: &AtomicBool) -> (Vec<u8>, bool) {
         }
     }
     (out, truncated)
+}
+
+/// Spawn a thread draining `pipe` via [`drain`] and forwarding the result
+/// into `buf`, signalling `tx` when done. Shared by the stdout/stderr readers
+/// in [`run_blocking`] - identical wiring, different pipe.
+fn spawn_drain_thread(
+    mut pipe: impl Read + Send + 'static,
+    stop: Arc<AtomicBool>,
+    buf: Arc<Mutex<(Vec<u8>, bool)>>,
+    tx: mpsc::Sender<()>,
+) {
+    thread::spawn(move || {
+        let res = drain(&mut pipe, &stop);
+        *buf.lock().unwrap() = res;
+        let _ = tx.send(());
+    });
 }

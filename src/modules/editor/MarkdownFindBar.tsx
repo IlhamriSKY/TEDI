@@ -1,8 +1,8 @@
 import { Input } from "@/components/ui/input";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn, escapeRegex } from "@/lib/utils";
-import type { MatchPos } from "./EditorFindReplace";
+import { MAX_MATCH_COUNT, type MatchPos } from "./EditorFindReplace";
 import { useCallback, useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import { ChevronDown, ChevronUp, X } from "lucide-react";
 
@@ -35,9 +35,6 @@ type Props = {
 // Registry keys for the CSS Custom Highlight API (see globals.css).
 const HL_ALL = "md-find";
 const HL_CURRENT = "md-find-current";
-
-// Cap match collection so a query like "a" on a huge doc can't freeze the UI.
-const MAX_MATCH_COUNT = 999;
 
 function highlightRegistry(): HighlightRegistry | null {
   if (typeof CSS === "undefined") return null;
@@ -331,57 +328,48 @@ export function MarkdownFindBar({ getContainer, content, onMatches, ref }: Props
             : `${currentIndex + 1}/${matchCount >= MAX_MATCH_COUNT ? `${MAX_MATCH_COUNT}+` : matchCount}`}
       </div>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={goPrev}
-            disabled={matchCount === 0}
-            aria-label="Previous match"
-            className={cn(
-              "shrink-0 cursor-pointer rounded p-1 transition-colors",
-              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-            )}
-          >
-            <ChevronUp size={11} strokeWidth={2} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Previous match (Shift+Enter)</TooltipContent>
-      </Tooltip>
+      <IconTooltip label="Previous match (Shift+Enter)" side="bottom">
+        <button
+          type="button"
+          onClick={goPrev}
+          disabled={matchCount === 0}
+          aria-label="Previous match"
+          className={cn(
+            "shrink-0 cursor-pointer rounded p-1 transition-colors",
+            "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+          )}
+        >
+          <ChevronUp size={11} strokeWidth={2} />
+        </button>
+      </IconTooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={goNext}
-            disabled={matchCount === 0}
-            aria-label="Next match"
-            className={cn(
-              "shrink-0 cursor-pointer rounded p-1 transition-colors",
-              "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
-              "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
-            )}
-          >
-            <ChevronDown size={11} strokeWidth={2} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Next match (Enter)</TooltipContent>
-      </Tooltip>
+      <IconTooltip label="Next match (Enter)" side="bottom">
+        <button
+          type="button"
+          onClick={goNext}
+          disabled={matchCount === 0}
+          aria-label="Next match"
+          className={cn(
+            "shrink-0 cursor-pointer rounded p-1 transition-colors",
+            "text-muted-foreground hover:bg-accent hover:text-accent-foreground",
+            "disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:bg-transparent",
+          )}
+        >
+          <ChevronDown size={11} strokeWidth={2} />
+        </button>
+      </IconTooltip>
 
-      <Tooltip>
-        <TooltipTrigger asChild>
-          <button
-            type="button"
-            onClick={close}
-            aria-label="Close"
-            className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1"
-          >
-            <X size={11} strokeWidth={2} />
-          </button>
-        </TooltipTrigger>
-        <TooltipContent side="bottom">Close (Esc)</TooltipContent>
-      </Tooltip>
+      <IconTooltip label="Close (Esc)" side="bottom">
+        <button
+          type="button"
+          onClick={close}
+          aria-label="Close"
+          className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive shrink-0 cursor-pointer rounded p-1"
+        >
+          <X size={11} strokeWidth={2} />
+        </button>
+      </IconTooltip>
     </div>
   );
 }

@@ -746,6 +746,18 @@ fn open_session(
     Ok(id)
 }
 
+/// Look up a live session by id, or `Err("unknown session ...")`. Shared by
+/// every per-session dispatch handler.
+fn get_session(state: &Arc<DaemonState>, session_id: Uuid) -> Result<Arc<DaemonSession>, String> {
+    state
+        .sessions
+        .read()
+        .unwrap()
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| format!("unknown session {session_id}"))
+}
+
 fn attach_session(
     state: &Arc<DaemonState>,
     client_tx: mpsc::Sender<DaemonMsg>,
@@ -754,13 +766,7 @@ fn attach_session(
     cols: u16,
     rows: u16,
 ) -> Result<(String, bool), String> {
-    let shell = state
-        .sessions
-        .read()
-        .unwrap()
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| format!("unknown session {session_id}"))?;
+    let shell = get_session(state, session_id)?;
     // Resize to the attaching client's viewport so its terminal renders correctly.
     let _ = shell
         .pty()?
@@ -792,13 +798,7 @@ fn attach_session(
 }
 
 fn write_session(state: &Arc<DaemonState>, session_id: Uuid, data_b64: &str) -> Result<(), String> {
-    let shell = state
-        .sessions
-        .read()
-        .unwrap()
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| format!("unknown session {session_id}"))?;
+    let shell = get_session(state, session_id)?;
     let bytes = B64
         .decode(data_b64)
         .map_err(|e| format!("invalid base64: {e}"))?;
@@ -814,13 +814,7 @@ fn resize_session(
     cols: u16,
     rows: u16,
 ) -> Result<(), String> {
-    let shell = state
-        .sessions
-        .read()
-        .unwrap()
-        .get(&session_id)
-        .cloned()
-        .ok_or_else(|| format!("unknown session {session_id}"))?;
+    let shell = get_session(state, session_id)?;
     shell
         .pty()?
         .master

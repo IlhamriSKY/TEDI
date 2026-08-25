@@ -1,7 +1,9 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { toForwardSlash } from "@/lib/path";
 import { coalesceResume } from "@/lib/windowResume";
-import { joinPath, parentDir, tryReadText } from "@/modules/editor/lib/formatters/configWalk";
+import { joinPath } from "@/lib/path";
+import { parentDir, tryReadText } from "@/modules/editor/lib/formatters/configWalk";
 import {
   PROJECT_URL_FILES,
   parseHostsFile,
@@ -75,7 +77,7 @@ function urlInDir(dir: string, hosts: LocalHosts): Promise<string | null> {
 /** First url found walking up from `startDir`, or null within `MAX_WALK`. */
 async function findConfigUrl(startDir: string): Promise<string | null> {
   const hosts = await localHosts();
-  let dir: string | null = startDir.replace(/\\/g, "/").replace(/\/+$/, "");
+  let dir: string | null = toForwardSlash(startDir).replace(/\/+$/, "");
   for (let i = 0; i < MAX_WALK && dir; i++) {
     const url = await urlInDir(dir, hosts);
     if (url) return url;

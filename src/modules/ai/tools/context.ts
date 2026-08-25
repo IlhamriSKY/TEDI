@@ -1,3 +1,4 @@
+import { escapeRegex } from "@/lib/utils";
 import type { BrowserDiag } from "@/modules/browser";
 import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { ProviderKeys } from "../lib/keyring";
@@ -153,8 +154,8 @@ export function scrubErrorPath(e: unknown, ctx: ToolContext): string {
   if (root) {
     const norm = root.replace(/\\/g, "/").replace(/\/$/, "");
     // Replace both slash variants of the workspace root.
-    const escSlash = norm.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
-    const escBack = norm.replace(/\//g, "\\\\").replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+    const escSlash = escapeRegex(norm);
+    const escBack = escapeRegex(norm.replace(/\//g, "\\\\"));
     msg = msg.replace(new RegExp(escSlash, "gi"), "<workspace>");
     msg = msg.replace(new RegExp(escBack, "gi"), "<workspace>");
   }

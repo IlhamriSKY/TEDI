@@ -1,5 +1,6 @@
 import {
   createContext,
+  useCallback,
   useContext,
   useEffect,
   useMemo,
@@ -9,7 +10,7 @@ import {
 import { gitIgnored, gitStatus } from "@/modules/scm/api";
 import type { GitChangeStatus, GitStatus } from "@/modules/scm/types";
 import { FS_REFRESH_EVENT } from "./useFileTree";
-import { coalesceResume } from "@/lib/windowResume";
+import { useVisibilityPoll } from "@/lib/windowResume";
 
 /** Poll cadence for git status while the window is focused. Mirrors the
  *  Source Control panel so explorer decorations stay in step with that view. */
@@ -195,77 +196,37 @@ export function useGitStatusPoll(rootPath: string | null): GitDecorationData {
   rootRef.current = rootPath;
   const inFlight = useRef(false);
 
-  useEffect(() => {
-    if (!rootPath) {
-      setData(EMPTY_DATA);
-      return;
+  // `rootRef` is assigned during render, so a fetch that outlives the root it
+  // was started for sees the new value and drops its own result.
+  const fetchNow = useCallback(async () => {
+    const cur = rootRef.current;
+    if (!cur || inFlight.current) return;
+    inFlight.current = true;
+    try {
+      const [status, ignored] = await Promise.all([gitStatus(cur), gitIgnored(cur)]);
+      if (rootRef.current !== cur) return;
+      const next: GitDecorationData = { status, ignored };
+      setData((prev) => (sameData(prev, next) ? prev : next));
+    } catch {
+      // Not a repo / git missing: leave decorations empty, keep polling.
+    } finally {
+      inFlight.current = false;
     }
+  }, []);
+
+  useVisibilityPoll(() => void fetchNow(), GIT_STATUS_POLL_MS, Boolean(rootPath));
+
+  useEffect(() => {
     // New root: drop stale decorations until the first fetch lands.
     setData(EMPTY_DATA);
-
-    let cancelled = false;
-    const fetchNow = async () => {
-      const cur = rootRef.current;
-      if (!cur || inFlight.current) return;
-      inFlight.current = true;
-      try {
-        const [status, ignored] = await Promise.all([gitStatus(cur), gitIgnored(cur)]);
-        if (cancelled || rootRef.current !== cur) return;
-        const next: GitDecorationData = { status, ignored };
-        setData((prev) => (sameData(prev, next) ? prev : next));
-      } catch {
-        // Not a repo / git missing: leave decorations empty, keep polling.
-      } finally {
-        inFlight.current = false;
-      }
-    };
-
-    let intervalId: number | null = null;
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") void fetchNow();
-      }, GIT_STATUS_POLL_MS);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    // Both events fire on a return from lock; one coalescer between them
-    // stops the panel doing its whole refresh twice.
-    const refreshOnResume = coalesceResume(() => void fetchNow());
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refreshOnResume();
-        start();
-      } else {
-        stop();
-      }
-    };
-    const onFocus = () => {
-      refreshOnResume();
-      start();
-    };
-    const onBlur = () => stop();
-    const onFsRefresh = () => void fetchNow();
-
+    if (!rootPath) return;
     void fetchNow();
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
+    // Not coalesced: this answers a mutation the app just made, so it must
+    // never be dropped for landing near a focus change.
+    const onFsRefresh = () => void fetchNow();
     window.addEventListener(FS_REFRESH_EVENT, onFsRefresh as EventListener);
-    return () => {
-      cancelled = true;
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-      window.removeEventListener(FS_REFRESH_EVENT, onFsRefresh as EventListener);
-    };
-  }, [rootPath]);
+    return () => window.removeEventListener(FS_REFRESH_EVENT, onFsRefresh as EventListener);
+  }, [rootPath, fetchNow]);
 
   return data;
 }

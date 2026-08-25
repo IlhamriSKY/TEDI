@@ -6,6 +6,5 @@ const bus = createPathChangeBus(
   (p) => p.endsWith("/tedi.md") || p.includes("/.tedi/memory/"),
 );
 
-export const isMemoryRelatedPath = bus.isRelated;
 export const notifyMemoryPathChanged = bus.notify;
 export const subscribeMemoryPathChanges = bus.subscribe;

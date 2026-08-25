@@ -464,7 +464,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <Tooltip>
         {wrapped}
         <TooltipContent side="bottom">
-          <div className="text-destructive text-destructive text-[11px]">{PRIVATE_HINT}</div>
+          <div className="text-destructive text-[11px]">{PRIVATE_HINT}</div>
         </TooltipContent>
       </Tooltip>
     );

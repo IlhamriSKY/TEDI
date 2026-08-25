@@ -2,7 +2,7 @@ import { cn } from "@/lib/utils";
 import { LeafIcon } from "@/components/LeafIcon";
 import { resolveExtIcon } from "@/lib/iconRegistry";
 import type { Entry } from "../lib/entries";
-import { Database, GitBranch, GitCompare, Kanban } from "lucide-react";
+import { Database, GitBranch, GitCompare } from "lucide-react";
 
 /**
  * Pill badge stamped next to terminal + browser entries ("Terminal 3" /
@@ -86,11 +86,6 @@ export function EntryIcon({ entry }: { entry: Entry }) {
   }
   if (entry.kind === "scm") {
     return <GitBranch size={14} strokeWidth={2} className="text-icon-branch shrink-0" />;
-  }
-  if (entry.kind === "board") {
-    // Untinted, like the extension tabs: the board is a view, not a status, and
-    // a coloured glyph here would read as one of the four column states.
-    return <Kanban size={14} strokeWidth={2} className="shrink-0" />;
   }
   return <GitCompare size={14} strokeWidth={2} className="text-icon-working shrink-0" />;
 }

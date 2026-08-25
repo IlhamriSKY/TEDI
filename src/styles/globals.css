@@ -83,6 +83,8 @@
   /* Smooth "breathing" pulse for the active AI CLI (working / blocking) icon.
    * Gentler and more continuous than Tailwind's default animate-pulse. */
   --animate-ai-breathe: ai-breathe 1.8s ease-in-out infinite;
+  /* Travelling pulse along the hop being dialled in the SSH connect overlay. */
+  --animate-ssh-hop-flow: tedi-ssh-hop-flow 1.1s linear infinite;
   --radius-sm: 0px;
   --radius-md: 0px;
   --radius-lg: 0px;
@@ -102,6 +104,19 @@
   }
   50% {
     opacity: 0.45;
+  }
+}
+
+/* The hop being dialled in the SSH connect overlay
+ * (src/modules/ssh/SshConnectOverlay.tsx): a half-width gradient sweeping the
+ * segment between two hosts. Transform-only so it composites off the main
+ * thread while the connect is blocking on the network. */
+@keyframes tedi-ssh-hop-flow {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(200%);
   }
 }
 

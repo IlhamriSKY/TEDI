@@ -70,7 +70,7 @@ export type PaneEntry = EntryBase & {
 };
 
 type StandaloneEntry = EntryBase & {
-  kind: "ai-diff" | "git-diff" | "scm" | "board";
+  kind: "ai-diff" | "git-diff" | "scm";
 };
 
 type ExtensionEntry = EntryBase & {
@@ -115,9 +115,6 @@ export function tabAccentClass(e: Entry): string {
   if (e.kind === "ai-diff") return "bg-[color:var(--tedi-tab-ai-diff)]";
   if (e.kind === "git-diff") return "bg-[color:var(--tedi-tab-git-diff)]";
   if (e.kind === "scm") return "bg-[color:var(--tedi-tab-git-diff)]";
-  // Board: reuse the AI-diff accent. It is the workspace's AI-status surface,
-  // and a token of its own would have to be added to all 20 theme presets.
-  if (e.kind === "board") return "bg-[color:var(--tedi-tab-ai-diff)]";
   // Extension tab. Reuse the SSH accent (sky blue) so workbench-style
   // extensions read as "remote-ish dev tools" next to terminal tabs.
   return "bg-[color:var(--tedi-tab-ssh)]";

@@ -1,4 +1,4 @@
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
@@ -41,6 +41,22 @@ fn build_globset(patterns: &[String]) -> Result<Option<GlobSet>, String> {
     }
     let set = b.build().map_err(|e| format!("globset build: {e}"))?;
     Ok(Some(set))
+}
+
+/// Shared `.gitignore`-aware walk config for grep/glob/replace: hidden
+/// entries included, every ignore source honored (`.gitignore`, global
+/// gitignore, `.git/info/exclude`, `.ignore`), symlinks never followed.
+/// Callers finish with `.build()` or `.build_parallel()`.
+fn ignore_walker(root: &Path) -> WalkBuilder {
+    let mut b = WalkBuilder::new(root);
+    b.hidden(true)
+        .git_ignore(true)
+        .git_global(true)
+        .git_exclude(true)
+        .ignore(true)
+        .parents(true)
+        .follow_links(false);
+    b
 }
 
 // A sync `#[tauri::command]` runs on the WebView2 UI (main) thread on Windows,
@@ -87,15 +103,7 @@ fn fs_grep_inner(
 
     let globs = build_globset(glob.as_deref().unwrap_or(&[]))?;
 
-    let walker = WalkBuilder::new(&root_path)
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .ignore(true)
-        .parents(true)
-        .follow_links(false)
-        .build_parallel();
+    let walker = ignore_walker(&root_path).build_parallel();
 
     // Per-worker local buffer drained into `worker_bufs` on worker drop.
     // Replaces an older design that locked one shared `Mutex<Vec<GrepHit>>`
@@ -257,15 +265,7 @@ fn fs_glob_inner(
     gb.add(glob);
     let set = gb.build().map_err(|e| format!("globset build: {e}"))?;
 
-    let walker = WalkBuilder::new(&root_path)
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .ignore(true)
-        .parents(true)
-        .follow_links(false)
-        .build();
+    let walker = ignore_walker(&root_path).build();
 
     let mut hits: Vec<GlobHit> = Vec::new();
     let mut truncated = false;
@@ -361,15 +361,7 @@ fn fs_grep_replace_inner(
 
     let globs = build_globset(glob.as_deref().unwrap_or(&[]))?;
 
-    let walker = WalkBuilder::new(&root_path)
-        .hidden(true)
-        .git_ignore(true)
-        .git_global(true)
-        .git_exclude(true)
-        .ignore(true)
-        .parents(true)
-        .follow_links(false)
-        .build();
+    let walker = ignore_walker(&root_path).build();
 
     const MAX_REPLACE_FILES: usize = 1_000;
     let mut files_changed = 0usize;

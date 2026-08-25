@@ -26,6 +26,14 @@ use super::SshOpenInput;
 const CONNECT_TIMEOUT: Duration = Duration::from_secs(15);
 const KEEPALIVE: Duration = Duration::from_secs(30);
 
+/// Milliseconds since the Unix epoch, `0` if the clock is somehow before it.
+fn now_ms() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0)
+}
+
 /// Host-key / public-key signature algorithms we accept, in preference order.
 /// This is russh's vetted default set MINUS bare `ssh-rsa` (RSA with SHA-1
 /// signatures): SHA-1 is collision-broken and OpenSSH has disabled `ssh-rsa`
@@ -125,6 +133,17 @@ fn pending_host_keys() -> &'static std::sync::Mutex<HashMap<String, oneshot::Sen
 /// fires it with the user's decision); `None` if it already timed out/resolved.
 pub(super) fn take_pending_host_key(prompt_id: &str) -> Option<oneshot::Sender<bool>> {
     pending_host_keys().lock().ok()?.remove(prompt_id)
+}
+
+/// Discard a pending host-key prompt without resolving it, because the
+/// handshake it belonged to already failed some other way. No-op when
+/// `needs_confirm` is false or the prompt was already taken/removed.
+fn drop_pending_host_key(needs_confirm: bool, prompt_id: &str) {
+    if needs_confirm {
+        if let Ok(mut m) = pending_host_keys().lock() {
+            m.remove(prompt_id);
+        }
+    }
 }
 
 /// Server-key check. With `expected_fingerprint`, the presented key must
@@ -674,11 +693,7 @@ where
         .await
         .map_err(|_| format!("ssh: connect to {host}:{port} timed out"))?;
     // Drop any unconsumed prompt (handshake failed before/around the check).
-    if needs_confirm {
-        if let Ok(mut m) = pending_host_keys().lock() {
-            m.remove(prompt_id);
-        }
-    }
+    drop_pending_host_key(needs_confirm, prompt_id);
     match result {
         Ok(h) => Ok(h),
         Err(e) => Err(handshake_error(report, e).await),
@@ -704,20 +719,13 @@ async fn open_tunnel(
         prev.channel_open_direct_tcpip(host.to_string(), u32::from(port), "127.0.0.1", 0),
     )
     .await;
-    let drop_prompt = || {
-        if needs_confirm {
-            if let Ok(mut m) = pending_host_keys().lock() {
-                m.remove(prompt_id);
-            }
-        }
-    };
     match opened {
         Err(_) => {
-            drop_prompt();
+            drop_pending_host_key(needs_confirm, prompt_id);
             Err(format!("ssh: open tunnel to {host}:{port} timed out"))
         }
         Ok(Err(e)) => {
-            drop_prompt();
+            drop_pending_host_key(needs_confirm, prompt_id);
             Err(format!("ssh: open tunnel to {host}:{port} failed: {e}"))
         }
         Ok(Ok(channel)) => Ok(channel),
@@ -1083,10 +1091,7 @@ pub async fn connect(
         // Keep the channel's write half to satisfy the struct; the read half is
         // intentionally dropped (we never pump a shell-less channel).
         let (_read_half, write_half) = channel.split();
-        let created_at_ms = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .map(|d| d.as_millis() as u64)
-            .unwrap_or(0);
+        let created_at_ms = now_ms();
         return Ok(Arc::new(SshSession {
             write_half,
             pump: Mutex::new(None),
@@ -1200,10 +1205,7 @@ pub async fn connect(
         fan(&ev);
     });
 
-    let created_at_ms = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
+    let created_at_ms = now_ms();
 
     Ok(Arc::new(SshSession {
         write_half,

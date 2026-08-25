@@ -1,3 +1,5 @@
+import { useEffect, useRef } from "react";
+
 /**
  * Coalesce the two events that both mean "the window is back".
  *
@@ -20,4 +22,65 @@ export function coalesceResume(refresh: () => void, windowMs = 400): () => void 
     lastRun = now;
     refresh();
   };
+}
+
+/**
+ * Poll `refresh` every `intervalMs`, but only while the window is visible.
+ *
+ * The timer is torn down on blur or hide and restarted on focus or show, so a
+ * backgrounded window costs nothing, and the return from a lock refreshes once
+ * rather than twice (both events fire, `coalesceResume` drops the second).
+ * Every panel that refreshes on a timer wants exactly this, so it lives here
+ * instead of being rebuilt per panel.
+ *
+ * `refresh` is read through a ref, so a caller may pass a fresh closure each
+ * render without restarting the timer; each tick calls the newest one. Pass
+ * `enabled: false` to stay mounted but idle (a collapsed panel, a tree with no
+ * root yet). Anything a caller needs on mount, or on its own events, belongs in
+ * that caller's own effect.
+ */
+export function useVisibilityPoll(refresh: () => void, intervalMs: number, enabled = true): void {
+  const latest = useRef(refresh);
+  latest.current = refresh;
+
+  useEffect(() => {
+    if (!enabled) return;
+    let intervalId: number | null = null;
+    const start = () => {
+      if (intervalId !== null) return;
+      intervalId = window.setInterval(() => {
+        if (document.visibilityState === "visible") latest.current();
+      }, intervalMs);
+    };
+    const stop = () => {
+      if (intervalId !== null) {
+        window.clearInterval(intervalId);
+        intervalId = null;
+      }
+    };
+    const refreshOnResume = coalesceResume(() => latest.current());
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        refreshOnResume();
+        start();
+      } else {
+        stop();
+      }
+    };
+    const onFocus = () => {
+      refreshOnResume();
+      start();
+    };
+
+    if (document.visibilityState === "visible") start();
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener("focus", onFocus);
+    window.addEventListener("blur", stop);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener("focus", onFocus);
+      window.removeEventListener("blur", stop);
+    };
+  }, [enabled, intervalMs]);
 }

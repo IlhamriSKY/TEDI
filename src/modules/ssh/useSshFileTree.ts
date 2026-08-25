@@ -3,6 +3,8 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "@/components/ui/toast";
 import { sameEntries } from "@/modules/explorer/lib/useFileTree";
 import {
+  joinRemote as joinPath,
+  remoteDirname as dirname,
   sftpCreateDir,
   sftpCreateFile,
   sftpDelete,
@@ -10,7 +12,7 @@ import {
   sftpReadDir,
   sftpRename,
 } from "./sftp";
-import { coalesceResume } from "@/lib/windowResume";
+import { useVisibilityPoll } from "@/lib/windowResume";
 
 // SFTP-backed file tree. Same shape as `useFileTree` so `FileTreeNode` can
 // render it unchanged. Differences from the local hook:
@@ -54,17 +56,6 @@ export type PendingCreate = {
   parentPath: string;
   kind: "file" | "dir";
 };
-
-function joinPath(parent: string, name: string): string {
-  if (parent.endsWith("/")) return `${parent}${name}`;
-  return `${parent}/${name}`;
-}
-
-function dirname(path: string): string {
-  const i = path.lastIndexOf("/");
-  if (i <= 0) return "/";
-  return path.slice(0, i);
-}
 
 type Options = {
   /** Include dot-prefixed entries. */
@@ -221,48 +212,11 @@ export function useSshFileTree(
   // each pass is a network round trip per open folder.
   // Known limit: fixed interval; switch to an inotify-backed push if a busy remote
   // ever makes the polling cost visible.
-  useEffect(() => {
-    if (!rootPath || sessionId === null) return;
-    let intervalId: number | null = null;
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") refreshAllLoadedRef.current();
-      }, SSH_AUTO_REFRESH_MS);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    // Both events fire on a return from lock; one coalescer between them
-    // stops the panel doing its whole refresh twice.
-    const refreshOnResume = coalesceResume(() => refreshAllLoadedRef.current());
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        refreshOnResume();
-        start();
-      } else {
-        stop();
-      }
-    };
-    const onFocus = () => {
-      refreshOnResume();
-      start();
-    };
-
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", stop);
-    return () => {
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", stop);
-    };
-  }, [rootPath, sessionId]);
+  useVisibilityPoll(
+    () => refreshAllLoadedRef.current(),
+    SSH_AUTO_REFRESH_MS,
+    Boolean(rootPath) && sessionId !== null,
+  );
 
   const collapseAll = useCallback(() => {
     setExpanded((curr) => (curr.size === 0 ? curr : new Set()));

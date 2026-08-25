@@ -1,17 +1,15 @@
 import { Badge } from "@/components/ui/badge";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { usePreferencesStore } from "@/modules/settings/preferences";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { presentableDiff, unifiedMergeView } from "@codemirror/merge";
 import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
-import { useEffect, useMemo, useRef, useState } from "react";
-import type { Extension } from "@codemirror/state";
+import { useEffect, useMemo, useRef } from "react";
 import { buildSharedExtensions, languageCompartment } from "./lib/extensions";
 import { resolveLanguage } from "./lib/languageResolver";
-import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
+import { useEditorTheme } from "./lib/themes";
 import { Check, X } from "lucide-react";
 
 type Props = {
@@ -28,38 +26,6 @@ type Props = {
 // underline with proper block backgrounds. Reads cleaner - especially for
 // pure insertions, where the underline-style marker looked decorative.
 const DIFF_THEME = EditorView.theme({
-  // ".cm-changedLine": {
-  //   backgroundColor:
-  //     "color-mix(in srgb, #22c55e 10%, transparent) !important",
-  // },
-  // ".cm-merge-b .cm-changedText, .cm-merge-b ins.cm-insertedLine": {
-  //   background:
-  //     "color-mix(in srgb, #22c55e 28%, transparent) !important",
-  //   textDecoration: "none !important",
-  //   borderRadius: "2px",
-  // },
-  // ".cm-deletedChunk": {
-  //   backgroundColor:
-  //     "color-mix(in srgb, #ef4444 8%, transparent)",
-  //   paddingLeft: "6px",
-  //   paddingTop: "1px",
-  //   paddingBottom: "1px",
-  // },
-  // ".cm-deletedChunk .cm-deletedText, .cm-deletedLine del": {
-  //   background:
-  //     "color-mix(in srgb, #ef4444 26%, transparent) !important",
-  //   textDecoration: "none !important",
-  //   borderRadius: "2px",
-  // },
-  // ".cm-changeGutter": {
-  //   width: "3px",
-  // },
-  // ".cm-changedLineGutter": {
-  //   backgroundColor: "#22c55e",
-  // },
-  // ".cm-deletedLineGutter": {
-  //   backgroundColor: "#ef4444",
-  // },
   // Inline added-text highlight inside merge view. Reads the EDITOR-owned
   // `--tedi-editor-diff-added` token so the diff tint follows the code-editor
   // theme (set by `applyEditorDiffColors`), not the app theme.
@@ -90,24 +56,7 @@ export function AiDiffPane({
   onReject,
 }: Props) {
   const cmRef = useRef<ReactCodeMirrorRef>(null);
-  const editorThemeId = usePreferencesStore((s) => s.editorTheme);
-  const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(editorThemeId));
-  useEffect(() => {
-    let cancelled = false;
-    const cached = tryEditorTheme(editorThemeId);
-    if (cached) {
-      setThemeExt(cached);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void loadEditorTheme(editorThemeId).then((ext) => {
-      if (!cancelled) setThemeExt(ext);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [editorThemeId]);
+  const themeExt = useEditorTheme();
 
   // The merge extension diffs the current document against `original`.
   // We bake originalContent into the extension once on mount; if the AI
@@ -164,12 +113,9 @@ export function AiDiffPane({
               New file
             </span>
           ) : null}
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <span className="text-muted-foreground truncate font-mono text-[11px]">{path}</span>
-            </TooltipTrigger>
-            <TooltipContent side="bottom">{path}</TooltipContent>
-          </Tooltip>
+          <IconTooltip label={path} side="bottom">
+            <span className="text-muted-foreground truncate font-mono text-[11px]">{path}</span>
+          </IconTooltip>
           <span className="flex shrink-0 items-center gap-1.5 text-[10.5px] tabular-nums">
             <span className="text-diff-added">+{stats.added}</span>
             <span className="text-diff-removed">−{stats.removed}</span>

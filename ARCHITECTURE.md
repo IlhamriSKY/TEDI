@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (103 commands today).
+index of the backend API surface (124 commands today).
 
 ```mermaid
 flowchart LR
@@ -99,12 +99,14 @@ subsystems, flat files for single-purpose ones).
 | `git/`          | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs. |
 | `ssh/`          | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                    |
 | `extensions/`   | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).     |
-| `cli_ext/`      | Headless `tedi ext` CLI (list/install/update against the public registry).                       |
-| `preview/`      | Native-webview dev-server preview backend (`embed`, `proxy`, `util`).                             |
+| `cli_ext/`      | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring. |
+| `preview/`      | Native-webview dev-server preview backend (`embed`, `proxy`, `util`, `browser_ext`).               |
 | `format.rs`     | Direct-spawn external formatter executor (`fmt_run_external`).                                    |
 | `secrets.rs`    | OS keychain bridge (`keyring` crate; Linux file-store fallback).                                  |
 | `net.rs`        | Minimal HTTP probe (dev-server detection).                                                        |
 | `mcp.rs`        | Model Context Protocol support for the AI subsystem.                                              |
+| `backup.rs`     | Encrypted (AES-256-GCM) SSH connection export/import blobs.                                       |
+| `clipboard.rs`  | Host-process clipboard read (`clipboard_read_text`), works around a Linux WebKitGTK paste gap.     |
 | `cli.rs`        | `tedi` CLI entry, single-instance forwarding, PATH shim install.                                  |
 | `cli_theme.rs` / `cli_update.rs` | Headless `tedi theme` and `tedi --update` handlers.                              |
 | `cli_paint.rs`, `events.rs`, `ids.rs`, `lockext.rs` | CLI color output, event-name constants, id helpers, lock extensions. |
@@ -112,7 +114,7 @@ subsystems, flat files for single-purpose ones).
 ## 4. Frontend (React, `src/`)
 
 Single-window React app (plus the Settings webview), path alias `@/*` -> `src/*`.
-`app/App.tsx` is the ~1000-line coordinator described in Section 2. Feature code
+`app/App.tsx` is the ~1200-line coordinator described in Section 2. Feature code
 lives in 19 self-contained modules.
 
 | Module        | Responsibility                                                                        |
@@ -152,7 +154,7 @@ unmounted on switch.
 
 ## 5. The AI subsystem (`src/modules/ai/`)
 
-Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Ten providers are
+Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Eleven providers are
 declared in `config.ts` (`PROVIDERS`, `MODELS`), the single source of truth. Local
 models are first-class: LM Studio has its own provider, and the OpenAI-compatible
 provider accepts several endpoints at once (Ollama, llama.cpp, vLLM, OpenRouter,

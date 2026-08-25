@@ -13,7 +13,7 @@ import { readClipboardText } from "@/lib/clipboard";
 import { formatBytes } from "@/lib/format";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { markdownComponents } from "@/components/ai-elements/markdown-code";
-import { loadEditorTheme, tryEditorTheme } from "./lib/themes";
+import { useEditorTheme } from "./lib/themes";
 import {
   useCallback,
   useEffect,
@@ -23,7 +23,6 @@ import {
   useState,
   type Ref,
 } from "react";
-import type { Extension } from "@codemirror/state";
 import { Prec } from "@codemirror/state";
 import { vim } from "@replit/codemirror-vim";
 import {
@@ -261,7 +260,6 @@ export function EditorPane({
     cursorY: number;
     selection: { top: number; height: number } | null;
   } | null>(null);
-  const editorThemeId = usePreferencesStore((s) => s.editorTheme);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
@@ -324,25 +322,7 @@ export function EditorPane({
       unsubPrefs();
     };
   }, []);
-  // Themes are dynamic imports (~10-25 KB). Show cached immediately;
-  // otherwise unstyled until ready.
-  const [themeExt, setThemeExt] = useState<Extension | null>(() => tryEditorTheme(editorThemeId));
-  useEffect(() => {
-    let cancelled = false;
-    const cached = tryEditorTheme(editorThemeId);
-    if (cached) {
-      setThemeExt(cached);
-      return () => {
-        cancelled = true;
-      };
-    }
-    void loadEditorTheme(editorThemeId).then((ext) => {
-      if (!cancelled) setThemeExt(ext);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [editorThemeId]);
+  const themeExt = useEditorTheme();
 
   // Stable refs so the extensions array keeps its identity; a new identity
   // makes @uiw/react-codemirror reconfigure and wipes the language compartment.

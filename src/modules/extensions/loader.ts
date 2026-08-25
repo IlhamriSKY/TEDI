@@ -113,7 +113,7 @@ const SLOW_ACTIVATE_MS = 500;
  *  diagnostics; the Settings window runs in a separate webview and does not
  *  share this module's state, which is why the summary is logged rather than
  *  rendered on the extension cards. */
-export function activationTimings(): ActivationTiming[] {
+function activationTimings(): ActivationTiming[] {
   return [...active.values()]
     .map((r) => r.timing)
     .sort((a, b) => b.loadMs + b.activateMs - (a.loadMs + a.activateMs));

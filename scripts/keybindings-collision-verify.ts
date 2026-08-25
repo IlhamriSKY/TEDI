@@ -24,6 +24,7 @@ import {
 // it is documentation-only and handled locally in the AI input, so those chords
 // fall through globally (that is how Enter reaches the shell in a terminal).
 const HANDLED = new Set<string>([
+  "commandPalette.open",
   "tab.new",
   "tab.newPrivate",
   "tab.newPreview",

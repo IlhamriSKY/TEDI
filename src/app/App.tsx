@@ -1142,8 +1142,8 @@ export default function App() {
             onCd={sendCd}
             onOpenMini={openMini}
             hasAnySshLeaf={hasAnySshLeaf}
-            activeIsSsh={activeLeafIsSsh}
             sshSessionId={activeLeafIsSsh ? activeSshContext.sessionId : null}
+            sshHostLabel={activeLeafIsSsh ? activeSshContext.hostLabel : null}
             sshRoute={
               activeLeafIdInTab != null ? sshStatuses.get(activeLeafIdInTab)?.route : undefined
             }

@@ -6,15 +6,27 @@ import { useChatStore } from "../store/chatStore";
 import { usePlanStore, type QueuedEdit } from "../store/planStore";
 import { Check, ChevronDown, FilePen, FilePlus, FolderPlus, X } from "lucide-react";
 
-function diffStats(original: string, proposed: string): { added: number; removed: number } {
+type DiffLine = { kind: "add" | "del"; text: string };
+
+// Coarse line-level diff via set membership; sufficient for at-a-glance review.
+function diffLines(original: string, proposed: string): DiffLine[] {
   const a = original.split("\n");
   const b = proposed.split("\n");
   const setA = new Set(a);
   const setB = new Set(b);
+  const lines: DiffLine[] = [];
+  for (const l of a) if (!setB.has(l)) lines.push({ kind: "del", text: l });
+  for (const l of b) if (!setA.has(l)) lines.push({ kind: "add", text: l });
+  return lines;
+}
+
+function diffStats(original: string, proposed: string): { added: number; removed: number } {
+  const lines = diffLines(original, proposed);
   let added = 0;
   let removed = 0;
-  for (const line of b) if (!setA.has(line)) added++;
-  for (const line of a) if (!setB.has(line)) removed++;
+  for (const l of lines)
+    if (l.kind === "add") added++;
+    else removed++;
   return { added, removed };
 }
 
@@ -148,17 +160,7 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
 }
 
 function UnifiedDiffPreview({ original, proposed }: { original: string; proposed: string }) {
-  // Coarse line-level diff via set membership; sufficient for at-a-glance review.
-  const a = original.split("\n");
-  const b = proposed.split("\n");
-  const setA = new Set(a);
-  const setB = new Set(b);
-
-  const lines: Array<{ kind: "add" | "del" | "ctx"; text: string }> = [];
-  // Removed: in a but not b.
-  for (const l of a) if (!setB.has(l)) lines.push({ kind: "del", text: l });
-  // Added: in b but not a.
-  for (const l of b) if (!setA.has(l)) lines.push({ kind: "add", text: l });
+  const lines = diffLines(original, proposed);
 
   if (lines.length === 0) {
     return <div className="text-muted-foreground text-[11px] italic">no line-level changes</div>;

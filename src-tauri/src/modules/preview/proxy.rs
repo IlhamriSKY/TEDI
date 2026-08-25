@@ -270,8 +270,6 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
 
     // Each handler needs its own clone of the base URL and origin because
     // lol_html stores them as `FnMut` and the closures outlive this scope.
-    let t_head = target.clone();
-    let o_head = proxy_origin.to_string();
     let t_src = target.clone();
     let o_src = proxy_origin.to_string();
     let t_link = target.clone();
@@ -287,8 +285,6 @@ fn rewrite_html(body: &[u8], target_url: &str, proxy_origin: &str) -> Vec<u8> {
         // before us see the real document head.
         element!("head", move |el| {
             el.append(&head_inject_clone, ContentType::Html);
-            // Suppress unused-capture warning when head doesn't appear.
-            let _ = (&t_head, &o_head);
             Ok(())
         }),
         // Strip CSP delivered via `<meta http-equiv>`. The header form is

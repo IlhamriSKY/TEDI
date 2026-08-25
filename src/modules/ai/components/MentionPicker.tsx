@@ -166,7 +166,7 @@ function itemKey(item: MentionItem, fallback: number): string {
   return item.path;
 }
 
-function SectionHeader({ label }: { label: string }) {
+export function SectionHeader({ label }: { label: string }) {
   return (
     <div className="text-muted-foreground/70 px-2 pt-1.5 pb-1 text-[10px] font-medium tracking-wide uppercase">
       {label}

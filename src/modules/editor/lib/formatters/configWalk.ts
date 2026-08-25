@@ -14,11 +14,6 @@ export function parentDir(path: string): string | null {
   return norm.slice(0, idx);
 }
 
-/** Join a directory and a child segment with a single separator. */
-export function joinPath(dir: string, child: string): string {
-  return dir.endsWith("/") ? `${dir}${child}` : `${dir}/${child}`;
-}
-
 /** Read a text file via the fs backend, or null if it is missing or not text. */
 export async function tryReadText(path: string): Promise<string | null> {
   try {

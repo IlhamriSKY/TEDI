@@ -211,7 +211,6 @@ mod tests {
         let doc = RegistryDoc {
             official: vec![RegistryEntry {
                 id: "discord-rich-presence".into(),
-                name: "Discord RP".into(),
                 publisher: "IlhamriSKY".into(),
                 description: String::new(),
                 repository: "https://github.com/IlhamriSKY/TEDI.discord-rich-presence".into(),

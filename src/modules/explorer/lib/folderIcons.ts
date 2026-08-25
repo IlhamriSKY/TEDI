@@ -524,4 +524,4 @@ const { folderNames } = Object.entries(folderIcons).reduce(
   },
 );
 
-export { folderIcons, folderNames };
+export { folderNames };

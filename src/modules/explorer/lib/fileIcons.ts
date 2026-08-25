@@ -2571,4 +2571,4 @@ const { languageIds, fileExtensions, fileNames } = Object.entries(fileIcons).red
   },
 );
 
-export { fileExtensions, fileIcons, fileNames, languageIds };
+export { fileExtensions, fileNames, languageIds };

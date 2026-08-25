@@ -18,7 +18,7 @@ import { useRegistry } from "../useRegistry";
  * extension overrides the guess with `kind` (an icon-only connection state that
  * opens a dialog is still a status).
  */
-export function statusItemKind(item: StatusItem): "status" | "action" {
+function statusItemKind(item: StatusItem): "status" | "action" {
   if (item.kind) return item.kind;
   if (item.progress !== undefined || item.label || item.detail) return "status";
   return item.onClick ? "action" : "status";

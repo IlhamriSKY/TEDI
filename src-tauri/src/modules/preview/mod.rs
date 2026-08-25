@@ -1,6 +1,6 @@
 //! Preview module: an in-app web preview that can render any public site.
 //!
-//! Two cooperating pieces, split into submodules:
+//! Four cooperating pieces, split into submodules:
 //!
 //! * [`proxy`] - the `tedi-frame://localhost/?u=<base64url>` async URI-scheme
 //!   protocol. Strips X-Frame-Options / CSP frame-ancestors and rewrites

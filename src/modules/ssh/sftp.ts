@@ -55,13 +55,6 @@ export type TransferProgress = {
 /** Per-file outcome of a transfer. Failures never abort the rest. */
 export type TransferSummary = { ok: number; failed: string[] };
 
-/** Basename of a local OS path, tolerating both `/` and `\\` separators so a
- *  Windows drop path (`C:\\Users\\me\\file.txt`) resolves correctly. */
-export function localBasename(p: string): string {
-  const parts = p.split(/[\\/]/);
-  return parts[parts.length - 1] || p;
-}
-
 /** Join a remote POSIX directory and a name. Remote paths use `/` whatever
  *  the local OS does. */
 export function joinRemote(dir: string, name: string): string {

@@ -2,13 +2,14 @@ import { readClipboardText } from "@/lib/clipboard";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useTheme } from "@/modules/theme";
 import type { SearchAddon } from "@xterm/addon-search";
-import { useEffect, useImperativeHandle, useRef, type Ref } from "react";
+import { useEffect, useImperativeHandle, useRef, useState, type Ref } from "react";
 import {
   useTerminalSession,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
+import { SshConnectOverlay } from "@/modules/ssh/SshConnectOverlay";
 import type { AiCliKind, AiCliStatus } from "./lib/aiCliStatus";
 
 export type TerminalPaneHandle = {
@@ -100,6 +101,12 @@ export function TerminalPane({
   ref,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
+  // This leaf's own SSH state, kept here as well as reported upward: the
+  // connect overlay lives in this pane, and threading the status back down
+  // through the pane tree to reach it would be a longer wire for the same
+  // value. Only ever set on an SSH leaf, and only a handful of times per
+  // connect.
+  const [sshStatus, setSshStatus] = useState<SshStatus | null>(null);
   const { resolvedTheme } = useTheme();
   // Re-apply the xterm theme whenever the Theme-tab custom palette or
   // wallpaper opacity changes. The `customTheme` reference flips on every
@@ -137,7 +144,10 @@ export function TerminalPane({
     onDetectedLocalUrl: (u) => onDetectedLocalUrl?.(leafId, u),
     onTediOpen: (input) => onTediOpen?.(leafId, input),
     onTediSpawnTab: (input) => onTediSpawnTab?.(leafId, input),
-    onSshStatus: (status) => onSshStatus?.(leafId, status),
+    onSshStatus: (status) => {
+      setSshStatus(status);
+      onSshStatus?.(leafId, status);
+    },
     onAiCliStatus: (status) => onAiCliStatus?.(leafId, status),
     onPtyId: (ptyId) => onPtyId?.(leafId, ptyId),
   });
@@ -180,51 +190,12 @@ export function TerminalPane({
   );
 
   return (
+    // Positioned host for the SSH connect overlay. The xterm container below
+    // stays exactly what it was - same size, same attribute, same handlers -
+    // so the drag-drop hit test (`closest("[data-terminal-leaf-id]")`) and the
+    // fit measurement are unaffected.
     <div
-      ref={containerRef}
-      className="h-full w-full"
-      data-terminal-leaf-id={leafId}
-      // Right-click is context-aware (Windows Terminal / VSCode "copyPaste"):
-      // with a selection it COPIES it (block then right-click = copy) and clears
-      // the highlight so the next right-click PASTES; with no selection it pastes
-      // straight away. Identical for local + SSH terminals. Copy uses the WebView
-      // clipboard, paste the host one (see `readClipboardText`) and routes through
-      // session.paste so bracketed paste keeps multi-line snippets from
-      // auto-executing. Keyboard Ctrl+Shift+C / Ctrl+Shift+V / Shift+Insert and
-      // select-to-copy still work.
-      onContextMenu={(e) => {
-        e.preventDefault();
-        const sel = session.getSelection();
-        if (sel) {
-          void navigator.clipboard.writeText(sel).catch((err) => {
-            console.warn("terminal right-click copy: clipboard write failed:", err);
-          });
-          session.clearSelection();
-          return;
-        }
-        void readClipboardText().then((text) => {
-          if (text) session.paste(text);
-        });
-      }}
-      // Select-to-copy (PuTTY convention): releasing a left-button drag/word/line
-      // selection also copies it to the clipboard, so copy out of the terminal is
-      // just "highlight it". Left button only, so the right-click copy/paste above
-      // isn't caught; a plain click leaves no selection and is skipped.
-      onMouseUp={(e) => {
-        if (e.button !== 0) return;
-        const sel = session.getSelection();
-        if (!sel) return;
-        void navigator.clipboard.writeText(sel).catch((err) => {
-          console.warn("terminal select-to-copy: clipboard write failed:", err);
-        });
-      }}
-      // Internal drag-drops (file explorer rows → terminal) are
-      // synthesized from mouse events by `ensureFsDragListener`
-      // (HTML5 drag-drop is unreliable under Tauri's default
-      // `dragDropEnabled: true`). The listener hit-tests
-      // `closest("[data-terminal-leaf-id]")` and writes a
-      // shell-quoted path to the matching PTY. The Tauri OS-level
-      // drop path is separate and lives in `useTerminalFileDrop`.
+      className="relative h-full w-full"
       style={{
         // `visibility: hidden` is not enough here: WebView2 can composite
         // xterm's native viewport scrollbar even when its DOM ancestors are
@@ -236,6 +207,59 @@ export function TerminalPane({
         display: visible ? undefined : "none",
         pointerEvents: visible ? "auto" : "none",
       }}
-    />
+    >
+      <div
+        ref={containerRef}
+        className="h-full w-full"
+        data-terminal-leaf-id={leafId}
+        // Right-click is context-aware (Windows Terminal / VSCode "copyPaste"):
+        // with a selection it COPIES it (block then right-click = copy) and clears
+        // the highlight so the next right-click PASTES; with no selection it pastes
+        // straight away. Identical for local + SSH terminals. Copy uses the WebView
+        // clipboard, paste the host one (see `readClipboardText`) and routes through
+        // session.paste so bracketed paste keeps multi-line snippets from
+        // auto-executing. Keyboard Ctrl+Shift+C / Ctrl+Shift+V / Shift+Insert and
+        // select-to-copy still work.
+        onContextMenu={(e) => {
+          e.preventDefault();
+          const sel = session.getSelection();
+          if (sel) {
+            void navigator.clipboard.writeText(sel).catch((err) => {
+              console.warn("terminal right-click copy: clipboard write failed:", err);
+            });
+            session.clearSelection();
+            return;
+          }
+          void readClipboardText().then((text) => {
+            if (text) session.paste(text);
+          });
+        }}
+        // Select-to-copy (PuTTY convention): releasing a left-button drag/word/line
+        // selection also copies it to the clipboard, so copy out of the terminal is
+        // just "highlight it". Left button only, so the right-click copy/paste above
+        // isn't caught; a plain click leaves no selection and is skipped.
+        onMouseUp={(e) => {
+          if (e.button !== 0) return;
+          const sel = session.getSelection();
+          if (!sel) return;
+          void navigator.clipboard.writeText(sel).catch((err) => {
+            console.warn("terminal select-to-copy: clipboard write failed:", err);
+          });
+        }}
+        // Internal drag-drops (file explorer rows → terminal) are
+        // synthesized from mouse events by `ensureFsDragListener`
+        // (HTML5 drag-drop is unreliable under Tauri's default
+        // `dragDropEnabled: true`). The listener hit-tests
+        // `closest("[data-terminal-leaf-id]")` and writes a
+        // shell-quoted path to the matching PTY. The Tauri OS-level
+        // drop path is separate and lives in `useTerminalFileDrop`.
+      />
+      {/* SSH leaves only: a local pane has nothing to connect to, and mounting
+          the overlay there would subscribe every terminal to the saved-hosts
+          store for a component that can never render. */}
+      {sshConnectionId ? (
+        <SshConnectOverlay status={sshStatus} connectionId={sshConnectionId} />
+      ) : null}
+    </div>
   );
 }

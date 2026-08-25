@@ -36,7 +36,7 @@ import {
 } from "@/modules/terminal/lib/panes";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
-import { sortPinnedFirst, syncPaneMirror } from "./tabHelpers";
+import { sortPinnedFirst, syncPaneMirror, updateLeafTree } from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
 
 // Re-export the tab types from their new home so existing imports of
@@ -506,12 +506,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   /**
-   * Set (or clear, with `null`) a terminal leaf's per-pane theme override.
-   * `themeId` is a `TERMINAL_PRESETS` id. The leaf's `TerminalPane` repaints
-   * in that palette; the serializer persists the choice. No-op for non-terminal
-   * leaves or when the value is unchanged.
-   */
-  /**
    * Set or clear a leaf's user-chosen tab name (the tab strip's right-click
    * "Rename"). `null` or blank clears it, so the entry falls back to its derived
    * label instead of rendering as an empty tab. Persisted by the workspace
@@ -519,25 +513,19 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    */
   const renameLeaf = useCallback((leafId: number, title: string | null) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = setLeafCustomTitleInTree(t.paneTree, leafId, title);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => setLeafCustomTitleInTree(tree, leafId, title)),
     );
   }, []);
 
+  /**
+   * Set (or clear, with `null`) a terminal leaf's per-pane theme override.
+   * `themeId` is a `TERMINAL_PRESETS` id. The leaf's `TerminalPane` repaints
+   * in that palette; the serializer persists the choice. No-op for non-terminal
+   * leaves or when the value is unchanged.
+   */
   const setLeafTerminalTheme = useCallback((leafId: number, themeId: string | null) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = setLeafTerminalThemeInTree(t.paneTree, leafId, themeId);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => setLeafTerminalThemeInTree(tree, leafId, themeId)),
     );
   }, []);
 
@@ -549,13 +537,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    */
   const setLeafPtyId = useCallback((leafId: number, ptyId: string) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = setLeafPtyIdInTree(t.paneTree, leafId, ptyId);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => setLeafPtyIdInTree(tree, leafId, ptyId)),
     );
   }, []);
 
@@ -997,13 +979,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    */
   const reorderLeafInGroup = useCallback((leafId: number, beforeLeafId: number | null) => {
     setTabs((curr) =>
-      curr.map((t) => {
-        if (t.kind !== "pane") return t;
-        if (!hasLeaf(t.paneTree, leafId)) return t;
-        const paneTree = reorderLeafInTree(t.paneTree, leafId, beforeLeafId);
-        if (paneTree === t.paneTree) return t;
-        return syncPaneMirror({ ...t, paneTree });
-      }),
+      updateLeafTree(curr, leafId, (tree) => reorderLeafInTree(tree, leafId, beforeLeafId)),
     );
   }, []);
 
