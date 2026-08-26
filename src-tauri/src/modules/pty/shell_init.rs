@@ -53,12 +53,38 @@ fn ensure_utf8_locale(cmd: &mut CommandBuilder) {
     cmd.env("LANG", fallback);
 }
 
+/// Drop the environment a parent Claude Code session injects into everything it
+/// spawns. If TEDI itself was launched from inside one (a terminal owned by that
+/// session, or one of its tool calls), those markers leak through us into the PTY
+/// daemon and from there into *every* terminal we ever open: a `claude` started in
+/// one thinks it is a nested sub-session and stops saving transcripts, and the
+/// colour suppression Claude uses for tool output leaves the whole shell
+/// monochrome. Gated on the marker so a user's own `NO_COLOR` still reaches the
+/// shell when TEDI was launched normally.
+fn strip_inherited_claude_env(cmd: &mut CommandBuilder) {
+    if std::env::var_os("CLAUDE_CODE_CHILD_SESSION").is_none() {
+        return;
+    }
+    for key in [
+        "CLAUDE_CODE_CHILD_SESSION",
+        "CLAUDE_CODE_SESSION_ID",
+        "CLAUDE_CODE_MESSAGING_SOCKET",
+        "CLAUDE_CODE_MESSAGING_TOKEN",
+        "CLAUDE_CODE_ENTRYPOINT",
+        "NO_COLOR",
+        "FORCE_COLOR",
+    ] {
+        cmd.env_remove(key);
+    }
+}
+
 fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TEDI_TERMINAL", "1");
     ensure_utf8_locale(cmd);
     apply_extra_path(cmd);
+    strip_inherited_claude_env(cmd);
 
     #[cfg(target_os = "linux")]
     if std::env::var_os("APPIMAGE").is_some() {
