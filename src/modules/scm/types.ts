@@ -28,6 +28,11 @@ export type GitStatus = {
   ahead: number;
   behind: number;
   changes: GitChange[];
+  /** True when `changes` was cut short because the repo has more of them than
+   *  the backend will list. Every row costs a JSON round trip, a sort and a DOM
+   *  node, so an unbounded list froze the window; the panel says the list is
+   *  partial rather than passing it off as the whole working tree. */
+  truncated: boolean;
   /** Set while a merge/rebase/cherry-pick/revert is half-finished, so the panel
    *  can offer Abort and Continue only when they mean something. Always null
    *  over SSH, where the marker files are not read. */

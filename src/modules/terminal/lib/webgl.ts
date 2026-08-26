@@ -29,6 +29,40 @@ const MAX_CONTEXT_LOSS_RELOADS = 3;
 const CONTEXT_LOSS_RELOAD_DELAY_MS = 1_000;
 
 /**
+ * Losses further apart than this belong to separate events rather than to one
+ * storm, so the budget starts over.
+ *
+ * Without it the budget is per SESSION, not per storm, and every lock of the
+ * machine spends one: the third lock of a window that has been open all day
+ * exhausts it, and every pane then sits on the DOM renderer - an order of
+ * magnitude slower - until TEDI is restarted. That is the same "sluggish after
+ * I unlocked" the budget exists to prevent, reached by a different road. A
+ * genuine storm fires its losses seconds apart, well inside this.
+ */
+const CONTEXT_LOSS_BURST_MS = 60_000;
+
+/**
+ * What a context loss arriving at `now` does to a session's loss counters, and
+ * whether it still has budget to auto-reload.
+ *
+ * Split out as a pure function because the rule it encodes - three reloads per
+ * STORM, not three per session - is the difference between "sluggish for a
+ * second after unlocking" and "sluggish until TEDI is restarted", and the real
+ * one only runs behind a GPU driver resetting.
+ */
+export function nextContextLossState(
+  reloads: number,
+  lastLossAt: number,
+  now: number,
+): { reloads: number; lastLossAt: number; mayReload: boolean } {
+  // Nothing lost for a while, so whatever storm those reloads belonged to is
+  // over and this loss opens a new one.
+  const priors = now - lastLossAt > CONTEXT_LOSS_BURST_MS ? 0 : reloads;
+  const mayReload = priors < MAX_CONTEXT_LOSS_RELOADS;
+  return { reloads: mayReload ? priors + 1 : priors, lastLossAt: now, mayReload };
+}
+
+/**
  * Whether this session should be holding a GL context at all. Every condition
  * lives here rather than being re-checked at each of the five call sites (first
  * attach, wallpaper sync, font-size, font-family, the WebGL pref), because
@@ -61,11 +95,13 @@ export function loadWebglRenderer(s: Session): void {
       webgl.dispose();
       if (s.webglAddon !== webgl) return;
       s.webglAddon = null;
-      if (s.webglLossReloads >= MAX_CONTEXT_LOSS_RELOADS) {
+      const next = nextContextLossState(s.webglLossReloads, s.webglLossAt, Date.now());
+      s.webglLossReloads = next.reloads;
+      s.webglLossAt = next.lastLossAt;
+      if (!next.mayReload) {
         console.warn("WebGL context lost repeatedly; staying on the DOM renderer");
         return;
       }
-      s.webglLossReloads += 1;
       // Delay so the GPU process has settled before we ask for a new context;
       // re-entering through the wallpaper sync keeps the "should it be on at
       // all" decision in one place.

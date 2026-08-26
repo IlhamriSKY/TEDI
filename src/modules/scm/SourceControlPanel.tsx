@@ -801,6 +801,15 @@ export function SourceControlPanel({
       </div>
     ) : (
       <ScrollArea className="min-h-0 flex-1">
+        {status?.truncated ? (
+          // Listing every row of a repository with a huge working tree - a
+          // `git init` left in a home directory makes every file under it
+          // untracked - froze the window, so the backend caps the list. Say so:
+          // an unannounced cap reads as "these are all my changes".
+          <div className="text-muted-foreground border-border/60 border-b px-3 py-1.5 text-[11px]">
+            Too many changes to list them all. Showing {sorted.length}.
+          </div>
+        ) : null}
         <ChangeSection
           title="Merge Changes"
           changes={conflicts}

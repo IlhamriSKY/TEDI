@@ -34,7 +34,7 @@ export {};
   },
 };
 
-const { shouldUseWebgl, syncRendererForWallpaper, disposeWebglRenderer } =
+const { shouldUseWebgl, syncRendererForWallpaper, disposeWebglRenderer, nextContextLossState } =
   await import("../src/modules/terminal/lib/webgl");
 type Session = Parameters<typeof shouldUseWebgl>[0];
 
@@ -130,6 +130,27 @@ console.log("\ndispose is idempotent (a second hide must not throw)");
   disposeWebglRenderer(s);
   disposeWebglRenderer(s);
   assert(s.webglAddon === null, "disposing an already-disposed session is a no-op");
+}
+
+console.log("\nthe reload budget is per STORM, not per session (lock/unlock spends one each)");
+{
+  const MINUTE = 60_000;
+  // A real storm: contexts evicting each other, losses a second apart.
+  let st = { reloads: 0, lastLossAt: 0, mayReload: false };
+  for (const at of [10_000, 11_000, 12_000]) {
+    st = nextContextLossState(st.reloads, st.lastLossAt, at);
+    assert(st.mayReload, `loss at ${at}ms inside one storm still reloads`);
+  }
+  st = nextContextLossState(st.reloads, st.lastLossAt, 13_000);
+  assert(!st.mayReload, "a fourth loss in the same storm settles on the DOM renderer");
+
+  // Three locks of the machine, hours apart. Each is its own event.
+  let lock = { reloads: 0, lastLossAt: 0, mayReload: false };
+  for (let hour = 1; hour <= 5; hour++) {
+    lock = nextContextLossState(lock.reloads, lock.lastLossAt, hour * 60 * MINUTE);
+    assert(lock.mayReload, `lock #${hour} of a long-lived window still recovers WebGL`);
+    assert(lock.reloads === 1, `lock #${hour} starts a fresh budget rather than spending the old`);
+  }
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

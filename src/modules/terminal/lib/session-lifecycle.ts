@@ -221,6 +221,7 @@ export function ensureSession(
     // WebGL context on the way up.
     visible: false,
     webglLossReloads: 0,
+    webglLossAt: 0,
     ready: Promise.resolve(),
     disposed: false,
     initialCwd,
@@ -340,8 +341,9 @@ export function ensureSession(
   // normal buffer's scroll region, no pane-pixel-size change means the
   // ResizeObserver never repaints, and the relaunched classic renderer then
   // draws a corrupted prompt box whose line-editor redraw lands off-screen (so
-  // input looks dead). `armAltExitRepaintWatchdog` resets the region + nudges a
-  // resize. Gated on `sawAltScreenBuffer` so only the alt->normal exit edge
+  // input looks dead). `armAltExitRepaintWatchdog` resets the region, clears the
+  // glyph atlas and repaints, all locally - it deliberately does NOT resize the
+  // PTY any more (#21). Gated on `sawAltScreenBuffer` so only the alt->normal exit edge
   // fires - launching a TUI (normal->alt) is left untouched.
   let sawAltScreenBuffer = false;
   const bufferSub = term.buffer.onBufferChange(() => {

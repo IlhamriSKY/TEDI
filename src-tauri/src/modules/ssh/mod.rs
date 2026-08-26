@@ -392,6 +392,7 @@ pub async fn ssh_git_status(
         ahead: 0,
         behind: 0,
         changes: Vec::new(),
+        truncated: false,
         in_progress: None,
     };
 
@@ -439,6 +440,11 @@ pub async fn ssh_git_status(
     // parsed as the branch name.
     let header = last_line(header);
     let (branch, upstream, ahead, behind) = parse_branch_header(header);
+    // `root.join(rel)` on a Windows host yields a mixed separator, which the
+    // parser's `to_forward` normalizes back to a POSIX path. The parser also
+    // caps the row count, so a remote whose working tree is huge cannot flood
+    // the panel the way a local one could.
+    let (changes, truncated) = parse_porcelain_v1(std::path::Path::new(root), entries);
     Ok(GitStatus {
         is_repo: true,
         root: Some(root.to_string()),
@@ -446,9 +452,8 @@ pub async fn ssh_git_status(
         upstream,
         ahead,
         behind,
-        // `root.join(rel)` on a Windows host yields a mixed separator, which
-        // the parser's `to_forward` normalizes back to a POSIX path.
-        changes: parse_porcelain_v1(std::path::Path::new(root), entries),
+        changes,
+        truncated,
         // Reading the remote's `.git` markers would cost another round trip on
         // a poll that already runs every 2.5s. A half-finished merge still
         // shows up as conflicted files, which is the part the user acts on.

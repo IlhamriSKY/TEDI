@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Command;
+use std::sync::{Mutex, OnceLock};
 use std::thread;
+use std::time::{Duration, Instant};
 
 use serde::Serialize;
 
@@ -54,6 +56,168 @@ fn run(mut cmd: Command) -> Result<String, String> {
     Ok(String::from_utf8_lossy(&out.stdout).into_owned())
 }
 
+/// Drop a trailing half-written record. A read stopped at an arbitrary byte
+/// ends mid-entry, and the porcelain parser would take that fragment for a real
+/// one - `?? some/long/pa` is a perfectly parseable row for a file that does
+/// not exist.
+fn trim_partial_record(buf: &mut Vec<u8>) {
+    let keep = buf.iter().rposition(|b| *b == 0).map_or(0, |i| i + 1);
+    buf.truncate(keep);
+}
+
+/// Run `cmd` and read its NUL-separated stdout until `max_records` records have
+/// arrived or `budget` expires, then kill the child.
+///
+/// `Ok(Some((text, cut_short)))` is a usable read - `cut_short` says the record
+/// cap stopped it, and any trailing half-written record has been dropped so the
+/// parser never sees a sliced entry. `Ok(None)` means `budget` expired: git
+/// buffers a whole `status` before printing any of it, so a walk that overruns
+/// has produced nothing to salvage and the caller must ask a cheaper question.
+///
+/// `run` would read the whole stream and wait as long as it took. Both matter:
+/// `git status --untracked-files=all` in a repository whose working tree is
+/// huge - a `git init` left in a home directory, where every file under it is
+/// then untracked - measured 1.49 million records, ~130 MB of stdout, and over
+/// thirty seconds of disk walk, on a poll that repeats every 2.5 seconds.
+fn run_capped(
+    mut cmd: Command,
+    max_records: usize,
+    budget: Duration,
+) -> Result<Option<(String, bool)>, String> {
+    use std::io::Read;
+    use std::process::Stdio;
+    use std::sync::mpsc;
+
+    let mut child = cmd
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    let mut stdout = child.stdout.take().ok_or("git stdout unavailable")?;
+    let mut stderr_pipe = child.stderr.take();
+
+    // Read on its own thread so the budget can be enforced: a pipe read has no
+    // timeout, and git holds the whole walk before writing a byte.
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut buf: Vec<u8> = Vec::new();
+        let mut chunk = [0u8; 64 * 1024];
+        let mut records = 0usize;
+        let outcome = loop {
+            match stdout.read(&mut chunk) {
+                Ok(0) => break Ok((buf, false)),
+                Ok(n) => {
+                    records += chunk[..n].iter().filter(|b| **b == 0).count();
+                    buf.extend_from_slice(&chunk[..n]);
+                    if records > max_records {
+                        break Ok((buf, true));
+                    }
+                }
+                Err(e) => break Err(e.to_string()),
+            }
+        };
+        // The receiver is gone on the budget path; nothing to report to.
+        let _ = tx.send(outcome);
+    });
+
+    let kill = |child: &mut std::process::Child| {
+        // Nobody is draining stdout any more, so a still-running git would
+        // block on a full pipe rather than exit: kill, do not wait it out.
+        let _ = child.kill();
+        let _ = child.wait();
+    };
+
+    match rx.recv_timeout(budget) {
+        Ok(Ok((mut buf, cut_short))) => {
+            if cut_short {
+                kill(&mut child);
+                trim_partial_record(&mut buf);
+                return Ok(Some((String::from_utf8_lossy(&buf).into_owned(), true)));
+            }
+            // stdout is at EOF, so git has finished writing; draining stderr
+            // before `wait` is the order that cannot deadlock.
+            let mut stderr = String::new();
+            if let Some(pipe) = stderr_pipe.as_mut() {
+                let _ = pipe.read_to_string(&mut stderr);
+            }
+            let status = child.wait().map_err(|e| e.to_string())?;
+            if !status.success() {
+                let stderr = stderr.trim().to_string();
+                return Err(if stderr.is_empty() {
+                    format!("git exited with status {status}")
+                } else {
+                    stderr
+                });
+            }
+            Ok(Some((String::from_utf8_lossy(&buf).into_owned(), false)))
+        }
+        Ok(Err(e)) => {
+            kill(&mut child);
+            Err(e)
+        }
+        Err(_) => {
+            kill(&mut child);
+            Ok(None)
+        }
+    }
+}
+
+/// How long `git status` may spend listing every untracked file before the walk
+/// is abandoned for the collapsed one. A healthy repository answers in
+/// milliseconds - the pathological one measured over thirty seconds - so this
+/// is generous for every repo that is not the problem.
+const STATUS_WALK_BUDGET: Duration = Duration::from_secs(3);
+
+/// How long a repository stays on the cheap listing after overrunning the
+/// budget once. Without it every poll would spend the whole budget again just
+/// to rediscover what it already knew; with it, a repository the user then
+/// fixes - a `.gitignore`, a `git rm -r --cached` - is retried rather than
+/// demoted for the rest of the session.
+const SLOW_WALK_RETRY: Duration = Duration::from_secs(300);
+
+/// Repo roots whose untracked walk overran `STATUS_WALK_BUDGET`, and when.
+fn slow_walks() -> &'static Mutex<HashMap<PathBuf, Instant>> {
+    static SLOW: OnceLock<Mutex<HashMap<PathBuf, Instant>>> = OnceLock::new();
+    SLOW.get_or_init(Default::default)
+}
+
+fn walk_recently_overran(root: &Path) -> bool {
+    slow_walks()
+        .lock()
+        .unwrap()
+        .get(root)
+        .is_some_and(|at| at.elapsed() < SLOW_WALK_RETRY)
+}
+
+fn mark_walk_overran(root: &Path) {
+    let mut map = slow_walks().lock().unwrap();
+    // Drop expired entries here rather than on read, so the map cannot grow
+    // with every repo root a long session ever visited.
+    map.retain(|_, at| at.elapsed() < SLOW_WALK_RETRY);
+    map.insert(root.to_path_buf(), Instant::now());
+}
+
+/// `git status` for the panel. `untracked` is the `--untracked-files` mode:
+/// `all` lists every untracked file, `normal` collapses each into its
+/// directory and is the only one whose cost is bounded by the repo rather than
+/// by the working tree.
+fn status_cmd(root: &Path, untracked: &str) -> Command {
+    let mut cmd = git(root);
+    cmd.args([
+        // A poll must never take the index lock: this one repeats every 2.5s
+        // and is killed mid-run above, and an index lock outliving the process
+        // that took it blocks every later git command in the repo until
+        // someone deletes it by hand.
+        "--no-optional-locks",
+        "status",
+        "--porcelain=v1",
+        "--branch",
+        "-z",
+    ]);
+    cmd.arg(format!("--untracked-files={untracked}"));
+    cmd
+}
+
 #[derive(Debug, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct GitChange {
@@ -89,6 +253,9 @@ pub struct GitStatus {
     /// Commits behind upstream (upstream has but HEAD lacks).
     pub behind: u32,
     pub changes: Vec<GitChange>,
+    /// True when `changes` was cut short at `MAX_CHANGES`. The panel says so
+    /// rather than passing off a partial list as the whole working tree.
+    pub truncated: bool,
     /// "merge", "rebase", "cherry-pick", "revert" while one is half-finished,
     /// else `None`. Lets the panel offer Abort / Continue only when there is
     /// something to abort, instead of a menu entry that usually just errors.
@@ -255,13 +422,40 @@ fn is_unmerged(x: u8, y: u8) -> bool {
     matches!((x, y), (b'D', b'D') | (b'A', b'A') | (b'U', _) | (_, b'U'))
 }
 
-pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
+/// Cap on the rows one `git status` may return.
+///
+/// Nothing downstream of this parser is bounded: every row is serialized to
+/// JSON, crosses the IPC boundary, is parsed again in the webview, sorted with
+/// `localeCompare` and rendered as its own DOM node. A repository whose working
+/// tree is huge - a `git init` left in a home directory, whose every file is
+/// then untracked - answers `--untracked-files=all` with over a million rows,
+/// and one refresh of that allocated gigabytes and stopped the window
+/// responding to Windows. That is the "TEDI freezes after I minimize it or
+/// switch away" report: the Source Control panel and the explorer's git
+/// decorations both refresh on resume, so coming back to the window ran two of
+/// them at once.
+///
+/// No one reads two thousand rows; past that the list is a size, not a list.
+const MAX_CHANGES: usize = 2000;
+
+/// Parse porcelain-v1 `-z` output into rows, capped at [`MAX_CHANGES`].
+///
+/// The second return value is true when the cap cut the list short, so callers
+/// can say so instead of passing a partial list off as the whole working tree.
+pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> (Vec<GitChange>, bool) {
     // Porcelain v1 with -z uses NUL as the entry separator and a second NUL
     // after the source path of a rename. Each entry is "XY <path>" plus
     // "<src>" for renames.
     let mut out: Vec<GitChange> = Vec::new();
     let mut tokens = raw.split('\0').filter(|s| !s.is_empty()).peekable();
     while let Some(token) = tokens.next() {
+        // Checked per entry rather than per row: one `XY` entry can emit two
+        // rows, so this overshoots by at most one, which the truncate below
+        // trims off.
+        if out.len() >= MAX_CHANGES {
+            out.truncate(MAX_CHANGES);
+            return (out, true);
+        }
         if token.len() < 4 {
             continue;
         }
@@ -318,7 +512,7 @@ pub(crate) fn parse_porcelain_v1(root: &Path, raw: &str) -> Vec<GitChange> {
             emit(classify(y), false);
         }
     }
-    out
+    (out, false)
 }
 
 #[derive(Debug, Default, Clone, Copy)]
@@ -455,6 +649,7 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
             ahead: 0,
             behind: 0,
             changes: Vec::new(),
+            truncated: false,
             in_progress: None,
         });
     };
@@ -469,16 +664,35 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
     // sync command would run on the Windows UI thread and freeze the app.
     let status_handle = {
         let root = root.clone();
-        thread::spawn(move || {
-            let mut cmd = git(&root);
-            cmd.args([
-                "status",
-                "--porcelain=v1",
-                "--branch",
-                "-z",
-                "--untracked-files=all",
-            ]);
-            run(cmd)
+        // `(output, cut short by the record cap, listed with untracked files
+        // folded into their directories)`.
+        thread::spawn(move || -> Result<(String, bool, bool), String> {
+            // One row costs at most two records (a rename prints its source as
+            // a record of its own), plus the leading `## branch` header, so
+            // this can never cut the list short of `MAX_CHANGES` rows.
+            let cap = MAX_CHANGES * 2 + 1;
+            // Listing every untracked file is what makes the panel useful on a
+            // normal repo and ruinous on a huge one, so ask for it under a
+            // budget and settle for the collapsed listing when it overruns.
+            if !walk_recently_overran(&root) {
+                if let Some((raw, cut_short)) =
+                    run_capped(status_cmd(&root, "all"), cap, STATUS_WALK_BUDGET)?
+                {
+                    return Ok((raw, cut_short, false));
+                }
+                log::info!(
+                    "git_status: {} took over {}s to list untracked files; \
+                     collapsing them into their folders for the next {}s",
+                    root.display(),
+                    STATUS_WALK_BUDGET.as_secs(),
+                    SLOW_WALK_RETRY.as_secs()
+                );
+                mark_walk_overran(&root);
+            }
+            let (raw, cut_short) =
+                run_capped(status_cmd(&root, "normal"), cap, STATUS_WALK_BUDGET)?
+                    .ok_or_else(|| "git status timed out".to_string())?;
+            Ok((raw, cut_short, true))
         })
     };
     let numstat_handle = {
@@ -492,7 +706,7 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         thread::spawn(move || (numstat(&root, true), numstat(&root, false)))
     };
 
-    let raw = status_handle
+    let (raw, cut_short, collapsed) = status_handle
         .join()
         .map_err(|_| "git status thread panicked".to_string())??;
     let (staged_stats, work_stats) = numstat_handle
@@ -509,7 +723,17 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         branch = current_branch(&root);
     }
 
-    let mut changes = parse_porcelain_v1(&root, entries_raw);
+    let (mut changes, capped) = parse_porcelain_v1(&root, entries_raw);
+    // A collapsed listing is only a partial view if it actually folded
+    // something away, and git marks a folded directory with a trailing slash.
+    // Without this check, any repo whose walk merely ran long - a cold cache
+    // after a lock, a network drive, a big monorepo - would be labelled "too
+    // many changes to list" while showing its three modified files, which reads
+    // as a bug rather than as the honest note it is meant to be. Tracked
+    // changes are identical under both listings, so there is nothing else the
+    // fallback can have hidden.
+    let hid_untracked = collapsed && changes.iter().any(|c| c.relative.ends_with('/'));
+    let truncated = capped || cut_short || hid_untracked;
     // `git diff --numstat` only knows about tracked files, so an untracked row's
     // `+N` chip costs a real file read. That read is bounded per file (512 KB,
     // see `count_file_lines`) but was unbounded in COUNT, and this pass reruns on
@@ -525,7 +749,14 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
             c.added = s.added;
             c.removed = s.removed;
             c.binary = s.binary;
-        } else if c.status == "untracked" && counted < UNTRACKED_LINE_COUNT_BUDGET {
+        } else if c.status == "untracked"
+            // A collapsed listing reports whole untracked directories, which
+            // git prints with a trailing slash. Opening one as a file fails,
+            // so without this each would cost a futile open and come back
+            // wearing a "binary" chip.
+            && !c.relative.ends_with('/')
+            && counted < UNTRACKED_LINE_COUNT_BUDGET
+        {
             counted += 1;
             match count_file_lines(&c.path) {
                 Some(n) => c.added = n,
@@ -533,8 +764,15 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
             }
         }
     }
-    // Never truncate silently: say what was skipped and why.
-    if counted >= UNTRACKED_LINE_COUNT_BUDGET {
+    // Never truncate silently: say what was skipped and why. `truncated` also
+    // reaches the panel, which shows it - this is for the log after the fact.
+    if truncated {
+        log::info!(
+            "git_status: {} has more changes than the panel lists; showing {}",
+            root.display(),
+            changes.len()
+        );
+    } else if counted >= UNTRACKED_LINE_COUNT_BUDGET {
         log::info!(
             "git_status: {} changes, line counts skipped past {} untracked entries",
             changes.len(),
@@ -550,6 +788,7 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         ahead,
         behind,
         changes,
+        truncated,
         in_progress: operation_in_progress(&root),
     })
 }
@@ -572,10 +811,20 @@ fn git_ignored_inner(repo_path: String) -> Result<Vec<String>, String> {
     let Some(root) = find_repo_root(&start) else {
         return Ok(Vec::new());
     };
+    // `--directory` keeps the OUTPUT small, but finding what to collapse still
+    // walks every untracked path, which is the same hazard `git_status_inner`
+    // guards: 42 seconds measured in a repository whose working tree is a home
+    // directory, on a decoration that repeats every 2.5s alongside the status
+    // poll. Dimming a row is cosmetic, so a repo that has already blown the
+    // budget goes without it rather than grinding for it.
+    if walk_recently_overran(&root) {
+        return Ok(Vec::new());
+    }
     let mut cmd = git(&root);
     // -o others, -i ignored, --exclude-standard honors .gitignore + .git/info/exclude
     // + core.excludesFile, --directory collapses wholly-ignored dirs, -z NUL-separates.
     cmd.args([
+        "--no-optional-locks",
         "ls-files",
         "-z",
         "-o",
@@ -583,7 +832,17 @@ fn git_ignored_inner(repo_path: String) -> Result<Vec<String>, String> {
         "--exclude-standard",
         "--directory",
     ]);
-    let raw = run(cmd)?;
+    // Same row cap as the change list: past it the explorer has more dimmed
+    // rows than it can show at once anyway.
+    let Some((raw, _)) = run_capped(cmd, MAX_CHANGES, STATUS_WALK_BUDGET)? else {
+        log::info!(
+            "git_ignored: {} took over {}s to walk; leaving ignored rows undimmed",
+            root.display(),
+            STATUS_WALK_BUDGET.as_secs()
+        );
+        mark_walk_overran(&root);
+        return Ok(Vec::new());
+    };
     let root_fwd = to_forward(&root.to_string_lossy());
     let root_fwd = root_fwd.trim_end_matches('/');
     let mut out = Vec::new();
@@ -1166,10 +1425,11 @@ mod tests {
     /// `to_forward` normalizes them back.
     #[test]
     fn porcelain_paths_stay_posix_for_a_remote_root() {
-        let changes = super::parse_porcelain_v1(
+        let (changes, truncated) = super::parse_porcelain_v1(
             std::path::Path::new("/home/u/repo"),
             " M src/a.rs\0?? b.txt\0",
         );
+        assert!(!truncated);
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].path, "/home/u/repo/src/a.rs");
         assert_eq!(changes[0].relative, "src/a.rs");
@@ -1184,7 +1444,7 @@ mod tests {
     /// unstageable, since the checkbox acts on the row.
     #[test]
     fn partially_staged_file_splits_into_two_rows() {
-        let changes =
+        let (changes, _) =
             super::parse_porcelain_v1(std::path::Path::new("/r"), "MM a.rs\0M  b.rs\0 D c.rs\0");
         assert_eq!(changes.len(), 4);
         // a.rs: staged edit + a newer unstaged one.
@@ -1211,12 +1471,75 @@ mod tests {
         );
     }
 
+    /// A read stopped at the record cap ends mid-entry, and the fragment left
+    /// behind parses as a real row for a file that does not exist.
+    #[test]
+    fn a_read_cut_mid_entry_drops_the_fragment() {
+        let mut buf = b"?? a.txt\0?? b.txt\0?? half/of/a/pa".to_vec();
+        super::trim_partial_record(&mut buf);
+        assert_eq!(buf, b"?? a.txt\0?? b.txt\0");
+        // Nothing complete yet: keeping the fragment would invent a row.
+        let mut only_partial = b"?? nothing/finished".to_vec();
+        super::trim_partial_record(&mut only_partial);
+        assert!(only_partial.is_empty());
+    }
+
+    /// The budget is what keeps a huge working tree off the 2.5s poll: git
+    /// buffers the whole walk before printing, so a read with no deadline waits
+    /// out however long the walk takes - measured at over thirty seconds.
+    #[test]
+    fn a_read_that_overruns_its_budget_gives_up_instead_of_waiting() {
+        // Invoked directly, not through a shell: killing a shell on Windows
+        // leaves its child running, and this test would strand it.
+        #[cfg(windows)]
+        let cmd = {
+            let mut c = std::process::Command::new("ping");
+            c.args(["-n", "30", "127.0.0.1"]);
+            c
+        };
+        #[cfg(not(windows))]
+        let cmd = {
+            let mut c = std::process::Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let started = std::time::Instant::now();
+        let out = super::run_capped(cmd, 1000, std::time::Duration::from_millis(300))
+            .expect("spawning the sleeper must succeed");
+        assert!(out.is_none(), "an overrun read has nothing to salvage");
+        assert!(
+            started.elapsed() < std::time::Duration::from_secs(10),
+            "gave up after {:?}, so the budget did not bound the read",
+            started.elapsed()
+        );
+    }
+
+    /// A `git init` left in a home directory makes every file under it
+    /// untracked, and `--untracked-files=all` then answers with over a million
+    /// rows. Nothing downstream of the parser is bounded - JSON, IPC, the
+    /// webview's parse, a `localeCompare` sort, a DOM node each - so an
+    /// uncapped list allocated gigabytes and stopped the window responding.
+    #[test]
+    fn a_huge_working_tree_is_capped_and_says_so() {
+        let raw: String = (0..super::MAX_CHANGES * 3)
+            .map(|i| format!("?? f{i}.txt\0"))
+            .collect();
+        let (changes, truncated) = super::parse_porcelain_v1(std::path::Path::new("/r"), &raw);
+        assert!(
+            truncated,
+            "the cap has to report itself, never truncate silently"
+        );
+        assert_eq!(changes.len(), super::MAX_CHANGES);
+        // Cut from the tail, so what is listed is still the front of the list.
+        assert_eq!(changes[0].relative, "f0.txt");
+    }
+
     /// A rename's source path has to survive the parse: discarding one restores
     /// both sides, and without the old path the `clean` step would delete the
     /// new file and leave the old one gone.
     #[test]
     fn rename_keeps_its_source_path() {
-        let changes =
+        let (changes, _) =
             super::parse_porcelain_v1(std::path::Path::new("/r"), "R  new.rs\0old.rs\0?? z.txt\0");
         assert_eq!(changes.len(), 2);
         assert_eq!(changes[0].relative, "new.rs");

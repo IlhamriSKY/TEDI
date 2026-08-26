@@ -65,11 +65,17 @@ export type Session = {
    */
   visible: boolean;
   /**
-   * GPU context losses this session has already auto-recovered from. Bounded by
+   * GPU context losses recovered from in the CURRENT storm. Bounded by
    * `MAX_CONTEXT_LOSS_RELOADS` in `webgl.ts` so a context storm settles on the
-   * DOM renderer rather than looping.
+   * DOM renderer rather than looping, and reset once `webglLossAt` shows the
+   * previous storm is over.
    */
   webglLossReloads: number;
+  /**
+   * When the last GPU context loss arrived (`Date.now()`, 0 before the first).
+   * Separates one storm from the next: see `CONTEXT_LOSS_BURST_MS`.
+   */
+  webglLossAt: number;
   ready: Promise<void>;
   disposed: boolean;
   /**

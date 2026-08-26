@@ -508,12 +508,22 @@ function maybeNudgeOnRendererSwitch(s: Session, bytes: Uint8Array): void {
  *
  * Recovery, deferred so the relaunch's first frame has landed: reset the scroll
  * region (DECSC/DECRC wrap it so the cursor + SGR are preserved; a no-op for a
- * plain shell prompt), force a full local repaint, then SIGWINCH the PTY in a
- * round-trip so the foreground program redraws its frame at the correct current
- * size - which is what brings the prompt back on-screen and "un-deads" input.
- * The row toggle defeats ConPTY's same-size resize coalescing. Mirrors
- * `armBlankViewportRepaint`; fires only on the alt->normal edge so a TUI
- * being launched (normal->alt) is never disturbed.
+ * plain shell prompt), clear the WebGL glyph atlas, and force a full local
+ * repaint. All three are local to the renderer: nothing is written to the PTY
+ * and the foreground program is not disturbed.
+ *
+ * It used to end with a SIGWINCH round-trip (toggle the PTY row count so the
+ * program redraws at the "new" size). That was removed in #21: a program that
+ * re-anchors its cursor with DSR on resize races the artificial double resize
+ * and thrashes its viewport, which is visible as the screen jumping when a
+ * modal overlay closes. Replaying a real CLI's bytes through a headless xterm
+ * renders clean, so what this repairs is render timing rather than anything in
+ * the byte stream, and the atlas clear plus repaint address that directly.
+ * `nudgeResizeRoundTrip` is still the right tool in `armBlankViewportRepaint`,
+ * where the pane has no content at all and only the program can supply it.
+ *
+ * Fires only on the alt->normal edge so a TUI being launched (normal->alt) is
+ * never disturbed.
  */
 export function armAltExitRepaintWatchdog(s: Session): void {
   const epoch = s.ptySpawnEpoch;
