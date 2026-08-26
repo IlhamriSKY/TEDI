@@ -118,14 +118,60 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
  */
 const BUFFER_ROWS = 200;
 
-/** Last `n` lines of a buffer, trimmed of the trailing blank run. */
-function tailOf(text, n) {
-  return String(text ?? "")
-    .trimEnd()
-    .split("\n")
-    .slice(-n)
-    .join("\n");
-}
+/**
+ * `sh`'s poll projection: flags plus a 32-bit FNV-1a of the buffer, computed in
+ * the page. `sh` needs to know only whether the buffer CHANGED, and comparing
+ * the text itself means shipping every open pane's ~20KB scrollback across the
+ * DevTools socket every 150ms for the whole life of the command.
+ */
+const SH_PROBE =
+  "{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hash: (() => {" +
+  " let h = 2166136261; const s = t.text;" +
+  " for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }" +
+  " return h >>> 0; })() }";
+
+/**
+ * Index of a splitter BETWEEN TWO PANES among all resize handles, or -1.
+ *
+ * Shared by `paneHandleIndex()` and `state()` rather than written twice: `state`
+ * folds it into its single round trip, and two copies of this would drift.
+ *
+ * The obvious version - "the first handle inside the leaf's closest panel
+ * group" - is wrong in a way that only shows up with ONE pane open: a single
+ * leaf renders no group at all (`PaneTreeView`), so `closest` walks up to the
+ * app's outer layout and the answer comes back 0, which is the SIDEBAR's handle.
+ * Dragging that collapses the sidebar and takes every later explorer and editor
+ * step with it, silently. So identify the group by its own children instead:
+ * only pane panels carry `id="pane-<leafId>"`, where the outer layout's are
+ * `sidebar` / `workspace` / `right-slot`.
+ */
+const PANE_HANDLE_EXPR = `(() => {
+  const inPaneGroup = (h) => {
+    const g = h.closest('[data-slot=resizable-panel-group]');
+    if (!g) return false;
+    // Panels belonging to THIS group, not to one nested inside it, and not
+    // matched through a wrapper the panel library might add. A split inside a
+    // split gives every level its own pane- panels, so ownership has to be
+    // decided by the panel's own nearest group.
+    const mine = [...g.querySelectorAll('[data-slot=resizable-panel][id^="pane-"]')]
+      .filter((p) => p.closest('[data-slot=resizable-panel-group]') === g);
+    return mine.length >= 2;
+  };
+  return [...document.querySelectorAll('[data-slot=resizable-handle]')].findIndex(inPaneGroup);
+})()`;
+
+/**
+ * Last `n` lines of a buffer, trimmed of the trailing blank run - as a source
+ * fragment, because every use of it now runs IN THE PAGE (see
+ * `#terminalsReduced`). The Node-side copy is gone: trimming here meant
+ * shipping the untrimmed buffer to Node first, which was the point.
+ *
+ * `\\n` is deliberate. This string is INJECTED JS, so the escape has to survive
+ * into the page's parser as a newline; a single backslash would split on a
+ * literal two-character sequence and quietly return the whole buffer as the
+ * "tail" - a bug every `includes()` assertion passes straight through.
+ */
+const TAIL_FN = `(s, n) => String(s ?? "").trimEnd().split("\\n").slice(-n).join("\\n")`;
 
 /** `Ctrl+Shift+P` -> the CDP key event fields for one press. Exported for the
  *  sweep's chord check, which is the only guard on the virtual-key mapping: the
@@ -159,12 +205,74 @@ export function parseChord(chord) {
   };
 }
 
+/** How many console entries to keep. See `Cdp#logs`. */
+const LOG_RING = 200;
+
+/**
+ * One CDP event -> a log entry, or null for the events we do not keep.
+ *
+ * Three sources, because they carry different failures and no single one covers
+ * the others: `Runtime.consoleAPICalled` is what the app itself logged,
+ * `Runtime.exceptionThrown` is an uncaught error (which the app never logs -
+ * that is the point), and `Log.entryAdded` is the browser's own channel, where a
+ * blocked network request or a CSP violation shows up and nothing in JS ever
+ * sees it.
+ *
+ * Arguments are read from `preview` (the CDP object mirror) rather than
+ * requested by id: a `getProperties` round trip per argument, for output nobody
+ * may ever ask for, is exactly the kind of cost this driver should not pay.
+ */
+function describeLogEvent(msg) {
+  const p = msg.params ?? {};
+  if (msg.method === "Runtime.consoleAPICalled") {
+    const text = (p.args ?? [])
+      .map(
+        (a) =>
+          a.value ??
+          a.description ??
+          a.unserializableValue ??
+          (a.preview ? `${a.preview.description ?? a.type}` : a.type),
+      )
+      .join(" ");
+    return { level: p.type === "warning" ? "warn" : p.type, text: text.slice(0, 2000) };
+  }
+  if (msg.method === "Runtime.exceptionThrown") {
+    const e = p.exceptionDetails ?? {};
+    return {
+      level: "error",
+      text: (e.exception?.description ?? e.text ?? "uncaught exception").slice(0, 2000),
+    };
+  }
+  if (msg.method === "Log.entryAdded") {
+    const e = p.entry ?? {};
+    return {
+      level: e.level === "warning" ? "warn" : e.level,
+      text: `[${e.source}] ${e.text}`.slice(0, 2000),
+    };
+  }
+  return null;
+}
+
 /** Minimal CDP client over one target's socket. Exported for the transport
  *  check in `scripts/director-verify.ts`; nothing else constructs one. */
 export class Cdp {
   #ws;
   #nextId = 1;
   #pending = new Map();
+  /**
+   * Ring buffer of console output and page errors, newest last.
+   *
+   * The one thing about TEDI a driving agent could not see AT ALL. A change that
+   * throws in the webview leaves the DOM half-rendered and every other tool
+   * reports the half-rendered result as the truth - the screenshot looks wrong,
+   * `read_dom` comes back short, and nothing anywhere says "an exception was
+   * thrown". Console events are pushed by the renderer whether anyone asked or
+   * not, so capturing them costs one listener and no round trips.
+   *
+   * Bounded, because it is fed by a page we do not control: a render loop
+   * logging every frame must not grow this without limit.
+   */
+  #logs = [];
 
   constructor(ws) {
     this.#ws = ws;
@@ -176,9 +284,12 @@ export class Cdp {
         this.#pending.delete(msg.id);
         if (msg.error) slot.reject(new Error(`${msg.error.message} (${msg.error.code})`));
         else slot.resolve(msg.result);
+        return;
       }
-      // Unsolicited CDP events are ignored. The only subscriber this client ever
-      // had was the screencast, and that is gone.
+      const entry = describeLogEvent(msg);
+      if (!entry) return;
+      this.#logs.push(entry);
+      if (this.#logs.length > LOG_RING) this.#logs.splice(0, this.#logs.length - LOG_RING);
     });
     ws.addEventListener("close", () => {
       for (const slot of this.#pending.values()) slot.reject(new Error("DevTools socket closed"));
@@ -202,8 +313,22 @@ export class Cdp {
           ),
         timeoutMs,
       );
-      ws.addEventListener("open", () => { clearTimeout(timer); resolve(); }, { once: true });
-      ws.addEventListener("error", () => { clearTimeout(timer); reject(new Error(`Cannot open ${wsUrl}`)); }, { once: true });
+      ws.addEventListener(
+        "open",
+        () => {
+          clearTimeout(timer);
+          resolve();
+        },
+        { once: true },
+      );
+      ws.addEventListener(
+        "error",
+        () => {
+          clearTimeout(timer);
+          reject(new Error(`Cannot open ${wsUrl}`));
+        },
+        { once: true },
+      );
     });
     return new Cdp(ws);
   }
@@ -224,6 +349,11 @@ export class Cdp {
       this.#pending.set(id, { resolve, reject });
       this.#ws.send(JSON.stringify({ id, method, params }));
     });
+  }
+
+  /** Captured console output and page errors, oldest first. See `#logs`. */
+  logs(level = null) {
+    return level ? this.#logs.filter((l) => l.level === level) : [...this.#logs];
   }
 
   /**
@@ -266,7 +396,8 @@ function pickTarget(targets, match) {
     const hit = pages.find(
       (t) => t.url.toLowerCase().includes(needle) || (t.title ?? "").toLowerCase().includes(needle),
     );
-    if (!hit) throw new Error(`No target matching "${match}". Have: ${pages.map((t) => t.url).join(", ")}`);
+    if (!hit)
+      throw new Error(`No target matching "${match}". Have: ${pages.map((t) => t.url).join(", ")}`);
     return hit;
   }
   const main = pages.find((t) => {
@@ -282,6 +413,12 @@ export async function connect({ port = Number(process.env.TEDI_DEBUG_PORT) || 92
   const cdp = await Cdp.attach(chosen.webSocketDebuggerUrl);
   await cdp.send("Page.enable");
   await cdp.send("Runtime.enable");
+  // `Runtime.enable` already delivers console calls and uncaught exceptions;
+  // `Log` adds the browser's own channel (blocked requests, CSP violations),
+  // which no JS in the page ever sees. Both feed `Cdp#logs`. Tolerated rather
+  // than required: an older WebView2 that does not know the domain must not
+  // cost the session every other tool.
+  await cdp.send("Log.enable").catch(() => {});
   const d = new Director(cdp, chosen);
   // A freshly attached session drops its FIRST synthetic input event when the
   // renderer is not through a paint yet (typing "echo x" arrived as "cho x",
@@ -289,7 +426,9 @@ export async function connect({ port = Number(process.env.TEDI_DEBUG_PORT) || 92
   // gates on the renderer actually running rather than on a guessed delay, and
   // it belongs here, on the path every verb shares, not sprinkled through
   // `type` and `keys`.
-  await d.eval("new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))");
+  await d.eval(
+    "new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1))))",
+  );
   return d;
 }
 
@@ -326,7 +465,8 @@ export class Director {
   /** Run a TEDI command by shortcut id (see `commands()`), bypassing the palette. */
   async cmd(id) {
     const ok = await this.eval(`window.__tedi?.runCommand(${JSON.stringify(id)}) ?? null`);
-    if (ok === null) throw new Error("window.__tedi missing: is this TEDI, and is the build current?");
+    if (ok === null)
+      throw new Error("window.__tedi missing: is this TEDI, and is the build current?");
     if (!ok) throw new Error(`No handler registered for command "${id}" right now`);
     return ok;
   }
@@ -343,8 +483,35 @@ export class Director {
    * WebGL canvas, so there is no DOM text for `text()` to read, and without this
    * a script can type `git status` but never find out what it printed.
    */
-  async terminals(maxLines = 200) {
-    const out = await this.eval(`window.__tedi?.terminals?.(${Number(maxLines)}) ?? null`);
+  /**
+   * Read every terminal and REDUCE EACH ONE IN THE PAGE, returning only what
+   * `project` builds.
+   *
+   * The reduction has to happen here, not in Node, and that is the single
+   * biggest efficiency fact about this driver. Every text read must ask xterm
+   * for `BUFFER_ROWS` rows (see the constant - asking for fewer returns ""), so
+   * a poll loop that reduces on the Node side ships the whole ~20KB buffer of
+   * every open pane across the DevTools socket several times a second, to
+   * compare it against a string or slice three lines off the end. Projecting
+   * in-page sends back the answer instead of the haystack.
+   *
+   * `project` is a JS expression over `t` (one terminal: leafId, atPrompt,
+   * running, text) and `tail(s, n)`.
+   *
+   * `rows` may ONLY be lowered by a projection that never touches `t.text`.
+   * `getBuffer(n)` returns the last n ROWS and strips the trailing blank ones,
+   * and on a pane that has not scrolled those last rows ARE the blanks, so a
+   * narrow read hands back "" - not an error, an empty string a change-detector
+   * reads as "nothing happened". The prompt-wait poll qualifies because it reads
+   * two booleans; nothing else does.
+   */
+  async #terminalsReduced(project, rows = BUFFER_ROWS) {
+    const out = await this.eval(`(() => {
+      const list = window.__tedi?.terminals?.(${Number(rows)});
+      if (!list) return null;
+      const tail = ${TAIL_FN};
+      return list.map((t) => (${project}));
+    })()`);
     if (out === null) {
       throw new Error(
         "window.__tedi.terminals missing. The automation surface only exists when TEDI was STARTED " +
@@ -353,6 +520,22 @@ export class Director {
       );
     }
     return out;
+  }
+
+  /**
+   * Read every terminal: its buffer, whether it is sitting at a prompt, and
+   * whether a command is still running.
+   *
+   * `lines` is how many lines you get BACK, never how many rows xterm is asked
+   * for - that is always `BUFFER_ROWS`, and the trim happens in the page. The
+   * distinction used to be the caller's problem and it was the source of a real
+   * bug: a small `lines` reached `getBuffer` as a small ROW count and came back
+   * empty on any pane that had not scrolled. Passing 1 here is now honest.
+   */
+  terminals(lines = 200) {
+    return this.#terminalsReduced(
+      `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, text: tail(t.text, ${Number(lines)}) }`,
+    );
   }
 
   /** Boolean form of `waitTerminal`'s prompt case, for `command()`. `running`
@@ -434,6 +617,57 @@ export class Director {
   }
 
   /**
+   * Turn an extension on, off, reload, update or remove it.
+   *
+   * INSTALL IS NOT HERE, on purpose. Installing runs third-party code in TEDI's
+   * own realm under a permission set the user has to have seen, and that review
+   * dialog lives in the Settings webview. A driver may send the user to it; it
+   * may not skip it. Everything this does do is reversible and introduces no new
+   * code - `update` is bounded by the grant already approved, and Rust rejects a
+   * release that asks for more.
+   *
+   * Resolves to `true`, or to a sentence saying why not.
+   */
+  extControl(action, extensionId) {
+    return this.#tedi("extControl", String(action), String(extensionId));
+  }
+
+  /**
+   * Every setting the app is actually running on, read from the live store.
+   *
+   * The Settings page is a SEPARATE webview, so nothing driving the main window
+   * could read a preference or change one, and "set the theme" was undrivable
+   * through the whole surface. This goes to the store instead of that window, so
+   * it works whether Settings is open or not.
+   *
+   * No API keys pass through: those live in the OS keyring behind `secrets_*`,
+   * never in this store.
+   */
+  settings() {
+    return this.#tedi("settings");
+  }
+
+  /**
+   * Write one preference. `true`, or a sentence naming the problem.
+   *
+   * The write broadcasts on `tedi://prefs-changed`, so the app and an open
+   * Settings window both follow it live - no reload, no restart.
+   */
+  setSetting(key, value) {
+    return this.#tedi("setSetting", String(key), value);
+  }
+
+  /**
+   * Console output and page errors captured since this connection opened.
+   *
+   * Not a `window.__tedi` call: these arrive as CDP events, already buffered by
+   * the transport (`Cdp#logs`), so reading them costs no round trip at all.
+   */
+  logs(level = null) {
+    return this.cdp.logs(level);
+  }
+
+  /**
    * Block until a terminal pane is done, then report why it returned.
    *
    * The point is that ONE call replaces a polling loop. A driver that watches a
@@ -467,16 +701,28 @@ export class Director {
     const deadline = Date.now() + timeout;
     /** The tail is only needed when this returns, so it costs one read, not one per poll. */
     const finish = async (leaf, done, reason) => {
-      const t = (await this.terminals(BUFFER_ROWS)).find((x) => x.leafId === leaf);
-      return { leafId: leaf, done, reason, tail: tailOf(t?.text, lines) };
+      const t = (await this.terminals(lines)).find((x) => x.leafId === leaf);
+      return { leafId: leaf, done, reason, tail: t?.text ?? "" };
     };
+    // The needle is tested IN THE PAGE. A `text` wait otherwise pulls every
+    // pane's whole buffer across the socket three times a second purely to run
+    // `includes` on it in Node; this ships back one boolean per pane instead.
+    const probe = text
+      ? `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hit: t.text.includes(${JSON.stringify(text)}) }`
+      : `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hit: false }`;
+    // One row for the prompt case: that probe reads two booleans and never
+    // touches `t.text`, so there is no buffer to build in the page and nothing
+    // for a narrow read to blank out. The `text` case has to search the buffer,
+    // so it pays the full `BUFFER_ROWS` - see `#terminalsReduced`.
+    const probeRows = text ? BUFFER_ROWS : 1;
     for (;;) {
-      const list = await this.terminals(text ? BUFFER_ROWS : 1);
+      const list = await this.#terminalsReduced(probe, probeRows);
       // Nothing will ever come back, so stalling the full timeout would only
       // hide the mistake (waiting on an editor pane, or on a private one).
-      if (!list.length) return { leafId: target, done: false, reason: "no terminal panes", tail: "" };
+      if (!list.length)
+        return { leafId: target, done: false, reason: "no terminal panes", tail: "" };
       const t = list.find((x) => x.leafId === target) ?? list[list.length - 1];
-      if (text ? t.text.includes(text) : t.atPrompt && !t.running) {
+      if (text ? t.hit : t.atPrompt && !t.running) {
         await sleep(settle);
         return await finish(t.leafId, true, text ? "text appeared" : "prompt returned");
       }
@@ -527,7 +773,7 @@ export class Director {
    * opening one on purpose is legitimate, and the buffer is still the answer.
    */
   async sh(text, { leafId = null, timeout = 20000, lines = 60, settle = 150 } = {}) {
-    const list = await this.terminals(BUFFER_ROWS);
+    const list = await this.#terminalsReduced(SH_PROBE);
     if (!list.length) throw new Error("No terminal pane is open. Run `cmd tab.new` first.");
     // Which pane, decided explicitly. The focused leaf is often NOT a terminal -
     // `data-pane-leaf` is on every leaf, so an editor or browser pane answers
@@ -546,7 +792,7 @@ export class Director {
       throw new Error(
         leafId === null
           ? `Focus is not in a terminal, and ${list.length} are open - name one. ` +
-            `Terminals: ${list.map((t) => t.leafId).join(", ")}`
+              `Terminals: ${list.map((t) => t.leafId).join(", ")}`
           : `Leaf ${leafId} is not a terminal. Terminals: ${list.map((t) => t.leafId).join(", ")}`,
       );
     }
@@ -557,13 +803,17 @@ export class Director {
     const deadline = Date.now() + timeout;
     for (;;) {
       await sleep(settle);
-      const now = (await this.terminals(BUFFER_ROWS)).find((t) => t.leafId === target);
+      const now = (await this.#terminalsReduced(SH_PROBE)).find((t) => t.leafId === target);
       if (!now) throw new Error(`Terminal ${target} disappeared mid-command`);
-      const done = now.text !== before.text && now.atPrompt && !now.running;
+      // Hashes, not the text itself. "Has the buffer changed" is one bit, and
+      // shipping ~20KB across the socket every 150ms to answer it is the whole
+      // cost of running a command through here. A collision only costs one more
+      // poll (the next read will differ), so 32 bits is plenty.
+      const done = now.hash !== before.hash && now.atPrompt && !now.running;
       if (done || Date.now() > deadline) {
-        // Trimmed here, not at the source: `lines` is about how much the caller
-        // wants to read, and asking xterm for that few rows is what breaks.
-        return { leafId: target, text: tailOf(now.text, lines), timedOut: !done };
+        // The full text is fetched ONCE, at the end, already trimmed in-page.
+        const out = (await this.terminals(lines)).find((t) => t.leafId === target);
+        return { leafId: target, text: out?.text ?? "", timedOut: !done };
       }
     }
   }
@@ -757,20 +1007,7 @@ export class Director {
    * outer layout's are `sidebar` / `workspace` / `right-slot`.
    */
   paneHandleIndex() {
-    return this.eval(`(() => {
-      const inPaneGroup = (h) => {
-        const g = h.closest('[data-slot=resizable-panel-group]');
-        if (!g) return false;
-        // Panels belonging to THIS group, not to one nested inside it, and not
-        // matched through a wrapper the panel library might add. A split inside
-        // a split gives every level its own pane- panels, so ownership has to be
-        // decided by the panel's own nearest group.
-        const mine = [...g.querySelectorAll('[data-slot=resizable-panel][id^="pane-"]')]
-          .filter((p) => p.closest('[data-slot=resizable-panel-group]') === g);
-        return mine.length >= 2;
-      };
-      return [...document.querySelectorAll('[data-slot=resizable-handle]')].findIndex(inPaneGroup);
-    })()`);
+    return this.eval(PANE_HANDLE_EXPR);
   }
 
   /**
@@ -783,8 +1020,8 @@ export class Director {
    * is the discovery list, so a script can find a control by aria-label instead
    * of guessing at class names.
    */
-  async state({ tail = 3 } = {}) {
-    const dom = await this.eval(`(() => {
+  async state({ tail = 3, buttons = false } = {}) {
+    return await this.eval(`(() => {
       const q = (s) => [...document.querySelectorAll(s)];
       const kind = (el) => el.querySelector('.xterm-screen') ? 'terminal'
         : el.querySelector('.cm-content') ? 'editor' : 'browser';
@@ -814,38 +1051,46 @@ export class Director {
         focus: a ? a.tagName + (a.placeholder ? ' "' + a.placeholder + '"' : '') : null,
         dialog: modal ? modal.getAttribute('role') + ': ' + (modal.textContent || '').trim().slice(0, 60) : null,
         toasts: q('button').filter((b) => /^dismiss$/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())).length,
-        buttons: [...new Set(q('button[aria-label]').map((b) =>
+        // Opt-in. With Source Control open this is 60+ aria-labels, which is
+        // several hundred tokens of the agent's context on a verb it is told to
+        // call constantly. It is a DISCOVERY list - useful once, then never
+        // again - so it is fetched once, deliberately.
+        buttons: ${buttons ? "true" : "false"} ? [...new Set(q('button[aria-label]').map((b) =>
           // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
           // siblings are one control, and listing each one buries the rest of
           // the UI. Only a trailing path-shaped token is folded.
-          b.getAttribute('aria-label').replace(/\\s\\S*[\\\\\\/]\\S*$/, ' <path>')))].sort(),
+          b.getAttribute('aria-label').replace(/\\s\\S*[\\\\\\/]\\S*$/, ' <path>')))].sort() : undefined,
+        // -1 when only one pane is open, which is the honest answer: there is no
+        // splitter between panes to drag yet.
+        paneHandle: ${PANE_HANDLE_EXPR},
+        // The window.__tedi half, folded into the SAME round trip. It used to
+        // be three more: paneHandle, terminals, panes. state() is the verb an
+        // agent is told to call before every move, so four DevTools round trips
+        // and a full 200-row buffer per pane was the driver's dominant cost.
+        // (No backticks anywhere in here - this whole block is one template
+        // literal, and one in a comment ends it. It cost a syntax error once.)
+        //
+        // Degrades instead of throwing, in-page: this is the verb reached for
+        // when something is ALREADY wrong, and the DOM half above (leaves, the
+        // RENDERED layout) stays useful when the automation surface is missing.
+        ...(() => {
+          try {
+            const list = window.__tedi?.terminals?.(${BUFFER_ROWS});
+            const panes = window.__tedi?.panes?.();
+            if (!list || !panes) return { panes: [], tediError: 'window.__tedi is missing: start TEDI with TEDI_DEBUG_PORT set (a dev or a release build alike); setting it after launch is too late.' };
+            // Tails merged INTO the pane list rather than sitting in a list of
+            // their own: one row per pane carrying both what the pane IS and
+            // what it last printed. Read wide (see BUFFER_ROWS - a narrow read
+            // returns ""), trimmed here, so only the tail crosses the socket.
+            const tailOf = ${TAIL_FN};
+            const tails = new Map(list.map((t) => [t.leafId, tailOf(t.text, ${Number(tail)})]));
+            return { panes: panes.map((p) => tails.has(p.leafId) ? { ...p, tail: tails.get(p.leafId) } : p) };
+          } catch (err) {
+            return { panes: [], tediError: String(err && err.message ? err.message : err) };
+          }
+        })(),
       };
     })()`);
-    // -1 when only one pane is open, which is the honest answer: there is no
-    // splitter between panes to drag yet.
-    dom.paneHandle = await this.paneHandleIndex();
-    // Tail only: a full 200-line buffer per pane buries the rest of the snapshot.
-    // Read the whole thing with `terminals()` when a caller actually needs it.
-    // Degrades instead of throwing: this is the verb reached for when something
-    // is already wrong, and the DOM half (`leaves`, which is the RENDERED
-    // layout) stays useful when the `window.__tedi` half is what is missing.
-    try {
-      // Tails merged into the pane list rather than a list of their own: one
-      // row per pane, carrying both what the pane IS and what it last printed.
-      // Read wide, trim here. Asking xterm for `tail + 8` rows was the obvious
-      // saving and the wrong one: it returns "" for every pane that has not
-      // scrolled (see BUFFER_ROWS).
-      const tails = new Map(
-        (await this.terminals(BUFFER_ROWS)).map((t) => [t.leafId, tailOf(t.text, tail)]),
-      );
-      dom.panes = (await this.panes()).map((pane) =>
-        tails.has(pane.leafId) ? { ...pane, tail: tails.get(pane.leafId) } : pane,
-      );
-    } catch (err) {
-      dom.panes = [];
-      dom.tediError = err.message;
-    }
-    return dom;
   }
 
   async waitFor(selector, { nth = 0, timeout = 10000 } = {}) {
@@ -996,5 +1241,4 @@ export class Director {
     await writeFile(file, Buffer.from(data, "base64"));
     return file;
   }
-
 }

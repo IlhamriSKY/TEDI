@@ -1,6 +1,7 @@
 use std::collections::HashMap;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::process::Command;
+use std::process::{Command, Stdio};
 use std::sync::{Mutex, OnceLock};
 use std::thread;
 use std::time::{Duration, Instant};
@@ -1040,6 +1041,97 @@ fn git_run_inner(repo_path: String, args: Vec<String>) -> Result<String, String>
     let mut cmd = git(&root);
     cmd.args(&args);
     run(cmd)
+}
+
+/// Apply a patch this app synthesised, reading it from STDIN.
+///
+/// Its own command rather than a subcommand of `git_run` for one reason:
+/// `git apply` is the only git the panel drives that takes its real input on
+/// stdin, and `git()` closes stdin so nothing can hang on a prompt. Routing a
+/// patch through the argument vector instead would mean writing it to a
+/// temporary file and handing git a path from the webview, which is a worse
+/// thing to allow than a pipe.
+///
+/// `cached` decides which tree is written: the INDEX (staging a hunk) or the
+/// WORKING TREE (discarding one). `reverse` undoes rather than applies, which
+/// is how unstaging a single hunk works. The four combinations are exactly the
+/// four hunk actions, and nothing else is expressible.
+///
+/// `--unidiff-zero` is deliberately NOT passed: it disables the context check,
+/// which is the only thing standing between a patch built from a stale diff and
+/// a silently mis-applied hunk. A patch that no longer matches must fail.
+#[tauri::command]
+pub async fn git_apply_patch(
+    repo_path: String,
+    patch: String,
+    cached: bool,
+    reverse: bool,
+) -> Result<(), String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        git_apply_patch_inner(repo_path, patch, cached, reverse)
+    })
+    .await
+    .map_err(|e| format!("git_apply_patch join error: {e}"))?
+}
+
+fn git_apply_patch_inner(
+    repo_path: String,
+    patch: String,
+    cached: bool,
+    reverse: bool,
+) -> Result<(), String> {
+    if patch.trim().is_empty() {
+        return Err("git apply: empty patch".into());
+    }
+    let root = require_root(&repo_path)?;
+    let mut cmd = git(&root);
+    cmd.arg("apply");
+    if cached {
+        cmd.arg("--cached");
+    }
+    if reverse {
+        cmd.arg("-R");
+    }
+    // Read the patch from stdin. `git()` nulls stdin so nothing can stall on a
+    // prompt; this is the one call that has real input to hand over.
+    cmd.arg("-");
+    cmd.stdin(Stdio::piped());
+    cmd.stdout(Stdio::piped());
+    cmd.stderr(Stdio::piped());
+
+    let mut child = cmd.spawn().map_err(|e| e.to_string())?;
+    {
+        let mut stdin = child
+            .stdin
+            .take()
+            .ok_or_else(|| "git apply: could not open stdin".to_string())?;
+        // A patch git can read always ends in a newline; one built by
+        // concatenating hunk lines may not, and git rejects the last line as
+        // corrupt rather than saying the newline is missing.
+        let body = if patch.ends_with('\n') {
+            patch
+        } else {
+            format!("{patch}\n")
+        };
+        // A write error here is almost always a BROKEN PIPE: git decided the
+        // patch was bad and exited while we were still feeding it. Returning
+        // that io error would replace git's own explanation with "the pipe
+        // closed", so it is swallowed and the exit status below is left to
+        // speak. Nothing is lost - a patch git stopped reading did not apply.
+        let _ = stdin.write_all(body.as_bytes());
+        // Dropping the handle closes the pipe, which is what tells git the
+        // patch is complete. Without it `wait_with_output` deadlocks.
+    }
+    let out = child.wait_with_output().map_err(|e| e.to_string())?;
+    if out.status.success() {
+        return Ok(());
+    }
+    let stderr = String::from_utf8_lossy(&out.stderr).trim().to_string();
+    Err(if stderr.is_empty() {
+        format!("git apply exited with status {}", out.status)
+    } else {
+        stderr
+    })
 }
 
 /// Return the combined diff (staged + working tree) plus a list of untracked

@@ -74,9 +74,7 @@ type Actions = {
   init(): Promise<void>;
   refresh(): Promise<void>;
   install(
-    source:
-      | { kind: "zip"; path: string }
-      | { kind: "github"; repo: string },
+    source: { kind: "zip"; path: string } | { kind: "github"; repo: string },
     /** Manifest id from a prior `ext_peek_*` call. When set, deactivates any
      *  existing extension with this id before Rust runs the install pipeline,
      *  releasing Windows file handles so the replace step doesn't hit
@@ -301,9 +299,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
     try {
       const entry = get().list.find((e) => e.id === id);
       if (!entry) throw new Error(`extension not installed: ${id}`);
-      const repo = entry.source.startsWith("github:")
-        ? entry.source.slice("github:".length)
-        : null;
+      const repo = entry.source.startsWith("github:") ? entry.source.slice("github:".length) : null;
       if (!repo) {
         throw new Error(
           "Extensions installed from a local .zip can't auto-update. Re-install via Settings, Extensions, From file.",
@@ -358,45 +354,93 @@ export type { InstalledExtension };
  * list of what is installed, a missing button was indistinguishable from a
  * disabled extension.
  *
- * Read-only plus "run a command an extension already declared". Installing,
- * enabling and uninstalling stay out: they mutate the user's profile, and a
- * driver that can enable an extension can install one.
+ * `extControl` covers the reversible half of the lifecycle - enable, disable,
+ * reload, update, uninstall. INSTALL IS DELIBERATELY ABSENT and refuses with the
+ * route instead: installing runs third-party code in TEDI's own realm under a
+ * permission set the user has to see, and that review dialog lives in the
+ * Settings webview. An agent may drive the user to it (`run_command
+ * settings.open`); it may not skip it. Every other action only ever turns off,
+ * re-reads or removes code the user already approved.
  */
+/** Installed extensions and, for each, what it ADDS - the part an agent needs:
+ *  a command it can run, a panel it can open, and the AI tools it lends the
+ *  built-in agent. */
+export function listExtensions() {
+  return useExtensionsStore.getState().list.map((e) => ({
+    id: e.id,
+    name: e.manifest.name,
+    version: e.version,
+    enabled: e.enabled,
+    commands: (e.manifest.contributes.commands ?? []).map((c) => ({ id: c.id, title: c.title })),
+    panels: (e.manifest.contributes.panels ?? []).map((x) => ({
+      id: x.id,
+      title: x.title,
+      surface: x.surface,
+    })),
+    aiTools: (e.manifest.contributes.aiTools ?? []).map((t) => t.name),
+  }));
+}
+
+/** False rather than a throw when nothing answers: a command declared in the
+ *  manifest but never given a runtime handler, and one belonging to a DISABLED
+ *  extension (deactivation clears the runtime entry), are both ordinary states
+ *  an agent should be told about plainly. */
+export function runExtensionCommand(extensionId: string, commandId: string): boolean {
+  const handler = commandsRegistry.getRuntime(extensionId, commandId);
+  if (typeof handler !== "function") return false;
+  (handler as (...args: unknown[]) => unknown)();
+  return true;
+}
+
+/**
+ * The reversible half of the extension lifecycle. Resolves to `true` or to an
+ * ERROR SENTENCE, never a rejection - these all reach Rust, and neither consumer
+ * gets anything useful out of a rejected promise.
+ *
+ * INSTALL IS NOT HERE for either of them. See the note above `extControl`'s
+ * registration: new third-party code goes through the permission review.
+ */
+export async function controlExtension(action: string, id: string): Promise<true | string> {
+  const s = useExtensionsStore.getState();
+  if (!s.list.some((e) => e.id === id)) {
+    return `No extension "${id}" is installed. Installed: ${s.list.map((e) => e.id).join(", ") || "(none)"}`;
+  }
+  try {
+    switch (action) {
+      case "enable":
+        await s.setEnabled(id, true);
+        return true;
+      case "disable":
+        await s.setEnabled(id, false);
+        return true;
+      case "uninstall":
+        await s.uninstall(id);
+        return true;
+      case "reload":
+        await s.reload(id);
+        return true;
+      case "update":
+        await s.updateExtension(id);
+        return true;
+      default:
+        return `Unknown action "${action}". Have: enable, disable, reload, update, uninstall.`;
+    }
+  } catch (err) {
+    return err instanceof Error ? err.message : String(err);
+  }
+}
+
 if (typeof window !== "undefined") {
-  const w = window as unknown as { __TEDI_AUTOMATION__?: boolean; __tedi?: Record<string, unknown> };
+  const w = window as unknown as {
+    __TEDI_AUTOMATION__?: boolean;
+    __tedi?: Record<string, unknown>;
+  };
   if (w.__TEDI_AUTOMATION__) {
     w.__tedi = {
       ...w.__tedi,
-      extensions: () =>
-        useExtensionsStore.getState().list.map((e) => ({
-          id: e.id,
-          name: e.manifest.name,
-          version: e.version,
-          enabled: e.enabled,
-          // What it ADDS, which is the part a driver needs: a command it can
-          // run, a panel it can open, and the AI tools it lends the built-in
-          // agent.
-          commands: (e.manifest.contributes.commands ?? []).map((c) => ({
-            id: c.id,
-            title: c.title,
-          })),
-          panels: (e.manifest.contributes.panels ?? []).map((x) => ({
-            id: x.id,
-            title: x.title,
-            surface: x.surface,
-          })),
-          aiTools: (e.manifest.contributes.aiTools ?? []).map((t) => t.name),
-        })),
-      // False rather than a throw when nothing answers: a command declared in
-      // the manifest but never given a runtime handler, and a command belonging
-      // to a DISABLED extension (deactivation clears the runtime entry), are
-      // both ordinary states a driver should be told about plainly.
-      runExtensionCommand: (extensionId: string, commandId: string) => {
-        const handler = commandsRegistry.getRuntime(extensionId, commandId);
-        if (typeof handler !== "function") return false;
-        (handler as (...args: unknown[]) => unknown)();
-        return true;
-      },
+      extensions: listExtensions,
+      runExtensionCommand: runExtensionCommand,
+      extControl: controlExtension,
     };
   }
 }

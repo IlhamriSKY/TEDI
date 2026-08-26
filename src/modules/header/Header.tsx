@@ -11,6 +11,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import { SshMenu } from "@/modules/ssh/SshMenu";
 import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
+import { McpInstallButton } from "@/modules/mcpInstall/McpInstallButton";
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
@@ -223,6 +224,7 @@ function HeaderImpl({
         <SshMenu onConnect={onConnectSsh} />
         <ExtensionHeaderItems />
         {extensionsButton}
+        <McpInstallButton />
         {settingsButton}
 
         {USE_CUSTOM_WINDOW_CONTROLS && (

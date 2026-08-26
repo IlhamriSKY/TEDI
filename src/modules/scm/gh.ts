@@ -77,6 +77,234 @@ export type CreatePrInput = {
   draft: boolean;
 };
 
+// ---- Pull-request review ---------------------------------------------------
+//
+// `gh pr view --json` answers the whole review surface in ONE subprocess:
+// description, files, checks, reviews and conversation. It is the reason this
+// stays a gh driver rather than a REST client - except for one hole, which is
+// permanent and worth naming: gh returns a review's BODY, verdict and author,
+// but never its inline line comments. Those live only behind `gh api`, which is
+// not allowlisted (see `gh.rs`), so a thread pinned to a line is a link to
+// GitHub here, not a widget.
+
+/** One submitted review. `state` is APPROVED / CHANGES_REQUESTED / COMMENTED /
+ *  DISMISSED / PENDING; kept as a string because gh mirrors GraphQL enums and
+ *  a value we have not seen must not blank the list. */
+export type PrReview = {
+  author: { login: string } | null;
+  state: string;
+  body: string;
+  submittedAt: string;
+};
+
+/** One conversation comment (the pull request's issue thread, not a line comment). */
+export type PrComment = {
+  author: { login: string } | null;
+  body: string;
+  createdAt: string;
+  url: string;
+};
+
+export type PrFile = { path: string; additions: number; deletions: number };
+
+/**
+ * One entry of `statusCheckRollup`. gh mixes two GraphQL types in this array
+ * and they share no field: a CheckRun (GitHub Actions) reports
+ * `name` + `status` + `conclusion`, while a StatusContext (a classic commit
+ * status posted by an external CI) reports `context` + `state`. Reading only
+ * one shape silently drops the other CI, which reads as "no checks".
+ */
+export type PrCheckEntry = {
+  __typename?: string;
+  name?: string;
+  context?: string;
+  /** CheckRun: QUEUED | IN_PROGRESS | COMPLETED. */
+  status?: string;
+  /** CheckRun: SUCCESS | FAILURE | NEUTRAL | CANCELLED | SKIPPED | TIMED_OUT | ACTION_REQUIRED. */
+  conclusion?: string;
+  /** StatusContext: SUCCESS | FAILURE | PENDING | ERROR | EXPECTED. */
+  state?: string;
+  detailsUrl?: string;
+  targetUrl?: string;
+};
+
+export type PrDetail = {
+  number: number;
+  title: string;
+  body: string;
+  url: string;
+  state: string;
+  isDraft: boolean;
+  headRefName: string;
+  baseRefName: string;
+  author: { login: string } | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  files: PrFile[];
+  reviews: PrReview[];
+  comments: PrComment[];
+  /** APPROVED | CHANGES_REQUESTED | REVIEW_REQUIRED, or "" when the repository
+   *  requires no review. */
+  reviewDecision: string;
+  /** MERGEABLE | CONFLICTING | UNKNOWN. */
+  mergeable: string;
+  /** CLEAN | BLOCKED | BEHIND | DIRTY | UNSTABLE | HAS_HOOKS | UNKNOWN. */
+  mergeStateStatus: string;
+  statusCheckRollup: PrCheckEntry[] | null;
+  createdAt: string;
+};
+
+/** What a reviewer can submit. `approve` may carry an empty body; the other two
+ *  cannot, and gh answers a bare usage error rather than a clear one if they do. */
+export type ReviewVerdict = "approve" | "request-changes" | "comment";
+
+/** How a merge is performed. gh has no default with no terminal to ask on. */
+export type MergeMethod = "squash" | "merge" | "rebase";
+
+export type CheckOutcome = "success" | "failure" | "pending" | "neutral";
+
+export type CheckSummary = {
+  total: number;
+  passed: number;
+  failed: number;
+  pending: number;
+  /** The rollup: any failure wins, then anything still running. */
+  state: CheckOutcome | "none";
+};
+
+/** A check's display name, whichever of the two shapes it arrived in. */
+export function checkName(e: PrCheckEntry): string {
+  return e.name || e.context || "check";
+}
+
+export function checkUrl(e: PrCheckEntry): string {
+  return e.detailsUrl || e.targetUrl || "";
+}
+
+/**
+ * One check's outcome, normalised across both shapes.
+ *
+ * A CheckRun that has not COMPLETED is pending whatever `conclusion` says, and
+ * SKIPPED / NEUTRAL are deliberately NOT failures: a skipped job is the normal
+ * result of a path filter, and colouring it red would make most pull requests
+ * look broken.
+ */
+export function checkOutcome(e: PrCheckEntry): CheckOutcome {
+  const status = (e.status ?? "").toUpperCase();
+  if (status && status !== "COMPLETED") return "pending";
+  const verdict = (e.conclusion || e.state || "").toUpperCase();
+  switch (verdict) {
+    case "SUCCESS":
+      return "success";
+    case "FAILURE":
+    case "ERROR":
+    case "TIMED_OUT":
+    case "CANCELLED":
+    case "ACTION_REQUIRED":
+      return "failure";
+    case "PENDING":
+    case "EXPECTED":
+    case "":
+      return "pending";
+    default:
+      return "neutral";
+  }
+}
+
+export function summarizeChecks(rollup: PrCheckEntry[] | null | undefined): CheckSummary {
+  const entries = rollup ?? [];
+  let passed = 0;
+  let failed = 0;
+  let pending = 0;
+  for (const e of entries) {
+    const o = checkOutcome(e);
+    if (o === "success") passed++;
+    else if (o === "failure") failed++;
+    else if (o === "pending") pending++;
+  }
+  const state: CheckSummary["state"] =
+    entries.length === 0 ? "none" : failed > 0 ? "failure" : pending > 0 ? "pending" : "success";
+  return { total: entries.length, passed, failed, pending, state };
+}
+
+/**
+ * Why merging is not on offer, or null when it is.
+ *
+ * Answered locally from what `gh pr view` already returned rather than by
+ * attempting the merge and surfacing gh's error: a refused `gh pr merge` still
+ * costs a round trip, and most of these are states the user has to leave the
+ * app to fix anyway.
+ */
+export function mergeBlockReason(pr: PrDetail): string | null {
+  if (pr.state !== "OPEN") return `This pull request is ${pr.state.toLowerCase()}.`;
+  if (pr.isDraft) return "This is a draft. Mark it ready for review first.";
+  if (pr.mergeable === "CONFLICTING") return "It conflicts with the base branch.";
+  switch (pr.mergeStateStatus) {
+    case "BLOCKED":
+      return "GitHub is blocking the merge (a required review or check has not passed).";
+    case "DIRTY":
+      return "It conflicts with the base branch.";
+    case "BEHIND":
+      return "The branch is behind its base and the repository requires it to be up to date.";
+    default:
+      return null;
+  }
+}
+
+/** The `--json` field set one `gh pr view` answers the whole view with. One
+ *  subprocess, so opening a pull request is one round trip and not six. */
+const PR_DETAIL_FIELDS = [
+  "number",
+  "title",
+  "body",
+  "url",
+  "state",
+  "isDraft",
+  "headRefName",
+  "baseRefName",
+  "author",
+  "additions",
+  "deletions",
+  "changedFiles",
+  "files",
+  "reviews",
+  "comments",
+  "reviewDecision",
+  "mergeable",
+  "mergeStateStatus",
+  "statusCheckRollup",
+  "createdAt",
+].join(",");
+
+/** Fill in every field a caller reads, so one key missing from gh's answer
+ *  cannot crash the view on `.map` or `.toUpperCase`. */
+export function normalizePrDetail(raw: unknown): PrDetail {
+  const v = (raw ?? {}) as Partial<PrDetail>;
+  return {
+    number: v.number ?? 0,
+    title: v.title ?? "",
+    body: v.body ?? "",
+    url: v.url ?? "",
+    state: v.state ?? "OPEN",
+    isDraft: v.isDraft ?? false,
+    headRefName: v.headRefName ?? "",
+    baseRefName: v.baseRefName ?? "",
+    author: v.author ?? null,
+    additions: v.additions ?? 0,
+    deletions: v.deletions ?? 0,
+    changedFiles: v.changedFiles ?? 0,
+    files: Array.isArray(v.files) ? v.files : [],
+    reviews: Array.isArray(v.reviews) ? v.reviews : [],
+    comments: Array.isArray(v.comments) ? v.comments : [],
+    reviewDecision: v.reviewDecision ?? "",
+    mergeable: v.mergeable ?? "UNKNOWN",
+    mergeStateStatus: v.mergeStateStatus ?? "UNKNOWN",
+    statusCheckRollup: Array.isArray(v.statusCheckRollup) ? v.statusCheckRollup : null,
+    createdAt: v.createdAt ?? "",
+  };
+}
+
 /** Resolves with stdout, rejects with whatever explained a non-zero exit. */
 export type GhRunner = (args: string[]) => Promise<string>;
 
@@ -310,6 +538,58 @@ export function makeGh(run: GhRunner) {
 
     /** Check out a stack layer, keeping gh's local tracking pointed at it. */
     checkoutStackBranch: (branch: string) => ok(["stack", "checkout", branch]),
+
+    /**
+     * Everything the review view shows, in one call.
+     *
+     * `gh pr view` accepts a number, a URL or a branch; the number is what the
+     * list already has, and passing it avoids gh resolving the CURRENT branch
+     * when the argument is missing - which would quietly show a different pull
+     * request than the one that was clicked.
+     */
+    async prDetail(number: number): Promise<PrDetail> {
+      const raw = await run(["pr", "view", String(number), "--json", PR_DETAIL_FIELDS]);
+      return normalizePrDetail(JSON.parse(raw || "{}"));
+    },
+
+    /**
+     * The pull request's patch, as `git diff` would print it.
+     *
+     * This is the one read that works without touching the working tree: the
+     * head branch does not have to be fetched, let alone checked out, so
+     * reading a review never disturbs whatever the user was in the middle of.
+     */
+    prDiff: (number: number) => run(["pr", "diff", String(number)]),
+
+    /**
+     * Submit a review. `body` is required for everything except an approval,
+     * which GitHub allows to be a bare verdict.
+     */
+    reviewPr: (number: number, verdict: ReviewVerdict, body: string) =>
+      ok([
+        "pr",
+        "review",
+        String(number),
+        `--${verdict}`,
+        ...(body.trim() ? ["--body", body.trim()] : []),
+      ]),
+
+    /**
+     * Merge the pull request. A method is mandatory: without one gh prompts,
+     * and with no terminal attached a prompt is a hang rather than a question.
+     */
+    mergePr: (number: number, method: MergeMethod, deleteBranch: boolean) =>
+      ok([
+        "pr",
+        "merge",
+        String(number),
+        `--${method}`,
+        ...(deleteBranch ? ["--delete-branch"] : []),
+      ]),
+
+    /** Take a draft out of draft. The panel can create drafts, so without this
+     *  the only way out of one it made is the browser. */
+    markReady: (number: number) => ok(["pr", "ready", String(number)]),
 
     /** Check out a PR by number. Handles a fork's branch, which a plain
      *  `git checkout` of the head name would not find. */

@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TEDI",
   "mainBinaryName": "TEDIApp",
-  "version": "0.4.31",
+  "version": "0.4.32",
   "identifier": "id.ilhamrisky.tedi",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -32,6 +32,10 @@
     "active": true,
     "targets": "all",
     "createUpdaterArtifacts": true,
+    "resources": {
+      "../scripts/director/mcp.mjs": "director/mcp.mjs",
+      "../scripts/director/director.mjs": "director/director.mjs"
+    },
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",

@@ -12,19 +12,35 @@
  *    ZERO when there is no stack, so the payload has to be recognised rather
  *    than the exit code trusted.
  *
+ * The review half of the tab is here too, and its own three:
+ *
+ *  - `gh pr view` MUST carry the number. Without it gh resolves the current
+ *    branch, so the panel would show a different pull request than the one
+ *    that was clicked.
+ *  - `gh pr merge` MUST name a method. Without one gh prompts, which with no
+ *    terminal attached is a hang.
+ *  - `statusCheckRollup` mixes two GraphQL shapes that share no field, so
+ *    reading only `conclusion` silently drops every external CI result.
+ *
  * Run: `npx tsx scripts/gh-stack-verify.ts`.
  */
 import {
+  checkName,
+  checkOutcome,
   friendlyGhError,
   loosePrs,
   makeGh,
+  mergeBlockReason,
+  normalizePrDetail,
   parseStackView,
   prUrlFrom,
   stackRows,
+  summarizeChecks,
   GH_NOT_FOUND,
   type PullRequest,
   type StackView,
 } from "../src/modules/scm/gh";
+import { splitPatch } from "../src/modules/scm/patch";
 
 type Reply = string | Error;
 
@@ -332,6 +348,188 @@ console.log("\nerror messages");
     "The gh-stack extension is not installed.",
   );
   check("unknown errors pass through", friendlyGhError(new Error("boom")), "boom");
+}
+
+console.log("\npull-request review: the argument vectors");
+{
+  const { calls, gh } = recorder({ "pr view": "{}" });
+  await gh.prDetail(12);
+  const argv = calls[0] ?? [];
+  check("prDetail addresses the pull request by NUMBER", argv.slice(0, 4), [
+    "pr",
+    "view",
+    "12",
+    "--json",
+  ]);
+  // Without an explicit number gh resolves the CURRENT branch, which would show
+  // a different pull request than the one that was clicked.
+  const fields = (argv[4] ?? "").split(",");
+  for (const f of ["reviews", "comments", "statusCheckRollup", "mergeStateStatus", "files"]) {
+    check(`the one view call asks for ${f}`, fields.includes(f), true);
+  }
+}
+{
+  const { calls, gh } = recorder();
+  await gh.prDiff(12);
+  check("prDiff reads the patch without touching the working tree", calls[0], ["pr", "diff", "12"]);
+}
+{
+  const { calls, gh } = recorder();
+  await gh.reviewPr(12, "approve", "   ");
+  // GitHub takes a bare approval; sending `--body ""` is a usage error.
+  check("an approval with no message sends no --body", calls[0], [
+    "pr",
+    "review",
+    "12",
+    "--approve",
+  ]);
+}
+{
+  const { calls, gh } = recorder();
+  await gh.reviewPr(12, "request-changes", " fix the guard ");
+  check("a verdict that needs a message carries it trimmed", calls[0], [
+    "pr",
+    "review",
+    "12",
+    "--request-changes",
+    "--body",
+    "fix the guard",
+  ]);
+}
+{
+  const { calls, gh } = recorder();
+  await gh.mergePr(12, "squash", true);
+  // A method is mandatory: without one gh prompts, and a prompt with no
+  // terminal attached is a hang.
+  check("merge names its method and the branch cleanup", calls[0], [
+    "pr",
+    "merge",
+    "12",
+    "--squash",
+    "--delete-branch",
+  ]);
+}
+{
+  const { calls, gh } = recorder();
+  await gh.mergePr(12, "rebase", false);
+  check("keeping the branch omits the flag", calls[0], ["pr", "merge", "12", "--rebase"]);
+}
+{
+  const { calls, gh } = recorder();
+  await gh.markReady(12);
+  check("a draft can leave draft without the browser", calls[0], ["pr", "ready", "12"]);
+}
+
+console.log("\ncheck rollup: gh mixes two GraphQL shapes in one array");
+{
+  const rollup = [
+    { __typename: "CheckRun", name: "build", status: "COMPLETED", conclusion: "SUCCESS" },
+    { __typename: "StatusContext", context: "ci/external", state: "FAILURE" },
+    { __typename: "CheckRun", name: "slow", status: "IN_PROGRESS", conclusion: "" },
+    { __typename: "CheckRun", name: "skipped", status: "COMPLETED", conclusion: "SKIPPED" },
+  ];
+  // Reading only `conclusion` would drop the external status entirely, which
+  // reads as "all green" on a red pull request.
+  check("both shapes are counted", summarizeChecks(rollup), {
+    total: 4,
+    passed: 1,
+    failed: 1,
+    pending: 1,
+    state: "failure",
+  });
+  check("a name comes from either field", checkName(rollup[1]), "ci/external");
+  // A path filter skipping a job is the normal case, not a failure.
+  check("SKIPPED is neutral, not red", checkOutcome(rollup[3]), "neutral");
+  // A run still going is pending whatever its (empty) conclusion says.
+  check("IN_PROGRESS outranks the conclusion", checkOutcome(rollup[2]), "pending");
+  check("no checks is not a failure", summarizeChecks(null).state, "none");
+}
+
+console.log("\nmerge gating, answered locally");
+{
+  const base = normalizePrDetail({
+    state: "OPEN",
+    mergeable: "MERGEABLE",
+    mergeStateStatus: "CLEAN",
+  });
+  check("a clean open pull request merges", mergeBlockReason(base), null);
+  check(
+    "a draft says what to do first",
+    mergeBlockReason({ ...base, isDraft: true }),
+    "This is a draft. Mark it ready for review first.",
+  );
+  check(
+    "a conflict is named",
+    mergeBlockReason({ ...base, mergeable: "CONFLICTING" }),
+    "It conflicts with the base branch.",
+  );
+  check(
+    "a blocked branch protection is named",
+    mergeBlockReason({ ...base, mergeStateStatus: "BLOCKED" }),
+    "GitHub is blocking the merge (a required review or check has not passed).",
+  );
+  check(
+    "a merged pull request offers nothing",
+    mergeBlockReason({ ...base, state: "MERGED" }),
+    "This pull request is merged.",
+  );
+  // One missing key in gh's answer must not crash the view on `.map`.
+  check("an empty answer still has arrays", normalizePrDetail({}).files, []);
+}
+
+console.log("\npatch splitting");
+{
+  const PATCH = [
+    "diff --git a/src/a.ts b/src/a.ts",
+    "index 111..222 100644",
+    "--- a/src/a.ts",
+    "+++ b/src/a.ts",
+    "@@ -1,3 +1,4 @@",
+    " const x = 1;",
+    "-const y = 2;",
+    "+const y = 3;",
+    "+const z = 4;",
+    "diff --git a/old.txt b/new.txt",
+    "similarity index 100%",
+    "rename from old.txt",
+    "rename to new.txt",
+    "diff --git a/logo.png b/logo.png",
+    "index 333..444 100644",
+    "Binary files a/logo.png and b/logo.png differ",
+    "diff --git a/gone.ts b/gone.ts",
+    "deleted file mode 100644",
+    "--- a/gone.ts",
+    "+++ /dev/null",
+    "@@ -1,2 +0,0 @@",
+    "-one",
+    "-two",
+    "",
+  ].join("\n");
+  const files = splitPatch(PATCH);
+  check(
+    "one block per file",
+    files.map((f) => f.path),
+    ["src/a.ts", "new.txt", "logo.png", "gone.ts"],
+  );
+  // The counting bug this guards: `+++ b/src/a.ts` and `--- a/src/a.ts` both
+  // start with a change sign, so a naive counter reports 3/2 instead of 2/1.
+  check(
+    "the file headers are not counted as changes",
+    [files[0].additions, files[0].deletions],
+    [2, 1],
+  );
+  check("the hunk header survives for the view to colour", files[0].lines[0], "@@ -1,3 +1,4 @@");
+  check("a rename keeps both names", [files[1].oldPath, files[1].path], ["old.txt", "new.txt"]);
+  check(
+    "a binary file is flagged, not rendered",
+    [files[2].binary, files[2].lines.length],
+    [true, 0],
+  );
+  // `+++ /dev/null` must not blank the path of a deleted file.
+  check("a deletion keeps the path it removed", files[3].path, "gone.ts");
+  check("a deletion counts only its removals", [files[3].additions, files[3].deletions], [0, 2]);
+  check("the trailing newline is not a blank row", files[3].lines.at(-1), "-two");
+  check("an empty patch is an empty list", splitPatch(""), []);
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

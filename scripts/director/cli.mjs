@@ -28,6 +28,8 @@ seeing
   state                          one snapshot: every pane in every tab, focus, dialogs, buttons
   panes                          every pane in every tab: kind, cwd/path/url, agent, busy
   extensions                     installed extensions + the commands and panels they add
+  settings                       every preference the app is running on
+  logs [level]                   console output + uncaught errors since connecting
   term [leafId]                  a terminal's buffer (the only way to read one)
   editors                        every open editor: path + live buffer, unsaved edits included
   text <selector>                read the DOM back (tree, dialogs; NOT terminals or long files)
@@ -38,6 +40,8 @@ driving
   commands                       list runnable TEDI command ids
   cmd <commandId>                run a TEDI command by id
   ext <extensionId> <commandId>  run a command an extension declared
+  extctl <action> <extensionId>  enable | disable | reload | update | uninstall
+  set <key> <value>              change one preference (see \`settings\`)
   wait [--leaf n] [--text s]     block until a pane is back at its prompt (or prints s)
   keys <chord> [chord...]        press chords, e.g. Ctrl+Shift+P
   type <text>                    type text as real keystrokes, character at a time
@@ -87,7 +91,8 @@ const port = Number(opts.port) || Number(process.env.TEDI_DEBUG_PORT) || 9222;
 
 if (verb === "targets") {
   const targets = await listTargets(port);
-  for (const t of targets) console.log(`${t.type.padEnd(8)} ${t.title || "(untitled)"}\n         ${t.url}`);
+  for (const t of targets)
+    console.log(`${t.type.padEnd(8)} ${t.title || "(untitled)"}\n         ${t.url}`);
   process.exit(0);
 }
 
@@ -135,6 +140,27 @@ try {
         throw new Error(`Nothing answers to "${args[1]}" in ${args[0]} (disabled, or no handler)`);
       }
       break;
+    case "extctl": {
+      const r = await d.extControl(args[0], args[1]);
+      if (r !== true) throw new Error(String(r));
+      break;
+    }
+    case "settings":
+      console.log(JSON.stringify(await d.settings(), null, 2));
+      break;
+    case "set": {
+      // The value arrives as shell text and is coerced against the
+      // preference's own type on the other side, so `set vimMode true` works
+      // without the caller having to think about JSON.
+      const r = await d.setSetting(args[0], args.slice(1).join(" "));
+      if (r !== true) throw new Error(String(r));
+      break;
+    }
+    case "logs": {
+      const list = d.logs(args[0] ?? null);
+      console.log(list.map((l) => `${l.level}: ${l.text}`).join("\n") || "(nothing logged)");
+      break;
+    }
     case "wait": {
       const r = await d.waitTerminal({
         leafId: leafOpt,

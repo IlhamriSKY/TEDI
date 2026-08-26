@@ -164,14 +164,34 @@ export function ToolsPicker() {
       <PopoverContent
         align="end"
         side="bottom"
+        // Still read: `collisionPadding` feeds the SIZE middleware as well as
+        // the (now disabled) collision ones, so it is what keeps the 8px of
+        // breathing room in the available-space numbers below.
         collisionPadding={8}
-        // Width follows the viewport instead of a fixed 20rem: at 20rem a long
-        // MCP tool name filled the row on its own and its description never
-        // appeared at all. Height follows it too, so a short window scrolls the
-        // list rather than clipping the footer with the All on / All off pair.
-        className="w-[min(30rem,calc(100vw-1.5rem))] p-0"
+        // OPENS DOWNWARD, ALWAYS. The AI panel is one section in a dockable
+        // stack, so this trigger can sit anywhere from the top of the window to
+        // the bottom of it - and with collision handling on, Radix flipped the
+        // panel above the button whenever the section happened to be docked low.
+        // Same click, different direction, depending on a layout choice made
+        // days earlier. Turning the flip off is what makes the position fixed.
+        //
+        // The flip was also doing real work, so both of its jobs are taken over
+        // by `size`, which runs unconditionally:
+        //   - vertical: max-height is the space actually available below the
+        //     trigger, so a short window shrinks the list and scrolls it instead
+        //     of clipping the All on / All off footer,
+        //   - horizontal: width is capped by the space available in the align
+        //     direction, so losing `shift` cannot push the panel off-screen when
+        //     the AI section is docked to a narrow left column.
+        // Both vars come from the same `size` pass, and with no flip to fight
+        // there is nothing for them to oscillate against.
+        avoidCollisions={false}
+        // `gap-0`: the sections carry their own divider borders, and the
+        // popover base class ships `gap-4`, which pushed a 1rem hole between
+        // each divider and the content under it.
+        className="flex max-h-[var(--radix-popover-content-available-height)] w-[min(30rem,var(--radix-popover-content-available-width))] flex-col gap-0 p-0"
       >
-        <div className="border-border/60 border-b p-1.5">
+        <div className="border-border/60 shrink-0 border-b p-1.5">
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -182,12 +202,16 @@ export function ToolsPicker() {
         </div>
 
         {chatMode ? (
-          <p className="text-muted-foreground px-2 py-1.5 text-[10.5px]">
+          <p className="text-muted-foreground shrink-0 px-2 py-1.5 text-[10.5px]">
             Chat mode is on, so no tools are sent this turn whatever is ticked here.
           </p>
         ) : null}
 
-        <div className="max-h-[min(26rem,60vh)] overflow-x-hidden overflow-y-auto py-0.5">
+        {/* The only part that gives: `flex-1 min-h-0` lets it absorb whatever
+            the filter row and footer leave over, so those two stay put however
+            little room the popover was given. `max-h` still caps it on a tall
+            screen, where "all the space available" would be a 1500px list. */}
+        <div className="max-h-[26rem] min-h-0 flex-1 overflow-x-hidden overflow-y-auto py-0.5">
           {tools === null ? (
             <div className="text-muted-foreground flex items-center gap-2 px-2.5 py-2 text-[11px]">
               <Spinner className="size-3" />
@@ -276,7 +300,7 @@ export function ToolsPicker() {
           )}
         </div>
 
-        <div className="border-border/60 flex items-center justify-between gap-2 border-t py-1 pr-1 pl-2">
+        <div className="border-border/60 flex shrink-0 items-center justify-between gap-2 border-t py-1 pr-1 pl-2">
           {/* While a filter is on, "1 of 88 on" answers a question nobody asked:
               what you want to know is how much of the list you are looking at. */}
           <span className="text-muted-foreground/70 min-w-0 truncate text-[10px] tabular-nums">

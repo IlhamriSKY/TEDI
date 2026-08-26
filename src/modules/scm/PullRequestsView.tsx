@@ -26,6 +26,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { CreatePrDialog, StackBranchDialog } from "./components/PrDialogs";
+import { PrReviewView } from "./PrReviewView";
 import {
   friendlyGhError,
   ghFor,
@@ -46,6 +47,7 @@ import {
   Layers,
   MoreHorizontal,
   Plus,
+  GitBranchPlus,
   RefreshCw,
   TriangleAlert,
   Upload,
@@ -118,6 +120,14 @@ export function PullRequestsView({
   /** Non-null while the branch-name dialog is open; the mode picks the gh verb. */
   const [stackPrompt, setStackPrompt] = useState<"init" | "add" | null>(null);
   const [confirmMerge, setConfirmMerge] = useState(false);
+  /**
+   * The pull request being reviewed, or null for the list.
+   *
+   * Opening one used to CHECK IT OUT, which rewrote the working tree just to
+   * look at someone else's branch. Reading is now the default and the checkout
+   * is a button inside the review, the way VS Code's virtual review mode works.
+   */
+  const [reviewing, setReviewing] = useState<number | null>(null);
   // Replies for a repository the user has already navigated away from are
   // dropped rather than applied, the same guard BranchMenu uses.
   const reqRef = useRef(0);
@@ -206,7 +216,7 @@ export function PullRequestsView({
   const openRow = useCallback(
     (row: StackRow) =>
       row.pr
-        ? void act(`Checkout #${row.pr.number}`, () => gh.checkoutPr(row.pr!.number))
+        ? setReviewing(row.pr.number)
         : void act(`Checkout ${row.name}`, () => gh.checkoutStackBranch(row.name)),
     [act, gh],
   );
@@ -249,6 +259,23 @@ export function PullRequestsView({
       <Notice
         text="Not signed in to GitHub. Run `gh auth login` in a terminal, then check again."
         action={retry}
+      />
+    );
+  }
+
+  if (reviewing !== null) {
+    return (
+      <PrReviewView
+        gh={gh}
+        number={reviewing}
+        onBack={() => {
+          setReviewing(null);
+          // A review can approve, merge or check out, so the list behind it is
+          // stale by the time the user comes back.
+          void load();
+        }}
+        onRefresh={onRefresh}
+        busy={busyAll}
       />
     );
   }
@@ -415,6 +442,24 @@ export function PullRequestsView({
                     </Badge>
                   ) : null}
                   {row.pr ? (
+                    <IconTooltip label="Check out this branch" side="left">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hover:text-foreground size-5 opacity-0 transition-[color,opacity] group-hover/pr:opacity-100 focus-visible:opacity-100"
+                        onClick={() =>
+                          void act(`Checkout #${row.pr!.number}`, () =>
+                            gh.checkoutPr(row.pr!.number),
+                          )
+                        }
+                        disabled={busyAll || row.isCurrent}
+                        aria-label={`Check out pull request ${row.pr.number}`}
+                      >
+                        <GitBranchPlus size={11} strokeWidth={2} />
+                      </Button>
+                    </IconTooltip>
+                  ) : null}
+                  {row.pr ? (
                     <IconTooltip label="Open on GitHub" side="left">
                       <Button
                         variant="ghost"
@@ -458,15 +503,27 @@ export function PullRequestsView({
                   <button
                     type="button"
                     className="hover:text-foreground min-w-0 flex-1 truncate text-left"
-                    onClick={() =>
-                      void act(`Checkout #${pr.number}`, () => gh.checkoutPr(pr.number))
-                    }
+                    onClick={() => setReviewing(pr.number)}
                     disabled={busyAll}
                     title={`${pr.headRefName} → ${pr.baseRefName}`}
                   >
                     <span className="text-muted-foreground tabular-nums">#{pr.number}</span>{" "}
                     {pr.title}
                   </button>
+                  <IconTooltip label="Check out this branch" side="left">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hover:text-foreground size-5 opacity-0 transition-[color,opacity] group-hover/pr:opacity-100 focus-visible:opacity-100"
+                      onClick={() =>
+                        void act(`Checkout #${pr.number}`, () => gh.checkoutPr(pr.number))
+                      }
+                      disabled={busyAll}
+                      aria-label={`Check out pull request ${pr.number}`}
+                    >
+                      <GitBranchPlus size={11} strokeWidth={2} />
+                    </Button>
+                  </IconTooltip>
                   <IconTooltip label="Open on GitHub" side="left">
                     <Button
                       variant="ghost"

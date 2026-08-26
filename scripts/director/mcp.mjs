@@ -75,51 +75,158 @@ function dropIfDisconnected(message) {
 }
 
 const json = (v) => JSON.stringify(v, null, 2);
-
 /**
  * The tool surface. Each entry is name -> description + JSON Schema + handler.
  *
- * Descriptions carry the traps, not just the verb: an agent picking a tool from
- * a list has no other place to learn that terminals have no DOM text, or that a
- * `sh` write bypasses the AI-CLI detector.
+ * TWO RULES, and they pull against each other:
+ *
+ *   1. The description IS the documentation. An agent picks from this list and
+ *      never reads the source, so a trap that produces a SILENT WRONG ANSWER
+ *      belongs here - that terminals have no DOM text, that CodeMirror
+ *      virtualises, that a `sh` write bypasses the AI-CLI detector. Each of
+ *      those returns something plausible and false, and no error would ever say
+ *      so.
+ *
+ *   2. This list is loaded into EVERY request of every AI CLI that connects, for
+ *      the whole session, whether it drives TEDI or not. Prose here is a tax on
+ *      every turn. So a trap that raises a LOUD ERROR does not belong here - it
+ *      belongs in the error, which costs nothing until it fires and arrives
+ *      exactly when it is useful. `click` naming the toast that covered the
+ *      button, `sh` listing the terminals when the leaf was wrong, `extension`
+ *      naming the installed ids: all of those are messages, not schema.
+ *
+ * Same reason the listing verbs are ONE tool (`inspect`) rather than four: a
+ * fourth thing to list costs an enum value here instead of another ~110 tokens
+ * of description on every request forever.
  */
 export const TOOLS = {
   state: {
     description:
-      "Snapshot of the whole TEDI window. `panes` is the important part: EVERY pane in EVERY " +
-      "tab (not just the visible one) with its leafId, kind, owning tab, and what identifies " +
-      "it - a terminal's cwd, ssh host, running AI CLI, whether it is at a prompt and its last " +
-      "output; an editor's path and dirty flag; a browser's url; an extension panel's owner. " +
-      "Also tabs and labels, focus, any open modal, toast count, every aria-label you can " +
-      "click, and the pane-splitter index for `drag`. START HERE - one round trip, and it names " +
-      "the leafIds every other tool takes. Panes the user marked private are absent by design.",
-    schema: { type: "object", properties: { tail: { type: "number", description: "Terminal lines to include per pane (default 3)." } } },
-    run: async (d, a) => json(await d.state({ tail: a.tail ?? 3 })),
+      "Snapshot of the window. Call it first: it names the leafIds every other tool takes. `panes` " +
+      "is EVERY pane in EVERY tab with what identifies it - a terminal's cwd, ssh host, running AI " +
+      "CLI, prompt state and last output; an editor's path and dirty flag; a browser's url. Plus " +
+      "tabs, focus, open modal, toast count, and `paneHandle` for `drag`. Private panes are absent " +
+      "by design. One round trip; call it freely.",
+    schema: {
+      type: "object",
+      properties: {
+        tail: { type: "number", description: "Terminal lines per pane, default 3." },
+        buttons: {
+          type: "boolean",
+          description: "Also every clickable aria-label. Long; fetch once.",
+        },
+      },
+    },
+    run: async (d, a) => json(await d.state({ tail: a.tail ?? 3, buttons: a.buttons === true })),
   },
 
-  commands: {
+  inspect: {
     description:
-      "Every command id this build has registered, runnable with `run_command`. Two documented " +
-      "ids own no handler (`ai.send`, `editor.toggleComment`) because their owners take the key " +
-      "directly - drive those with `keys` instead.",
-    schema: { type: "object", properties: {} },
-    run: async (d) => (await d.commands()).join("\n"),
+      "List what TEDI has. `commands`: ids for `run_command`. `extensions`: what is installed, " +
+      "whether each is ENABLED, and its commands/panels/AI tools - a disabled extension and an " +
+      "absent one look identical in the UI. `settings`: every preference the app is running on " +
+      "(write with `set_setting`). `logs`: console output and uncaught errors - the only place a " +
+      "half-rendered window says why.",
+    schema: {
+      type: "object",
+      properties: {
+        what: { type: "string", enum: ["commands", "extensions", "settings", "logs"] },
+        level: {
+          type: "string",
+          enum: ["log", "info", "warn", "error"],
+          description: "logs only.",
+        },
+      },
+      required: ["what"],
+    },
+    run: async (d, a) => {
+      switch (a.what) {
+        case "commands":
+          return (await d.commands()).join("\n");
+        case "extensions":
+          return json(await d.extensions());
+        case "settings":
+          return json(await d.settings());
+        case "logs": {
+          const list = d.logs(a.level ?? null);
+          return list.length
+            ? list.map((l) => `${l.level}: ${l.text}`).join("\n")
+            : "(nothing logged since this session connected)";
+        }
+        default:
+          throw new Error(`Unknown "what": ${a.what}. Have: commands, extensions, settings, logs.`);
+      }
+    },
+  },
+
+  read: {
+    description:
+      "Read one surface. `terminal`: a pane's scrollback, and the ONLY way to see a terminal - xterm " +
+      "draws to a WebGL canvas, so DOM tools return nothing for one. `editors`: every open editor's " +
+      "path and LIVE buffer, unsaved edits included; never scrape `.cm-content` instead, CodeMirror " +
+      "virtualises and a long file comes back short and plausible. `dom`: text of a selector - " +
+      "dialogs, the file tree, the AI reply, the status bar.",
+    schema: {
+      type: "object",
+      properties: {
+        source: { type: "string", enum: ["terminal", "editors", "dom"] },
+        selector: { type: "string", description: "dom: required." },
+        leafId: { type: "number", description: "terminal: default focused." },
+        nth: { type: "number" },
+        lines: { type: "number", description: "terminal, default 200." },
+        maxChars: { type: "number", description: "default 20000." },
+      },
+      required: ["source"],
+    },
+    run: async (d, a) => {
+      const cap = a.maxChars ?? 20000;
+      switch (a.source) {
+        case "terminal": {
+          const list = await d.terminals(a.lines ?? 200);
+          if (!list.length) return "(no terminal panes open)";
+          const want = a.leafId ?? (await d.focusedLeaf());
+          const one = list.find((t) => t.leafId === want) ?? list.at(-1);
+          return `[leaf ${one.leafId} atPrompt=${one.atPrompt} running=${one.running}]\n${one.text}`;
+        }
+        case "editors": {
+          const list = await d.editors(cap);
+          if (!list.length) return "(no editor panes open)";
+          return list
+            .map(
+              (e) =>
+                `--- leaf ${e.leafId}: ${e.path}${e.truncated ? " (truncated)" : ""}\n${e.text}`,
+            )
+            .join("\n\n");
+        }
+        case "dom": {
+          if (!a.selector) throw new Error('read source:"dom" needs a `selector`.');
+          const text = await d.text(a.selector, { nth: a.nth ?? 0 });
+          if (text === null) return "(no match)";
+          // Capped, because an unbounded selector read is how a tool result
+          // eats an agent's context: `.cm-content` on a big file, or a status
+          // bar that happens to wrap the whole workspace.
+          return text.length > cap ? `${text.slice(0, cap)}\n\n[truncated at ${cap} chars]` : text;
+        }
+        default:
+          throw new Error(`Unknown source: ${a.source}. Have: terminal, editors, dom.`);
+      }
+    },
   },
 
   run_command: {
     description:
-      "Run a command by id, bypassing the Command Palette and its fuzzy match. The reliable way " +
-      "to split panes, open tabs, toggle the sidebar, open Source Control, zoom. Pass " +
-      "`extensionId` to run a command an EXTENSION declared - those live in a registry of their " +
-      "own that `commands` does not list, so get their ids from `extensions`. NOTE: " +
-      "`settings.open` and `shortcuts.open` work, but Settings is a SEPARATE webview - no tool " +
-      "here can read or click inside it. Drive that window from a shell with " +
-      "`pnpm director --target settings <verb>`.",
+      "Run a command by id, bypassing the Command Palette and its fuzzy match. The reliable way to " +
+      "split panes, open tabs, toggle the sidebar, open Source Control, zoom. Ids from `inspect " +
+      "commands`; pass `extensionId` for one an EXTENSION declared (those live in a registry of " +
+      "their own - ids from `inspect extensions`).",
     schema: {
       type: "object",
       properties: {
         id: { type: "string", description: "A command id, e.g. pane.splitRight." },
-        extensionId: { type: "string", description: "Set when the command belongs to an extension." },
+        extensionId: {
+          type: "string",
+          description: "Set when the command belongs to an extension.",
+        },
       },
       required: ["id"],
     },
@@ -138,31 +245,66 @@ export const TOOLS = {
     },
   },
 
-  extensions: {
+  set_setting: {
     description:
-      "Installed extensions: id, version, whether enabled, and what each contributes - its " +
-      "commands (run them with `run_command` + `extensionId`), its panels, and the AI tools it " +
-      "lends TEDI's own agent. Check here before concluding a feature is missing: a disabled " +
-      "extension and an absent one look identical from the UI.",
-    schema: { type: "object", properties: {} },
-    run: async (d) => json(await d.extensions()),
+      "Change one TEDI preference; keys and current values from `inspect settings`. Applies live and " +
+      "persists. The Settings page is a separate webview no tool here can read or click, so this is " +
+      "the only route to it.",
+    schema: {
+      type: "object",
+      properties: {
+        key: { type: "string", description: "e.g. theme, editorFontSize, vimMode." },
+        // A plain string, coerced against the preference's own type on arrival.
+        // A union `type: [...]` is legal JSON Schema and the obvious choice, but
+        // not every AI CLI's schema converter accepts one, and this tool exists
+        // so that ALL of them can drive TEDI.
+        value: {
+          type: "string",
+          description: 'As text: "dark", "true", "14"; JSON for a list or object.',
+        },
+      },
+      required: ["key", "value"],
+    },
+    run: async (d, a) => {
+      const r = await d.setSetting(a.key, a.value);
+      if (r !== true) throw new Error(String(r));
+      return `${a.key} = ${JSON.stringify(a.value)}`;
+    },
+  },
+
+  extension: {
+    description:
+      "Turn an installed extension on or off, reload, update or uninstall it; ids from `inspect " +
+      "extensions`. INSTALLING IS NOT HERE - it runs third-party code under a permission set the " +
+      "user must review, so send them to that dialog with `run_command settings.open`.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["enable", "disable", "reload", "update", "uninstall"] },
+        id: { type: "string", description: "e.g. tedi.sql-explorer." },
+      },
+      required: ["action", "id"],
+    },
+    run: async (d, a) => {
+      const r = await d.extControl(a.action, a.id);
+      if (r !== true) throw new Error(String(r));
+      return `${a.action}d ${a.id}`;
+    },
   },
 
   wait_for_terminal: {
     description:
-      "Block until a terminal pane finishes, then return why it stopped plus its last lines. " +
-      "USE THIS INSTEAD OF POLLING `read_terminal` - one call costs one round trip where a poll " +
-      "loop costs one per second. With no `text` it waits for the shell prompt to come back " +
-      "(the right signal for a command). With `text` it waits for that string to appear, which " +
-      "is the only workable signal for something that never returns: a dev server printing its " +
-      "port, a TUI reaching a screen, another AI CLI asking a question. A timeout is reported, " +
-      "not thrown - \"still going\" is an answer.",
+      "Block until a terminal pane finishes; returns why it stopped plus its last lines. USE THIS " +
+      "INSTEAD OF POLLING `read`. No `text`: waits for the shell prompt, right for a command. " +
+      "`text`: waits for that string to appear - the only signal that works for something that never " +
+      "returns (dev server, TUI, another AI CLI asking a question). A timeout is reported, not " +
+      "thrown.",
     schema: {
       type: "object",
       properties: {
-        leafId: { type: "number", description: "Which pane (from `state`.panes). Default: the focused one." },
-        text: { type: "string", description: "Wait for this string in the buffer instead of for the prompt." },
-        timeout: { type: "number", description: "ms (default 60000)." },
+        leafId: { type: "number", description: "Default: focused." },
+        text: { type: "string" },
+        timeout: { type: "number", description: "ms, default 60000." },
       },
     },
     run: async (d, a) => {
@@ -177,18 +319,24 @@ export const TOOLS = {
 
   sh: {
     description:
-      "Run a shell command in a TEDI terminal pane and return what it printed. Written straight " +
-      "to the PTY, so it is instant and cannot lose characters, and it waits for the prompt to " +
-      "come back before reading. Use this to run things in the USER'S terminal, with their shell, " +
-      "cwd, env and SSH session; use your own Bash tool for ordinary work. Bypasses xterm input, " +
-      "so TEDI's AI-CLI detector does not fire - launch an AI CLI with `type_text` + `keys` instead.",
+      "Run a shell command in a TEDI terminal pane and return its output - the USER'S shell, cwd, " +
+      "env and SSH session. Use your own Bash tool for ordinary work. Written to the PTY, so it " +
+      "cannot lose characters, and it waits for the prompt. That bypasses xterm input, so TEDI's " +
+      "AI-CLI detector never fires: launch an AI CLI with `type_text` + `keys`, or the pane is not " +
+      "recognised as running one.",
     schema: {
       type: "object",
       properties: {
         command: { type: "string" },
-        leafId: { type: "number", description: "Which terminal pane (from `state`.panes). Omit ONLY when the focused pane is a terminal, or exactly one is open - otherwise this refuses rather than guess." },
-        timeout: { type: "number", description: "ms to wait for the prompt (default 20000). A TUI never returns; you get the buffer and timedOut:true." },
-        lines: { type: "number", description: "Lines of buffer to return (default 60)." },
+        leafId: {
+          type: "number",
+          description: "Omit only when focus is in a terminal, or one is open.",
+        },
+        timeout: {
+          type: "number",
+          description: "ms for the prompt, default 20000. A TUI never returns; you get the buffer.",
+        },
+        lines: { type: "number", description: "default 60." },
       },
       required: ["command"],
     },
@@ -204,47 +352,11 @@ export const TOOLS = {
     },
   },
 
-  read_terminal: {
-    description:
-      "A terminal pane's scrollback. THE ONLY WAY TO SEE A TERMINAL: xterm draws to a WebGL " +
-      "canvas, so no DOM-reading tool returns anything for one. Use after starting something " +
-      "long-running, or to read a pane you did not run the command in.",
-    schema: {
-      type: "object",
-      properties: {
-        leafId: { type: "number", description: "Default: the focused pane." },
-        lines: { type: "number", description: "Default 200." },
-      },
-    },
-    run: async (d, a) => {
-      const list = await d.terminals(a.lines ?? 200);
-      if (!list.length) return "(no terminal panes open)";
-      const want = a.leafId ?? (await d.focusedLeaf());
-      const one = list.find((t) => t.leafId === want) ?? list.at(-1);
-      return `[leaf ${one.leafId} atPrompt=${one.atPrompt} running=${one.running}]\n${one.text}`;
-    },
-  },
-
-  read_editors: {
-    description:
-      "Every open editor pane: path plus its LIVE buffer, unsaved edits included. Read this " +
-      "rather than the file on disk when you need to know what the user is actually looking at - " +
-      "and before writing a file TEDI has open with unsaved changes, which your write would lose.",
-    schema: { type: "object", properties: { maxChars: { type: "number", description: "Per-file cap (default 20000)." } } },
-    run: async (d, a) => {
-      const list = await d.editors(a.maxChars ?? 20000);
-      if (!list.length) return "(no editor panes open)";
-      return list
-        .map((e) => `--- leaf ${e.leafId}: ${e.path}${e.truncated ? " (truncated)" : ""}\n${e.text}`)
-        .join("\n\n");
-    },
-  },
-
   open_file: {
     description:
-      "Open a file in TEDI's editor by absolute path, exactly as clicking it in the explorer " +
-      "would (a PDF still opens in a browser pane). Use this to show the user what you are " +
-      "talking about; clicking the tree only reaches paths already expanded into view.",
+      "Open a file in TEDI's editor by absolute path, exactly as clicking it in the explorer would " +
+      "(a PDF still opens in a browser pane). Use it to show the user what you are talking about; " +
+      "clicking the tree only reaches paths already expanded into view.",
     schema: {
       type: "object",
       properties: { path: { type: "string", description: "Absolute path." } },
@@ -257,8 +369,11 @@ export const TOOLS = {
   },
 
   save_editor: {
-    description: "Save an editor pane to disk. Use after the user edits, or after `type_text` into an editor.",
-    schema: { type: "object", properties: { leafId: { type: "number", description: "Default: the focused pane." } } },
+    description: "Save an editor pane to disk. Use after `type_text` into an editor.",
+    schema: {
+      type: "object",
+      properties: { leafId: { type: "number", description: "Default: the focused pane." } },
+    },
     run: async (d, a) => {
       const leaf = a.leafId ?? (await d.focusedLeaf());
       if (!(await d.editorSave(leaf))) throw new Error(`Leaf ${leaf} is not an editor`);
@@ -268,10 +383,10 @@ export const TOOLS = {
 
   keys: {
     description:
-      "Press real key chords in order, e.g. [\"Ctrl+Shift+P\", \"Escape\"]. Modifiers: Ctrl, Alt, " +
-      "Shift, Meta/Cmd, Mod (Ctrl, or Cmd on macOS). Needed for anything the app takes off the " +
-      "keyboard rather than the registry: Ctrl+S to save, Ctrl+/ to comment, Enter to send in the " +
-      "AI composer. Also how you close a menu you opened (Escape).",
+      'Press real key chords in order, e.g. ["Ctrl+Shift+P", "Escape"]. Modifiers: Ctrl, Alt, Shift, ' +
+      "Meta/Cmd, Mod (Ctrl, or Cmd on macOS). Needed for anything the app takes off the keyboard " +
+      "rather than the command registry: Ctrl+S, Ctrl+/ to comment, Enter to send in the AI " +
+      "composer. Also how you close a menu you opened.",
     schema: {
       type: "object",
       properties: { chords: { type: "array", items: { type: "string" } } },
@@ -286,8 +401,8 @@ export const TOOLS = {
   type_text: {
     description:
       "Type text as real keystrokes into whatever has focus - an editor, a search box, the AI " +
-      "composer. Sends no Enter. For a shell command prefer `sh`, which is instant and cannot " +
-      "drop the first character.",
+      "composer. Sends no Enter. For a shell command prefer `sh`, which is instant and cannot drop " +
+      "the first character.",
     schema: {
       type: "object",
       properties: {
@@ -304,15 +419,14 @@ export const TOOLS = {
 
   click: {
     description:
-      "Real mouse click at a selector's centre. Scrolls it into view first, and REFUSES with the " +
-      "reason when something covers it (an open modal makes the whole body ignore clicks; a toast " +
-      "sits over the header icons - dismiss it or answer the dialog). Controls carry `aria-label`, " +
-      "not `title`; `state.buttons` lists them. Tree rows carry `data-fs-path`.",
+      "Real mouse click at a selector's centre. Scrolls it into view first, and refuses with the " +
+      "reason when something covers it. Controls carry `aria-label`, not `title` - list them with " +
+      "`state buttons:true`. Tree rows carry `data-fs-path`.",
     schema: {
       type: "object",
       properties: {
         selector: { type: "string" },
-        nth: { type: "number", description: "Which match, when the selector hits several (default 0)." },
+        nth: { type: "number", description: "Which match (default 0)." },
       },
       required: ["selector"],
     },
@@ -320,19 +434,6 @@ export const TOOLS = {
       await d.click(a.selector, { nth: a.nth ?? 0 });
       return `clicked ${a.selector}`;
     },
-  },
-
-  read_dom: {
-    description:
-      "Text of a DOM selector: dialogs, the file tree, the AI reply, status bar. NOT for terminals " +
-      "(WebGL canvas - use `read_terminal`) and NOT for editors (CodeMirror virtualises, so a long " +
-      "file reads back short and plausible - use `read_editors`).",
-    schema: {
-      type: "object",
-      properties: { selector: { type: "string" }, nth: { type: "number" } },
-      required: ["selector"],
-    },
-    run: async (d, a) => (await d.text(a.selector, { nth: a.nth ?? 0 })) ?? "(no match)",
   },
 
   focus_pane: {
@@ -345,9 +446,9 @@ export const TOOLS = {
 
   drag: {
     description:
-      "Drag a selector by (dx, dy) with real pointer moves. This is how panes and the sidebar get " +
-      "resized - they are resizable-panel handles. Take the pane splitter's index from " +
-      "`state.paneHandle`; never guess an nth, and -1 means only one pane is open.",
+      "Drag a selector by (dx, dy) with real pointer moves. How panes and the sidebar get resized. " +
+      "Take the pane splitter's index from `state.paneHandle`; never guess an nth, and -1 means only " +
+      "one pane is open.",
     schema: {
       type: "object",
       properties: {
@@ -366,10 +467,15 @@ export const TOOLS = {
 
   screenshot: {
     description:
-      "Capture the TEDI window to a PNG and return its path - read that path back to actually see " +
-      "it. Captures the main webview only: browser preview panes and floated panes are separate " +
-      "native webviews and come out blank.",
-    schema: { type: "object", properties: { path: { type: "string", description: "Where to write it. Default: a temp file." } } },
+      "Capture the TEDI window to a PNG and return its path - read that path back to see it. Main " +
+      "webview only: browser preview panes and floated panes are separate native webviews and come " +
+      "out blank.",
+    schema: {
+      type: "object",
+      properties: {
+        path: { type: "string", description: "Where to write it. Default: a temp file." },
+      },
+    },
     run: async (d, a) => {
       const file = a.path
         ? path.resolve(a.path)
@@ -382,8 +488,8 @@ export const TOOLS = {
   eval_js: {
     description:
       "Evaluate JavaScript in the TEDI window and return the result (promises awaited). The escape " +
-      "hatch for anything the tools above do not model - reading a store, checking a computed " +
-      "style, counting elements.",
+      "hatch for anything the tools above do not model - a store, a computed style, an element " +
+      "count. `__TAURI_INTERNALS__.invoke` is reachable from here, so every Rust command is too.",
     schema: {
       type: "object",
       properties: { expression: { type: "string" } },

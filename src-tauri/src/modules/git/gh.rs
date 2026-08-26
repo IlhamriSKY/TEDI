@@ -46,7 +46,19 @@ const STACK_EXTENSION: &str = "github/gh-stack";
 const ALLOWED: &[(&str, &[&str])] = &[
     ("auth", &["status"]),
     ("extension", &["install", "list"]),
-    ("pr", &["checkout", "create", "list", "view"]),
+    // `diff`, `merge`, `ready` and `review` are what turns the PR list into a
+    // place a review actually happens instead of a launcher for the browser.
+    // They write to GitHub on the user's behalf, so each one is behind a
+    // deliberate action in the panel (a dialog or an AlertDialog), never a
+    // side effect of opening a pull request. `api` stays absent: inline
+    // line-comments would need it, and allowing it would hand the webview the
+    // whole authenticated GitHub API for one feature.
+    (
+        "pr",
+        &[
+            "checkout", "create", "diff", "list", "merge", "ready", "review", "view",
+        ],
+    ),
     ("repo", &["create", "view"]),
     (
         "stack",
@@ -171,6 +183,11 @@ mod tests {
             &["stack", "view", "--json"][..],
             &["stack", "submit", "--auto", "--open"][..],
             &["extension", "install", "github/gh-stack"][..],
+            &["pr", "view", "1", "--json", "reviews"][..],
+            &["pr", "diff", "1"][..],
+            &["pr", "review", "1", "--approve"][..],
+            &["pr", "merge", "1", "--squash"][..],
+            &["pr", "ready", "1"][..],
         ] {
             assert!(
                 check_gh_args(&v(args)).is_ok(),
@@ -185,7 +202,9 @@ mod tests {
             &["auth", "token"][..],
             &["auth", "login"][..],
             &["api", "-X", "DELETE", "/repos/o/r"][..],
-            &["pr", "merge", "1"][..],
+            // Reviewing a PR does not imply editing or closing one.
+            &["pr", "edit", "1"][..],
+            &["pr", "close", "1"][..],
             &["stack", "feedback"][..],
             &["secret", "list"][..],
         ] {

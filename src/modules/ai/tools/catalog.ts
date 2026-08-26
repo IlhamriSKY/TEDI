@@ -35,6 +35,9 @@ export function builtinGroup(name: string): string {
   if (name.includes("schedule")) return "Schedule";
   if (name === "fetch") return "Web";
   if (name === "skill") return "Skills";
+  // TEDI's own configuration - its settings and its extensions - as opposed to
+  // the workspace, which is what every other group acts on.
+  if (name.startsWith("tedi_")) return "TEDI";
   if (name === "todo_write") return "Tasks";
   if (
     name === "edit" ||
@@ -133,6 +136,7 @@ const GROUP_ORDER = [
   "Skills",
   "Tasks",
   "Schedule",
+  "TEDI",
   "Extensions",
 ];
 

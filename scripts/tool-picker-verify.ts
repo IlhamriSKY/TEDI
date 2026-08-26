@@ -13,6 +13,7 @@
  *     reject an empty tools array, and "no tools" belongs in the request as an
  *     omitted field.
  */
+import { readFileSync } from "node:fs";
 import type { ToolSet } from "ai";
 import {
   applyToolFilter,
@@ -81,6 +82,7 @@ const EXPECTED: Record<string, string[]> = {
   Skills: ["skill"],
   Tasks: ["todo_write"],
   Schedule: ["schedule_command", "cancel_schedule", "list_schedules"],
+  TEDI: ["tedi_settings", "tedi_extensions"],
 };
 
 for (const [group, names] of Object.entries(EXPECTED)) {
@@ -213,6 +215,45 @@ check(
   withSubagentsDisabled(migrated).join(",") === migrated.join(","),
 );
 check("and the result really disables them", !subagentsAvailable(new Set(migrated)));
+
+// ---------------------------------------------------------------------------
+// The popover's placement contract. Three props that only work as a SET, and a
+// browser is the only other place the breakage shows.
+//
+// The AI panel is one section in a dockable stack, so this trigger can sit
+// anywhere from the top of the window to the bottom. With collision handling on,
+// Radix flipped the panel above the button whenever the section happened to be
+// docked low - the same click opening in a different direction depending on a
+// layout choice made days earlier.
+//
+// Turning the flip off fixes the direction and hands `size` both of the flip's
+// old jobs. Drop either binding and the failure is silent: without the height
+// var a short window clips the All on / All off footer, and without the width
+// var - since disabling collisions also disables `shift` - the panel slides off
+// screen entirely when the AI section is docked to a narrow left column.
+// (`availableWidth` for a `bottom-end` placement is the space extending LEFT
+// from the anchor's right edge; see @floating-ui/core's size middleware.)
+console.log("\n[placement] the tools popover opens downward and fits, or not at all");
+const picker = readFileSync(
+  new URL("../src/modules/ai/components/ToolsPicker.tsx", import.meta.url),
+  "utf8",
+);
+check(
+  "collision flipping is off, so the side is fixed",
+  picker.includes("avoidCollisions={false}"),
+);
+check(
+  "height is bound to the space actually below the trigger",
+  picker.includes("max-h-[var(--radix-popover-content-available-height)]"),
+);
+check(
+  "width is bound to the space available, since `shift` went with the flip",
+  picker.includes("w-[min(30rem,var(--radix-popover-content-available-width))]"),
+);
+check(
+  "the list is the part that gives, so the filter row and footer stay put",
+  /min-h-0 flex-1 overflow/.test(picker),
+);
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");

@@ -165,6 +165,33 @@ export function newCorrelationId(): string {
 }
 
 /**
+ * Best text available for a provider error thrown mid-stream.
+ *
+ * `message` is usually enough, but not always: the AI SDK only fills it from
+ * the body when the body matches OpenAI's `{ error: { message } }` shape, and
+ * otherwise falls back to `Response.statusText` - which the Rust proxy leaves
+ * empty, so the message is "". The ChatGPT-account endpoint answers
+ * `{"detail": "..."}`, so without this a plain 400 reaches the user blank.
+ */
+export function describeProviderError(e: unknown): string {
+  const err = e as { message?: string; responseBody?: string; statusCode?: number };
+  const message = err?.message?.trim();
+  if (message) return message;
+  const body = err?.responseBody?.trim();
+  if (body) {
+    try {
+      const parsed = JSON.parse(body) as { detail?: unknown; error?: { message?: unknown } };
+      const detail = parsed.detail ?? parsed.error?.message;
+      if (typeof detail === "string" && detail.trim()) return detail.trim();
+    } catch {
+      // Not JSON: the raw body still beats an empty card.
+    }
+    return body.slice(0, 500);
+  }
+  return err?.statusCode ? `The provider returned HTTP ${err.statusCode}.` : String(e);
+}
+
+/**
  * Map a raw provider error message to a clearer, actionable one for the chat
  * error card. Falls back to the original message when nothing matches.
  *
@@ -174,6 +201,11 @@ export function newCorrelationId(): string {
  */
 export function humanizeChatErrorMessage(raw: string): string {
   const msg = raw.toLowerCase();
+  // The ChatGPT-account endpoint gates its model list by plan and says only
+  // this, with no hint that the fix is picking a different model.
+  if (msg.includes("not supported when using codex with a chatgpt account")) {
+    return `${raw} Pick another ChatGPT model in the model picker - the Codex and Sol models need a Plus or Pro plan, Terra and Luna work on any.`;
+  }
   if (
     msg.includes("image input") ||
     (msg.includes("no endpoints") && msg.includes("image")) ||

@@ -20,6 +20,10 @@
  *  4. EXHAUSTIVE RECORDS. A new ProviderId that misses `EMPTY_PROVIDER_KEYS` or
  *     the autocomplete map is a runtime hole, not a type error, for anything
  *     that spreads them.
+ *  5. THE REFUSAL IS READABLE. The accepted model list is gated by ChatGPT
+ *     plan, and the endpoint says so in a body shape the AI SDK does not
+ *     understand, so the message arrived empty and the chat card showed only
+ *     the SDK default. That is what made a one-line 400 undiagnosable.
  */
 import {
   CHATGPT_BASE_URL,
@@ -33,6 +37,7 @@ import {
   resolveModelInfo,
   type ProviderId,
 } from "../src/modules/ai/config";
+import { describeProviderError, humanizeChatErrorMessage } from "../src/modules/ai/lib/errors";
 import { EMPTY_PROVIDER_KEYS } from "../src/modules/ai/lib/keyring";
 import { toolRowLabel } from "../src/modules/ai/tools/catalog";
 
@@ -128,6 +133,36 @@ check("a built-in is untouched", toolRowLabel("read_file") === "read_file");
 check("an extension tool is untouched", toolRowLabel("rtk_status") === "rtk_status");
 // A malformed key has no server segment, so slicing it would leave nothing.
 check("a malformed mcp key keeps its name", toolRowLabel("mcp__weird") === "mcp__weird");
+
+console.log("\n[errors] a plan-refused model reaches the user as words, not a blank card");
+// Exactly what the endpoint answers when the account's plan does not include
+// the picked model. The AI SDK only lifts `message` out of a body shaped like
+// OpenAI's `{ error: { message } }`, so this one leaves `message` at the
+// `Response.statusText` the Rust proxy never sets: empty.
+const PLAN_REFUSAL = `{"detail":"The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account."}`;
+const refused = describeProviderError({ message: "", responseBody: PLAN_REFUSAL, statusCode: 400 });
+check(
+  "the detail is recovered from the body",
+  refused === "The 'gpt-5.3-codex' model is not supported when using Codex with a ChatGPT account.",
+  refused,
+);
+check(
+  "and it names the fix",
+  humanizeChatErrorMessage(refused).includes("Pick another ChatGPT model"),
+  humanizeChatErrorMessage(refused),
+);
+check(
+  "a normal message is passed through untouched",
+  describeProviderError(new Error("rate limited")) === "rate limited",
+);
+check(
+  "a body that is not JSON still beats an empty card",
+  describeProviderError({ message: "", responseBody: "upstream exploded" }) === "upstream exploded",
+);
+check(
+  "nothing at all falls back to the status code",
+  describeProviderError({ statusCode: 502 }) === "The provider returned HTTP 502.",
+);
 
 console.log(`\n${"=".repeat(60)}\n${failed === 0 ? "PASS" : `FAIL (${failed})`}`);
 process.exit(failed === 0 ? 0 : 1);

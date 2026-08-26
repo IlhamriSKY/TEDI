@@ -8,6 +8,7 @@ import { buildSkillTools } from "./skill";
 import { buildSubagentTools } from "./subagent";
 import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
+import { buildTediTools } from "./tedi";
 import { buildTodoTools } from "./todo";
 import { buildMcpToolsAsync } from "./mcp";
 import { buildExtensionTools } from "./extensions";
@@ -37,6 +38,7 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildTerminalTools(ctx),
     ...buildTodoTools(ctx),
     ...buildScheduleTools(ctx),
+    ...buildTediTools(),
   } as const;
 }
 

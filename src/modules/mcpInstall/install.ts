@@ -1,0 +1,356 @@
+/**
+ * One-click registration of TEDI's own MCP server into whichever AI CLIs the
+ * user has, so any of them can drive the editor they are running inside.
+ *
+ * The server itself is `scripts/director/mcp.mjs`, shipped as a bundle resource
+ * (see `tauri.conf.json`). All this module does is write the entry that points a
+ * CLI at it - and read it back, because "is it installed" has to be answered
+ * from the same files, not from a flag of our own that can drift.
+ *
+ * THREE CONFIG SHAPES, not six. `mcpServers` is the de-facto standard and covers
+ * Claude Code, Cursor, Gemini CLI and a project-level `.mcp.json`; Codex is TOML;
+ * opencode has its own JSON. Anything else the user can copy by hand from the
+ * dialog.
+ *
+ * NOTHING IS CREATED FOR A CLI THE USER DOES NOT HAVE. Every target names a path
+ * that must already exist before it is even offered, so this never scatters
+ * config files for tools nobody installed.
+ */
+import { invoke } from "@tauri-apps/api/core";
+import { homeDir, resourceDir } from "@tauri-apps/api/path";
+
+/** Key the entry is written under, in every format. */
+export const SERVER_NAME = "tedi";
+
+/** Default port. Nothing else on the machine claims it, and it is what the
+ *  driver's own docs and `.mcp.json` in this repo have always used. */
+export const DEFAULT_PORT = 9222;
+
+type Format = "mcpServers" | "codexToml" | "opencode";
+
+export type Target = {
+  id: string;
+  name: string;
+  /** Config file, relative to home unless it starts with a drive or slash. */
+  file: string;
+  /** Paths (relative to home) that prove the CLI is installed. Any one will do. */
+  probes: string[];
+  format: Format;
+};
+
+/**
+ * Only CLIs whose config location is documented and stable. A guessed path is
+ * worse than an absent one: it writes a file the tool never reads, and the
+ * indicator then claims an integration that does not work.
+ */
+export const TARGETS: Target[] = [
+  {
+    id: "claude",
+    name: "Claude Code",
+    file: ".claude.json",
+    probes: [".claude.json", ".claude"],
+    format: "mcpServers",
+  },
+  {
+    id: "codex",
+    name: "Codex CLI",
+    file: ".codex/config.toml",
+    probes: [".codex"],
+    format: "codexToml",
+  },
+  {
+    id: "gemini",
+    name: "Gemini CLI",
+    file: ".gemini/settings.json",
+    probes: [".gemini"],
+    format: "mcpServers",
+  },
+  {
+    id: "opencode",
+    name: "opencode",
+    file: ".config/opencode/opencode.json",
+    probes: [".config/opencode"],
+    format: "opencode",
+  },
+  {
+    id: "copilot",
+    name: "GitHub Copilot CLI",
+    file: ".copilot/mcp-config.json",
+    probes: [".copilot"],
+    format: "mcpServers",
+  },
+  {
+    id: "cursor",
+    name: "Cursor",
+    file: ".cursor/mcp.json",
+    probes: [".cursor"],
+    format: "mcpServers",
+  },
+];
+
+const slash = (p: string): string => p.replace(/\\/g, "/").replace(/\/+$/, "");
+
+let cachedHome: string | null = null;
+async function home(): Promise<string> {
+  cachedHome ??= slash(await homeDir());
+  return cachedHome;
+}
+
+/**
+ * Absolute path of the bundled MCP server.
+ *
+ * A resource, not a repo path: an installed TEDI has no `scripts/` directory,
+ * and a config entry pointing into one would work on the machine that wrote it
+ * and nowhere else.
+ */
+let cachedServer: string | null = null;
+export async function serverPath(): Promise<string> {
+  cachedServer ??= `${slash(await resourceDir())}/director/mcp.mjs`;
+  return cachedServer;
+}
+
+async function exists(path: string): Promise<boolean> {
+  try {
+    await invoke("fs_canonicalize", { path });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * File contents, or "" ONLY when the file genuinely does not exist yet.
+ *
+ * Everything else throws, and that matters more than it looks: "" is what tells
+ * the writer to start a fresh config. A permission error, a file too large, a
+ * binary sniff - anything that quietly returned "" here would take the user's
+ * existing `.claude.json`, with every project and MCP server in it, and replace
+ * it with a file containing one entry.
+ */
+async function readOrEmpty(path: string): Promise<string> {
+  if (!(await exists(path))) return "";
+  const res = (await invoke("fs_read_file", { path })) as { kind?: string; content?: string };
+  if (res.kind !== "text" || typeof res.content !== "string") {
+    throw new Error(
+      `${path} is not a readable text file (${res.kind ?? "unknown"}); leaving it alone.`,
+    );
+  }
+  return res.content;
+}
+
+async function writeFile(path: string, content: string): Promise<void> {
+  const dir = path.slice(0, path.lastIndexOf("/"));
+  if (dir && !(await exists(dir))) await invoke("fs_create_dir", { path: dir });
+  await invoke("fs_write_file", { path, content });
+}
+
+/** The entry, in the shape each host expects. */
+function entryFor(format: Format, server: string, port: number): unknown {
+  const env = { TEDI_DEBUG_PORT: String(port) };
+  if (format === "opencode") {
+    return { type: "local", command: ["node", server], enabled: true, environment: env };
+  }
+  // `type: "stdio"` because that is exactly what Claude Code writes for itself -
+  // checked against a real `~/.claude.json`, not inferred. Newer schemas use the
+  // field to tell stdio from http/sse, and matching the host's own output is
+  // cheaper than finding out which of them treat it as required.
+  return { type: "stdio", command: "node", args: [server], env };
+}
+
+/** Where the entry lives inside each host's config object. */
+const ROOT_KEY: Record<Exclude<Format, "codexToml">, string> = {
+  mcpServers: "mcpServers",
+  opencode: "mcp",
+};
+
+// --- TOML ------------------------------------------------------------------
+// Codex is the only TOML host here, and a parser for one table is not worth a
+// dependency. A table runs to the next `[header]` or end of file, so replacing
+// or removing exactly our own block is a bounded edit that leaves every other
+// setting - including comments - byte-identical.
+
+const CODEX_TABLE = `[mcp_servers.${SERVER_NAME}]`;
+
+/**
+ * Everything belonging to our server: the `[mcp_servers.tedi]` header, its body,
+ * AND its nested sub-tables. `$1` preserves the newline that preceded it, so
+ * removing the block does not weld the line above onto the line below.
+ *
+ * Two boundaries, both learned from a real `~/.codex/config.toml` rather than
+ * from the spec:
+ *
+ *  1. A table does NOT end at the next `[` - it ends at the next `[` that STARTS
+ *     A LINE. Our own body contains `args = ["...path..."]`, so an "up to the
+ *     next bracket" rule cut the block off after `command = "node"` and orphaned
+ *     the args and env lines onto whatever table preceded them.
+ *  2. **A server owns nested tables too.** A real config had
+ *     `[mcp_servers.chrome-devtools.tools.take_snapshot]` and eight siblings -
+ *     Codex's per-tool settings. Stopping at the first line-initial `[` would
+ *     leave every `[mcp_servers.tedi.tools.*]` behind on uninstall, re-parented
+ *     to the preceding server. So a header that is ours-plus-a-dot continues the
+ *     block; any other header ends it.
+ */
+function codexBlockRe(): RegExp {
+  const own = `\\[mcp_servers\\.${SERVER_NAME}`;
+  return new RegExp(
+    // our header line …
+    `(^|\\n)[ \\t]*${own}\\][^\\n]*\\n?` +
+      // … then, repeatedly: one of our own NESTED headers, or any non-header line.
+      `(?:(?:[ \\t]*${own}\\.[^\\n]*|(?![ \\t]*\\[)[^\\n]*)\\n?)*`,
+    "g",
+  );
+}
+
+function codexBlock(server: string, port: number): string {
+  // TOML basic strings take the same escapes as JSON, so a Windows path is
+  // safe through JSON.stringify rather than a hand-rolled quoter.
+  return `${CODEX_TABLE}\ncommand = "node"\nargs = [${JSON.stringify(server)}]\nenv = { TEDI_DEBUG_PORT = "${port}" }\n`;
+}
+
+// --- read / write ----------------------------------------------------------
+
+/** Is our entry already in this file, and does it point at THIS install? */
+function readsAsInstalled(target: Target, text: string, server: string): boolean {
+  if (!text.trim()) return false;
+  if (target.format === "codexToml") {
+    const block = codexBlockRe().exec(text)?.[0];
+    return Boolean(block?.includes(server));
+  }
+  try {
+    const json = JSON.parse(text) as Record<string, Record<string, unknown> | undefined>;
+    const entry = json[ROOT_KEY[target.format]]?.[SERVER_NAME];
+    // Stale entries (an older install path) count as NOT installed, so the
+    // button offers to fix them instead of showing a green light on a config
+    // that points at a directory the updater replaced.
+    return Boolean(entry && JSON.stringify(entry).includes(server));
+  } catch {
+    return false;
+  }
+}
+
+function withEntry(target: Target, text: string, server: string, port: number): string {
+  if (target.format === "codexToml") {
+    const stripped = text.replace(codexBlockRe(), "$1").replace(/\n{3,}/g, "\n\n");
+    const sep = stripped.trim() ? `${stripped.trimEnd()}\n\n` : "";
+    return `${sep}${codexBlock(server, port)}`;
+  }
+  // Preserves every other key, which is the whole risk here: these files hold
+  // the user's other MCP servers and, for Claude Code, its entire project
+  // history. Parse-modify-serialize, never overwrite.
+  const json = (text.trim() ? JSON.parse(text) : {}) as Record<string, unknown>;
+  const key = ROOT_KEY[target.format];
+  const bag = (json[key] ?? {}) as Record<string, unknown>;
+  bag[SERVER_NAME] = entryFor(target.format, server, port);
+  json[key] = bag;
+  return `${JSON.stringify(json, null, 2)}\n`;
+}
+
+function withoutEntry(target: Target, text: string): string {
+  if (!text.trim()) return text;
+  if (target.format === "codexToml") {
+    return text.replace(codexBlockRe(), "$1").replace(/\n{3,}/g, "\n\n");
+  }
+  const json = JSON.parse(text) as Record<string, unknown>;
+  const bag = json[ROOT_KEY[target.format]] as Record<string, unknown> | undefined;
+  if (bag) delete bag[SERVER_NAME];
+  return `${JSON.stringify(json, null, 2)}\n`;
+}
+
+// --- public API ------------------------------------------------------------
+
+export type TargetStatus = Target & {
+  /** The CLI is installed on this machine. */
+  present: boolean;
+  /** Our entry is in its config and points at this TEDI. */
+  installed: boolean;
+  /** Absolute config path, for the dialog. */
+  path: string;
+};
+
+async function resolve(target: Target): Promise<{ path: string; present: boolean }> {
+  const h = await home();
+  const probes = await Promise.all(target.probes.map((p) => exists(`${h}/${p}`)));
+  return { path: `${h}/${target.file}`, present: probes.some(Boolean) };
+}
+
+/** Every target, with whether the CLI is here and whether we are wired into it. */
+export async function detect(): Promise<TargetStatus[]> {
+  const server = await serverPath();
+  return await Promise.all(
+    TARGETS.map(async (t) => {
+      const { path, present } = await resolve(t);
+      // Per target, not per run. `readOrEmpty` throws on anything it cannot read
+      // as text - and `~/.claude.json` is the one file here that realistically
+      // trips the 10 MB read cap, because it carries Claude Code's whole project
+      // history. One unreadable config must degrade to "not installed" for that
+      // row, not take the other four rows and the indicator down with it.
+      //
+      // Only the READ is forgiving. `install` deliberately still throws on the
+      // same file, because there the alternative is treating an unreadable
+      // config as empty and replacing it.
+      let installed = false;
+      try {
+        installed = present && readsAsInstalled(t, await readOrEmpty(path), server);
+      } catch {
+        installed = false;
+      }
+      return { ...t, path, present, installed };
+    }),
+  );
+}
+
+/** Add (or repair) our entry in one target's config. */
+export async function install(target: Target, port = DEFAULT_PORT): Promise<void> {
+  const { path } = await resolve(target);
+  const server = await serverPath();
+  await writeFile(path, withEntry(target, await readOrEmpty(path), server, port));
+}
+
+/** Remove our entry, leaving the rest of the file untouched. */
+export async function uninstall(target: Target): Promise<void> {
+  const { path } = await resolve(target);
+  const text = await readOrEmpty(path);
+  if (!text.trim()) return;
+  await writeFile(path, withoutEntry(target, text));
+}
+
+/**
+ * The `.mcp.json` a project shares with its collaborators. Not in `TARGETS`
+ * because it is not a CLI and has no home-relative path - it is offered
+ * separately, against whatever folder is open.
+ */
+export const PROJECT_TARGET: Target = {
+  id: "project",
+  name: "This project (.mcp.json)",
+  file: ".mcp.json",
+  probes: [],
+  format: "mcpServers",
+};
+
+export async function projectStatus(root: string): Promise<TargetStatus> {
+  const path = `${slash(root)}/.mcp.json`;
+  const server = await serverPath();
+  return {
+    ...PROJECT_TARGET,
+    path,
+    present: true,
+    installed: readsAsInstalled(PROJECT_TARGET, await readOrEmpty(path), server),
+  };
+}
+
+export async function installProject(root: string, port = DEFAULT_PORT): Promise<void> {
+  const path = `${slash(root)}/.mcp.json`;
+  const server = await serverPath();
+  await writeFile(path, withEntry(PROJECT_TARGET, await readOrEmpty(path), server, port));
+}
+
+export async function uninstallProject(root: string): Promise<void> {
+  const path = `${slash(root)}/.mcp.json`;
+  const text = await readOrEmpty(path);
+  if (!text.trim()) return;
+  await writeFile(path, withoutEntry(PROJECT_TARGET, text));
+}
+
+/** Exported for `scripts/mcp-install-verify.ts`, which drives the file edits
+ *  against real config text without touching anyone's home directory. */
+export const _internals = { withEntry, withoutEntry, readsAsInstalled, entryFor };

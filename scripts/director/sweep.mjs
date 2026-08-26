@@ -95,8 +95,7 @@ export default async function sweep(d) {
     // going while a non-terminal is the survivor too, because the checks below
     // type shell commands, and closing the last pane hands back a fresh
     // terminal tab.
-    const needsClosing = async () =>
-      (await leaves()) > 1 || (await n(".xterm-screen")) === 0;
+    const needsClosing = async () => (await leaves()) > 1 || (await n(".xterm-screen")) === 0;
     for (let i = 0; i < 12 && (await needsClosing()); i++) {
       const last = Math.max(0, (await leaves()) - 1);
       await d.click('button[aria-label="Close pane"]', { nth: last });
@@ -168,26 +167,31 @@ export default async function sweep(d) {
   // Panes across tabs, and the wait that replaces a polling loop. Both are the
   // "know what the other panes are doing" half: a driver that can only see the
   // focused pane cannot wait on a build running in a background tab.
-  await check("panes() sees a background tab, and wait() returns at the prompt", async () => {
-    const before = (await d.panes()).length;
-    await d.cmd("tab.new");
-    await wait(2500);
-    const after = await d.panes();
-    if (after.length <= before) throw new Error(`${before} -> ${after.length} panes after tab.new`);
-    const terms = after.filter((p) => p.kind === "terminal");
-    if (!terms.length) throw new Error("no terminal panes in the model view");
-    // Every terminal must carry the identity a driver picks a target by.
-    const naked = terms.find((p) => typeof p.atPrompt !== "boolean");
-    if (naked) throw new Error(`terminal pane has no prompt state: ${JSON.stringify(naked)}`);
-    const w = await d.waitTerminal({ timeout: 15000 });
-    if (!w.done) throw new Error(`wait did not settle: ${w.reason}`);
-    return `${after.length} panes across tabs, wait -> ${w.reason}`;
-  }, async () => {
-    while ((await tabs()) > base.tabs) {
-      await d.cmd("tab.close");
-      await wait(1200);
-    }
-  });
+  await check(
+    "panes() sees a background tab, and wait() returns at the prompt",
+    async () => {
+      const before = (await d.panes()).length;
+      await d.cmd("tab.new");
+      await wait(2500);
+      const after = await d.panes();
+      if (after.length <= before)
+        throw new Error(`${before} -> ${after.length} panes after tab.new`);
+      const terms = after.filter((p) => p.kind === "terminal");
+      if (!terms.length) throw new Error("no terminal panes in the model view");
+      // Every terminal must carry the identity a driver picks a target by.
+      const naked = terms.find((p) => typeof p.atPrompt !== "boolean");
+      if (naked) throw new Error(`terminal pane has no prompt state: ${JSON.stringify(naked)}`);
+      const w = await d.waitTerminal({ timeout: 15000 });
+      if (!w.done) throw new Error(`wait did not settle: ${w.reason}`);
+      return `${after.length} panes across tabs, wait -> ${w.reason}`;
+    },
+    async () => {
+      while ((await tabs()) > base.tabs) {
+        await d.cmd("tab.close");
+        await wait(1200);
+      }
+    },
+  );
 
   // Extensions were the blind spot: their commands live in a registry of their
   // own, so `commands()` never listed them and `cmd()` could never reach them.
@@ -208,6 +212,85 @@ export default async function sweep(d) {
       throw new Error("extCommand claimed to run a command that does not exist");
     }
     return `${list.length} installed, ${list.filter((e) => e.enabled).length} enabled`;
+  });
+
+  // The extension lifecycle, driven round-trip and PUT BACK. Every action here
+  // touches the user's real profile, so the check disables and re-enables the
+  // same extension rather than picking a victim to uninstall.
+  await check("extControl() turns an extension off and back on", async () => {
+    const list = await d.extensions();
+    const victim = list.find((e) => e.enabled);
+    if (!victim) return "skipped: no enabled extension to toggle";
+    const off = await d.extControl("disable", victim.id);
+    if (off !== true) throw new Error(`disable refused: ${off}`);
+    if ((await d.extensions()).find((e) => e.id === victim.id)?.enabled) {
+      throw new Error(`${victim.id} still reports enabled after disable`);
+    }
+    const on = await d.extControl("enable", victim.id);
+    if (on !== true) throw new Error(`re-enable refused: ${on}`);
+    if (!(await d.extensions()).find((e) => e.id === victim.id)?.enabled) {
+      throw new Error(`${victim.id} did not come back - the sweep left the profile changed`);
+    }
+    // An unknown id is an ordinary answer, not a throw, and it must NOT be
+    // reported as success.
+    const bogus = await d.extControl("disable", "no.such.extension");
+    if (bogus === true)
+      throw new Error("extControl claimed to disable an extension that is not installed");
+    return `${victim.id} off and back on`;
+  });
+
+  // Settings were the last blind spot: the Settings page is a separate webview
+  // no tool driving the main window can read or click, so this goes through the
+  // store. Restored to whatever it was, for the same reason as above.
+  await check("settings() reads, setSetting() writes, live", async () => {
+    const before = await d.settings();
+    if (typeof before !== "object" || !("theme" in before)) {
+      throw new Error(`settings() returned ${JSON.stringify(before).slice(0, 80)}`);
+    }
+    // No secret may ever appear here. API keys live in the OS keyring, and a
+    // key-shaped preference added later would leak into every agent's context.
+    const leaked = Object.keys(before).filter((k) => /key|secret|token|password/i.test(k));
+    if (leaked.length) throw new Error(`settings() exposes ${leaked.join(", ")}`);
+
+    const original = before.editorFontSize;
+    const target = original === 15 ? 16 : 15;
+    const wrote = await d.setSetting("editorFontSize", target);
+    if (wrote !== true) throw new Error(`setSetting refused: ${wrote}`);
+    if ((await d.settings()).editorFontSize !== target) {
+      throw new Error("the write did not reach the live store");
+    }
+    await d.setSetting("editorFontSize", original);
+
+    // An unknown key and a wrong type are both answers, not crashes.
+    if ((await d.setSetting("noSuchPreference", 1)) === true) {
+      throw new Error("setSetting accepted a key that is not a preference");
+    }
+    if ((await d.setSetting("vimMode", "banana")) === true) {
+      throw new Error("setSetting accepted a string for a boolean preference");
+    }
+    // …but a stringified value of the RIGHT type must be coerced, because some
+    // AI CLIs stringify every tool argument.
+    if ((await d.setSetting("editorFontSize", String(original))) !== true) {
+      throw new Error('setSetting rejected "15" for a number preference - the coercion is gone');
+    }
+    return `${Object.keys(before).length} preferences, editorFontSize round-tripped`;
+  });
+
+  await check("logs() captures what the window printed", async () => {
+    const stamp = `sweep-log-${Date.now().toString(36)}`;
+    await d.eval(`console.warn(${JSON.stringify(stamp)}), 1`);
+    await wait(300);
+    const all = d.logs();
+    if (!all.some((l) => l.text.includes(stamp))) {
+      throw new Error("a console.warn from this session was not captured");
+    }
+    if (!d.logs("warn").some((l) => l.text.includes(stamp))) {
+      throw new Error("the level filter dropped a warning");
+    }
+    if (d.logs("error").some((l) => l.text.includes(stamp))) {
+      throw new Error("a warning was reported at error level");
+    }
+    return `${all.length} entries buffered`;
   });
 
   // `sh()` is the path an agent runs commands through, and it is NOT the path
@@ -234,16 +317,29 @@ export default async function sweep(d) {
   // guards: with a single leaf there is no pane group, so the old lookup walked
   // up to the app layout and answered 0, the sidebar's own handle.
   await check("state() reports the live layout", async () => {
-    const s = await d.state();
-    if (s.leaves.length !== base.leaves) throw new Error(`leaves ${s.leaves.length} != ${base.leaves}`);
+    // `buttons: true` because the list is OPT-IN now. It is a discovery list -
+    // 60+ aria-labels, several hundred tokens of an agent's context - and
+    // `state` is the verb an agent is told to call constantly, so it is fetched
+    // deliberately rather than on every snapshot.
+    const s = await d.state({ buttons: true });
+    if (s.leaves.length !== base.leaves)
+      throw new Error(`leaves ${s.leaves.length} != ${base.leaves}`);
     if (s.tabs.length !== base.tabs) throw new Error(`tabs ${s.tabs.length} != ${base.tabs}`);
     // A tab with no label is a real regression and an easy one to miss: the
     // snapshot still LOOKS right, and every later "switch to the X tab" has
     // nothing to match on.
     if (s.tabs.some((t) => !t.label)) throw new Error(`unlabelled tab: ${JSON.stringify(s.tabs)}`);
-    if (s.paneHandle !== -1) throw new Error(`paneHandle ${s.paneHandle} with one pane, expected -1`);
+    if (s.paneHandle !== -1)
+      throw new Error(`paneHandle ${s.paneHandle} with one pane, expected -1`);
     if (s.dialog) throw new Error(`a dialog is open: ${s.dialog}`);
-    if (!s.buttons.length) throw new Error("no aria-labelled buttons found");
+    if (!s.buttons?.length) throw new Error("no aria-labelled buttons found");
+    // …and the default must NOT carry them, or the saving is imaginary.
+    // `!= null` on purpose: an absent property crosses CDP as undefined, but a
+    // serializer that chose null instead would be just as absent, and failing
+    // on that would be this check being wrong rather than the code.
+    if ((await d.state()).buttons != null) {
+      throw new Error("state() returned `buttons` without being asked - the opt-in is not opt-in");
+    }
     // `panes` is the model view - every pane in EVERY tab, where `leaves` is
     // only what the DOM has rendered. A pane list shorter than the rendered one
     // means the surface is missing, or the tab tree lost a leaf.
@@ -251,7 +347,9 @@ export default async function sweep(d) {
     if (s.panes.length < s.leaves.length) {
       throw new Error(`${s.panes.length} panes but ${s.leaves.length} rendered leaves`);
     }
-    if (!s.panes.every((p) => typeof p.leafId === "number" && p.kind && typeof p.tabId === "number")) {
+    if (
+      !s.panes.every((p) => typeof p.leafId === "number" && p.kind && typeof p.tabId === "number")
+    ) {
       throw new Error(`a pane row is missing its identity: ${JSON.stringify(s.panes[0])}`);
     }
     return `${s.leaves.length} leaf, "${s.tabs[0].label}", ${s.buttons.length} buttons, focusLeaf ${s.focusLeaf}`;
@@ -271,7 +369,9 @@ export default async function sweep(d) {
     },
     async () => {
       while ((await leaves()) > base.leaves) {
-        await d.click('button[aria-label="Close pane"]', { nth: Math.max(0, (await leaves()) - 1) });
+        await d.click('button[aria-label="Close pane"]', {
+          nth: Math.max(0, (await leaves()) - 1),
+        });
         await wait(1200);
       }
     },
@@ -327,7 +427,8 @@ export default async function sweep(d) {
       await d.cmd("pane.splitDown");
       await wait(2200);
       const down = await leaves();
-      if (right <= base.leaves || down <= right) throw new Error(`${base.leaves} -> ${right} -> ${down}`);
+      if (right <= base.leaves || down <= right)
+        throw new Error(`${base.leaves} -> ${right} -> ${down}`);
       return `${base.leaves} -> ${right} -> ${down}`;
     },
     async () => {
@@ -405,10 +506,13 @@ export default async function sweep(d) {
       await wait(3000);
       const after = await leaves();
       const bar = await n('input[placeholder="Search or enter address"]');
-      if (after <= base.leaves || !bar) throw new Error(`leaves ${base.leaves} -> ${after}, address bars ${bar}`);
+      if (after <= base.leaves || !bar)
+        throw new Error(`leaves ${base.leaves} -> ${after}, address bars ${bar}`);
       await d.cmd("browser.focusAddressBar");
       await wait(900);
-      const focused = await d.eval("document.activeElement?.placeholder ?? document.activeElement?.tagName");
+      const focused = await d.eval(
+        "document.activeElement?.placeholder ?? document.activeElement?.tagName",
+      );
       return `leaves ${base.leaves} -> ${after}, focus "${focused}"`;
     },
     async () => {
@@ -430,34 +534,34 @@ export default async function sweep(d) {
   if (!process.env.SWEEP_FLOAT) {
     skipped.push("float a pane: regressed mid-session, unexplained, SWEEP_FLOAT=1 to try it");
   } else
-  await check(
-    "a pane floats into its own window",
-    async () => {
-      const { listTargets } = await import("./director.mjs");
-      const port = Number(process.env.TEDI_DEBUG_PORT) || 9222;
-      // Assert a float.html target appears, not that the target COUNT grew: a
-      // Settings window left open by an earlier run already inflates the count
-      // and turns a working float into a false failure.
-      const floats = async () =>
-        (await listTargets(port)).filter((t) => /float\.html/.test(t.url)).length;
-      // Refuse rather than force-close an orphan. Closing a float window from
-      // CDP with `window.close()` bypasses TEDI's own dock-back path, and after
-      // doing that, floating stopped working entirely until the app was
-      // restarted: a frontend reload did not clear it, so whatever is left
-      // stale lives on the Rust side. Dismiss a stray float window from the app,
-      // by closing its source pane.
-      const before = await floats();
-      if (before > 0) {
-        throw new Error("a float window is already open; close its source pane and re-run");
-      }
-      // Split first: floating is refused when the tab has a single pane, since
-      // there would be nothing left behind.
-      await d.cmd("pane.splitRight");
-      await wait(2400);
-      // Tabs never unmount, so the DOM also holds the float buttons of panes in
-      // INACTIVE tabs. Clicking one of those does nothing. Take the first whose
-      // pane is actually laid out.
-      const floatBtn = await d.eval(`(() => {
+    await check(
+      "a pane floats into its own window",
+      async () => {
+        const { listTargets } = await import("./director.mjs");
+        const port = Number(process.env.TEDI_DEBUG_PORT) || 9222;
+        // Assert a float.html target appears, not that the target COUNT grew: a
+        // Settings window left open by an earlier run already inflates the count
+        // and turns a working float into a false failure.
+        const floats = async () =>
+          (await listTargets(port)).filter((t) => /float\.html/.test(t.url)).length;
+        // Refuse rather than force-close an orphan. Closing a float window from
+        // CDP with `window.close()` bypasses TEDI's own dock-back path, and after
+        // doing that, floating stopped working entirely until the app was
+        // restarted: a frontend reload did not clear it, so whatever is left
+        // stale lives on the Rust side. Dismiss a stray float window from the app,
+        // by closing its source pane.
+        const before = await floats();
+        if (before > 0) {
+          throw new Error("a float window is already open; close its source pane and re-run");
+        }
+        // Split first: floating is refused when the tab has a single pane, since
+        // there would be nothing left behind.
+        await d.cmd("pane.splitRight");
+        await wait(2400);
+        // Tabs never unmount, so the DOM also holds the float buttons of panes in
+        // INACTIVE tabs. Clicking one of those does nothing. Take the first whose
+        // pane is actually laid out.
+        const floatBtn = await d.eval(`(() => {
         const all = [...document.querySelectorAll('button[aria-label="Float pane in its own window"]')];
         return all.findIndex((b) => {
           const leaf = b.closest('[data-pane-leaf]');
@@ -465,35 +569,35 @@ export default async function sweep(d) {
           return !!r && r.width > 200 && r.height > 200 && r.x >= 0 && r.x < innerWidth;
         });
       })()`);
-      if (floatBtn < 0) throw new Error("no float button inside a laid-out pane");
-      await d.click('button[aria-label="Float pane in its own window"]', { nth: floatBtn });
-      // Poll: the float window is a whole new webview and does not always show
-      // up inside a fixed wait.
-      let after = before;
-      for (let i = 0; i < 15 && after <= before; i++) {
-        await wait(1000);
-        after = await floats();
-      }
-      if (after <= before) {
-        const all = (await listTargets(port)).map((t) => t.title).join(", ");
-        throw new Error(`float windows ${before} -> ${after}; targets: ${all}`);
-      }
-      return `float windows ${before} -> ${after}`;
-    },
-    async () => {
-      // Dismiss it by closing the SOURCE pane in the main window. The float
-      // window itself renders no buttons at all, so there is nothing to click
-      // over there.
-      const { listTargets } = await import("./director.mjs");
-      const port = Number(process.env.TEDI_DEBUG_PORT) || 9222;
-      for (let i = 0; i < 6; i++) {
-        if (!(await listTargets(port)).some((t) => /float\.html/.test(t.url))) break;
-        const last = Math.max(0, (await leaves()) - 1);
-        await d.click('button[aria-label="Close pane"]', { nth: last });
-        await wait(1500);
-      }
-    },
-  );
+        if (floatBtn < 0) throw new Error("no float button inside a laid-out pane");
+        await d.click('button[aria-label="Float pane in its own window"]', { nth: floatBtn });
+        // Poll: the float window is a whole new webview and does not always show
+        // up inside a fixed wait.
+        let after = before;
+        for (let i = 0; i < 15 && after <= before; i++) {
+          await wait(1000);
+          after = await floats();
+        }
+        if (after <= before) {
+          const all = (await listTargets(port)).map((t) => t.title).join(", ");
+          throw new Error(`float windows ${before} -> ${after}; targets: ${all}`);
+        }
+        return `float windows ${before} -> ${after}`;
+      },
+      async () => {
+        // Dismiss it by closing the SOURCE pane in the main window. The float
+        // window itself renders no buttons at all, so there is nothing to click
+        // over there.
+        const { listTargets } = await import("./director.mjs");
+        const port = Number(process.env.TEDI_DEBUG_PORT) || 9222;
+        for (let i = 0; i < 6; i++) {
+          if (!(await listTargets(port)).some((t) => /float\.html/.test(t.url))) break;
+          const last = Math.max(0, (await leaves()) - 1);
+          await d.click('button[aria-label="Close pane"]', { nth: last });
+          await wait(1500);
+        }
+      },
+    );
 
   // --- view ---------------------------------------------------------------
   await check(
@@ -535,7 +639,9 @@ export default async function sweep(d) {
 
   // --- command palette ----------------------------------------------------
   const paletteInput = () =>
-    d.eval("[...document.querySelectorAll('input')].findIndex(i=>/Type a command/i.test(i.placeholder||''))");
+    d.eval(
+      "[...document.querySelectorAll('input')].findIndex(i=>/Type a command/i.test(i.placeholder||''))",
+    );
 
   await check(
     "command palette opens, filters and closes",
@@ -669,13 +775,18 @@ export default async function sweep(d) {
     const mine = open.find((e) => e.path.toLowerCase().endsWith("package.json"));
     if (!mine) throw new Error(`package.json not among ${JSON.stringify(open.map((e) => e.path))}`);
     if (!mine.text.includes('"name": "tedi"')) {
-      throw new Error(`buffer does not look like package.json: ${JSON.stringify(mine.text.slice(0, 80))}`);
+      throw new Error(
+        `buffer does not look like package.json: ${JSON.stringify(mine.text.slice(0, 80))}`,
+      );
     }
     // The point of reading through the editor rather than the DOM: the whole
     // file, not the handful of lines currently painted.
-    const domLines = (await d.text(".cm-content", { nth: (await editors()) - 1 })).split("\n").length;
+    const domLines = (await d.text(".cm-content", { nth: (await editors()) - 1 })).split(
+      "\n",
+    ).length;
     const realLines = mine.text.split("\n").length;
-    if (realLines <= domLines) throw new Error(`editors() saw ${realLines} lines, DOM saw ${domLines}`);
+    if (realLines <= domLines)
+      throw new Error(`editors() saw ${realLines} lines, DOM saw ${domLines}`);
     return `leaf ${mine.leafId}, ${realLines} lines vs ${domLines} in the DOM`;
   });
 
@@ -797,7 +908,10 @@ export default async function sweep(d) {
     await d.cmd("shortcuts.open");
     await wait(2500);
     const { connect } = await import("./director.mjs");
-    const s = await connect({ port: Number(process.env.TEDI_DEBUG_PORT) || 9222, target: "settings.html" });
+    const s = await connect({
+      port: Number(process.env.TEDI_DEBUG_PORT) || 9222,
+      target: "settings.html",
+    });
     try {
       const body = await s.eval("document.body.innerText.slice(0,4000)");
       if (!/shortcut/i.test(body)) throw new Error("Settings does not show shortcuts");
@@ -822,7 +936,8 @@ export default async function sweep(d) {
 
   const pass = results.filter((r) => r.ok).length;
   console.log("\n=== control sweep ===");
-  for (const r of results) console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name}\n        ${r.evidence}`);
+  for (const r of results)
+    console.log(`${r.ok ? "PASS" : "FAIL"}  ${r.name}\n        ${r.evidence}`);
   console.log(`\n${pass}/${results.length} passed`);
   console.log("not exercised:");
   for (const s of skipped) console.log(`  - ${s}`);

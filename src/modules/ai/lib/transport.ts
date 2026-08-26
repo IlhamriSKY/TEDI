@@ -9,7 +9,14 @@ import { buildMcpToolsAsync } from "../tools/mcp";
 import { compactUiMessages } from "./compact";
 import { providerHasPromptCache } from "./cache";
 import type { CompactStages } from "./compact";
-import { classifyError, newCorrelationId, tediError, TediErrorCode, toChatError } from "./errors";
+import {
+  classifyError,
+  describeProviderError,
+  newCorrelationId,
+  tediError,
+  TediErrorCode,
+  toChatError,
+} from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { native, type DirEntry } from "./native";
 import { subscribeMemoryPathChanges } from "./memoryCache";
@@ -380,6 +387,11 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
           });
           return result.toUIMessageStream({
             originalMessages: messages,
+            // Without this the SDK default replaces every streaming failure with
+            // "An error occurred.", which is what made a plain
+            // "model not supported on this account" 400 undiagnosable. Nothing
+            // here is server-side, so there is no detail to withhold.
+            onError: describeProviderError,
           });
         } catch (err) {
           lastError = err;

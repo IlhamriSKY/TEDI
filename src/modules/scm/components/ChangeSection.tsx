@@ -1,3 +1,4 @@
+import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -17,6 +18,8 @@ type Props = {
   onDiscard?: (changes: GitChange[]) => void;
   onClickDiff?: (change: GitChange) => void;
   onDiscardOne?: (change: GitChange) => void;
+  /** Per-file hunk list, rendered under an expanded row. See ChangeRow. */
+  renderHunks?: (change: GitChange) => ReactNode;
   busy?: boolean;
 };
 
@@ -34,6 +37,7 @@ export function ChangeSection({
   onDiscard,
   onClickDiff,
   onDiscardOne,
+  renderHunks,
   busy,
 }: Props) {
   if (changes.length === 0) return null;
@@ -128,6 +132,7 @@ export function ChangeSection({
             onClickDiff={onClickDiff ? () => onClickDiff(c) : undefined}
             onDiscard={onDiscardOne ? () => onDiscardOne(c) : undefined}
             onToggleStage={onSetStaged ? (staged) => onSetStaged([c], staged) : undefined}
+            renderHunks={renderHunks}
           />
         ))}
       </ul>

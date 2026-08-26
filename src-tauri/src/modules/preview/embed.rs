@@ -365,23 +365,22 @@ const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmart
 /// Must run once at startup, before the first webview is created.
 #[cfg(target_os = "windows")]
 pub fn apply_webview2_browser_args_env() {
-    // Opt-in automation port. `TEDI_DEBUG_PORT=9222` additionally opens the
-    // WebView2 DevTools Protocol on loopback so external tooling (see
-    // `scripts/director/`, and the MCP server Claude Code drives it through)
-    // can evaluate JS, dispatch real input, and capture stills. Absent the env
-    // var nothing changes, so shipped builds keep no listening socket.
+    // Opt-in automation port. It additionally opens the WebView2 DevTools
+    // Protocol on loopback so external tooling (see `scripts/director/`, and the
+    // MCP server every AI CLI drives TEDI through) can evaluate JS, dispatch
+    // real input, and capture stills. Off unless asked for, so shipped builds
+    // keep no listening socket.
+    //
+    // `TEDI_DEBUG_PORT`, or the stored setting the Install MCP button writes -
+    // see `automation::debug_port`, which is also why this cannot be a plain
+    // `env::var` any more: the app has to be able to turn its own channel on.
     //
     // It has to be appended HERE, to the shared environment, for the very reason
     // the flags above are process-wide: per-webview args that differ from the
     // main webview's blank the child (tauri#13092).
-    let args = match std::env::var("TEDI_DEBUG_PORT") {
-        Ok(port) if port.trim().parse::<u16>().is_ok() => {
-            format!(
-                "{EMBED_BROWSER_ARGS} --remote-debugging-port={}",
-                port.trim()
-            )
-        }
-        _ => EMBED_BROWSER_ARGS.to_string(),
+    let args = match crate::modules::automation::debug_port() {
+        Some(port) => format!("{EMBED_BROWSER_ARGS} --remote-debugging-port={port}"),
+        None => EMBED_BROWSER_ARGS.to_string(),
     };
     // Edition 2021: `set_var` is safe. Called on the main thread at startup before
     // any webview (or other thread) exists.

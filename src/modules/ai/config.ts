@@ -171,10 +171,18 @@ export const MODELS = [
   // ChatGPT-account models. These run against the ChatGPT backend's Responses
   // endpoint on the subscription, so no API credit is spent; the ids are the
   // ones that endpoint accepts, which is a SHORTER list than the API's.
-  M("gpt-5.3-codex", "chatgpt", "GPT-5.3 Codex", "Subscription · coding"),
-  M("gpt-5.3-codex-mini", "chatgpt", "GPT-5.3 Codex mini", "Subscription · fast"),
-  M("gpt-5.6-sol", "chatgpt", "GPT-5.6 Sol", "Subscription · frontier"),
+  //
+  // The accepted set is also PLAN-gated, and the endpoint's only signal is a
+  // 400 `"The '<id>' model is not supported when using Codex with a ChatGPT
+  // account."`. Measured 2026-08-26 on a ChatGPT Go account: terra and luna
+  // answer, every `*-codex` id and sol are refused. So the plan-agnostic pair
+  // goes FIRST - the head of this list is what a fresh sign-in lands on, and
+  // defaulting to a Codex id 400s for anyone below Plus.
   M("gpt-5.6-terra", "chatgpt", "GPT-5.6 Terra", "Subscription · balanced"),
+  M("gpt-5.6-luna", "chatgpt", "GPT-5.6 Luna", "Subscription · fast"),
+  M("gpt-5.6-sol", "chatgpt", "GPT-5.6 Sol", "Subscription · frontier (Plus/Pro)"),
+  M("gpt-5.3-codex", "chatgpt", "GPT-5.3 Codex", "Subscription · coding (Plus/Pro)"),
+  M("gpt-5.3-codex-mini", "chatgpt", "GPT-5.3 Codex mini", "Subscription · fast (Plus/Pro)"),
 ] as const satisfies readonly ModelInfo[];
 
 export type ModelId = (typeof MODELS)[number]["id"];

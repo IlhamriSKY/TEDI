@@ -2,7 +2,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Separator } from "@/components/ui/separator";
 import { toast } from "@/components/ui/toast";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import {
@@ -24,6 +23,7 @@ import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./c
 import { GitGraphView } from "./GitGraphView";
 import type { CommitAction } from "./CommitDetailPane";
 import { PullRequestsView } from "./PullRequestsView";
+import { HunkList } from "./components/HunkList";
 import { ChangeSection } from "./components/ChangeSection";
 import { CommitBox, type ScmBusy, type ScmMoreAction } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
@@ -760,6 +760,33 @@ export function SourceControlPanel({
     setCollapsedSections((s) => ({ ...s, [key]: !s[key] }));
   }, []);
 
+  /**
+   * Per-file hunk list, shown when a row is expanded.
+   *
+   * Local repositories only: applying part of a file feeds the patch to
+   * `git apply` on stdin, and the SSH transport has no stdin. Keyed off
+   * `graphRefreshToken`, which `refresh()` bumps after a write and the 2.5s
+   * poll does not - a hunk is addressed by its index, so it must be re-read
+   * when the file changes and left alone when it has not.
+   *
+   * Declared with the other hooks and ABOVE the "no folder open" early return:
+   * a hook after that `return` is skipped whenever the panel has no folder, and
+   * React throws "Rendered fewer hooks than expected" the moment one is opened.
+   */
+  const renderHunks = useCallback(
+    (c: GitChange) =>
+      ops ? (
+        <HunkList
+          ops={ops}
+          change={c}
+          reloadKey={graphRefreshToken}
+          onApplied={() => void refresh()}
+          busy={busy !== null}
+        />
+      ) : null,
+    [ops, graphRefreshToken, refresh, busy],
+  );
+
   if (!rootPath && !remote) {
     return (
       <div className="relative flex h-full flex-col">
@@ -822,6 +849,10 @@ export function SourceControlPanel({
           onSetStaged={setStaged}
           onClickDiff={remote ? undefined : openDiff}
           onDiscardOne={(c) => setConfirmDiscard([c])}
+          // A conflicted row can never expand (its diff is a COMBINED diff, not
+          // a patch), but passing this keeps its chevron column reserved so the
+          // three sections line up with each other.
+          renderHunks={remote ? undefined : renderHunks}
         />
         <ChangeSection
           title="Staged Changes"
@@ -833,6 +864,7 @@ export function SourceControlPanel({
           onDiscard={(cs) => setConfirmDiscard(cs)}
           onClickDiff={remote ? undefined : openDiff}
           onDiscardOne={(c) => setConfirmDiscard([c])}
+          renderHunks={remote ? undefined : renderHunks}
         />
         <ChangeSection
           title="Changes"
@@ -844,6 +876,7 @@ export function SourceControlPanel({
           onDiscard={(cs) => setConfirmDiscard(cs)}
           onClickDiff={remote ? undefined : openDiff}
           onDiscardOne={(c) => setConfirmDiscard([c])}
+          renderHunks={remote ? undefined : renderHunks}
         />
       </ScrollArea>
     );
@@ -870,8 +903,6 @@ export function SourceControlPanel({
       {collapsed ? null : (
         <>
           {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
-
-          <Separator className="bg-border" />
 
           {/* A half-finished merge or rebase is the one state where the normal
               controls are all wrong: git refuses almost everything until it is

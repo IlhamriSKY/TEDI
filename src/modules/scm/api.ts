@@ -81,6 +81,21 @@ export type GitOps = {
   fetch(): Promise<void>;
   /** Combined diff vs HEAD, capped, for the AI commit-message generator. */
   diff(maxBytes: number): Promise<string>;
+  /**
+   * One file's unified diff, which is what partial staging is built on.
+   * `staged` reads index-vs-HEAD (what unstaging a hunk undoes), otherwise
+   * worktree-vs-index (what staging a hunk records).
+   */
+  fileDiff(relative: string, staged: boolean): Promise<string>;
+  /**
+   * Apply a patch this app synthesised - one hunk, or part of one.
+   *
+   * `cached` writes the INDEX (stage / unstage), otherwise the WORKING TREE
+   * (discard); `reverse` undoes instead of applies. LOCAL REPOSITORIES ONLY:
+   * the patch travels on stdin and `ssh_git` has no stdin, so the remote
+   * transport rejects it rather than silently doing nothing.
+   */
+  applyPatch(patch: string, cached: boolean, reverse: boolean): Promise<void>;
   branches(): Promise<GitBranch[]>;
   /** Switch to `name`, creating it from HEAD when `create` is set. A remote
    *  ref checks out (or creates) the local branch that follows it. */
@@ -379,6 +394,25 @@ export function makeOps(run: Runner): GitOps {
     },
 
     init: () => ok(["init"]),
+
+    // `--no-ext-diff` / `--no-textconv` are not tidiness: a user with
+    // `diff.external` or a textconv filter configured would otherwise get a
+    // rendering instead of a patch, and every hunk offered would be a fiction.
+    // `-U3` pins the context so the patch we build is the patch we parsed
+    // whatever `diff.context` says.
+    fileDiff: (relative, staged) =>
+      run([
+        "diff",
+        "--no-ext-diff",
+        "--no-textconv",
+        "-U3",
+        ...(staged ? ["--cached"] : []),
+        "--",
+        relative,
+      ]),
+
+    applyPatch: () =>
+      Promise.reject(new Error("Staging part of a file needs a local repository, not an SSH one.")),
   };
 }
 
@@ -386,8 +420,14 @@ export function makeOps(run: Runner): GitOps {
 export function localOps(repoPath: string): GitOps {
   const base = makeOps((args) => invoke<string>("git_run", { repoPath, args }));
   // The local reader is richer: it appends the untracked-file list, which is
-  // what tells the AI generator a new file was added at all.
-  return { ...base, diff: (maxBytes) => gitDiffFull(repoPath, maxBytes) };
+  // what tells the AI generator a new file was added at all. `applyPatch` is
+  // its own command because the patch goes in on STDIN, which `git_run` closes.
+  return {
+    ...base,
+    diff: (maxBytes) => gitDiffFull(repoPath, maxBytes),
+    applyPatch: (patch, cached, reverse) =>
+      invoke<void>("git_apply_patch", { repoPath, patch, cached, reverse }),
+  };
 }
 
 /** Operate on `root` over an SSH session. `root` comes from `gitStatusSsh`, so

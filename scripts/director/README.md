@@ -6,10 +6,10 @@ back.
 
 Two front ends over one driver:
 
-| | for | how |
-|---|---|---|
+|               | for         | how                                             |
+| ------------- | ----------- | ----------------------------------------------- |
 | **`mcp.mjs`** | Claude Code | MCP tools over stdio, registered in `.mcp.json` |
-| **`cli.mjs`** | you | `pnpm director <verb>` |
+| **`cli.mjs`** | you         | `pnpm director <verb>`                          |
 
 Both are the same `Director` class, so a verb proven in one works in the other.
 No dependencies: it speaks the WebView2 DevTools Protocol over one WebSocket, and
@@ -30,7 +30,15 @@ $env:TEDI_DEBUG_PORT = "9222"
 pnpm tauri:dev                      # or the installed binary, see below
 ```
 
-`TEDI_DEBUG_PORT` does two things, and both ride that one switch:
+**Or turn it on from the app**: the header's Install MCP button (the plug, right
+of the extensions puzzle) writes `automationPort` into `tedi-settings.json`, and
+Rust reads that at startup when the env var is absent - see
+`src-tauri/src/modules/automation.rs`. It still only takes effect on the NEXT
+launch, for the reason below, and the button says so rather than pretending
+otherwise. The env var always wins, so a developer's override is never quietly
+replaced by a stored value.
+
+The switch does two things, and both ride it:
 
 - appends `--remote-debugging-port` to the process-wide WebView2 browser
   arguments (`preview::apply_webview2_browser_args_env`), and
@@ -69,23 +77,45 @@ driver you cannot trust the output of.
 ## 2. Claude Code
 
 `.mcp.json` in the repo root registers this server, so a Claude Code session
-started here picks it up with no setup. Eighteen tools:
+started here picks it up with no setup. **Any other AI CLI gets it from the
+header's Install MCP button** (see §4). Seventeen tools:
 
-| tool | what it is for |
-|---|---|
-| `state` | one snapshot: **every pane in every tab**, tabs + labels, focus, dialogs, toasts, clickable labels, splitter index. **Start here.** |
-| `commands` / `run_command` | list and run any command id, TEDI's own or an extension's |
-| `extensions` | what is installed, enabled, and what each one contributes |
-| `sh` | run a shell command in the user's terminal and return its output |
-| `wait_for_terminal` | block until a pane is done, instead of polling it |
-| `read_terminal` | a pane's scrollback |
-| `read_editors` | every open editor: path + live buffer, unsaved edits included |
-| `open_file` / `save_editor` | open a path in the editor; save a pane |
-| `keys` / `type_text` | real key chords; real typing |
-| `click` / `drag` / `focus_pane` | real mouse input; focus without clicking |
-| `read_dom` | text of a selector (dialogs, tree, AI reply) |
-| `screenshot` | a PNG to actually look at |
-| `eval_js` | the escape hatch for anything not modelled above |
+| tool                            | what it is for                                                                                                                                               |
+| ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `state`                         | one snapshot: **every pane in every tab**, tabs + labels, focus, dialogs, toasts, splitter index. **Start here.** `buttons: true` adds the clickable labels. |
+| `inspect`                       | list `commands`, `extensions`, `settings` or `logs`                                                                                                          |
+| `read`                          | `terminal` scrollback, `editors` live buffers, or `dom` text                                                                                                 |
+| `run_command`                   | run any command id, TEDI's own or an extension's                                                                                                             |
+| `set_setting`                   | change one preference, live                                                                                                                                  |
+| `extension`                     | enable / disable / reload / update / uninstall                                                                                                               |
+| `sh`                            | run a shell command in the user's terminal and return its output                                                                                             |
+| `wait_for_terminal`             | block until a pane is done, instead of polling it                                                                                                            |
+| `open_file` / `save_editor`     | open a path in the editor; save a pane                                                                                                                       |
+| `keys` / `type_text`            | real key chords; real typing                                                                                                                                 |
+| `click` / `drag` / `focus_pane` | real mouse input; focus without clicking                                                                                                                     |
+| `screenshot`                    | a PNG to actually look at                                                                                                                                    |
+| `eval_js`                       | the escape hatch for anything not modelled above                                                                                                             |
+
+**TEDI's own agent does NOT come through here.** It reaches the same settings and
+extension control in-realm (`src/modules/ai/tools/tedi.ts`), calling the very
+functions `window.__tedi` exposes. Routing it through this server would mean
+spawning node and connecting back over CDP to the page it is already running in,
+it would break whenever the automation port is off, and a page target accepts
+exactly ONE DevTools client - so it would be competing for the socket with the
+user's real CLI session. One definition, two transports; `director-verify`
+checks that neither side re-implements the other.
+
+**The tool list is loaded into every request of every AI CLI that connects, for
+the whole session, whether it drives TEDI or not.** That is the budget the shape
+of this table answers to. `inspect` and `read` are single verbs with an enum
+rather than seven tools because a further thing to list then costs one enum value
+instead of another ~110 tokens on every turn forever, and `state` no longer
+returns its 60-entry button list unless asked. Settings, extension control and
+log capture were all added while the whole surface got _smaller_:
+9135 -> 8642 characters. Descriptions carry the traps that produce a **silent
+wrong answer** (a terminal has no DOM text; CodeMirror virtualises; `sh` bypasses
+the AI-CLI detector). Traps that raise a loud error belong in the error, which
+costs nothing until it fires.
 
 Why a server rather than shelling out to the CLI:
 
@@ -110,6 +140,10 @@ pnpm director panes                          # every pane in every tab
 pnpm director wait --leaf 7 --text "ready"   # block instead of polling
 pnpm director extensions                     # installed + what they contribute
 pnpm director ext tedi.sql-explorer sql.open # run an extension's command
+pnpm director extctl disable tedi.sql-explorer   # enable|disable|reload|update|uninstall
+pnpm director settings                       # every preference the app is running on
+pnpm director set vimMode true               # change one, live (coerced to its real type)
+pnpm director logs error                     # what the window printed, since connecting
 pnpm director commands                       # every command id this build registered
 pnpm director cmd pane.splitRight            # run one, no palette, no fuzzy match
 pnpm director sh "git status"                # run it, wait, print the output
@@ -216,7 +250,7 @@ back. That is not only faster than synthesising ~45ms per keystroke:
   events all lose it. A PTY write cannot, because it never goes near the keyboard.
 - Completion is **"the buffer changed AND the prompt is back"**, not just "the
   prompt is back". A PTY write returns before the shell has echoed anything, so a
-  bare prompt check passes instantly against the *previous* prompt and the output
+  bare prompt check passes instantly against the _previous_ prompt and the output
   is read before it exists - which looks exactly like a command that printed
   nothing.
 
@@ -268,7 +302,7 @@ with its `extensionId` / `panelId`. Two things did not work until they were wire
 up:
 
 - **An extension's commands live in a registry of their own** (`extensions/
-  registries.ts`), not the shortcut registry, so `commands` never listed them and
+registries.ts`), not the shortcut registry, so `commands` never listed them and
   `run_command` could never reach them. Pass `extensionId` alongside `id` and it
   routes to the right one. `false` comes back when nothing answers: a command
   declared in a manifest but never given a runtime handler, or one whose
@@ -277,8 +311,17 @@ up:
   panels and AI tools each one contributes. Check it before concluding a feature
   is missing: from the UI, a disabled extension and an absent one look identical.
 
-Installing, enabling and uninstalling are deliberately NOT exposed. They mutate
-the user's profile, and a driver that can enable an extension can install one.
+- **`extension <action> <id>`** covers the reversible half of the lifecycle:
+  enable, disable, reload, update, uninstall. `update` re-runs the install
+  pipeline bounded by the grant the user already approved, so a release asking
+  for more permissions is rejected by Rust rather than silently widening it.
+
+**Installing is deliberately NOT exposed**, and refuses with the route instead.
+It runs third-party code in TEDI's own realm under a permission set the user has
+to have seen, and that review dialog lives in the Settings webview. A driver may
+send the user there (`run_command settings.open`); it may not skip the review.
+Every other action either turns off, re-reads or removes code the user already
+approved.
 
 ### The AI panel and the Settings window
 
@@ -295,7 +338,25 @@ with `Ask`, and the model and agent pickers are buttons labelled `Model: …` an
   state. (Over MCP the connection is held, but the app's own state still is not
   yours to assume - `state` reports any open dialog.)
 
-Settings is a **separate webview**, so it needs `--target`:
+**Settings do NOT need that window.** The page is a separate webview no tool
+driving the main window can read or click, which is why "change the theme" was
+undrivable through the whole surface. `inspect settings` and `set_setting` go to
+the _store_ instead: the write broadcasts on `tedi://prefs-changed`, so the app
+and an open Settings window both follow it live, no reload and no restart.
+
+```powershell
+pnpm director settings                      # every preference, as the app has them
+pnpm director set theme dark                # applies immediately
+```
+
+No API key can come back that way: keys live in the OS keyring behind
+`secrets_*`, never in the settings store. `automationPort` is not a member of
+`Preferences` either, so `set_setting` cannot reach it and an agent cannot make
+its own access permanent.
+
+Clicking _inside_ the Settings window still needs `--target`, and remains the
+route for the parts that are UI rather than preferences (the extension permission
+review, for one):
 
 ```powershell
 pnpm director cmd settings.open
@@ -337,10 +398,12 @@ blocker instead.
 ### Workspaces
 
 ```js
-await d.click("button[aria-label='New workspace']");        // creates and switches
-await d.hover(rowSelector);                                  // reveal the row controls
-await d.click("button[aria-label='Close workspace']");       // then confirm:
-await d.click("[role=alertdialog][data-state=open] button", { nth: confirmIdx });
+await d.click("button[aria-label='New workspace']"); // creates and switches
+await d.hover(rowSelector); // reveal the row controls
+await d.click("button[aria-label='Close workspace']"); // then confirm:
+await d.click("[role=alertdialog][data-state=open] button", {
+  nth: confirmIdx,
+});
 ```
 
 **A new workspace opens a shell in `$HOME`**, so collapse the sidebar first if
@@ -442,7 +505,7 @@ What it turned up about TEDI itself:
   (`WEBKIT_INSPECTOR_SERVER`), WKWebView has none.
 - **Capture is the main webview only.** Browser preview panes are separate native
   child webviews docked over the pane, and floated panes are their own windows,
-  so neither appears in a `shot`. Both are still *drivable*, through `--target`.
+  so neither appears in a `shot`. Both are still _drivable_, through `--target`.
 - **Anything off screen is scrolled into view before a click or drag.** Without
   that, `getBoundingClientRect` reports coordinates outside the window and the
   synthetic mouse event lands somewhere else entirely, silently: the call
@@ -450,7 +513,7 @@ What it turned up about TEDI itself:
 - **One client per target.** A driver that dies without closing its socket leaves
   the page target occupied and the next connect hangs forever with no error. Kill
   leftover `node scripts/director` processes. A hang on connect is more often a
-  *jammed renderer* than an occupied target, though: `Page.enable` waits on the
+  _jammed renderer_ than an occupied target, though: `Page.enable` waits on the
   renderer's main thread, so if the socket opens in 40ms while `Runtime.evaluate`
   takes 6s, the app is busy, not stuck.
 - **Do not edit repo files while driving.** The dev server would reload the

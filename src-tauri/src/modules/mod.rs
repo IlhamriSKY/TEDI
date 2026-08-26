@@ -1,4 +1,5 @@
 pub mod appimage;
+pub mod automation;
 pub mod backup;
 pub mod cli;
 pub mod cli_ext;

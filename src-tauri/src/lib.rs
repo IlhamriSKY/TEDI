@@ -64,8 +64,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, extensions, format, fs,
-    git, mcp, net,
+    automation, backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, extensions,
+    format, fs, git, mcp, net,
     preview, pty, pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -529,9 +529,10 @@ pub fn run() {
     let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
 
     // Automation surface, on the SAME switch as the debug port itself. The
-    // frontend's `window.__tedi` (command registry + terminal buffer reads, see
-    // `scripts/director/`) keys off this flag, so one env var turns on both
-    // halves and neither exists without it - in a dev build or a released one.
+    // frontend's `window.__tedi` (commands, panes, terminals, editors, settings
+    // and extensions - see `scripts/director/`) keys off this flag, so one
+    // switch turns on both halves and neither exists without it, in a dev build
+    // or a released one.
     //
     // It has to be an initialization script rather than an `eval` after launch:
     // the main window is declared in `tauri.conf.json`, and the modules that
@@ -541,17 +542,17 @@ pub fn run() {
     // automation session a previewed third-party page sees the flag too. It is a
     // bare boolean carrying no capability, and the session already has a
     // DevTools port open, so that is a fair trade for not racing the page.
-    let builder = match std::env::var("TEDI_DEBUG_PORT") {
+    let builder = match automation::debug_port() {
         // Both type parameters spelled out: `C` (the plugin's own config, which
         // this one does not have) is otherwise unconstrained and will not fall
         // back to its default, so inference fails with a `DeserializeOwned` note
         // that reads as if the script were the problem.
-        Ok(port) if port.trim().parse::<u16>().is_ok() => builder.plugin(
+        Some(_) => builder.plugin(
             tauri::plugin::Builder::<tauri::Wry, ()>::new("tedi-automation")
                 .js_init_script("window.__TEDI_AUTOMATION__ = true;")
                 .build(),
         ),
-        _ => builder,
+        None => builder,
     };
 
     // Second-invocation forwarding: when `tedi <path>` runs while an instance
@@ -719,6 +720,7 @@ pub fn run() {
             git::commands::git_file_head,
             git::commands::git_file_at,
             git::commands::git_run,
+            git::commands::git_apply_patch,
             git::commands::git_diff_full,
             git::commands::git_log,
             git::commands::git_commit_detail,

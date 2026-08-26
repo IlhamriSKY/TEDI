@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.31.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.32.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -380,25 +380,53 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   (`~/.local/bin/tedi` on macOS/Linux) is installed from Settings and self-heals
   on launch.
 - **Director** (`scripts/director/`, Windows): drives a RUNNING TEDI over the
-  WebView2 DevTools Protocol. Start the app with `TEDI_DEBUG_PORT=9222`, then
-  either front end works - `scripts/director/mcp.mjs` (MCP over stdio, registered
-  in `.mcp.json`, which is how **Claude Code** talks to TEDI: 18 tools, one held
-  connection) or `pnpm director <verb>` by hand. Real keys and mouse, any command
-  id, and it reads back what it did. `state` returns EVERY pane in EVERY tab from
-  the tab tree (not the DOM), each with its cwd / ssh host / running AI CLI /
-  open file / owning extension, so a driver can target or wait on a pane in a
-  tab it is not looking at; `sh` runs a command in one and returns the output;
-  `wait` blocks until a pane is back at its prompt (or prints a string) instead
-  of polling. Neither a terminal (WebGL canvas) nor a long file (CodeMirror
-  virtualises) can be read from the DOM, so both go through `window.__tedi`,
-  which four files now contribute to. **Private panes are absent from all of it**,
-  the same rule `app/lib/terminalSnapshot.ts` enforces for the built-in agent.
-  Extensions are covered too: `extensions` lists what is installed and what each
-  contributes, and `run_command` takes an `extensionId` to reach an extension's
-  own command registry, which the shortcut registry never saw. One switch governs
-  the whole thing: the env var opens the port AND injects the flag `window.__tedi`
-  keys off, in dev and release builds alike, so an ordinary launch has neither.
-  It does not record video.
+  WebView2 DevTools Protocol - **17 MCP tools over one held connection**
+  (`mcp.mjs`), or `pnpm director <verb>` by hand. Real keys and mouse, any
+  command id, and it reads back what it did. `state` returns EVERY pane in EVERY
+  tab from the tab tree (not the DOM), each with its cwd / ssh host / running AI
+  CLI / open file / owning extension, so a driver can target or wait on a pane in
+  a tab it is not looking at; `sh` runs a command in one and returns the output;
+  `wait_for_terminal` blocks until a pane is back at its prompt (or prints a
+  string) instead of polling. Neither a terminal (WebGL canvas) nor a long file
+  (CodeMirror virtualises) can be read from the DOM, so both go through
+  `window.__tedi`, which **six** files now contribute to. **Private panes are
+  absent from all of it**, the same rule `app/lib/terminalSnapshot.ts` enforces
+  for the built-in agent.
+  - **Beyond panes**: `inspect` lists commands / extensions / **settings** /
+    **logs**; `set_setting` writes a preference live (via the store, because the
+    Settings page is a separate webview nothing here can click); `extension`
+    enables, disables, reloads, updates or uninstalls one. **Installing is
+    refused** - new third-party code goes through the user's permission review.
+    No API key can come back: keys live in the keyring, never in the store.
+  - **Efficiency is a design constraint, not an afterthought.** The tool list is
+    loaded into every request of every connected AI CLI, so `inspect`/`read` are
+    single verbs with an enum instead of seven tools, and `state` no longer
+    returns its 60-entry button list unless asked. Every terminal read REDUCES IN
+    THE PAGE - a tail, a substring test, a buffer hash - so a poll loop ships back
+    an answer instead of ~20KB of scrollback per pane; `state` went from four
+    DevTools round trips to one.
+  - **NOT the route for TEDI's own agent.** ai-native reaches the same settings
+    and extension control **in-realm** (`ai/tools/tedi.ts` -> `readSettings` /
+    `writeSetting` / `listExtensions` / `controlExtension`), calling the very
+    functions `window.__tedi` exposes. Pointing it at the MCP server instead
+    would spawn node and connect back over CDP to the page it already runs in,
+    would break whenever the automation port is off (the default), and would
+    fight the user's real CLI for the single DevTools client slot. **The
+    duplication worth removing is the definition, not the transport**, and
+    `director-verify` checks that both sides reference the shared function
+    rather than re-implementing it.
+  - **Turning it on**: `TEDI_DEBUG_PORT=9222` before launch, or the header's
+    **Install MCP** button, which writes `automationPort` into the settings file
+    for Rust to read at startup (`modules/automation.rs`) and registers the
+    server with Claude Code / Codex / Gemini / opencode / GitHub Copilot CLI /
+    Cursor, plus a project `.mcp.json`. Entry shapes were checked against the
+    real config files, which is how the Codex writer learned that a server owns
+    its nested `[mcp_servers.<id>.tools.*]` sub-tables. One switch
+    governs both halves - the port AND the `window.__tedi` flag - in dev and
+    release builds alike, so an ordinary launch has neither. It takes effect on
+    the NEXT launch (WebView2 fixes its browser arguments before the first
+    webview exists), and the button's dot says so rather than pretending.
+    It does not record video.
 - **Release**: tag push triggers `.github/workflows/release.yml`, which builds
   signed updates (`TAURI_SIGNING_PRIVATE_KEY*` secrets) and a draft GitHub Release.
 

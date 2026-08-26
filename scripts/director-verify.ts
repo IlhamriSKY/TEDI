@@ -61,16 +61,26 @@ const expressions: string[] = [];
 const fakeCdp = {
   send(method: string, params: { expression?: string }) {
     if (method === "Runtime.evaluate" && params.expression) {
-      expressions.push(params.expression);
-      const value = /__tedi\?\.(terminals|editors|panes|extensions|listCommands)/.test(
-        params.expression,
-      )
-        ? []
-        : {};
+      const e = params.expression;
+      expressions.push(e);
+      // `true` for the write verbs, because each of their handlers checks for
+      // exactly that and throws the answer otherwise - an object would send them
+      // all down the failure path and the check would prove nothing.
+      const value =
+        /__tedi\?\.(setSetting|extControl|runExtensionCommand|focusLeaf|termWrite|openFile|editorSave)/.test(
+          e,
+        )
+          ? true
+          : /__tedi\?\.(terminals|editors|panes|extensions|listCommands)/.test(e)
+            ? []
+            : {};
       return Promise.resolve({ result: { value } });
     }
     return Promise.resolve({});
   },
+  // Console capture lives on the transport, not behind an injected expression,
+  // so the fake has to carry it or `inspect logs` reads as a missing method.
+  logs: () => [],
 };
 
 const d = new Director(fakeCdp, { url: "index.html" });
@@ -93,6 +103,9 @@ await d.editors();
 await d.panes();
 await d.extensions();
 await d.extCommand("tedi.sql-explorer", "sql.open");
+await d.extControl("disable", "tedi.sql-explorer");
+await d.settings();
+await d.setSetting("editorFontSize", 15);
 await d.focusPane(3);
 await d.termWrite(3, "echo hi\r");
 await d.openFile("C:/tmp/a.ts");
@@ -104,7 +117,7 @@ await d.waitTerminal({ timeout: 1 });
 // rather than looping - which is the branch worth proving anyway.
 await d.sh("echo hi").catch(() => {});
 
-if (expressions.length < 19) fail(`only ${expressions.length} expressions captured, expected 19+`);
+if (expressions.length < 22) fail(`only ${expressions.length} expressions captured, expected 22+`);
 
 for (const expr of expressions) {
   const label = expr.replace(/\s+/g, " ").slice(0, 58);
@@ -184,34 +197,55 @@ console.log("\n[mcp] every tool is well-formed and reaches a real Director metho
 // Claude Code session in this repo, and nothing else would notice.
 const REQUIRED_TOOLS = [
   "state",
-  "commands",
+  "inspect",
+  "read",
   "run_command",
-  "extensions",
+  "set_setting",
+  "extension",
   "wait_for_terminal",
   "sh",
-  "read_terminal",
-  "read_editors",
   "open_file",
   "save_editor",
   "keys",
   "type_text",
   "click",
-  "read_dom",
   "focus_pane",
   "drag",
   "screenshot",
   "eval_js",
 ];
+/**
+ * The capabilities behind the consolidated verbs. `inspect` and `read` each
+ * replaced several tools, and a dropped enum value would remove a whole
+ * capability while leaving the tool - and this list - looking intact.
+ */
+const REQUIRED_MODES: [string, string, string[]][] = [
+  ["inspect", "what", ["commands", "extensions", "settings", "logs"]],
+  ["read", "source", ["terminal", "editors", "dom"]],
+  ["extension", "action", ["enable", "disable", "reload", "update", "uninstall"]],
+];
+type ToolDef = {
+  description?: string;
+  schema?: {
+    type?: string;
+    properties?: Record<string, { type?: unknown; enum?: string[] }>;
+    required?: string[];
+  };
+  run?: unknown;
+};
+const tools = TOOLS as unknown as Record<string, ToolDef>;
+
 for (const name of REQUIRED_TOOLS) {
-  if (!TOOLS[name]) fail(`tool "${name}" is gone`);
+  if (!tools[name]) fail(`tool "${name}" is gone`);
+}
+for (const [tool, prop, modes] of REQUIRED_MODES) {
+  const declared = tools[tool]?.schema?.properties?.[prop]?.enum ?? [];
+  for (const mode of modes) {
+    if (!declared.includes(mode)) fail(`${tool}.${prop} lost "${mode}"`);
+  }
 }
 
-for (const [name, tool] of Object.entries(TOOLS) as [string, Record<string, never>][]) {
-  const t = tool as unknown as {
-    description?: string;
-    schema?: { type?: string; properties?: Record<string, unknown>; required?: string[] };
-    run?: unknown;
-  };
+for (const [name, t] of Object.entries(tools)) {
   if (!/^[a-z][a-z0-9_]*$/.test(name)) fail(`tool name "${name}" is not snake_case`);
   if (typeof t.run !== "function") fail(`${name} has no handler`);
   // The description IS the documentation - an agent picks from this list and
@@ -230,34 +264,44 @@ console.log(`  ok: ${Object.keys(TOOLS).length} tools, all with a handler and a 
 // Each handler is called against the fake Director. Nothing reaches a real app,
 // but a handler calling a method that no longer exists throws a TypeError here
 // instead of in someone's session.
-const args: Record<string, Record<string, unknown>> = {
-  run_command: { id: "pane.splitRight" },
+const args: Record<string, Record<string, unknown>[]> = {
+  run_command: [{ id: "pane.splitRight" }, { id: "sql.open", extensionId: "tedi.sql-explorer" }],
   // A 1ms timeout: the handler must reach `waitTerminal`, not sit in it.
-  wait_for_terminal: { timeout: 1 },
-  sh: { command: "echo hi" },
-  open_file: { path: "C:/tmp/a.ts" },
-  keys: { chords: ["Escape"] },
-  type_text: { text: "hi" },
-  click: { selector: "button" },
-  read_dom: { selector: "button" },
-  focus_pane: { leafId: 1 },
-  drag: { selector: "button", dx: 10, dy: 0 },
-  eval_js: { expression: "1" },
+  wait_for_terminal: [{ timeout: 1 }],
+  sh: [{ command: "echo hi" }],
+  open_file: [{ path: "C:/tmp/a.ts" }],
+  keys: [{ chords: ["Escape"] }],
+  type_text: [{ text: "hi" }],
+  click: [{ selector: "button" }],
+  focus_pane: [{ leafId: 1 }],
+  drag: [{ selector: "button", dx: 10, dy: 0 }],
+  eval_js: [{ expression: "1" }],
+  set_setting: [{ key: "theme", value: "dark" }],
+  extension: [{ action: "disable", id: "tedi.sql-explorer" }],
+  // Every branch, not just one. A consolidated verb hides a dead mode: the tool
+  // still exists, its schema still lists the enum value, and only the arm behind
+  // it is broken.
+  inspect: [{ what: "commands" }, { what: "extensions" }, { what: "settings" }, { what: "logs" }],
+  read: [{ source: "terminal" }, { source: "editors" }, { source: "dom", selector: "button" }],
 };
-for (const [name, tool] of Object.entries(TOOLS) as [string, { run: (d: unknown, a: unknown) => unknown }][]) {
+for (const [name, t] of Object.entries(tools)) {
   // `screenshot` writes a file and needs real image bytes back; the others are
   // pure calls into `Director`.
   if (name === "screenshot") continue;
-  try {
-    await tool.run(d, args[name] ?? {});
-  } catch (err) {
-    const msg = (err as Error).message;
-    // A handler is allowed to reject on the fake's empty world ("no terminal
-    // pane is open"). It is NOT allowed to reject because the method is gone.
-    if (/is not a function|undefined/i.test(msg)) fail(`${name} handler: ${msg}`);
+  for (const a of args[name] ?? [{}]) {
+    try {
+      await (t.run as (d: unknown, a: unknown) => unknown)(d, a);
+    } catch (err) {
+      const msg = (err as Error).message;
+      // A handler is allowed to reject on the fake's empty world ("no terminal
+      // pane is open"). It is NOT allowed to reject because the method is gone,
+      // nor because it never recognised the mode it was handed.
+      if (/is not a function|undefined/i.test(msg)) fail(`${name} handler: ${msg}`);
+      if (/^Unknown /.test(msg)) fail(`${name} rejected its own declared mode: ${msg}`);
+    }
   }
 }
-console.log("  ok: every handler reaches its Director method");
+console.log("  ok: every handler, and every mode of one, reaches its Director method");
 
 // ---------------------------------------------------------------------------
 // 4. The two polling loops, driven against a scripted terminal.
@@ -275,8 +319,32 @@ console.log("  ok: every handler reaches its Director method");
  */
 type TermState = { atPrompt: boolean; running: boolean; text: string };
 
-function scriptedTerminal(script: TermState[], { leafId = 3, empty = false, viewportRows = 30 } = {}) {
-  const calls = { terminals: 0, writes: [] as string[], smallReads: 0 };
+/**
+ * RUN the expression the director injected, against a stub `window`, and return
+ * what the page would have returned.
+ *
+ * The harness used to answer `__tedi.terminals` reads by handing back the raw
+ * rows, which quietly assumed the injected code was the identity function. It is
+ * not: every terminal read now REDUCES in the page - a tail, a substring test, a
+ * buffer hash - so the polling loops are driven by JS that lived inside a
+ * template literal and that nothing executed until it reached a user's window.
+ *
+ * Executing it here is what makes the `\\n` in that JS checkable at all. Written
+ * with one backslash it splits on a literal two-character sequence, the "tail"
+ * is the WHOLE buffer, and every `includes()` assertion in this file still
+ * passes. Only a line count catches it - see the check below.
+ */
+function runInjected(expr: string, rows: unknown[]): unknown {
+  // `window` as a parameter shadows any global of that name, so the expression
+  // reaches the stub and nothing else.
+  return new Function("window", `return (${expr});`)({ __tedi: { terminals: () => rows } });
+}
+
+function scriptedTerminal(
+  script: TermState[],
+  { leafId = 3, empty = false, viewportRows = 30 } = {},
+) {
+  const calls = { terminals: 0, writes: [] as string[], smallReads: 0, asked: [] as number[] };
   const cdp = {
     send(method: string, params: { expression?: string }) {
       if (method !== "Runtime.evaluate") return Promise.resolve({});
@@ -296,10 +364,12 @@ function scriptedTerminal(script: TermState[], { leafId = 3, empty = false, view
         // an empty string that a change-detector reads as "nothing happened".
         // The flags do not go through the buffer, so they stay truthful.
         const asked = Number(/terminals\?\.\((\d+)\)/.exec(e)?.[1] ?? 200);
+        calls.asked.push(asked);
         const blanked = asked < viewportRows;
         if (blanked) calls.smallReads++;
         const row = { leafId, ...script[at], text: blanked ? "" : script[at].text };
-        return Promise.resolve({ result: { value: empty ? [] : [row] } });
+        // Through the REAL injected reducer, not around it.
+        return Promise.resolve({ result: { value: runInjected(e, empty ? [] : [row]) } });
       }
       // `focusedLeaf()` - the pane the driver would be typing into.
       if (e.includes("activeElement")) return Promise.resolve({ result: { value: leafId } });
@@ -352,6 +422,29 @@ console.log("\n[sh] does not mistake the PREVIOUS prompt for the command finishi
   else console.log("  ok: one PTY write, carriage return included");
 }
 
+console.log("\n[reads] a small `lines` trims the ANSWER, and never narrows what xterm is asked");
+{
+  // The rows-vs-lines trap, made structurally impossible rather than merely
+  // avoided. `getBuffer(n)` returns the last n ROWS and strips the trailing
+  // blank ones, and on a pane that has not scrolled those last rows ARE the
+  // blanks - so a narrow read returns "", which a change-detector reads as
+  // "nothing happened". Every read now asks for BUFFER_ROWS and trims in the
+  // page, so `lines: 2` is finally an honest thing to pass.
+  const { calls, d } = scriptedTerminal([FINISHED], { viewportRows: 30 });
+  const rows = (await d.terminals(2)) as { text: string }[];
+  if (calls.asked.some((n) => n < 30)) {
+    fail(`a read asked xterm for ${Math.min(...calls.asked)} rows - those come back ""`);
+  } else console.log(`  ok: asked xterm for ${calls.asked.join("/")} rows while returning 2 lines`);
+  // And the trim itself has to have happened, IN THE PAGE. This is the check
+  // that catches the `\\n` written with one backslash: the split then happens on
+  // a literal two-character sequence, the "tail" is the whole buffer, and every
+  // includes()-style assertion in this file still passes.
+  const lines = rows[0].text.split("\n");
+  if (lines.length !== 2) {
+    fail(`injected tail returned ${lines.length} lines, want 2 - is the \\n in it a REAL newline?`);
+  } else console.log("  ok: the injected tail split on a real newline");
+}
+
 console.log("\n[sh] reports a command that never returns instead of hanging or lying");
 {
   // A TUI: output appears, the prompt never comes back.
@@ -389,9 +482,11 @@ console.log("\n[sh] does not guess a pane when focus is elsewhere and several ar
       const e = params.expression ?? "";
       if (e.includes("__tedi?.termWrite")) return Promise.resolve({ result: { value: true } });
       if (e.includes("__tedi?.terminals")) {
-        return Promise.resolve({
-          result: { value: [{ leafId: 4, ...PROMPT }, { leafId: 9, ...PROMPT }] },
-        });
+        const rows = [
+          { leafId: 4, ...PROMPT },
+          { leafId: 9, ...PROMPT },
+        ];
+        return Promise.resolve({ result: { value: runInjected(e, rows) } });
       }
       // Focus is in an EDITOR leaf, which is a real leaf id and not a terminal.
       if (e.includes("activeElement")) return Promise.resolve({ result: { value: 7 } });
@@ -419,12 +514,28 @@ console.log("\n[waitTerminal] both conditions, and the empty case");
   // paint something the PS1 heuristic reads as a prompt WHILE the command is
   // still running. `atPrompt` alone would call that done mid-command.
   const BUSY_BUT_PROMPTY = { atPrompt: true, running: true, text: "PS D:\\repo> build" };
-  const { d } = scriptedTerminal([ECHOED, BUSY_BUT_PROMPTY, BUSY_BUT_PROMPTY, FINISHED]);
+  const { calls, d } = scriptedTerminal([ECHOED, BUSY_BUT_PROMPTY, BUSY_BUT_PROMPTY, FINISHED]);
   const r = await d.waitTerminal({ settle: 20, timeout: 4000 });
   if (!r.done || r.reason !== "prompt returned") fail(`prompt wait: ${JSON.stringify(r)}`);
   else if (!r.tail.includes(OUTPUT_TOKEN)) {
     fail(`returned while the command was still running: ${JSON.stringify(r.tail)}`);
-  } else console.log(`  ok: prompt case -> ${r.reason}, and it waited out a prompt-shaped busy state`);
+  } else
+    console.log(`  ok: prompt case -> ${r.reason}, and it waited out a prompt-shaped busy state`);
+
+  // The two halves of the read-width rule, pinned in both directions, because
+  // "optimising" either one is the mistake that keeps getting made.
+  //
+  // The POLL must be cheap: it reads two booleans, never `t.text`, so there is
+  // no buffer to build in the page and nothing for a narrow read to blank out.
+  // Widening it back to 200 rows means rebuilding every pane's scrollback three
+  // times a second to answer a question about two flags.
+  const poll = calls.asked.slice(0, -1);
+  if (poll.some((n) => n > 1)) fail(`prompt poll asked for ${Math.max(...poll)} rows, want 1`);
+  else console.log(`  ok: ${poll.length} prompt polls, 1 row each (flags only)`);
+  // The FINAL read carries text, so it must be wide - a narrow one returns "".
+  const last = calls.asked.at(-1) ?? 0;
+  if (last < 30) fail(`the tail read asked for ${last} rows - that comes back ""`);
+  else console.log(`  ok: the one read that carries text asked for ${last} rows`);
 }
 {
   // Five lines of output, a two-line tail asked for. The COUNT is the assertion:
@@ -488,12 +599,17 @@ console.log("\n[privacy] every pane accessor routes through the private-leaf fil
   const open = src.indexOf("w.__tedi = {");
   const close = src.indexOf("\n    };", open);
   if (open < 0 || close < 0) {
-    fail("cannot find the `w.__tedi = {...}` block in usePaneHandles.ts - was it moved or renamed?");
+    fail(
+      "cannot find the `w.__tedi = {...}` block in usePaneHandles.ts - was it moved or renamed?",
+    );
   } else {
     const block = src.slice(open, close);
     // Prettier pins the top-level keys of this object at six spaces, which is
     // what makes a slice-between-keys good enough here without a parser.
-    const keys = [...block.matchAll(/^ {6}(\w+):/gm)].map((m) => ({ name: m[1], at: m.index ?? 0 }));
+    const keys = [...block.matchAll(/^ {6}(\w+):/gm)].map((m) => ({
+      name: m[1],
+      at: m.index ?? 0,
+    }));
     if (keys.length < 6) fail(`only ${keys.length} accessors found; the block shape changed`);
     for (const [i, k] of keys.entries()) {
       const body = block.slice(k.at, keys[i + 1]?.at ?? block.length);
@@ -560,10 +676,68 @@ console.log("\n[transport] a closed socket rejects instead of parking forever");
     // eslint-disable-next-line no-eval -- a regex literal read from our own source
     const re = eval(literal) as RegExp;
     if (!re.test(message)) {
-      fail(`mcp.mjs would NOT drop the dead connection: ${literal} does not match ${JSON.stringify(message)}`);
+      fail(
+        `mcp.mjs would NOT drop the dead connection: ${literal} does not match ${JSON.stringify(message)}`,
+      );
     } else console.log(`  ok: ${literal} matches it, so the next call reconnects`);
   }
 }
+
+// ---------------------------------------------------------------------------
+// 7. One definition, two transports.
+// ---------------------------------------------------------------------------
+
+/**
+ * Settings and extension control are reachable two ways: an outside AI CLI comes
+ * in through `window.__tedi` over the DevTools socket, and TEDI's own agent calls
+ * the same functions directly from `ai/tools/tedi.ts`.
+ *
+ * The built-in agent deliberately does NOT go through the MCP server. It would
+ * have to spawn node and connect back over CDP to the page it is already running
+ * in; it would stop working whenever the automation port is off, which is the
+ * default; and a page target accepts exactly ONE DevTools client, so it would be
+ * competing for the socket with the user's real Claude Code session.
+ *
+ * What must not be duplicated, then, is the DEFINITION - and the way that rots
+ * is quietly: someone inlines the logic back into one of the two registrations,
+ * the behaviours drift, and the only symptom is the built-in agent and an
+ * outside CLI disagreeing about what a setting does. So both call sites are
+ * checked to REFERENCE the shared function rather than re-implement it.
+ */
+console.log("\n[one definition] both transports call the same functions, not two copies");
+const shared: [string, string, string[]][] = [
+  [
+    "src/modules/settings/preferences.ts",
+    "settings",
+    ["export function readSettings", "export async function writeSetting"],
+  ],
+  [
+    "src/modules/extensions/store.ts",
+    "extensions",
+    ["export function listExtensions", "export async function controlExtension"],
+  ],
+];
+const agentTools = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
+for (const [file, what, exports] of shared) {
+  const src = await readFile(file, "utf8");
+  for (const decl of exports) {
+    const fn = decl.split(" ").pop() as string;
+    if (!src.includes(decl)) fail(`${file} no longer exports ${fn}`);
+    // The `window.__tedi` half must POINT at it. An inline arrow function there
+    // is exactly the regression this check exists for.
+    else if (!new RegExp(`__tedi[\\s\\S]*\\b${fn}\\b`).test(src)) {
+      fail(`${file}: window.__tedi does not reference ${fn} - has it been re-implemented inline?`);
+    } else if (!agentTools.includes(fn)) {
+      fail(`ai/tools/tedi.ts does not use ${fn} - the built-in agent has forked from MCP`);
+    } else console.log(`  ok: ${what}.${fn} has one implementation, used by both`);
+  }
+}
+// And the built-in agent must not reach TEDI through the MCP server: that would
+// be a subprocess and a socket round trip into its own realm, gated on a port
+// that is off by default.
+if (/director\/mcp|TEDI_DEBUG_PORT|__tedi\b/.test(agentTools)) {
+  fail("ai/tools/tedi.ts reaches for the MCP/automation channel instead of calling in-realm");
+} else console.log("  ok: the built-in agent calls in-realm, never through the DevTools socket");
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");

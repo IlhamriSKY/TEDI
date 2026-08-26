@@ -1132,6 +1132,95 @@ export async function _writeAny(key: string, value: unknown): Promise<void> {
   await writePref(key, value);
 }
 
+/**
+ * Port the automation channel (DevTools + `window.__tedi`) listens on at the
+ * NEXT launch, or 0 for off. Written by the Install MCP flow.
+ *
+ * Not a member of `Preferences`, and that is the point: `_writePreference`
+ * allow-lists on `DEFAULT_PREFERENCES`, so the MCP `set_setting` tool cannot
+ * reach this key and a driving agent cannot make its own access permanent.
+ * Rust reads the same key straight off disk at startup
+ * (`src-tauri/src/modules/automation.rs`) - WebView2 fixes its browser arguments
+ * when it creates its environment, so this can only ever take effect on a
+ * restart, never on the running window.
+ */
+const KEY_AUTOMATION_PORT = "automationPort";
+
+export async function getAutomationPort(): Promise<number> {
+  return (await store.get<number>(KEY_AUTOMATION_PORT)) ?? 0;
+}
+
+export async function setAutomationPort(port: number): Promise<void> {
+  await writePref(
+    KEY_AUTOMATION_PORT,
+    Number.isInteger(port) && port > 0 && port < 65536 ? port : 0,
+  );
+}
+
+/**
+ * Write ONE built-in preference by key, for the automation surface a driving
+ * agent reaches over MCP (`scripts/director/`). The typed setters above stay the
+ * route for app code; this exists because a driver has a key and a value, not a
+ * function reference, and 50-odd setters behind a hand-written name table would
+ * rot the moment a preference is added.
+ *
+ * `DEFAULT_PREFERENCES` IS the allow-list, so the set can never drift from the
+ * real one, and the `typeof` check rejects the realistic junk write (a string
+ * where a number belongs). It is deliberately loose about shape beyond that:
+ * `loadPreferences()` clamps and normalises every value it reads, so a merely
+ * out-of-range write self-heals on the next load rather than persisting damage.
+ *
+ * Clamping setters (`setAppOpacity`, `setEditorFontSize`) are BYPASSED, which is
+ * why the read path doing the clamping matters - it is what makes that safe.
+ */
+export async function _writePreference(key: string, value: unknown): Promise<void> {
+  if (!Object.hasOwn(DEFAULT_PREFERENCES, key)) {
+    throw new Error(
+      `"${key}" is not a preference. Known keys: ${Object.keys(DEFAULT_PREFERENCES).join(", ")}`,
+    );
+  }
+  const expected = DEFAULT_PREFERENCES[key as keyof Preferences];
+  // `null` defaults (defaultProviderId, lastModelId) take whatever they are
+  // given; there is nothing to check against.
+  if (expected === null) {
+    await writePref(key, value);
+    return;
+  }
+  // A string arriving for a non-string preference is COERCED, not rejected. The
+  // MCP tool types its `value` as a plain string on purpose (a union `type` is
+  // valid JSON Schema but not every AI CLI's schema converter accepts one), and
+  // some harnesses stringify every argument regardless. The target type is known
+  // here, so the coercion is exact rather than a guess.
+  const coerced =
+    typeof value === "string" && typeof expected !== "string" ? parseAs(value, expected) : value;
+  if (typeof coerced !== typeof expected) {
+    throw new Error(
+      `"${key}" wants a ${typeof expected}, got ${coerced === null ? "null" : typeof coerced}`,
+    );
+  }
+  await writePref(key, coerced);
+}
+
+/** One string -> the type `expected` already has. Returns the string unchanged
+ *  when it cannot, so the caller's type check is what reports the failure. */
+function parseAs(value: string, expected: unknown): unknown {
+  if (typeof expected === "boolean") {
+    // Not `Boolean(value)`: that makes the string "false" true.
+    if (value === "true") return true;
+    if (value === "false") return false;
+    return value;
+  }
+  if (typeof expected === "number") {
+    const n = Number(value);
+    return Number.isFinite(n) ? n : value;
+  }
+  try {
+    return JSON.parse(value) as unknown;
+  } catch {
+    return value;
+  }
+}
+
 /** Reader for ext-namespaced keys. `loadPreferences()` ignores them. */
 export async function _readAny<T = unknown>(key: string): Promise<T | undefined> {
   if (!key.startsWith("ext:")) {
