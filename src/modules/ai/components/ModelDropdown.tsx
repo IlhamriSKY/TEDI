@@ -16,7 +16,7 @@ import {
   getDetectedModels,
   groupOpenAICompatibleByInstance,
   MODELS,
-  providerNeedsKey,
+  providerIsConnected,
   PROVIDERS,
   resolveModelInfo,
   type DynamicModelId,
@@ -79,12 +79,13 @@ export function ModelDropdown() {
   // warning for a model that works. Mirrors the send path (resolveModelInfo), and
   // never throws for runtime-detected ids missing from MODELS.
   const current = resolveModelInfo(selected, selectedProvider);
-  const currentProviderHasKey = !providerNeedsKey(current.provider) || !!apiKeys[current.provider];
+  const currentProviderHasKey = providerIsConnected(current.provider, apiKeys);
 
   const onPick = (id: DynamicModelId, providerId: ProviderId) => {
-    // Keyless providers (LM Studio) have no apiKeys entry; only gate the pick on a
-    // missing key for providers that actually need one.
-    if (providerNeedsKey(providerId) && !apiKeys[providerId]) {
+    // Keyless providers (LM Studio) have no apiKeys entry, and ChatGPT is
+    // connected by signing in rather than by a key - `providerIsConnected` is
+    // the question worth asking, "does it take a key" is not.
+    if (!providerIsConnected(providerId, apiKeys)) {
       void openSettingsWindow("models");
       return;
     }
@@ -124,7 +125,7 @@ export function ModelDropdown() {
         // endpoint is valid, and the shared apiKeys slot only reflects the
         // default instance), so never drop the whole provider on that slot -
         // that hid every working local server's models from the picker.
-        if (p.id !== "openai-compatible" && providerNeedsKey(p.id) && !apiKeys[p.id]) return [];
+        if (p.id !== "openai-compatible" && !providerIsConnected(p.id, apiKeys)) return [];
         // OpenAI-Compatible: one section per configured endpoint, headed by its
         // label, since several can be added under the one provider id.
         if (p.id === "openai-compatible") {
@@ -272,7 +273,7 @@ export function ModelDropdown() {
               models={pinnedFiltered.map(({ model, provider }) => ({
                 model,
                 provider,
-                hasKey: providerNeedsKey(provider.id) ? !!apiKeys[provider.id] : true,
+                hasKey: providerIsConnected(provider.id, apiKeys),
               }))}
               collapsed={!isSectionOpen("__pinned")}
               onToggle={() => toggleSection("__pinned", isSectionOpen("__pinned"))}
@@ -297,9 +298,7 @@ export function ModelDropdown() {
                     oaiCompatInstances.find((i) => i.id === s.instanceId)?.baseURL ?? "",
                     apiKeys[p.id],
                   )
-                : providerNeedsKey(p.id)
-                  ? !!apiKeys[p.id]
-                  : true;
+                : providerIsConnected(p.id, apiKeys);
             // Detection status note for gateways whose catalogue is fetched
             // dynamically. OpenAI-Compatible reads its own instance's status.
             const gateway = gatewayCatalogues[p.id];

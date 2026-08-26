@@ -64,7 +64,8 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    backup, cli, cli_ext, cli_theme, cli_update, clipboard, extensions, format, fs, git, mcp, net,
+    backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, extensions, format, fs,
+    git, mcp, net,
     preview, pty, pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -761,6 +762,8 @@ pub fn run() {
             cli::cli_classify_path,
             cli::cli_take_initial_update_request,
             cli::cli_install_path_shim,
+            chatgpt_auth::chatgpt_auth_login,
+            chatgpt_auth::chatgpt_auth_refresh,
             secrets::secrets_get,
             secrets::secrets_set,
             secrets::secrets_delete,

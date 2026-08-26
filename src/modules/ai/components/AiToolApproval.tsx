@@ -10,6 +10,7 @@ import {
   FilePlus,
   Folder,
   FolderPlus,
+  Globe,
   Move,
   Replace,
   Search,
@@ -42,6 +43,9 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   list_directory: { label: "List directory (outside workspace)", icon: Folder },
   grep: { label: "Search (outside workspace)", icon: Search },
   glob: { label: "Find files (outside workspace)", icon: Search },
+  fetch: { label: "Send a request to a new host", icon: Globe },
+  open_browser: { label: "Open a new host in the browser", icon: Globe },
+  navigate_and_read: { label: "Open a new host in the browser", icon: Globe },
 };
 
 function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
@@ -217,6 +221,34 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
         <div className="text-muted-foreground break-all">{String(input.pattern ?? "")}</div>
         <div className="text-muted-foreground/80 text-[10.5px] break-all">
           root: {String(input.root ?? "(default)")} · outside the workspace root
+        </div>
+      </div>
+    );
+  }
+  if (toolName === "fetch" || toolName === "open_browser" || toolName === "navigate_and_read") {
+    // The decision here is "may the agent talk to this host", so the HOST is the
+    // line to read, not one key buried in a JSON dump. Everything the agent sends
+    // - query string, headers, body - rides on it, so the full URL stays visible
+    // underneath. See the egress note in lib/security.ts.
+    const url = String(input.url ?? "");
+    let host = url;
+    try {
+      host = new URL(url).host || url;
+    } catch {
+      /* leave the raw string; the tool refuses an unparseable URL anyway */
+    }
+    const method = toolName === "fetch" ? `${String(input.method ?? "GET")} ` : "";
+    return (
+      <div className="space-y-1">
+        <div className="font-mono text-xs font-medium">
+          {method}
+          {host}
+        </div>
+        <div className="text-muted-foreground overflow-auto font-mono text-[11px] break-all">
+          {url}
+        </div>
+        <div className="text-muted-foreground text-[11px]">
+          Approving trusts this host for the rest of the session.
         </div>
       </div>
     );

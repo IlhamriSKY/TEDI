@@ -9,14 +9,14 @@ import { buildSubagentTools } from "./subagent";
 import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
 import { buildTodoTools } from "./todo";
-import { buildMcpToolsAsync, getMcpToolsSummary } from "./mcp";
+import { buildMcpToolsAsync } from "./mcp";
 import { buildExtensionTools } from "./extensions";
 import { describeTools, type ToolDescriptor } from "./catalog";
 
 import type { ToolContext } from "./context";
 
 export { resolvePath, type ToolContext } from "./context";
-export { buildMcpToolsAsync, getMcpToolsSummary };
+export { buildMcpToolsAsync };
 
 /**
  * AI tool definitions.

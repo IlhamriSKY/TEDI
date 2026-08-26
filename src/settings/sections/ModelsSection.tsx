@@ -43,6 +43,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { emitKeysChanged, setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { useEffect, useState } from "react";
 import { ProviderIcon } from "../components/ProviderIcon";
+import { ChatGptAccountCard } from "../components/ChatGptAccountCard";
 import { ProviderKeyCard } from "../components/ProviderKeyCard";
 import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
@@ -359,12 +360,22 @@ export function ModelsSection() {
           ) : null}
         </div>
 
-        {/* Empty-state: no providers connected AND no add in progress. */}
+        {/* Account sign-in leads: it is the one provider you connect without
+            pasting anything, and it has to come BEFORE the empty state or the
+            page reads "no providers connected, click Add provider" directly
+            above the card that connects one. */}
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <ChatGptAccountCard />
+        </div>
+
+        {/* Empty-state: no KEYED provider connected and no add in progress. The
+            ChatGPT card above is its own path, so the copy names both. */}
         {configuredKeyed.length === 0 && !oaiCompatConfigured && addingProvider === null ? (
           <div className="border-border/50 bg-card/30 flex flex-col items-center gap-1 rounded-lg border border-dashed px-3 py-6 text-center">
-            <span className="text-foreground text-[12.5px]">No providers connected yet.</span>
+            <span className="text-foreground text-[12.5px]">No API keys added yet.</span>
             <span className="text-muted-foreground text-[10.5px]">
-              Click &ldquo;Add provider&rdquo; to connect a cloud or local model source.
+              Sign in above to use a ChatGPT subscription, or click &ldquo;Add provider&rdquo; to
+              connect a cloud or local model source with a key.
             </span>
           </div>
         ) : null}

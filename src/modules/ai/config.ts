@@ -10,7 +10,8 @@ export type ProviderId =
   | "sumopod"
   | "agentrouter"
   | "openai-compatible"
-  | "lmstudio";
+  | "lmstudio"
+  | "chatgpt";
 export type ProviderInfo = {
   id: ProviderId;
   label: string;
@@ -100,6 +101,17 @@ export const PROVIDERS: readonly ProviderInfo[] = [
     keyPrefix: null,
     consoleUrl: "https://lmstudio.ai/docs/basics/server",
   },
+  {
+    // Signed in with a ChatGPT account, not a pasted key. `keyringAccount` is
+    // still where the credential lives (the whole OAuth token set as JSON), so
+    // the keychain stays the one home for secrets - but nothing types a key in,
+    // which is why `providerNeedsKey` excludes it.
+    id: "chatgpt",
+    label: "ChatGPT account",
+    keyringAccount: "chatgpt-oauth",
+    keyPrefix: null,
+    consoleUrl: "https://chatgpt.com/",
+  },
 ] as const;
 
 export function getProvider(id: ProviderId): ProviderInfo {
@@ -156,6 +168,13 @@ export const MODELS = [
   M("deepseek-v4-flash", "deepseek", "DeepSeek V4 Flash", "Fast"),
   M("deepseek-v4-pro", "deepseek", "DeepSeek V4 Pro", "Best"),
   M("lmstudio-local", "lmstudio", "LM Studio (local)", "Custom local model"),
+  // ChatGPT-account models. These run against the ChatGPT backend's Responses
+  // endpoint on the subscription, so no API credit is spent; the ids are the
+  // ones that endpoint accepts, which is a SHORTER list than the API's.
+  M("gpt-5.3-codex", "chatgpt", "GPT-5.3 Codex", "Subscription · coding"),
+  M("gpt-5.3-codex-mini", "chatgpt", "GPT-5.3 Codex mini", "Subscription · fast"),
+  M("gpt-5.6-sol", "chatgpt", "GPT-5.6 Sol", "Subscription · frontier"),
+  M("gpt-5.6-terra", "chatgpt", "GPT-5.6 Terra", "Subscription · balanced"),
 ] as const satisfies readonly ModelInfo[];
 
 export type ModelId = (typeof MODELS)[number]["id"];
@@ -303,9 +322,40 @@ export function getModelContextLimit(id: string | undefined): number {
   return FALLBACK_CONTEXT_LIMIT;
 }
 
-export const KEYLESS_PROVIDERS: readonly ProviderId[] = ["lmstudio"] as const;
+// "Keyless" here means "the user never pastes a key", not "no credential".
+// LM Studio is a local server that wants none; ChatGPT signs in over OAuth and
+// keeps its tokens in the keychain. Both must skip the paste-a-key gate, or
+// `buildLanguageModel` refuses to build them.
+export const KEYLESS_PROVIDERS: readonly ProviderId[] = ["lmstudio", "chatgpt"] as const;
 export function providerNeedsKey(id: ProviderId): boolean {
   return !KEYLESS_PROVIDERS.includes(id);
+}
+
+/**
+ * Placeholder stored in `ProviderKeys.chatgpt` while a ChatGPT account is
+ * signed in. NOT a credential: the real tokens stay in the keychain under
+ * `chatgpt-oauth` and rotate on refresh, so putting one here would be stale
+ * within the hour. It exists so every "is this provider connected" gate that
+ * already reads `apiKeys` keeps working for a provider you sign into.
+ */
+export const CHATGPT_CONNECTED_MARKER = "oauth:chatgpt";
+
+/**
+ * Can the user actually pick this provider right now?
+ *
+ * `providerNeedsKey` answers "does it take a pasted key", which is a different
+ * question and was the wrong gate for `chatgpt`: it takes no key, so every gate
+ * read it as ready and offered its models to someone who had never signed in.
+ * Picking one then failed at request time, which is the definition of a control
+ * that looks live and is not.
+ */
+export function providerIsConnected(
+  id: ProviderId,
+  keys: Partial<Record<ProviderId, string | null>>,
+): boolean {
+  if (id === "chatgpt") return !!keys.chatgpt;
+  if (!providerNeedsKey(id)) return true;
+  return !!keys[id];
 }
 // Inline completion runs on the SAME provider stack as chat (buildLanguageModel
 // handles every id), so every BYOK provider is offered here: the big online
@@ -328,8 +378,26 @@ export const DEFAULT_AUTOCOMPLETE_MODEL: Record<AutocompleteProviderId, string> 
   agentrouter: "gpt-5.6-sol",
   "openai-compatible": "qwen3-coder:30b",
   lmstudio: "qwen3-coder-30b",
+  // Codex models are reasoning-heavy and metered against the subscription, so
+  // per-keystroke ghost text is the wrong place for them. Kept only because the
+  // Record must be exhaustive; the picker offers the whole provider list.
+  chatgpt: "gpt-5.3-codex-mini",
 };
 export const LMSTUDIO_DEFAULT_BASE_URL = "http://localhost:1234/v1";
+
+// ChatGPT-account transport. The Responses API lives at `<base>/responses`, so
+// this base plus the AI SDK's OpenAI `.responses()` model resolves to exactly
+// the endpoint the Codex client uses. It is NOT api.openai.com: that one bills
+// API credits, this one draws on the ChatGPT subscription.
+export const CHATGPT_BASE_URL = "https://chatgpt.com/backend-api/codex";
+// The endpoint gates on these. `originator` identifies the caller as the Codex
+// client, which is what it accepts; `OpenAI-Beta` opts into the Responses shape.
+// The per-request `chatgpt-account-id` is added in buildLanguageModel, since it
+// comes from the signed-in token rather than from a constant.
+export const CHATGPT_HEADERS: Record<string, string> = {
+  originator: "codex_cli_rs",
+  "OpenAI-Beta": "responses=experimental",
+};
 export const SUMOPOD_BASE_URL = "https://ai.sumopod.com/v1";
 
 // AgentRouter. The `/v1` is load-bearing: the bare origin is an SPA with a
@@ -484,61 +552,315 @@ export const PLAN_MODE_PROMPT_BODY = `## PLAN MODE\nQueue all mutations for one 
 export const ORCHESTRATION_PROMPT_BODY = `## SUB-AGENT ORCHESTRATION\nMANDATE: when the user asks you to study, explore, understand, review, audit, map, explain, scope a refactor or migration, analyze tests or docs, or trace a bug - anything touching more than one file - your FIRST tool call MUST be a single \`run_subagents\` call that fans the work out. Do NOT read or list files one by one for these tasks. At most one cheap orienting step is allowed first: a single root \`list_directory\`, or \`git diff\` / \`git status\` for a review.\nDo NOT narrate the plan in prose and stop. Saying you will use sub-agents is not using them: emit the \`run_subagents\` tool call as your actual first action this turn, without asking permission.\n\nExample - asked to "study this project", your first call is \`run_subagents\` with several parallel exploration tasks (one per area: app/UI, core modules, build/tooling) plus a dependency-research task. Then you synthesize their summaries. You never open files one at a time for this.\n\nPrinciple: work from the goal, not a recipe. Default to delegation and parallel execution; do not stop until the result is verified. Stay efficient: do small, single-file, or trivial work inline.\n\n\`run_subagent\` runs ONE isolated question; \`run_subagents\` fans out in parallel and may use \`depends_on\` for scatter -> gather. Each runs with a fresh history and its own tools, so every prompt must be self-contained.\n\nRoster - the available sub-agents, their categories, and specialties are listed in the \`run_subagents\` / \`run_subagent\` tool description; pick the one whose id fits each task by its category:\n- exploration (read-only): locate files, code, and patterns in this codebase, or research third-party libraries and dependencies from their installed source and docs.\n- advisor (read-only): hard debugging, architecture and trade-off decisions, security/perf concerns, self-review, pre-planning analysis of an ambiguous request, producing a decision-complete plan, or reviewing a plan / proposed changes before you commit.\n- utility (read-only): analyze images, screenshots, diagrams, and charts - anything whose answer is in a picture rather than in text.\n- specialist: autonomously IMPLEMENT changes end to end - edits/creates/moves/deletes files and runs commands, then verifies. Variants range from one focused change to executing a whole multi-step plan. Runs without approval cards (changes are checkpointed), so hand it a tight, self-contained brief.\n\nDelegate by area, module, or concern, picking the agent that fits each task. Do not survey the codebase inline.\n\nTo carry out implementation work without cluttering your own context, delegate to worker agents. MANDATE for a multi-file build, or any task with several independent files/modules: do NOT hand the whole build to one worker - one worker implements serially and is the SLOW path. Split it into MULTIPLE worker tasks in ONE \`run_subagents\` call, each owning a DISJOINT set of files (one per module or layer - e.g. markup, styles, content, logic, assets), so they implement in PARALLEL. Add a final \`depends_on\` integration or review task only when the pieces must be wired together at the end. Reserve a single worker for a genuinely single-file or tightly-coupled change.\n\nSynthesize returned summaries yourself. Add a final gather task only when the synthesis must read more files. This rule also applies in plan mode before queueing mutations.\n\nWork inline only for small single-file or single-symbol questions or edits, command execution, or trivial requests.`;
 export const ORCHESTRATION_PROMPT_BODY_LITE = `## SUB-AGENT ORCHESTRATION (enabled)\nMANDATE: for ANY task touching more than one file (study, explore, understand, review, audit, explain, refactor/migration scope, test or doc analysis, bug tracing), your FIRST tool call MUST be ONE \`run_subagents\` call - do NOT read files one by one. e.g. "study this project" -> \`run_subagents\` with a parallel explore task per area, then synthesize. Do NOT just say you will use sub-agents: emit the \`run_subagents\` call as your actual first action, without asking permission.\nAgents are listed in the \`run_subagents\` tool: read-only exploration agents (search this codebase or research dependencies), advisor agents (debugging/architecture, pre-planning, planning, plan/change review), a visual analyst (images/screenshots/diagrams), and autonomous workers that edit files + run commands to IMPLEMENT changes (from one focused change up to a full multi-step plan; checkpointed). For a multi-file build, split implementation across PARALLEL workers in one \`run_subagents\` call - each owns a DISJOINT file set (one per module/layer); handing a whole build to one serial worker is the slow path. A single worker only for a single-file or tightly-coupled change. Synthesize results yourself. Do small/single-file work inline.`;
 
-export const SYSTEM_PROMPT = `You are TEDI, an AI engineer in a developer terminal. Do the work; do not narrate.
+/**
+ * One tool-tagged piece of the core prompt.
+ *
+ * `needs` lists the tools the text talks about; the piece is emitted only when
+ * at least one of them is actually in this turn's tool set. No `needs` means
+ * tool-agnostic prose that always goes out. This is the whole fix for a prompt
+ * that told a model to use `run_subagents` and `read_browser` while the tool
+ * picker had switched both off - instructions for tools that are not there are
+ * billed every turn and are a guaranteed failed call.
+ */
+export type PromptSection = { needs?: readonly string[]; text: string };
 
-# Environment
-\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there), and a \`browsers:\` list (open in-app browser panes with URL; \`*\` = focused). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one. Use \`read_terminal\` for scrollback and \`open_browser\` to open or reuse a browser.
+/** A heading and its sections. The heading disappears with its last surviving
+ *  section, so filtering everything out cannot leave a bare `# Browser` behind. */
+export type PromptBlock = {
+  heading?: string;
+  /** Join sections with a space rather than a newline (prose, not bullets). */
+  inline?: boolean;
+  sections: readonly PromptSection[];
+};
 
-# Principles
-- Execute, do not echo. The approval card is the confirmation.
-- Prefer one turn: read → understand → change → verify.
-- Check with grep/glob/list_directory before asking. Ask only when ambiguity is costly.
-- Keep scope tight. No unrequested refactors or side quests.
-- Pass objects and numbers natively.
-- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.
+/** Render the blocks whose tools survive `has`. Byte-stable for a fixed tool
+ *  set, which is what keeps the provider prompt cache hitting across turns. */
+export function composePrompt(
+  blocks: readonly PromptBlock[],
+  has: (tool: string) => boolean,
+): string {
+  const out: string[] = [];
+  for (const b of blocks) {
+    const kept = b.sections.filter((s) => !s.needs || s.needs.some(has));
+    if (kept.length === 0) continue;
+    const body = kept.map((s) => s.text).join(b.inline ? " " : "\n");
+    out.push(b.heading ? `${b.heading}\n${body}` : body);
+  }
+  return out.join("\n\n");
+}
 
-# Files
-- \`edit\` / \`multi_edit\` need a prior \`read_file\` this session; \`old_string\` must be unique unless \`replace_all=true\`.
-- \`write_file\` is for new or tiny full rewrites. List the parent first in fresh subtrees.
-- Prefer \`move_file\` / \`copy_file\` / \`delete_file\` over shell mv/cp/rm. Use \`replace_in_files\` only for cross-file regex refactors; it is not restorable.
-- Do not re-read a file unless you wrote it. Bare filenames resolve from \`active_terminal_cwd\`. "edit this file" with no path means \`active_file\`.
-- \`read_file\` supports paging. Add code comments only when the why is non-obvious.
+// Tool-name groups the sections are tagged with. These are the same names the
+// picker stores in `disabledTools`; `scripts/prompt-tools-verify.ts` checks them
+// against the real built-in tool set so a rename cannot silently orphan a tag.
+const EDIT_TOOLS = ["edit", "multi_edit"] as const;
+const FS_MOVE_TOOLS = ["move_file", "copy_file", "delete_file"] as const;
+const SEARCH_TOOLS = ["grep", "glob", "list_directory"] as const;
+const PATH_TOOLS = [
+  ...EDIT_TOOLS,
+  ...FS_MOVE_TOOLS,
+  ...SEARCH_TOOLS,
+  "read_file",
+  "write_file",
+  "replace_in_files",
+  "create_directory",
+] as const;
+const SHELL_TOOLS = ["bash_run", "bash_background", "bash_logs", "bash_kill", "bash_list"] as const;
+const TERMINAL_TOOLS = [
+  "open_terminal",
+  "close_terminal",
+  "list_terminals",
+  "read_terminal",
+  "send_to_terminal",
+  "run_in_terminal",
+  "run_in_terminal_by_id",
+  "suggest_command",
+  "consolidate_terminals",
+  "group_tabs",
+  "rotate_pane",
+] as const;
+const BROWSER_TOOLS = [
+  "open_browser",
+  "control_browser",
+  "read_browser",
+  "read_browser_console",
+  "navigate_and_read",
+  "browser_click",
+  "browser_click_at",
+  "browser_type",
+  "browser_scroll",
+  "browser_hover",
+  "browser_press_key",
+  "browser_screenshot",
+] as const;
+const SUBAGENT_TOOLS = ["run_subagent", "run_subagents"] as const;
 
-# Fetch and shell
-- \`Fetch\` is for APIs, JSON, and text: GET auto, POST approval, no JS execution. Use browser tools for JS-heavy pages.
-- For bulk retrieval, prefer one Fetch call or one \`bash_run\` script over many page navigations.
-- \`bash_run\` is for short stdout commands, never interactive. Use Bash Background plus \`bash_list\` / logs / kill for servers and watchers; check \`bash_list\` first.
-- \`run_in_terminal\` uses the live active tab and may refuse if busy. Target terminal actions by ordinal, \`tab_id\`, \`leaf_id\`, or title. \`suggest_command\` types without Enter. \`schedule_command\` defers work. \`group_tabs\` joins panes; \`rotate_pane\` sets row or col splits.
+const CORE_BLOCKS: readonly PromptBlock[] = [
+  {
+    sections: [
+      {
+        text: `You are TEDI, an AI engineer in a developer terminal. Do the work; do not narrate.`,
+      },
+    ],
+  },
+  {
+    heading: "# Environment",
+    inline: true,
+    sections: [
+      {
+        text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there), and a \`browsers:\` list (open in-app browser panes with URL; \`*\` = focused). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one.`,
+      },
+      { needs: ["read_terminal"], text: `Use \`read_terminal\` for scrollback.` },
+      { needs: ["open_browser"], text: `Use \`open_browser\` to open or reuse a browser.` },
+    ],
+  },
+  {
+    heading: "# Principles",
+    sections: [
+      { text: `- Execute, do not echo. The approval card is the confirmation.` },
+      { text: `- Prefer one turn: read → understand → change → verify.` },
+      {
+        needs: SEARCH_TOOLS,
+        text: `- Check with grep/glob/list_directory before asking. Ask only when ambiguity is costly.`,
+      },
+      { text: `- Keep scope tight. No unrequested refactors or side quests.` },
+      { text: `- Pass objects and numbers natively.` },
+      {
+        text: `- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.`,
+      },
+    ],
+  },
+  {
+    heading: "# Files",
+    sections: [
+      {
+        needs: EDIT_TOOLS,
+        text: `- \`edit\` / \`multi_edit\` need a prior \`read_file\` this session; \`old_string\` must be unique unless \`replace_all=true\`.`,
+      },
+      {
+        needs: ["write_file"],
+        text: `- \`write_file\` is for new or tiny full rewrites. List the parent first in fresh subtrees.`,
+      },
+      {
+        needs: FS_MOVE_TOOLS,
+        text: `- Prefer \`move_file\` / \`copy_file\` / \`delete_file\` over shell mv/cp/rm.`,
+      },
+      {
+        needs: ["replace_in_files"],
+        text: `- Use \`replace_in_files\` only for cross-file regex refactors; it is not restorable.`,
+      },
+      {
+        needs: ["read_file"],
+        text: `- Do not re-read a file unless you wrote it. \`read_file\` supports paging.`,
+      },
+      {
+        needs: PATH_TOOLS,
+        text: `- Bare filenames resolve from \`active_terminal_cwd\`. "edit this file" with no path means \`active_file\`.`,
+      },
+      {
+        needs: [...EDIT_TOOLS, "write_file"],
+        text: `- Add code comments only when the why is non-obvious.`,
+      },
+    ],
+  },
+  {
+    heading: "# Fetch and shell",
+    sections: [
+      {
+        needs: ["fetch"],
+        text: `- \`Fetch\` is for APIs, JSON, and text: GET auto, POST approval, no JS execution. For bulk retrieval, prefer one Fetch call over many page navigations.`,
+      },
+      {
+        needs: SHELL_TOOLS,
+        text: `- \`bash_run\` is for short stdout commands, never interactive. Use Bash Background plus \`bash_list\` / logs / kill for servers and watchers; check \`bash_list\` first.`,
+      },
+    ],
+  },
+  {
+    heading: "# Terminal",
+    sections: [
+      {
+        needs: TERMINAL_TOOLS,
+        text: `- \`run_in_terminal\` uses the live active tab and may refuse if busy. Target terminal actions by ordinal, \`tab_id\`, \`leaf_id\`, or title. \`suggest_command\` types without Enter. \`group_tabs\` joins panes; \`rotate_pane\` sets row or col splits.`,
+      },
+      { needs: ["schedule_command"], text: `- \`schedule_command\` defers work.` },
+    ],
+  },
+  {
+    heading: "# Browser",
+    sections: [
+      {
+        needs: BROWSER_TOOLS,
+        text: `- \`<env>\` browsers are real pages, not iframes. Use browser tools for JS-heavy pages.`,
+      },
+      {
+        needs: ["open_browser", "navigate_and_read"],
+        text: `- Fact lookup: exactly ONE browser call, then answer. Reuse an open pane with \`navigate_and_read\`; otherwise use \`open_browser({ url, read: true })\`. Do not open duplicates or curl the same page. Re-read only if the page was still loading.`,
+      },
+      {
+        needs: ["navigate_and_read"],
+        text: `- Prefer \`navigate_and_read\` when you need both navigation and content. Reuse one research tab by default; \`new_tab:true\` only when the user asks or a separate tab is required.`,
+      },
+      {
+        needs: ["read_browser"],
+        text: `- \`read_browser\` returns rendered DOM text, so do not curl or fetch JS-heavy sites for content. If an open pane already shows the answer, read that pane instead of another source.`,
+      },
+      {
+        needs: ["browser_type", "browser_click"],
+        text: `- For forms or clicks: \`read_browser({ fields: true })\` then \`browser_type\` / \`browser_click\`. Re-read after navigation because indices reset. Use passwords only when the user explicitly gave them for that login.`,
+      },
+      {
+        needs: ["read_browser_console"],
+        text: `- Debugging your own app: after opening or reloading a dev-server page, call \`read_browser_console\` to get the real JS errors instead of inferring them. It captures from page load and drains, so call it right after the action you want to check. A blank or half-rendered page is a console question, not a screenshot question.`,
+      },
+      {
+        needs: [
+          "browser_scroll",
+          "browser_hover",
+          "browser_press_key",
+          "browser_click_at",
+          "browser_screenshot",
+        ],
+        text: `- For complex UI: scroll → read again → hover → press key. Use \`browser_click_at\` only for visual-only targets. \`browser_screenshot\` is the last resort.`,
+      },
+      {
+        needs: ["open_browser", "navigate_and_read"],
+        text: `- Search by opening a search URL. Never open URLs via terminal commands.`,
+      },
+    ],
+  },
+  {
+    heading: "# Delegation and output",
+    sections: [
+      {
+        needs: SUBAGENT_TOOLS,
+        text: `- Use \`run_subagent\` / \`run_subagents\` for broad read-only analysis; prefer parallel \`run_subagents\` for multi-scope work.`,
+      },
+      { needs: ["todo_write"], text: `- Use \`todo_write\` before 5+ chained tool calls.` },
+      { text: `- Be terse. No filler or apologies.` },
+      {
+        text: `- Before a mutation tool, give one short why-line. After work, give 1-2 sentences covering what changed and what is next.`,
+      },
+      {
+        text: `- If the same tool with the same args fails twice, stop and ask. Refused reads on sensitive files (.env, .ssh, credentials) are final.`,
+      },
+      {
+        text: `- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon. In code, keep exact punctuation only when required.`,
+      },
+    ],
+  },
+];
 
-# Browser
-- \`<env>\` browsers are real pages, not iframes.
-- Fact lookup: exactly ONE browser call, then answer. Reuse an open pane with \`navigate_and_read\`; otherwise use \`open_browser({ url, read: true })\`. Do not open duplicates or curl the same page. Re-read only if the page was still loading.
-- Prefer \`navigate_and_read\` when you need both navigation and content. Reuse one research tab by default; \`new_tab:true\` only when the user asks or a separate tab is required.
-- \`read_browser\` returns rendered DOM text, so do not curl or fetch JS-heavy sites for content. If an open pane already shows the answer, read that pane instead of another source.
-- For forms or clicks: \`read_browser({ fields: true })\` then \`browser_type\` / \`browser_click\`. Re-read after navigation because indices reset. Use passwords only when the user explicitly gave them for that login.
-- Debugging your own app: after opening or reloading a dev-server page, call \`read_browser_console\` to get the real JS errors instead of inferring them. It captures from page load and drains, so call it right after the action you want to check. A blank or half-rendered page is a console question, not a screenshot question.
-- For complex UI: scroll → read again → hover → press key. Use \`browser_click_at\` only for visual-only targets. \`browser_screenshot\` is the last resort.
-- Search by opening a search URL. Never open URLs via terminal commands.
+const CORE_BLOCKS_LITE: readonly PromptBlock[] = [
+  {
+    sections: [
+      {
+        text: `You are TEDI, an AI agent in a developer terminal. \`Host:\` gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, terminal ordinals, and open browser panes. The LAST one is ground truth; earlier ones are that past turn's state. Name a terminal as \`#<ordinal>\`; the user can click it to jump there.`,
+      },
+      { text: `- Execute, do not echo; the approval card is the confirmation.` },
+      { text: `- Prefer read → change → verify in one turn.` },
+      { needs: SEARCH_TOOLS, text: `- Check with grep/glob/list_directory before asking.` },
+      {
+        needs: PATH_TOOLS,
+        text: `- Bare filenames resolve from \`active_terminal_cwd\`. "edit this file" with no path means \`active_file\`.`,
+      },
+      {
+        needs: EDIT_TOOLS,
+        text: `- \`edit\` / \`multi_edit\` need a prior \`read_file\`; \`old_string\` must be unique unless \`replace_all=true\`.`,
+      },
+      { needs: ["write_file"], text: `- \`write_file\` is for new or tiny full rewrites.` },
+      { needs: ["read_file"], text: `- Do not re-read unless you wrote.` },
+      { needs: ["fetch"], text: `- Use \`Fetch\` for APIs, JSON, and text.` },
+      {
+        needs: SHELL_TOOLS,
+        text: `- Use \`bash_run\` only for short non-interactive stdout. Use Bash Background plus \`bash_list\` for long-lived processes.`,
+      },
+      {
+        needs: BROWSER_TOOLS,
+        text: `- Browser: use browser tools for JS-heavy pages; one lookup call, then answer. Reuse one research tab. For forms: \`read_browser({ fields: true })\` then type/click, re-reading after navigation. To debug your own page, use \`read_browser_console\` for the real JS errors.`,
+      },
+      {
+        needs: TERMINAL_TOOLS,
+        text: `- \`run_in_terminal\` uses the live tab; target by ordinal. \`suggest_command\` types without Enter.`,
+      },
+      {
+        needs: SUBAGENT_TOOLS,
+        text: `- Use \`run_subagent\` / \`run_subagents\` for broad read-only work.`,
+      },
+      {
+        text: `- Pass objects and numbers natively. If the same tool fails twice, stop. Refused reads on sensitive files are final.`,
+      },
+      {
+        text: `- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.`,
+      },
+      { text: `- Be terse.` },
+    ],
+  },
+];
 
-# Delegation and output
-- Use \`run_subagent\` / \`run_subagents\` for broad read-only analysis; prefer parallel \`run_subagents\` for multi-scope work. Use \`todo_write\` before 5+ chained tool calls.
-- Be terse. No filler or apologies.
-- Before a mutation tool, give one short why-line. After work, give 1-2 sentences covering what changed and what is next.
-- If the same tool with the same args fails twice, stop and ask. Refused reads on sensitive files (.env, .ssh, credentials) are final.
-- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon. In code, keep exact punctuation only when required.`;
+/**
+ * Every tool name the core prompt is tagged with.
+ *
+ * Exported for `scripts/prompt-tools-verify.ts`: a tool renamed without its tag
+ * being renamed too would leave its instructions in the prompt forever, which is
+ * exactly the failure this whole structure exists to prevent.
+ */
+export const PROMPT_TAGGED_TOOLS: readonly string[] = [
+  ...new Set(
+    [...CORE_BLOCKS, ...CORE_BLOCKS_LITE].flatMap((b) =>
+      b.sections.flatMap((sec) => sec.needs ?? []),
+    ),
+  ),
+].sort();
 
-export const SYSTEM_PROMPT_LITE = `You are TEDI, an AI agent in a developer terminal. \`Host:\` gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, terminal ordinals, and open browser panes. The LAST one is ground truth; earlier ones are that past turn's state. Name a terminal as \`#<ordinal>\`; the user can click it to jump there.
-- Execute, do not echo; the approval card is the confirmation.
-- Prefer read → change → verify in one turn. Check with grep/glob/list_directory before asking.
-- Bare filenames resolve from \`active_terminal_cwd\`. "edit this file" with no path means \`active_file\`.
-- \`edit\` / \`multi_edit\` need a prior \`read_file\`; \`old_string\` must be unique unless \`replace_all=true\`. \`write_file\` is for new or tiny full rewrites. Do not re-read unless you wrote.
-- Use \`Fetch\` for APIs, JSON, and text; use browser tools for JS-heavy pages. Use \`bash_run\` only for short non-interactive stdout. Use Bash Background plus \`bash_list\` for long-lived processes.
-- Browser: one lookup call, then answer. Reuse one research tab. For forms: \`read_browser({ fields: true })\` then type/click, re-reading after navigation. To debug your own page, use \`read_browser_console\` for the real JS errors.
-- \`run_in_terminal\` uses the live tab; target by ordinal. \`suggest_command\` types without Enter.
-- Use \`run_subagent\` / \`run_subagents\` for broad read-only work.
-- Pass objects and numbers natively. If the same tool fails twice, stop. Refused reads on sensitive files are final.
-- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.
-- Be terse.`;
+/** The prompt with every tool on. This is what Settings shows as the editable
+ *  default, and what a session with nothing switched off actually sends. */
+export const SYSTEM_PROMPT = composePrompt(CORE_BLOCKS, () => true);
+export const SYSTEM_PROMPT_LITE = composePrompt(CORE_BLOCKS_LITE, () => true);
+
+/** The core prompt for the tools this turn is really sending. */
+export function buildCorePrompt(variant: "full" | "lite", has: (tool: string) => boolean): string {
+  return composePrompt(variant === "lite" ? CORE_BLOCKS_LITE : CORE_BLOCKS, has);
+}
 
 /** Sent instead of SYSTEM_PROMPT when chat mode is on. No tools go out with it,
  *  so every line above about files, shells, browsers, and delegation would be

@@ -142,6 +142,71 @@ export function checkDeletable(path: string): SafetyResult {
   return { ok: true };
 }
 
+// ─── Network egress ────────────────────────────────────────────────────
+
+/**
+ * First-contact approval for outbound HTTP.
+ *
+ * The read side is carefully gated - an out-of-scope read asks, secrets are
+ * denied, symlinks are resolved - but every one of those guards is about what
+ * gets IN. `fetch`, `open_browser` and `navigate_and_read` were the way OUT, and
+ * they auto-executed against any host with a model-chosen URL. That is the whole
+ * prompt-injection exfiltration path: anything the agent reads (a repo file, a
+ * fetched page, an MCP tool's description) can tell it to append the context to
+ * a URL, and nothing asked.
+ *
+ * So: a host the user has not approved this session needs an approval card;
+ * after they approve once, that host is quiet for the rest of the session. The
+ * tools record the host from inside `execute`, which only runs once approval has
+ * been granted - no extra plumbing, and nothing is remembered across a restart.
+ *
+ * Loopback is pre-trusted: a dev server is the single most common target and
+ * cannot leave the machine.
+ */
+const trustedEgressHosts = new Set<string>();
+
+/** Hostname of a URL, lowercased and de-bracketed, or null if unparseable. */
+export function egressHost(rawUrl: string): string | null {
+  try {
+    const h = new URL(rawUrl).hostname.toLowerCase().replace(/^\[|\]$/g, "");
+    return h || null;
+  } catch {
+    return null;
+  }
+}
+
+/** Loopback, or a dev TLD that only ever resolves to it. Never leaves the box. */
+function isLoopbackHost(host: string): boolean {
+  return (
+    host === "localhost" ||
+    host === "::1" ||
+    host === "0.0.0.0" ||
+    /^127\./.test(host) ||
+    /\.(test|localhost)$/.test(host)
+  );
+}
+
+/** True when this URL may be requested without an approval card. */
+export function isTrustedEgressHost(rawUrl: string): boolean {
+  const host = egressHost(rawUrl);
+  // Unparseable: let the tool's own validation produce the real error rather
+  // than raising an approval card for a URL that will be refused anyway.
+  if (!host) return true;
+  return isLoopbackHost(host) || trustedEgressHosts.has(host);
+}
+
+/** Remember an approved host for the rest of the session. Call from `execute`,
+ *  which the SDK runs only after the approval resolved. */
+export function trustEgressHost(rawUrl: string): void {
+  const host = egressHost(rawUrl);
+  if (host && !isLoopbackHost(host)) trustedEgressHosts.add(host);
+}
+
+/** Test seam: drop every remembered host. */
+export function resetTrustedEgressHosts(): void {
+  trustedEgressHosts.clear();
+}
+
 // ─── Symlink-resolved guards ───────────────────────────────────────────
 
 /**
@@ -291,8 +356,9 @@ export function checkShellCommand(
     // Token (/, ~, $HOME) optionally followed by /, *, or . — so `~/`, `~/*`,
     // `$HOME/`, `/*`, `/.` are all caught — then a terminator. A home SUBDIR
     // (`~/proj/build`) has a non-terminator after the token, so it stays allowed.
-    const rootTarget =
-      /(?:^|\s)['"]?(?:\/|~|\$\{?HOME\}?)(?:\/|\*|\.)*['"]?(?:\s|;|&|\||$)/.test(c);
+    const rootTarget = /(?:^|\s)['"]?(?:\/|~|\$\{?HOME\}?)(?:\/|\*|\.)*['"]?(?:\s|;|&|\||$)/.test(
+      c,
+    );
     if (recursive && force && rootTarget) {
       return {
         ok: false,

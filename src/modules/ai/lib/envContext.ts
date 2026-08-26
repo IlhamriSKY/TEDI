@@ -30,12 +30,18 @@ export type SentEnvBlocks = Map<string, string>;
  * Prefix each user message with the `<env>` block it was SENT with, and the
  * newest one with a freshly-measured block.
  *
- * The replay is the whole point. Every prompt cache keys on an exact byte
- * prefix. Injecting into the newest user message only made the prefix diverge
- * EVERY turn, because the store persists that message without the env, so it
- * came back shorter than it was sent. Nothing after the system prompt could ever
- * be read from cache, on any provider. Replaying the exact block costs one stale
- * env (~90 tokens) per past turn and keeps the history byte-stable.
+ * The replay is the whole point ON A CACHING PROVIDER. Every prompt cache keys
+ * on an exact byte prefix. Injecting into the newest user message only made the
+ * prefix diverge EVERY turn, because the store persists that message without the
+ * env, so it came back shorter than it was sent. Nothing after the system prompt
+ * could ever be read from cache. Replaying the exact block costs one stale env
+ * (~90 tokens) per past turn and keeps the history byte-stable.
+ *
+ * `replayPast: false` buys back exactly that cost where it buys nothing: a
+ * provider with no prompt cache (a gateway, Groq, Cerebras, LM Studio) re-reads
+ * the whole payload every turn either way, so N stale env blocks are N blocks of
+ * pure waste. It is the same reasoning that already lets `compactStepMessages`
+ * rewrite history freely for those providers.
  *
  * The block stays INSIDE the user message: a trailing one would be a second
  * consecutive `user` message, which Gemini's alternation rule rejects.
@@ -44,6 +50,7 @@ export function injectContext(
   messages: UIMessage[],
   live: LiveSnapshot,
   sentEnv: SentEnvBlocks,
+  replayPast = true,
 ): UIMessage[] {
   const lastUserIdx = findLastIndex(messages, (m) => m.role === "user");
   if (lastUserIdx === -1) return messages;
@@ -58,8 +65,10 @@ export function injectContext(
   const fresh = formatEnvBlock(live);
   if (fresh) sentEnv.set(messages[lastUserIdx].id, fresh);
 
+  const newestId = messages[lastUserIdx].id;
   return messages.map((m) => {
     if (m.role !== "user") return m;
+    if (!replayPast && m.id !== newestId) return m;
     const block = sentEnv.get(m.id);
     if (!block) return m;
     return {

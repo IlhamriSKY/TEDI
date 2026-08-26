@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import {
+  CHATGPT_CONNECTED_MARKER,
   getProvider,
   KEYRING_SERVICE,
   openaiCompatibleKeyringAccount,
@@ -22,6 +23,9 @@ export const EMPTY_PROVIDER_KEYS: ProviderKeys = {
   agentrouter: null,
   "openai-compatible": null,
   lmstudio: null,
+  // Signed in over OAuth, not pasted. `providerNeedsKey` skips it, so this
+  // stays null and `buildLanguageModel` reads the token from chatgptAuth.
+  chatgpt: null,
 };
 
 export async function getKey(provider: ProviderId): Promise<string | null> {
@@ -62,8 +66,24 @@ export async function clearKey(provider: ProviderId): Promise<void> {
   }
 }
 
+/** Is a ChatGPT account signed in? Reads only for presence, never returns the
+ *  token: callers of `getAllKeys` want "is it connected", not the credential. */
+async function chatgptConnected(): Promise<boolean> {
+  try {
+    const raw = await invoke<string | null>("secrets_get", {
+      service: KEYRING_SERVICE,
+      account: getProvider("chatgpt").keyringAccount,
+    });
+    return !!raw && raw.length > 0;
+  } catch {
+    return false;
+  }
+}
+
 export async function getAllKeys(): Promise<ProviderKeys> {
   const out = { ...EMPTY_PROVIDER_KEYS };
+  // Marker, not a token - see CHATGPT_CONNECTED_MARKER.
+  if (await chatgptConnected()) out.chatgpt = CHATGPT_CONNECTED_MARKER;
   const need = PROVIDERS.filter((p) => providerNeedsKey(p.id));
   try {
     const results = await invoke<(string | null)[]>("secrets_get_all", {

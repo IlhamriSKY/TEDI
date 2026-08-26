@@ -1,6 +1,6 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { checkShellCommand } from "../lib/security";
+import { checkShellCommand, isTrustedEgressHost, trustEgressHost } from "../lib/security";
 import type { ToolContext } from "./context";
 import { SHARED_TARGET_SCHEMA, flexBoolOpt, flexIntOpt, normalizeTargetExternal } from "./schedule";
 import { applyShellTransformers } from "./shell";
@@ -443,7 +443,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     open_browser: tool({
       description:
-        "Open the in-app browser at `url` - a real native browser tab (WebView2/WebKit), NOT an iframe, so any site works: dev servers, docs, search engines, YouTube, logged-in pages (no X-Frame-Options limits). This is THE tool for all web browsing and search. To search the web, pass a search URL (e.g. https://www.google.com/search?q=... or https://www.youtube.com/results?search_query=...). ALWAYS use this to open a URL; never run start/open/xdg-open/explorer in a terminal to open a link. By DEFAULT it REUSES your one research browser tab - it navigates the existing pane to `url` instead of spawning another, so multi-step research stays in a SINGLE tab and memory stays low (the result has `reused: true` when it navigated an existing pane). Pass `new_tab: true` ONLY when the user explicitly asks for a new/separate tab or to keep more than one browser open at once. Returns the pane's `leafId` (use it with Read Browser / Navigate And Read / Control Browser). For a one-shot fact/price/rate lookup pass `read: true`: it opens or reuses the tab, waits for the page to load, and returns the rendered text in THIS SAME call, so you answer without a second read - don't then re-open or curl. Auto.",
+        "Open the in-app browser at `url` - a real native browser tab (WebView2/WebKit), NOT an iframe, so any site works: dev servers, docs, search engines, YouTube, logged-in pages (no X-Frame-Options limits). This is THE tool for all web browsing and search. To search the web, pass a search URL (e.g. https://www.google.com/search?q=... or https://www.youtube.com/results?search_query=...). ALWAYS use this to open a URL; never run start/open/xdg-open/explorer in a terminal to open a link. By DEFAULT it REUSES your one research browser tab - it navigates the existing pane to `url` instead of spawning another, so multi-step research stays in a SINGLE tab and memory stays low (the result has `reused: true` when it navigated an existing pane). Pass `new_tab: true` ONLY when the user explicitly asks for a new/separate tab or to keep more than one browser open at once. Returns the pane's `leafId` (use it with Read Browser / Navigate And Read / Control Browser). For a one-shot fact/price/rate lookup pass `read: true`: it opens or reuses the tab, waits for the page to load, and returns the rendered text in THIS SAME call, so you answer without a second read - don't then re-open or curl. The first visit to a given host raises an approval card; after the user allows it, that host is automatic for the rest of the session, and localhost / .test dev servers never ask.",
       inputSchema: z.object({
         url: z
           .url()
@@ -457,9 +457,17 @@ export function buildTerminalTools(ctx: ToolContext) {
           "Force a brand-new browser tab instead of reusing your existing research tab. Default false (reuse one tab). Set true ONLY when the user explicitly asks for a new/separate tab or to keep multiple browsers open at once.",
         ),
       }),
+      // Opening a model-chosen URL is network egress: the URL itself carries
+      // whatever the model puts in it, so this leaks exactly as well as `fetch`.
+      // Ask on first contact with a host, then stay quiet for it this session
+      // (lib/security.ts). Loopback - the dev-server case - never asks.
+      needsApproval: (input: { url?: string }) =>
+        !isTrustedEgressHost(typeof input.url === "string" ? input.url : ""),
       execute: async ({ url, read, new_tab }) => {
         const bad = unsafeBrowserUrl(url);
         if (bad) return { error: bad, url };
+        // Runs only once approval resolved, so this records what the user allowed.
+        trustEgressHost(url);
 
         // Default: keep research in ONE tab. Navigate the existing research pane
         // (or the single open browser) to `url` rather than spawning another,
@@ -549,7 +557,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     navigate_and_read: tool({
       description:
-        "Navigate an OPEN browser pane to `url` AND read its rendered content in one call - combines Control Browser + Read Browser. Prefer this over calling them separately. The read waits (up to ~3s) for the page to finish loading before extracting. Auto.",
+        "Navigate an OPEN browser pane to `url` AND read its rendered content in one call - combines Control Browser + Read Browser. Prefer this over calling them separately. The read waits (up to ~3s) for the page to finish loading before extracting. Same host approval as Open Browser: first visit asks, then automatic.",
       inputSchema: z.object({
         leafId: z
           .number()
@@ -558,9 +566,14 @@ export function buildTerminalTools(ctx: ToolContext) {
         url: z.string().describe("Navigate the pane to this http(s) URL."),
         fields: flexBoolOpt(),
       }),
+      // Same egress gate as open_browser: it navigates a pane to a model-chosen
+      // URL, so the URL is the exfiltration channel.
+      needsApproval: (input: { url?: string }) =>
+        !isTrustedEgressHost(typeof input.url === "string" ? input.url : ""),
       execute: async ({ leafId, url, fields }) => {
         const bad = unsafeBrowserUrl(url);
         if (bad) return { error: bad, leafId, url };
+        trustEgressHost(url);
         const ok = ctx.navigateBrowser(leafId, url);
         if (!ok) return { error: `no browser pane with leaf_id ${leafId}`, leafId, url };
         researchBrowserLeafId = leafId; // the pane the agent drives is the reuse target

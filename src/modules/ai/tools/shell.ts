@@ -21,10 +21,7 @@ import { flexIntOpt, flexIntReq } from "./schedule";
  *
  * Example: with `tedi.rtk-bridge` active, `git status` becomes `rtk git status`.
  */
-export function applyShellTransformers(
-  command: string,
-  kind: "bash" | "terminal",
-): string {
+export function applyShellTransformers(command: string, kind: "bash" | "terminal"): string {
   return shellTransformersRegistry.applyAll(command, kind);
 }
 
@@ -35,7 +32,15 @@ const sessionShells = new Map<string, Promise<number>>();
 async function getSessionShell(sessionId: string, cwd: string | null): Promise<number> {
   let p = sessionShells.get(sessionId);
   if (!p) {
+    // Evict a REJECTED open before anyone awaits it again. Caching the promise
+    // is what makes the shell persistent, but caching a failed one made a single
+    // transient spawn error permanent: every later bash_run in the session
+    // re-awaited the same rejection and the shell could never come back.
     p = native.shellSessionOpen(cwd);
+    const pending = p;
+    void p.catch(() => {
+      if (sessionShells.get(sessionId) === pending) sessionShells.delete(sessionId);
+    });
     sessionShells.set(sessionId, p);
   }
   return p;

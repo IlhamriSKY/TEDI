@@ -12,6 +12,9 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AGENTROUTER_BASE_URL,
   AGENTROUTER_HEADERS,
+  buildCorePrompt,
+  CHATGPT_BASE_URL,
+  CHATGPT_HEADERS,
   CHAT_MODE_PROMPT,
   DEFAULT_MODEL_ID,
   getModelContextLimit,
@@ -27,19 +30,18 @@ import {
   resolveModelInfo,
   resolveOpenAICompatibleModel,
   SUMOPOD_BASE_URL,
-  SYSTEM_PROMPT,
-  SYSTEM_PROMPT_LITE,
   tryGetModel,
   type DynamicModelId,
   type ModelInfo,
   type ProviderId,
 } from "../config";
+import { getChatGptAccess } from "./chatgptAuth";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
-import { applyToolFilter, subagentsAvailable } from "../tools/catalog";
+import { applyToolFilter, mcpSummaryFor } from "../tools/catalog";
 import type { Tool } from "ai";
 import { applyCacheBreakpoints, applyStepCacheBreakpoints, noteProviderCacheRead } from "./cache";
 import {
@@ -312,6 +314,38 @@ export async function buildLanguageModel(
       })(resolvedModelId);
       break;
     }
+    case "chatgpt": {
+      const { createOpenAI } = await import("@ai-sdk/openai");
+      const auth = await getChatGptAccess();
+      if (!auth) {
+        throw new Error(
+          "Not signed in with a ChatGPT account. Open Settings → AI and sign in, or pick an API-key model.",
+        );
+      }
+      // `.responses()`, not the default chat model: this endpoint speaks the
+      // Responses API and nothing else. The AI SDK posts to `<baseURL>/responses`,
+      // which is exactly the Codex path.
+      //
+      // `proxyOnlyFetch` is REQUIRED, not an optimisation: chatgpt.com sends no
+      // CORS headers for this route, and the webview also refuses to send the
+      // `originator` header, so the native path fails twice over.
+      built = createOpenAI({
+        baseURL: CHATGPT_BASE_URL,
+        apiKey: auth.accessToken,
+        headers: {
+          ...CHATGPT_HEADERS,
+          // Omitted rather than sent empty when the claim was missing: an empty
+          // header reads as "account none" and 401s less clearly than absence.
+          ...(auth.accountId ? { "chatgpt-account-id": auth.accountId } : {}),
+        },
+        fetch: withStreamIdleTimeout(proxyOnlyFetch),
+      }).responses(resolvedModelId);
+      // Deliberately NOT cached: the access token rotates on refresh, and the
+      // cache key is computed before this point, so a cached model would keep
+      // serving an expired token until the app restarted. Rebuilding is a few
+      // object literals.
+      return built;
+    }
     default: {
       const _exhaustive: never = provider;
       throw new Error(`Unsupported provider: ${_exhaustive as ProviderId}`);
@@ -416,8 +450,6 @@ export type RunAgentOptions = {
   /** Pre-formatted "## SKILLS" block (name + description per available skill).
    *  Byte-stable across turns so it stays in the cacheable prefix. */
   skillsPrompt?: string | null;
-  /** Pre-formatted "## MCP SERVERS" block for the system prompt. */
-  mcpSummary?: string | null;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
@@ -425,21 +457,27 @@ export type RunAgentOptions = {
 export type McpToolRecord = Record<string, Tool>;
 
 /** Build the full system message. Carries no dynamic data (cwd, terminal
- *  output) so the prefix is byte-stable across turns for prompt caching. */
+ *  output) so the prefix is byte-stable across turns for prompt caching.
+ *
+ *  `toolNames` is the set the turn actually sends, AFTER the picker's off-list
+ *  and every merge. Every capability claim below is gated on it: a prompt that
+ *  describes tools the model was not given is billed on every message and is a
+ *  guaranteed failed call. */
 function buildSystemPrompt(opts: {
   modelId: string;
+  toolNames: ReadonlySet<string>;
   customInstructions?: string;
   agentPersona?: { name: string; instructions: string } | null;
   projectMemory?: string | null;
   memory?: string | null;
   skillsPrompt?: string | null;
-  mcpSummary?: string | null;
   planMode?: boolean;
   chatMode?: boolean;
   /** Standing session goal from `/goal`, or null. */
   goal?: string | null;
 }): string {
   const overrides = getPromptOverrides();
+  const has = (t: string): boolean => opts.toolNames.has(t);
   const personaBlock = opts.agentPersona?.instructions.trim()
     ? `\n\n## ACTIVE AGENT - ${opts.agentPersona.name}\n${opts.agentPersona.instructions.trim()}`
     : "";
@@ -457,7 +495,10 @@ function buildSystemPrompt(opts: {
   // Resolve the core prompt: the user can override the full or compact variant
   // independently, so the byte-stable lite/full token split survives overrides.
   const variant = pickSystemPromptVariant(opts.modelId);
-  const builtinBase = variant === "lite" ? SYSTEM_PROMPT_LITE : SYSTEM_PROMPT;
+  // The built-in default is composed from only the sections whose tools survive.
+  // An override is the user's own text, so it goes out verbatim: they wrote it,
+  // TEDI does not get to prune it.
+  const builtinBase = buildCorePrompt(variant, has);
   const base = resolvePromptText(overrides, variant === "lite" ? "core-lite" : "core", builtinBase);
   // Host tag is captured once at boot; prepending it keeps the prefix
   // byte-stable across turns for prompt caching.
@@ -467,21 +508,35 @@ function buildSystemPrompt(opts: {
       ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
       : "";
   // Persistent memory (Claude-CLI style): files under .tedi/memory are loaded as
-  // durable context. The instruction is always present so the agent knows it can
-  // record facts there; the saved content is appended when any exists.
-  const memBlock = `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\` and is auto-loaded here. To remember a fact across sessions, write or update a short markdown file there (create the folder if missing).${
-    opts.memory && opts.memory.trim().length > 0 ? `\n\nSaved memory:\n${opts.memory.trim()}` : ""
-  }`;
-  const skillsBlock = opts.skillsPrompt?.trim() ? `\n\n${opts.skillsPrompt.trim()}` : "";
-  const mcpBlock = opts.mcpSummary?.trim() ? `\n\n${opts.mcpSummary.trim()}` : "";
+  // durable context. The saved content is context and always goes out; the
+  // "write a file there" half is a capability, so it needs `write_file` to be on
+  // - otherwise the block is an instruction the model cannot carry out. With
+  // neither, drop it entirely.
+  const savedMemory = opts.memory?.trim() ? `\n\nSaved memory:\n${opts.memory.trim()}` : "";
+  const memBlock =
+    savedMemory || has("write_file")
+      ? `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\` and is auto-loaded here.${
+          has("write_file")
+            ? ` To remember a fact across sessions, write or update a short markdown file there (create the folder if missing).`
+            : ""
+        }${savedMemory}`
+      : "";
+  // The skills block exists to point at the `skill` tool. Without it there is
+  // nothing to point at.
+  const skillsBlock =
+    has("skill") && opts.skillsPrompt?.trim() ? `\n\n${opts.skillsPrompt.trim()}` : "";
+  // Counted from the tools that survived rather than from the live servers, so a
+  // server whose tools are all unticked (or that failed to connect) is not
+  // advertised as "available in your tool list".
+  const mcpBlock = mcpSummaryFor(opts.toolNames);
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
   // Auto-orchestration nudge, appended only when the spawn tool will actually be
-  // sent. Reading the picker rather than a separate preference is the point: a
+  // sent. Keyed on the assembled tool set rather than the picker preference: a
   // prompt telling the model to delegate, next to a tool set that has no spawn
   // tool, is pure wasted tokens and a guaranteed failed call. Stable across a
   // turn, so the cached prefix holds until the user changes the picker.
-  const orchestrationOn = subagentsAvailable(new Set(usePreferencesStore.getState().disabledTools));
+  const orchestrationOn = has("run_subagents");
   const orchestrationDefault =
     variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
   const orchestrationBody = resolvePromptText(overrides, "orchestration", orchestrationDefault);
@@ -515,9 +570,7 @@ function lastUserText(messages: UIMessage[]): string {
 
 /** Runs one streaming agent step. Returns a `streamText` result whose
  *  `.toUIMessageStream()` plugs into `@ai-sdk/react`'s Chat. */
-export async function runAgentStream(
-  opts: RunAgentOptions & { mcpTools?: McpToolRecord; mcpSummary?: string | null },
-) {
+export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToolRecord }) {
   const requestedModelId = opts.modelId ?? DEFAULT_MODEL_ID;
   const known = tryGetModel(requestedModelId);
   // Unknown id that carries an openai-compatible namespace routes back through
@@ -543,23 +596,6 @@ export async function runAgentStream(
   const latestUserText = lastUserText(opts.uiMessages);
   const ultrathink = /\bultra ?think\b/i.test(latestUserText);
   const chatMode = opts.chatMode === true;
-  const systemText =
-    buildSystemPrompt({
-      modelId: modelInfo.id,
-      customInstructions: opts.customInstructions,
-      agentPersona: opts.agentPersona,
-      projectMemory: opts.projectMemory,
-      memory: opts.memory,
-      skillsPrompt: opts.skillsPrompt,
-      mcpSummary: opts.mcpSummary,
-      planMode: opts.planMode,
-      chatMode,
-      goal: activeGoalText(opts.toolContext.getSessionId()),
-    }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
-
-  // Optional main-agent temperature override. Only sent when the user set one,
-  // so reasoning models that reject sampling params stay untouched by default.
-  const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
   // The SDK only aborts the HTTP fetch, so tools need the signal too. Mutate the
   // stable ctx rather than spreading a fresh one: tools read `abortSignal`
@@ -570,7 +606,8 @@ export async function runAgentStream(
   // Chat mode builds none: ~77 schemas is the biggest fixed per-step cost and a
   // conversation cannot use them. Filtering here, after every source is merged,
   // is the only place a picker-disabled tool cannot slip through another path.
-  // Built before the history conversion below, which needs it - see there.
+  // Built FIRST: the system prompt is composed from what survives here, and the
+  // history conversion below needs it too - see there.
   const tools = chatMode
     ? undefined
     : applyToolFilter(
@@ -581,6 +618,25 @@ export async function runAgentStream(
         },
         new Set(usePreferencesStore.getState().disabledTools),
       );
+  const toolNames = new Set(Object.keys(tools ?? {}));
+
+  const systemText =
+    buildSystemPrompt({
+      modelId: modelInfo.id,
+      toolNames,
+      customInstructions: opts.customInstructions,
+      agentPersona: opts.agentPersona,
+      projectMemory: opts.projectMemory,
+      memory: opts.memory,
+      skillsPrompt: opts.skillsPrompt,
+      planMode: opts.planMode,
+      chatMode,
+      goal: activeGoalText(opts.toolContext.getSessionId()),
+    }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
+
+  // Optional main-agent temperature override. Only sent when the user set one,
+  // so reasoning models that reject sampling params stay untouched by default.
+  const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
 
   // `tools` is what applies each tool's `toModelOutput` to REPLAYED history, not
   // just to this turn's live results. Without it the SDK re-sends the raw
@@ -682,6 +738,11 @@ export async function runAgentStream(
     model,
     messages: finalMessages,
     ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
+    // The Responses API stores a conversation server-side by DEFAULT, and the
+    // ChatGPT backend refuses a request that asks it to. Sending `store: false`
+    // is what makes that endpoint answer at all; everywhere else this key is
+    // ignored, so it costs nothing to leave it provider-scoped.
+    ...(provider === "chatgpt" ? { providerOptions: { openai: { store: false } } } : {}),
     tools,
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so

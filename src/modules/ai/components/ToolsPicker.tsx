@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setDisabledTools } from "@/modules/settings/store";
-import { groupTools, type ToolDescriptor } from "../tools/catalog";
+import { groupTools, toolRowLabel, type ToolDescriptor } from "../tools/catalog";
 import { listAvailableTools, listLocalTools } from "../tools/tools";
 import { getToolContext } from "../store/chatStore";
 import { ChevronRight, Wrench } from "lucide-react";
@@ -101,14 +101,32 @@ export function ToolsPicker() {
     if (!tools) return [];
     const q = query.trim().toLowerCase();
     if (!q) return tools;
+    // Group too: typing "browser" or "schedule" is how you find a whole family,
+    // and those words are not always in every member's name or blurb.
     return tools.filter(
-      (t) => t.name.toLowerCase().includes(q) || t.description.toLowerCase().includes(q),
+      (t) =>
+        t.name.toLowerCase().includes(q) ||
+        t.description.toLowerCase().includes(q) ||
+        t.group.toLowerCase().includes(q),
     );
   }, [tools, query]);
 
   const groups = useMemo(() => groupTools(filtered), [filtered]);
   const total = tools?.length ?? 0;
   const onCount = tools ? tools.filter((t) => !disabledSet.has(t.name)).length : 0;
+
+  // With a filter on, the bulk buttons must act on what is VISIBLE. "All off"
+  // wiping 88 tools while the list shows 3 is the kind of surprise you only
+  // discover one turn later, when the model has no tools.
+  const scoped = useMemo(
+    () => (query.trim() ? filtered : (tools ?? [])).map((t) => t.name),
+    [query, filtered, tools],
+  );
+  const scopedOn = useMemo(
+    () => scoped.filter((n) => !disabledSet.has(n)).length,
+    [scoped, disabledSet],
+  );
+  const scopeLabel = query.trim() ? "Shown" : "All";
 
   const count = total > 0 ? `${onCount} of ${total} on` : null;
   const label = chatMode
@@ -147,7 +165,11 @@ export function ToolsPicker() {
         align="end"
         side="bottom"
         collisionPadding={8}
-        className="w-80 max-w-[calc(100vw-1rem)] p-0"
+        // Width follows the viewport instead of a fixed 20rem: at 20rem a long
+        // MCP tool name filled the row on its own and its description never
+        // appeared at all. Height follows it too, so a short window scrolls the
+        // list rather than clipping the footer with the All on / All off pair.
+        className="w-[min(30rem,calc(100vw-1.5rem))] p-0"
       >
         <div className="border-border/60 border-b p-1.5">
           <Input
@@ -165,7 +187,7 @@ export function ToolsPicker() {
           </p>
         ) : null}
 
-        <div className="max-h-80 overflow-y-auto py-0.5">
+        <div className="max-h-[min(26rem,60vh)] overflow-x-hidden overflow-y-auto py-0.5">
           {tools === null ? (
             <div className="text-muted-foreground flex items-center gap-2 px-2.5 py-2 text-[11px]">
               <Spinner className="size-3" />
@@ -188,7 +210,7 @@ export function ToolsPicker() {
                 <Collapsible key={group} open={isOpen} onOpenChange={() => toggleGroup(group)}>
                   {/* The group checkbox sits beside the trigger, not inside it:
                       a checkbox nested in a trigger button is button-in-button. */}
-                  <div className="hover:bg-accent/40 flex items-center gap-1.5 px-2 py-0.5">
+                  <div className="bg-popover hover:bg-accent/40 sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1">
                     <Checkbox
                       checked={groupState}
                       onCheckedChange={() =>
@@ -218,25 +240,32 @@ export function ToolsPicker() {
                   </div>
                   <CollapsibleContent className="pb-0.5">
                     {rows.map((t) => (
-                      // One line per tool: the name leads, the description
-                      // trails dimmed and ellipsises. The full text lives in the
-                      // app's own tooltip - a native `title` was the odd one out
-                      // here, with OS styling and a second-long delay.
-                      <IconTooltip key={t.name} label={t.description || t.name} side="left">
-                        <label className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-0.5 pr-2 pl-7">
+                      // One line per tool: name then dimmed description. They are
+                      // SEPARATE truncating spans - as one run under a single
+                      // `truncate`, a long name (every MCP tool) consumed the
+                      // whole row and the description never rendered. The name is
+                      // also capped so it can never do that again, and the full
+                      // text stays in the app's own tooltip (a native `title` was
+                      // the odd one out here: OS styling, second-long delay).
+                      <IconTooltip
+                        key={t.name}
+                        label={t.description ? `${t.name} - ${t.description}` : t.name}
+                        side="left"
+                      >
+                        <label className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-2 pl-7">
                           <Checkbox
                             checked={!disabledSet.has(t.name)}
                             onCheckedChange={(v) => setDisabled([t.name], v !== true)}
                             aria-label={t.name}
                           />
-                          <span className="min-w-0 flex-1 truncate leading-4">
-                            <span className="font-mono text-[11px]">{t.name}</span>
-                            {t.description ? (
-                              <span className="text-muted-foreground/60 ml-1.5 text-[10.5px]">
-                                {t.description}
-                              </span>
-                            ) : null}
+                          <span className="max-w-[55%] shrink-0 truncate font-mono text-[11px] leading-4">
+                            {toolRowLabel(t.name)}
                           </span>
+                          {t.description ? (
+                            <span className="text-muted-foreground/60 min-w-0 flex-1 truncate text-[10.5px] leading-4">
+                              {t.description}
+                            </span>
+                          ) : null}
                         </label>
                       </IconTooltip>
                     ))}
@@ -248,29 +277,35 @@ export function ToolsPicker() {
         </div>
 
         <div className="border-border/60 flex items-center justify-between gap-2 border-t py-1 pr-1 pl-2">
-          <span className="text-muted-foreground/70 text-[10px] tabular-nums">
-            {total > 0 ? `${onCount} of ${total} on` : ""}
+          {/* While a filter is on, "1 of 88 on" answers a question nobody asked:
+              what you want to know is how much of the list you are looking at. */}
+          <span className="text-muted-foreground/70 min-w-0 truncate text-[10px] tabular-nums">
+            {total === 0
+              ? ""
+              : query.trim()
+                ? `${filtered.length} of ${total} shown`
+                : `${onCount} of ${total} on`}
           </span>
-          <span className="flex gap-0.5">
+          <span className="flex shrink-0 gap-0.5">
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-5 px-1.5 text-[10.5px]"
-              disabled={!tools || onCount === total}
-              onClick={() => setDisabled(tools?.map((t) => t.name) ?? [], false)}
+              disabled={!tools || scoped.length === 0 || scopedOn === scoped.length}
+              onClick={() => setDisabled(scoped, false)}
             >
-              All on
+              {scopeLabel} on
             </Button>
             <Button
               type="button"
               variant="outline"
               size="sm"
               className="h-5 px-1.5 text-[10.5px]"
-              disabled={!tools || onCount === 0}
-              onClick={() => setDisabled(tools?.map((t) => t.name) ?? [], true)}
+              disabled={!tools || scoped.length === 0 || scopedOn === 0}
+              onClick={() => setDisabled(scoped, true)}
             >
-              All off
+              {scopeLabel} off
             </Button>
           </span>
         </div>

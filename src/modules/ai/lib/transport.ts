@@ -5,8 +5,9 @@ import { getModelContextLimit, type DynamicModelId, type ProviderId } from "../c
 import { injectContext, type LiveSnapshot, type SentEnvBlocks } from "./envContext";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
 import { formatSkillsPrompt, loadSkills } from "./skills";
-import { buildMcpToolsAsync, getMcpToolsSummary } from "../tools/mcp";
+import { buildMcpToolsAsync } from "../tools/mcp";
 import { compactUiMessages } from "./compact";
+import { providerHasPromptCache } from "./cache";
 import type { CompactStages } from "./compact";
 import { classifyError, newCorrelationId, tediError, TediErrorCode, toChatError } from "./errors";
 import type { ProviderKeys } from "./keyring";
@@ -302,18 +303,16 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // one batch rather than awaiting memory then MCP - shaves a round of
       // pre-first-token latency off every turn. Pass the same cwd to both MCP
       // calls so the deduped connect (mcpClient.getMcpClient) is cwd-deterministic.
-      const mcpCwd = deps.toolContext.getCwd?.() ?? undefined;
-      // Chat mode sends no tools and a one-line system prompt, so all five of
+      // Chat mode sends no tools and a one-line system prompt, so all four of
       // these would be loaded, paid for in the prompt, and ignored - and MCP
       // servers would be connected for a turn that cannot call them. Skipping
       // is both the token saving and a latency one.
       const skip = snapshot.chatMode;
-      const [projectMemory, memory, skills, mcpTools, mcpSummary] = await Promise.all([
+      const [projectMemory, memory, skills, mcpTools] = await Promise.all([
         skip ? null : readTediMd(live.workspaceRoot),
         skip ? null : readMemory(live.workspaceRoot),
         skip ? [] : loadSkills(live.workspaceRoot),
         skip ? undefined : buildMcpToolsAsync(deps.toolContext),
-        skip ? null : getMcpToolsSummary(mcpCwd),
       ]);
       const skillsPrompt = formatSkillsPrompt(skills);
 
@@ -334,7 +333,15 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
           // truth for tools, noise for a conversation that has none.
           const augmented = snapshot.chatMode
             ? requestMessages
-            : injectContext(requestMessages, live, sentEnv);
+            : injectContext(
+                requestMessages,
+                live,
+                sentEnv,
+                // Replaying past env blocks only pays for the byte-stable prefix
+                // a prompt cache needs. Without one it is N stale blocks of
+                // waste per request, so send just the newest.
+                providerHasPromptCache(snapshot.provider ?? "sumopod"),
+              );
           const result = await runAgentStream({
             keys: snapshot.keys,
             modelId: snapshot.modelId,
@@ -368,7 +375,6 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             memory,
             skillsPrompt,
             mcpTools,
-            mcpSummary,
             uiMessages: augmented,
             abortSignal,
           });

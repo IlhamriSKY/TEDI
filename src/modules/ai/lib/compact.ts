@@ -291,7 +291,21 @@ export function compactModelMessagesDetailed(
         cut++;
         stages.dropped++;
       }
-      working = [...systemPrefix, ...rest.slice(cut)];
+      // The head must also not be an ASSISTANT message: Anthropic requires the
+      // first message after the system prompt to be `user`, so a cut that lands
+      // mid-turn 400s the whole request - and it lands there often, because a
+      // turn is (user, assistant, tool, assistant, ...) and only one index in
+      // four is a user message. Anchoring beats hunting for the next user
+      // boundary: that boundary can be a whole tool loop away, so seeking it
+      // would eat the tail this stage just promised to keep, and when there is
+      // no later user message at all (a runaway assistant stream, the case that
+      // forces Stage 3 in the first place) it would refuse to drop anything.
+      const head = rest[cut];
+      const anchor: ModelMessage[] =
+        head && head.role !== "user"
+          ? [{ role: "user", content: "[earlier conversation dropped to fit the context window]" }]
+          : [];
+      working = [...systemPrefix, ...anchor, ...rest.slice(cut)];
     }
   }
 

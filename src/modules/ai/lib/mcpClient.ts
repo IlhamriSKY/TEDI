@@ -140,8 +140,8 @@ export class McpClient {
  * Idle clients are reclaimed on-call and by the timed sweeper below.
  */
 const activeClients = new Map<string, { client: McpClient; lastUsed: number }>();
-// In-flight connects keyed the same way so concurrent callers (transport.ts runs
-// buildMcpToolsAsync + getMcpToolsSummary in parallel) share one connection
+// In-flight connects keyed the same way so concurrent callers (a turn and an
+// open tool picker both calling buildMcpToolsAsync) share one connection
 // instead of each spawning a process and orphaning one.
 const connecting = new Map<string, Promise<McpClient>>();
 // Per-key connect generation: bumped by refreshMcpTools so an in-flight connect

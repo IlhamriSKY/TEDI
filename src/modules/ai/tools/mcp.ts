@@ -171,38 +171,3 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
 
   return tools;
 }
-
-// Last-known tool count per server, so a transient reconnect failure reuses the
-// prior count instead of flipping the summary text (which lives in the cacheable
-// system-prompt prefix — any change busts the provider prompt cache for the whole
-// conversation).
-const _lastToolCounts = new Map<string, number>();
-
-/** Get a summary of available MCP tools for the system prompt. Emits only server
- *  name + tool count (the tools themselves are already in the model's tool list,
- *  so re-listing every name just duplicated tokens every turn). */
-export async function getMcpToolsSummary(cwd?: string): Promise<string | null> {
-  const servers = await getMcpServers();
-  const enabled = servers.filter((s) => s.enabled);
-  if (enabled.length === 0) return null;
-
-  const lines: string[] = [];
-  for (const server of enabled) {
-    let count: number | null;
-    try {
-      const client = await getMcpClient(server, cwd);
-      count = client.tools.length;
-      _lastToolCounts.set(server.name, count);
-    } catch {
-      // Reuse the last-known count; do NOT inline "(connection failed)" — that
-      // would mutate the cached prefix. The failure surfaces out-of-band.
-      count = _lastToolCounts.get(server.name) ?? null;
-    }
-    if (count && count > 0) {
-      lines.push(`- **${server.name}** (${count} tool${count === 1 ? "" : "s"})`);
-    }
-  }
-
-  if (lines.length === 0) return null;
-  return `## MCP SERVERS\nThese MCP servers' tools are available in your tool list:\n${lines.join("\n")}`;
-}
