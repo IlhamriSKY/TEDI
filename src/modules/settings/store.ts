@@ -19,17 +19,25 @@ import {
   DEFAULT_TERMINAL_PALETTE,
   DEFAULT_TERMINAL_THEME_ID,
   normalizeTerminalPalette,
+  TERMINAL_THEME_MODES,
   type TerminalPalette,
   type TerminalThemeMode,
 } from "./terminalPalette";
 import { withSubagentsDisabled } from "@/modules/ai/tools/catalog";
 import { DEFAULT_CONTENT_FONT_ID, isValidContentFontId } from "@/lib/fonts";
-import { DEFAULT_SEARCH_ENGINE_ID, searchEngineById, type SearchEngineId } from "./searchEngines";
+import {
+  DEFAULT_SEARCH_ENGINE_ID,
+  SEARCH_ENGINES,
+  searchEngineById,
+  type SearchEngineId,
+} from "./searchEngines";
 import { DEFAULT_CUSTOM_THEME } from "./themePresets";
 
-export type ThemePref = "system" | "light" | "dark";
+const THEME_PREFS = ["system", "light", "dark"] as const;
+export type ThemePref = (typeof THEME_PREFS)[number];
 
-export type ApprovalMode = "ask" | "semi" | "yolo";
+const APPROVAL_MODES = ["ask", "semi", "yolo"] as const;
+export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
 export const EDITOR_THEMES = [
   "atomone",
@@ -117,7 +125,7 @@ export type Preferences = {
   // that could disagree. `loadPreferences` migrates an old `false` into
   // `disabledTools`.
   /** Plain-chat mode. On sends a one-line system prompt and NO tools, and skips
-   *  the project memory, .tedi/memory, skills, MCP, and per-turn <env> loads
+   *  the project memory, .tedi/memory, MCP, and per-turn <env> loads
    *  entirely. The agent prompt plus ~77 tool schemas cost ~12K input tokens on
    *  every message, so a "hi" is priced like a code task; this is the off
    *  switch for turns that are just conversation. Off = the full agent. */
@@ -1150,6 +1158,44 @@ export async function getAutomationPort(): Promise<number> {
   return (await store.get<number>(KEY_AUTOMATION_PORT)) ?? 0;
 }
 
+/**
+ * What the MCP server offers a connected AI CLI.
+ *
+ * `mcpDisabledTools` is a flat list of tool NAMES resolved from the pack
+ * switches (`mcpInstall/packs.ts` owns that mapping); `mcpExtensionPacks` is the
+ * extension ids whose AI tools are advertised as first-class MCP tools.
+ *
+ * Both live beside `automationPort` and OUTSIDE `Preferences` for the same
+ * reason: `set_setting` allow-lists on `DEFAULT_PREFERENCES`, so a driving agent
+ * cannot switch its own capabilities back on. The MCP server reads these
+ * straight off disk, like Rust reads the port.
+ *
+ * Being outside `Preferences` is necessary but was NOT sufficient, and the gap
+ * went unnoticed for as long as this comment has existed: `approvalMode`,
+ * `disabledTools` and the provider base URLs are all ordinary members of
+ * `DEFAULT_PREFERENCES`, so the allow-list waved them straight through. Keeping
+ * a key out of `Preferences` only protects that key. `AGENT_DENIED_PREFS` below
+ * is the general rule this was a special case of.
+ */
+const KEY_MCP_DISABLED_TOOLS = "mcpDisabledTools";
+const KEY_MCP_EXTENSION_PACKS = "mcpExtensionPacks";
+
+export async function getMcpSurface(): Promise<{ disabledTools: string[]; extensions: string[] }> {
+  const [disabledTools, extensions] = await Promise.all([
+    store.get<string[]>(KEY_MCP_DISABLED_TOOLS),
+    store.get<string[]>(KEY_MCP_EXTENSION_PACKS),
+  ]);
+  return { disabledTools: disabledTools ?? [], extensions: extensions ?? [] };
+}
+
+export async function setMcpSurface(next: {
+  disabledTools?: string[];
+  extensions?: string[];
+}): Promise<void> {
+  if (next.disabledTools) await writePref(KEY_MCP_DISABLED_TOOLS, [...new Set(next.disabledTools)]);
+  if (next.extensions) await writePref(KEY_MCP_EXTENSION_PACKS, [...new Set(next.extensions)]);
+}
+
 export async function setAutomationPort(port: number): Promise<void> {
   await writePref(
     KEY_AUTOMATION_PORT,
@@ -1159,7 +1205,7 @@ export async function setAutomationPort(port: number): Promise<void> {
 
 /**
  * Write ONE built-in preference by key, for the automation surface a driving
- * agent reaches over MCP (`scripts/director/`). The typed setters above stay the
+ * agent reaches over MCP (`scripts/mcp/`). The typed setters above stay the
  * route for app code; this exists because a driver has a key and a value, not a
  * function reference, and 50-odd setters behind a hand-written name table would
  * rot the moment a preference is added.
@@ -1173,10 +1219,68 @@ export async function setAutomationPort(port: number): Promise<void> {
  * Clamping setters (`setAppOpacity`, `setEditorFontSize`) are BYPASSED, which is
  * why the read path doing the clamping matters - it is what makes that safe.
  */
+/**
+ * Preferences whose value is drawn from a fixed set, and what that set is.
+ *
+ * `_writePreference` is the one place an AGENT can set a preference by name, and
+ * a `typeof` check alone let any string through: `set_setting("theme","default")`
+ * returned ok, stored a value no code path accepts, and the UI simply kept
+ * rendering the old theme. The tool reported success for a write that did
+ * nothing, so the model "fixed" it by guessing another wrong value. Validation
+ * at this boundary is what turns that into an error the model can act on.
+ *
+ * DERIVED, NOT RETYPED: every entry points at the same runtime array the TYPE
+ * comes from, so adding an editor theme or a search engine cannot leave this
+ * table behind. Only static sets belong here - model and provider ids are drawn
+ * from a live catalogue, so an allow-list would reject valid new models.
+ */
+const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
+  theme: THEME_PREFS,
+  approvalMode: APPROVAL_MODES,
+  editorTheme: EDITOR_THEMES,
+  terminalThemeMode: TERMINAL_THEME_MODES,
+  searchEngine: SEARCH_ENGINES.map((e) => e.id),
+};
+
+/**
+ * Preferences an AGENT may never write, whatever the value.
+ *
+ * `automationPort` and `mcpDisabledTools` were kept OUT of `Preferences`
+ * entirely for this reason (see their comments above), which established the
+ * rule but only covered the two keys that happened to be noticed. These are the
+ * rest of them: every preference that grants the agent capability, or decides
+ * where the agent's credentials are sent.
+ *
+ * `approvalMode` is the sharpest - `ALLOWED_VALUES` above lists `"yolo"` as a
+ * legal value, and `shouldAutoApprove` returns true for EVERY tool in that mode,
+ * so one `set_setting` call disarmed every approval card for the rest of the
+ * session. `disabledTools` is the same hole one level down: it is the AI tool
+ * picker's off-list, read at `agent.ts`, so writing `[]` hands back every tool
+ * the user unticked. The three base-URL keys point at the endpoint that receives
+ * `Authorization: Bearer <key>` plus the whole conversation. `terminalEnvPath`
+ * is prepended to the PATH of every shell TEDI spawns.
+ *
+ * These stay editable in the Settings UI - a human clicking the toggle is the
+ * point. This blocks only the by-name write path a driving agent reaches.
+ */
+const AGENT_DENIED_PREFS = new Set<PrefKey>([
+  "approvalMode",
+  "disabledTools",
+  "lmstudioBaseURL",
+  "openaiCompatibleBaseURL",
+  "openaiCompatibleInstances",
+  "terminalEnvPath",
+]);
+
 export async function _writePreference(key: string, value: unknown): Promise<void> {
   if (!Object.hasOwn(DEFAULT_PREFERENCES, key)) {
     throw new Error(
       `"${key}" is not a preference. Known keys: ${Object.keys(DEFAULT_PREFERENCES).join(", ")}`,
+    );
+  }
+  if (AGENT_DENIED_PREFS.has(key as PrefKey)) {
+    throw new Error(
+      `"${key}" decides what the agent is allowed to do, or where its credentials go, so it cannot be set from here. Change it in Settings.`,
     );
   }
   const expected = DEFAULT_PREFERENCES[key as keyof Preferences];
@@ -1197,6 +1301,10 @@ export async function _writePreference(key: string, value: unknown): Promise<voi
     throw new Error(
       `"${key}" wants a ${typeof expected}, got ${coerced === null ? "null" : typeof coerced}`,
     );
+  }
+  const allowed = ALLOWED_VALUES[key as PrefKey];
+  if (allowed && !allowed.includes(coerced as string)) {
+    throw new Error(`"${key}" must be one of: ${allowed.join(", ")} (got "${String(coerced)}")`);
   }
   await writePref(key, coerced);
 }

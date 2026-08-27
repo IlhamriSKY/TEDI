@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 /**
  * Zustand store for the extension subsystem. Settings UI reads from here;
  * mutations route through actions so the in-memory list and activated set
@@ -17,7 +18,7 @@ import { toast } from "@/components/ui/toast";
 import { evictExtensionIcon } from "./icon";
 import * as loader from "./loader";
 import type { InstalledExtension, UpdateCheckResult } from "./loader";
-import { commandsRegistry } from "./registries";
+import { aiToolsRegistry, commandsRegistry } from "./registries";
 
 const EXT_CHANGED_EVENT = "tedi://ext-changed";
 
@@ -342,7 +343,7 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
 export type { InstalledExtension };
 
 /**
- * Automation surface for a driving agent (`scripts/director/`, and the MCP
+ * Automation surface for a driving agent (`scripts/mcp/`, and the MCP
  * server Claude Code talks to). Gated on `TEDI_DEBUG_PORT` like the rest of
  * `window.__tedi`, and merged into it - four files contribute to that object and
  * none may clobber the others (see `shortcuts/lib/commandRegistry.ts`).
@@ -366,6 +367,19 @@ export type { InstalledExtension };
  *  a command it can run, a panel it can open, and the AI tools it lends the
  *  built-in agent. */
 export function listExtensions() {
+  // AI tools come from the REGISTRY, never the manifest. An extension declares
+  // them at runtime from `activate()` (`ctx.contributes.aiTools` +
+  // `registerAiToolHandler`), so `manifest.contributes.aiTools` is absent for
+  // every extension that actually ships any - reading it reported `aiTools: []`
+  // for API Client, which contributes five. That is a WRONG answer, not a
+  // missing one: an agent reads "this extension lends the AI nothing" and stops
+  // looking. Grouped by extension id in one pass so this stays O(n).
+  const byExt = new Map<string, { name: string; description?: string }[]>();
+  for (const { extensionId, item } of aiToolsRegistry.list()) {
+    const list = byExt.get(extensionId) ?? [];
+    list.push({ name: item.name, description: item.description });
+    byExt.set(extensionId, list);
+  }
   return useExtensionsStore.getState().list.map((e) => ({
     id: e.id,
     name: e.manifest.name,
@@ -377,7 +391,10 @@ export function listExtensions() {
       title: x.title,
       surface: x.surface,
     })),
-    aiTools: (e.manifest.contributes.aiTools ?? []).map((t) => t.name),
+    // Name AND description: an agent choosing between `api_client_send` and
+    // `api_client_save_request` cannot do it from the names alone, and these are
+    // the only place those descriptions exist outside the extension's source.
+    aiTools: byExt.get(e.id) ?? [],
   }));
 }
 
@@ -385,11 +402,33 @@ export function listExtensions() {
  *  manifest but never given a runtime handler, and one belonging to a DISABLED
  *  extension (deactivation clears the runtime entry), are both ordinary states
  *  an agent should be told about plainly. */
-export function runExtensionCommand(extensionId: string, commandId: string): boolean {
-  const handler = commandsRegistry.getRuntime(extensionId, commandId);
-  if (typeof handler !== "function") return false;
-  (handler as (...args: unknown[]) => unknown)();
-  return true;
+export async function runExtensionCommand(
+  extensionId: string,
+  id: string,
+  args?: Record<string, unknown>,
+): Promise<false | { kind: "command" } | { kind: "aiTool"; result: unknown }> {
+  const command = commandsRegistry.getRuntime(extensionId, id);
+  if (typeof command === "function") {
+    (command as (...a: unknown[]) => unknown)();
+    return { kind: "command" };
+  }
+  // Then the AI tools. A command is a button press and returns nothing; an AI
+  // tool takes arguments and RETURNS DATA, which is the difference between
+  // "open the API Client" and "send this request and tell me what came back".
+  // Without this an outside agent could see `api_client_send` in the listing
+  // and had no way to call it - the panel opened, and composing the request was
+  // left to synthetic clicks.
+  //
+  // No approval prompt here, unlike ai-native's copy of this call. That is not
+  // an oversight: this path only exists while the automation channel is open,
+  // and that channel already carries `sh` and `eval_js`. The boundary is the
+  // channel, not the tool (see SECURITY.md).
+  const tool = aiToolsRegistry.getRuntime(extensionId, id);
+  if (typeof tool === "function") {
+    const result = await (tool as (a: Record<string, unknown>) => unknown)(args ?? {});
+    return { kind: "aiTool", result };
+  }
+  return false;
 }
 
 /**
@@ -430,17 +469,8 @@ export async function controlExtension(action: string, id: string): Promise<true
   }
 }
 
-if (typeof window !== "undefined") {
-  const w = window as unknown as {
-    __TEDI_AUTOMATION__?: boolean;
-    __tedi?: Record<string, unknown>;
-  };
-  if (w.__TEDI_AUTOMATION__) {
-    w.__tedi = {
-      ...w.__tedi,
-      extensions: listExtensions,
-      runExtensionCommand: runExtensionCommand,
-      extControl: controlExtension,
-    };
-  }
-}
+registerBridge({
+  extensions: listExtensions,
+  runExtensionCommand,
+  extControl: controlExtension,
+});

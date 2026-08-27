@@ -1,16 +1,21 @@
 #!/usr/bin/env node
 /**
- * Run every `scripts/*-verify.ts`.
+ * Run every `*-verify.ts` under `scripts/`.
  *
  * Replaces the 1480-character `&&` chain this used to be in package.json, which
  * had two costs: adding a check meant hand-editing a single enormous line (and
  * a typo there silently dropped a script from the suite), and `&&` stopped at
  * the FIRST failure, so one broken check hid the results of the other thirty.
- * Globbing the directory means a new `*-verify.ts` is picked up by existing,
- * and every failure is reported in one run.
+ * Discovering them means a new `*-verify.ts` is picked up by existing, and every
+ * failure is reported in one run.
  *
- * `node scripts/verify-all.mjs ssh` runs only the scripts whose name contains
- * "ssh" - the whole suite is ~15s, but a single check is ~0.4s while iterating.
+ * RECURSIVE, because the checks now live in per-feature folders (`scripts/ai/`,
+ * `scripts/ssh/`, `scripts/mcp/`, ...) rather than one flat directory of sixty.
+ * The filter matches the path, so `pnpm verify ssh` still selects the seven SSH
+ * checks and `pnpm verify mcp/` selects a whole folder.
+ *
+ * `node scripts/verify-all.mjs ssh` runs only the matching scripts - the whole
+ * suite is ~15s, but a single check is ~0.4s while iterating.
  */
 import { spawnSync } from "node:child_process";
 import { readdirSync } from "node:fs";
@@ -19,9 +24,20 @@ import { fileURLToPath } from "node:url";
 
 const here = dirname(fileURLToPath(import.meta.url));
 const filter = process.argv[2] ?? "";
-const all = readdirSync(here)
-  .filter((f) => f.endsWith("-verify.ts"))
-  .sort();
+
+/** Every `*-verify.ts` under `dir`, as a path relative to `scripts/`, POSIX
+ *  separators so the filter and the spawned command read the same on Windows. */
+function findVerifies(dir, prefix = "") {
+  const out = [];
+  for (const e of readdirSync(dir, { withFileTypes: true })) {
+    const rel = prefix ? `${prefix}/${e.name}` : e.name;
+    if (e.isDirectory()) out.push(...findVerifies(join(dir, e.name), rel));
+    else if (e.name.endsWith("-verify.ts")) out.push(rel);
+  }
+  return out;
+}
+
+const all = findVerifies(here).sort();
 const picked = filter ? all.filter((f) => f.includes(filter)) : all;
 
 if (picked.length === 0) {

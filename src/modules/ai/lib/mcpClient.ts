@@ -1,6 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { TauriStdioTransport } from "./mcpTransport";
+import { startTediMcpServer, type TediMcpDeps } from "./tediMcpServer";
 import type { McpServerConfig } from "./mcpConfig";
 
 // Monotonic suffix so each connection gets a distinct backend process key,
@@ -23,22 +24,27 @@ export class McpClient {
   constructor(
     private config: McpServerConfig,
     private cwd?: string,
+    private builtinDeps?: TediMcpDeps,
   ) {
     this.id = `${config.name}#${++connSeq}`;
     this.client = new Client({ name: "tedi-mcp-host", version: "1.0.0" }, { capabilities: {} });
   }
 
-  /** Connect to the MCP server via stdio. */
+  /** Connect to the MCP server: in-memory for the built-in one, stdio for the
+   *  rest. Everything after this point is identical for both - same handshake,
+   *  same `listTools`, same reconnect-on-close. */
   async connect(): Promise<void> {
     if (this._connected) return;
 
-    const transport = new TauriStdioTransport({
-      id: this.id,
-      command: this.config.command,
-      args: this.config.args,
-      env: this.config.env,
-      cwd: this.cwd,
-    });
+    const transport = this.config.builtin
+      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => false })).clientTransport
+      : new TauriStdioTransport({
+          id: this.id,
+          command: this.config.command,
+          args: this.config.args,
+          env: this.config.env,
+          cwd: this.cwd,
+        });
 
     // A crashed/self-exited server fires transport.onclose -> client.onclose.
     // Flip our flag (and drop stale tools) so getMcpClient reconnects next turn
@@ -75,7 +81,8 @@ export class McpClient {
       }
       // Surface the server's own stderr (missing key / bad arg / crash) which is
       // otherwise lost behind a generic "connection closed" / handshake timeout.
-      const tail = transport.lastStderr.trim();
+      // Only a spawned server has stderr; the built-in one throws in-realm.
+      const tail = transport instanceof TauriStdioTransport ? transport.lastStderr.trim() : "";
       if (tail) {
         const msg = e instanceof Error ? e.message : String(e);
         throw new Error(`${msg}\nServer stderr:\n${tail}`);
@@ -151,7 +158,11 @@ const connectGen = new Map<string, number>();
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Cache key: a server reused under a different cwd must be a distinct process. */
-const clientKey = (name: string, cwd?: string): string => `${name}\x1f${cwd ?? ""}`;
+// The built-in server registers a DIFFERENT tool set per pack-switch state, so
+// that state belongs in the key: flipping a switch must yield a new client, not
+// a cached one still advertising the tools the user just turned off.
+const clientKey = (name: string, cwd?: string, variant?: string): string =>
+  `${name}\x1f${cwd ?? ""}\x1f${variant ?? ""}`;
 
 /** Disconnect + drop every idle, not-busy client. Skips a client with a tool
  *  call in flight so a long-running call isn't killed mid-flight. */
@@ -172,9 +183,17 @@ setInterval(sweepIdleClients, IDLE_TIMEOUT_MS);
  * Get or create an MCP client for a server config + cwd. Reuses an existing live
  * connection; dedups concurrent connects.
  */
-export async function getMcpClient(config: McpServerConfig, cwd?: string): Promise<McpClient> {
+export async function getMcpClient(
+  config: McpServerConfig,
+  cwd?: string,
+  builtinDeps?: TediMcpDeps,
+): Promise<McpClient> {
   sweepIdleClients();
-  const key = clientKey(config.name, cwd);
+  const key = clientKey(
+    config.name,
+    cwd,
+    config.builtin ? [...(builtinDeps?.disabledTools ?? [])].sort().join(",") : undefined,
+  );
 
   const existing = activeClients.get(key);
   if (existing && existing.client.connected) {
@@ -195,7 +214,7 @@ export async function getMcpClient(config: McpServerConfig, cwd?: string): Promi
   const myGen = (connectGen.get(key) ?? 0) + 1;
   connectGen.set(key, myGen);
   const promise = (async () => {
-    const client = new McpClient(config, cwd);
+    const client = new McpClient(config, cwd, builtinDeps);
     await client.connect();
     // If a refresh (edit/disable/remove) superseded this connect mid-flight,
     // don't publish the now-stale client — disconnect it instead.
@@ -216,6 +235,28 @@ export async function getMcpClient(config: McpServerConfig, cwd?: string): Promi
 
 /** Drop a server's cached connections (every cwd) so the next turn reconnects and
  *  re-fetches its tool list. Call after a server's config is edited/removed. */
+/**
+ * Disconnect every live MCP server. Called on quit.
+ *
+ * Nothing did this. `useQuitGuard` kills the daemon PTY sessions and flushes the
+ * chat store, and MCP was simply not on the list - so on macOS and Linux every
+ * server TEDI had spawned outlived it. Windows got away with it because each
+ * child is in a kill-on-close Job Object; elsewhere the child is its own process
+ * group leader (so it does not even receive the terminal's SIGHUP) and
+ * `Drop for McpProc` never runs, because `PROCS` is a `static` that is never
+ * dropped at exit.
+ *
+ * Best-effort and bounded by the caller: a server that ignores stdin EOF must
+ * not hold the window open. Each `disconnect()` ends in `mcp_kill`, which kills
+ * the process group, so a hung close still reaps.
+ */
+export async function disconnectAllMcpClients(): Promise<void> {
+  const clients = [...activeClients.values()].map((e) => e.client);
+  activeClients.clear();
+  connecting.clear();
+  await Promise.allSettled(clients.map((c) => c.disconnect()));
+}
+
 export async function refreshMcpTools(serverName: string): Promise<void> {
   const prefix = `${serverName}\x1f`;
   for (const [key, entry] of activeClients.entries()) {

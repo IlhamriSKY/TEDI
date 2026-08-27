@@ -2,6 +2,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { exit } from "@tauri-apps/plugin-process";
 import { useCallback, useEffect, useRef, useState } from "react";
 
+import { disconnectAllMcpClients } from "@/modules/ai/lib/mcpClient";
 import { killAllDaemonSessions } from "@/modules/terminal/lib/pty-bridge";
 import { busyTerminalCount } from "@/modules/terminal/lib/sessionState";
 
@@ -74,6 +75,19 @@ export function useQuitGuard(flush: () => Promise<void>, enabled: boolean): Quit
     } catch (e) {
       // Daemon gone or unreachable: its sessions are unreachable too. Quit anyway.
       console.warn("quit: kill-all failed, closing regardless:", e);
+    }
+    // MCP servers are child processes too, and nothing was reaping them: on
+    // macOS/Linux each is its own process-group leader, so it survived TEDI.
+    // Unconditional (not gated on `force`) because these are ours either way,
+    // and bounded by the same timeout - a server that ignores stdin EOF must not
+    // keep the window open.
+    try {
+      await Promise.race([
+        disconnectAllMcpClients(),
+        new Promise((r) => setTimeout(r, KILL_TIMEOUT_MS)),
+      ]);
+    } catch (e) {
+      console.warn("quit: MCP disconnect failed, closing regardless:", e);
     }
     try {
       await Promise.race([flushRef.current(), new Promise((r) => setTimeout(r, FLUSH_TIMEOUT_MS))]);

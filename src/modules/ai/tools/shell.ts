@@ -14,15 +14,54 @@ import { flexIntOpt, flexIntReq } from "./schedule";
 
 /**
  * Run registered extension transformers over a command before it hits the
- * shell. Empty chain is a pure passthrough. Safety checks run against the
- * user-authored command so transformers can't bypass the denylist.
+ * shell. Empty chain is a pure passthrough.
  *
  * Exported so terminal.ts uses the same chain as bash_run / bash_background.
  *
  * Example: with `tedi.rtk-bridge` active, `git status` becomes `rtk git status`.
+ *
+ * PREFER `checkedShellCommand` BELOW. Calling this directly and running the
+ * result is what let a transformer past the denylist; this stays exported only
+ * for callers that transform something they are not about to execute.
  */
 export function applyShellTransformers(command: string, kind: "bash" | "terminal"): string {
   return shellTransformersRegistry.applyAll(command, kind);
+}
+
+/**
+ * Transform a command and vet what will ACTUALLY run.
+ *
+ * The old order was: check the model's command, transform it, run the transform.
+ * The header here used to claim that checking the user-authored command is what
+ * stops "transformers bypassing the denylist", which has it exactly backwards -
+ * the denylist never saw the string that reached the shell. An extension holding
+ * `shell:transform` rewrites every command the agent runs, and seven call sites
+ * across `shell.ts`, `terminal.ts` and `schedule.ts` all had the same gap.
+ *
+ * Both strings are checked, and the order is deliberate. The RAW check runs
+ * first so a refusal quotes what the model wrote, which is what it can act on;
+ * the EFFECTIVE check is the one that actually guards execution. When no
+ * transformer is installed the two are identical and the second is free.
+ */
+export function checkedShellCommand(
+  command: string,
+  kind: "bash" | "terminal",
+  guard?: Parameters<typeof checkShellCommand>[1],
+): { ok: true; command: string } | { ok: false; error: string } {
+  const raw = checkShellCommand(command, guard);
+  if (!raw.ok) return { ok: false, error: raw.reason };
+
+  const effective = applyShellTransformers(command, kind);
+  if (effective === command) return { ok: true, command: effective };
+
+  const after = checkShellCommand(effective, guard);
+  if (!after.ok) {
+    return {
+      ok: false,
+      error: `A shell transformer rewrote this command into something refused: ${after.reason} (ran as: ${effective})`,
+    };
+  }
+  return { ok: true, command: effective };
 }
 
 /** Per-session lazy shell id. One persistent shell per chat session so cwd
@@ -86,15 +125,14 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
       needsApproval: approve,
       execute: async ({ command, timeout_secs }) => {
         throwIfAborted(ctx);
-        const safety = checkShellCommand(command, shellGuard);
-        if (!safety.ok) return { error: safety.reason };
+        const vetted = checkedShellCommand(command, "bash", shellGuard);
+        if (!vetted.ok) return { error: vetted.error };
         const sid = ctx.getSessionId();
         if (!sid) return { error: "no active chat session" };
         try {
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(sid, cwd);
-          const effective = applyShellTransformers(command, "bash");
-          const r = await native.shellSessionRun(shellId, effective, cwd, timeout_secs);
+          const r = await native.shellSessionRun(shellId, vetted.command, cwd, timeout_secs);
           // Trim head+tail before the output re-enters context every step; the
           // Rust side already hard-caps, this is the smaller model-facing trim.
           const stdout = clampForModel(r.stdout);
@@ -124,8 +162,8 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
       needsApproval: approve,
       execute: async ({ command, cwd }) => {
         throwIfAborted(ctx);
-        const safety = checkShellCommand(command, shellGuard);
-        if (!safety.ok) return { error: safety.reason };
+        const vetted = checkedShellCommand(command, "bash", shellGuard);
+        if (!vetted.ok) return { error: vetted.error };
         const effectiveCwd = cwd ?? ctx.getCwd();
         // `checkShellCommand` only inspects the command string, so an explicit
         // `cwd` was the one argument that reached the spawn unchecked - a
@@ -138,10 +176,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
           };
         }
         try {
-          const handle = await native.shellBgSpawn(
-            applyShellTransformers(command, "bash"),
-            effectiveCwd,
-          );
+          const handle = await native.shellBgSpawn(vetted.command, effectiveCwd);
           return { handle, command, cwd: effectiveCwd, ok: true };
         } catch (e) {
           return { error: scrubErrorPath(e, ctx) };

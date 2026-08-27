@@ -4,11 +4,8 @@ import { buildFsTools } from "./fs";
 import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
 import { buildShellTools } from "./shell";
-import { buildSkillTools } from "./skill";
 import { buildSubagentTools } from "./subagent";
-import { getLoadedSkills } from "../lib/skills";
 import { buildTerminalTools } from "./terminal";
-import { buildTediTools } from "./tedi";
 import { buildTodoTools } from "./todo";
 import { buildMcpToolsAsync } from "./mcp";
 import { buildExtensionTools } from "./extensions";
@@ -34,11 +31,9 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildSearchTools(ctx),
     ...buildShellTools(ctx),
     ...buildSubagentTools(ctx),
-    ...buildSkillTools(ctx),
     ...buildTerminalTools(ctx),
     ...buildTodoTools(ctx),
     ...buildScheduleTools(ctx),
-    ...buildTediTools(),
   } as const;
 }
 
@@ -90,19 +85,16 @@ export function buildTools(ctx: ToolContext): ChatTools {
     built = buildToolsRaw(ctx);
     toolsCache.set(ctx, built);
   }
-  // Rebuild the sub-agent + skill tools each turn so their descriptions (the
-  // current sub-agent types / installed skills, baked into the description
-  // string) stay fresh without an app restart. Cheap: a few zod schemas vs the
-  // ~12 kept cached above. The rest of the toolset stays memoized.
+  // Rebuild the sub-agent tools each turn so their descriptions (the current
+  // sub-agent types, baked into the description string) stay fresh without an
+  // app restart. Cheap: a few zod schemas vs the ~12 kept cached above. The
+  // rest of the toolset stays memoized.
   const fresh = {
     ...built,
     ...buildSubagentTools(ctx),
-    ...buildSkillTools(ctx),
   } as Record<string, unknown>;
   // Sub-agent tools are no longer gated here: the tool picker switches them off
   // like any other tool, and `applyToolFilter` drops them before they are sent.
   // Building them unconditionally is what lets the picker LIST them at all.
-  // Drop the `skill` tool when nothing is installed (no noise, no tokens).
-  if (getLoadedSkills().length === 0) delete fresh.skill;
   return fresh as ChatTools;
 }

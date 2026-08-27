@@ -38,7 +38,7 @@ jobs:
         run: |
           {
             echo 'body<<TEDI_NOTES_EOF'
-            node scripts/release-notes.mjs "$TAG"
+            node scripts/release/release-notes.mjs "$TAG"
             echo 'TEDI_NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 
@@ -161,7 +161,7 @@ jobs:
         run: |
           {
             echo 'body<<TEDI_NOTES_EOF'
-            node scripts/release-notes.mjs "$TAG"
+            node scripts/release/release-notes.mjs "$TAG"
             echo 'TEDI_NOTES_EOF'
           } >> "$GITHUB_OUTPUT"
 

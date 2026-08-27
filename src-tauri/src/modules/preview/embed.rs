@@ -366,7 +366,7 @@ const EMBED_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmart
 #[cfg(target_os = "windows")]
 pub fn apply_webview2_browser_args_env() {
     // Opt-in automation port. It additionally opens the WebView2 DevTools
-    // Protocol on loopback so external tooling (see `scripts/director/`, and the
+    // Protocol on loopback so external tooling (see `scripts/mcp/`, and the
     // MCP server every AI CLI drives TEDI through) can evaluate JS, dispatch
     // real input, and capture stills. Off unless asked for, so shipped builds
     // keep no listening socket.

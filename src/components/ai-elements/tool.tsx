@@ -108,7 +108,6 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   list_schedules: { label: "Schedules", icon: Calendar },
   cancel_schedule: { label: "Cancel schedule", icon: Calendar },
   // Delegation / planning
-  skill: { label: "Skill", icon: Sparkles },
   run_subagent: { label: "Subagent", icon: Bot },
   run_subagents: { label: "Subagents", icon: Bot },
   todo_write: { label: "Todos", icon: ListChecks },
@@ -180,8 +179,6 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       const rep = str("replacement");
       return rep == null ? pat : `${pat} → ${rep}`;
     }
-    case "skill":
-      return str("name");
     case "suggest_command":
       return str("intent") ?? str("description");
     case "open_browser":
@@ -1035,28 +1032,6 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
             <SubagentResultRow key={idx} result={r} />
           ))}
         </div>
-      </div>
-    );
-  }
-
-  if (toolName === "skill") {
-    if (typeof o.error === "string") {
-      return (
-        <div className="bg-destructive/10 text-destructive rounded px-2 py-1.5 font-mono text-[11px]">
-          {o.error}
-        </div>
-      );
-    }
-    const name = typeof o.name === "string" ? o.name : "";
-    const content = typeof o.content === "string" ? o.content : "";
-    return (
-      <div className="space-y-1">
-        <div className="flex items-center gap-1.5 font-mono text-[11px]">
-          <span className="text-diff-added">✓</span>
-          <span className="text-foreground">loaded skill</span>
-          {name ? <span className="text-muted-foreground">· {name}</span> : null}
-        </div>
-        {content ? <CodeBlockMini code={content} language="markdown" /> : null}
       </div>
     );
   }

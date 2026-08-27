@@ -15,7 +15,7 @@ export type PathChangeBus = {
 /**
  * A window-event bus that fans out normalized path-change notifications for
  * paths matching `isRelated`. One instance per event name; the AI memory and
- * skill caches each build one so the event-bus mechanics live in a single place.
+ * the memory cache builds one so the event-bus mechanics live in one place.
  */
 export function createPathChangeBus(
   eventName: string,

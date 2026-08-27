@@ -1,3 +1,4 @@
+import { invoke } from "@tauri-apps/api/core";
 import { escapeRegex } from "@/lib/utils";
 import type { BrowserDiag } from "@/modules/browser";
 import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
@@ -24,6 +25,10 @@ export type ToolContext = {
   /** Open an in-app preview tab at `url`. Returns the new pane's TAB id (resolve
    *  the leaf id the browser tools take via `listBrowsers`), or null on failure. */
   openPreview: (url: string) => number | null;
+  /** Open a SAVED ssh connection as a new terminal tab. Saved connections have
+   *  no command id, so this is the only in-realm route to one. Keys and
+   *  passphrases stay in the keyring; nothing here can read them. */
+  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
   /** Snapshot every open in-app browser pane (tabId/leafId/url/isActive). Lets a
    *  tool resolve the leaf id of a pane it just opened with `openPreview`. */
   listBrowsers: () => BrowserInfo[];
@@ -239,6 +244,46 @@ export function isReadOutsideScope(rawPath: string, ctx: ToolContext): boolean {
   } catch {
     return false;
   }
+}
+
+/**
+ * `isReadOutsideScope`, but against the SYMLINK-RESOLVED path.
+ *
+ * The sync version normalizes `..` and stops there, so a symlink committed into
+ * a repo stayed "in scope" forever:
+ *
+ *     repo/vendor -> C:/Users/me/AppData/Roaming/.../Startup
+ *     read_file repo/vendor/x     // in scope, no card, reads the real target
+ *
+ * `checkReadableResolved` / `checkWritableResolved` do canonicalize, but only to
+ * re-run the SECRET/SYSTEM deny-list - never the scope test. So the one guard
+ * that decides "may an unattended worker touch this at all" was the one that
+ * never followed the link.
+ *
+ * Async, because canonicalization is a round trip to Rust. That is why the sync
+ * version stays: it is the `needsApproval` predicate, which the AI SDK evaluates
+ * synchronously. The asymmetry is acceptable in that direction - the sync check
+ * may ASK for consent it did not strictly need, while this one is what REFUSES.
+ *
+ * Fails CLOSED on a path that will not resolve, matching its sync twin's
+ * treatment of an unknown scope.
+ */
+export async function isOutsideScopeResolved(rawPath: string, ctx: ToolContext): Promise<boolean> {
+  if (isReadOutsideScope(rawPath, ctx)) return true;
+  try {
+    const abs = resolvePath(rawPath, ctx.getCwd());
+    const real = await invoke<string>("fs_canonicalize", { path: abs });
+    // Only re-test when the link actually pointed somewhere else; an identical
+    // answer means there was no link to follow.
+    if (real && normForScope(real) !== normForScope(abs)) {
+      return isReadOutsideScope(real, ctx);
+    }
+  } catch {
+    // Does not exist yet (the new-file case) or is not resolvable. The literal
+    // test above already passed, and a path that cannot be resolved cannot be
+    // read through a link either.
+  }
+  return false;
 }
 
 /**

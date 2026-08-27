@@ -65,8 +65,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
     automation, backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, extensions,
-    format, fs, git, mcp, net,
-    preview, pty, pty_daemon, secrets, shell, ssh,
+    format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -530,7 +529,7 @@ pub fn run() {
 
     // Automation surface, on the SAME switch as the debug port itself. The
     // frontend's `window.__tedi` (commands, panes, terminals, editors, settings
-    // and extensions - see `scripts/director/`) keys off this flag, so one
+    // and extensions - see `scripts/mcp/`) keys off this flag, so one
     // switch turns on both halves and neither exists without it, in a dev build
     // or a released one.
     //
@@ -597,6 +596,12 @@ pub fn run() {
         .setup(|app| {
             // Keep the process commit from ratcheting up across a long session.
             spawn_allocator_purge_thread();
+            // The local-socket bridge an outside AI CLI connects through. Always
+            // on, on every platform, and needing no restart to become usable -
+            // none of which was true of the DevTools port it replaces. Access is
+            // the OS socket permission plus a per-run token; opening a listener
+            // nobody has the token for exposes nothing.
+            mcp_bridge::start(app.handle().clone());
             // Strip Windows 11 DWM rounded corners so the app reads as square.
             if let Some(window) = app.get_webview_window("main") {
                 disable_windows_corner_rounding(&window);
@@ -780,6 +785,8 @@ pub fn run() {
             mcp::mcp_spawn,
             mcp::mcp_write,
             mcp::mcp_kill,
+            mcp_bridge::mcp_bridge_reply,
+            mcp_bridge::mcp_bridge_info,
             ssh::ssh_open,
             ssh::ssh_write,
             ssh::ssh_resize,
@@ -876,6 +883,13 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if let tauri::RunEvent::Opened { urls } = &_event {
                 cli::handle_opened_urls(_app, urls);
+            }
+            // Remove the bridge handshake file (and, on unix, the socket) on the
+            // way out. A stale address+token left behind would make the next
+            // client connect to nothing and wait, instead of being told plainly
+            // that TEDI is not running.
+            if matches!(_event, tauri::RunEvent::Exit) {
+                mcp_bridge::cleanup();
             }
         });
 }
@@ -996,6 +1010,15 @@ mod ui_thread_guard {
         "cli_install_path_shim",
         "cli_take_initial_update_request",
         "http_abort",
+        // Both do in-memory work only, and both are on a hot path where an
+        // `spawn_blocking` hop would cost more than it could ever save.
+        // `mcp_bridge_reply` is one `HashMap::remove` plus a `oneshot::send`, and
+        // it runs once per bridge call, so it is the reply latency of every tool
+        // an outside CLI invokes. `mcp_bridge_info` formats a socket address from
+        // env vars. Neither touches the filesystem, a subprocess or a socket, and
+        // neither holds a lock across an await.
+        "mcp_bridge_info",
+        "mcp_bridge_reply",
         "pty_close",
         "pty_resize",
         "pty_write",

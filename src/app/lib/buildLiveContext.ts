@@ -38,6 +38,7 @@ export interface LiveContext {
   openPreviewTab: (url: string, activate?: boolean) => number | null;
   setBrowserLeafUrl: TabsApi["setBrowserLeafUrl"];
   newTab: TabsApi["newTab"];
+  newSshTab: TabsApi["newSshTab"];
   inheritedCwdForNewTab: () => string | undefined;
   splitActivePane: TabsApi["splitActivePane"];
   setActiveId: TabsApi["setActiveId"];
@@ -139,6 +140,17 @@ export function buildLiveContext(deps: LiveContextDeps) {
       // file tool the model can reach from there runs against the LOCAL disk.
       if (isRemoteEditorLeaf(leaf)) return null;
       return leaf.path;
+    },
+    // Saved SSH connections are the one main feature with no command id, so
+    // this is the only in-realm route to one. Same call the header's SSH menu
+    // makes, so an agent-opened session is indistinguishable from a clicked one.
+    openSshTab: (connectionId: string, name: string, isPrivate = false): boolean => {
+      liveContextRef.current.newSshTab(
+        connectionId,
+        name,
+        isPrivate ? { private: true } : undefined,
+      );
+      return true;
     },
     openPreview: (url: string) => {
       // activate:false - the agent opens browsers in the background so it can

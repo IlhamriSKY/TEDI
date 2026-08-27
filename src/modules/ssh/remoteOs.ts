@@ -40,7 +40,7 @@ const BRAND_BY_ID: Record<string, OsBrandName> = {
   freebsd: "freebsd",
 };
 
-/** Exported for `scripts/ssh-os-verify.ts`. */
+/** Exported for `scripts/ssh/ssh-os-verify.ts`. */
 export function parseOsRelease(text: string): RemoteOs {
   const kv = new Map<string, string>();
   for (const line of text.split("\n")) {

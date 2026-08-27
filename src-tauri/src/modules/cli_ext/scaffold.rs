@@ -21,7 +21,7 @@ use crate::modules::extensions::manifest::validate_id;
 
 use super::helpers::{interactive, picker_theme};
 
-/// The typed API contract, verbatim from the repo. `scripts/ext-api-parity.ts`
+/// The typed API contract, verbatim from the repo. `scripts/extensions/ext-api-parity.ts`
 /// keeps it identical to the host's real `ExtensionContext` at compile time,
 /// so what an author codes against cannot drift from what they get.
 pub(super) const TEDI_D_TS: &str = include_str!("../../../../extensions/tedi.d.ts");

@@ -36,7 +36,6 @@ import { SectionHeader } from "../components/SectionHeader";
 import { SettingRow } from "../components/SettingRow";
 import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
-import { SkillsCard } from "./components/SkillsCard";
 import { McpServersCard } from "./components/McpServersCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { CircleCheck, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
@@ -147,8 +146,6 @@ export function AgentsSection() {
       </section>
 
       <SubagentsCard />
-
-      <SkillsCard />
 
       <McpServersCard />
 

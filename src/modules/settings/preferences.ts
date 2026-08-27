@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import { create } from "zustand";
 import { slugify } from "@/lib/utils";
 import { normalizeCustomTheme } from "./customTheme";
@@ -136,15 +137,7 @@ export async function writeSetting(key: string, value: unknown): Promise<true | 
   }
 }
 
-if (typeof window !== "undefined") {
-  const w = window as unknown as {
-    __TEDI_AUTOMATION__?: boolean;
-    __tedi?: Record<string, unknown>;
-  };
-  if (w.__TEDI_AUTOMATION__) {
-    w.__tedi = { ...w.__tedi, settings: readSettings, setSetting: writeSetting };
-  }
-}
+registerBridge({ settings: readSettings, setSetting: writeSetting });
 
 export function setColumnPlacement(section: "scm" | "ssh", inRightPanel: boolean): void {
   if (section === "scm") {

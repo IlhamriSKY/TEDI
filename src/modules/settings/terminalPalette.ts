@@ -15,7 +15,8 @@ import { slugify } from "@/lib/utils";
 import { THEME_PRESETS } from "./themePresets";
 import type { ThemeColors } from "./customTheme";
 
-export type TerminalThemeMode = "follow-app" | "custom";
+export const TERMINAL_THEME_MODES = ["follow-app", "custom"] as const;
+export type TerminalThemeMode = (typeof TERMINAL_THEME_MODES)[number];
 
 export type TerminalAnsi = {
   black: string;

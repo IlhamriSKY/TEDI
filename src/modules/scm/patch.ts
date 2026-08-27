@@ -4,7 +4,7 @@
  * `gh pr diff` prints one `git diff` for the whole pull request, and a review
  * is read one file at a time, so the patch is cut apart here rather than
  * rendered as one 30,000-line wall. Pure text in, plain data out: no CodeMirror
- * and no git, so `scripts/gh-stack-verify.ts` can assert the parse against real
+ * and no git, so `scripts/scm/gh-stack-verify.ts` can assert the parse against real
  * patch shapes (rename, binary, new file, deletion) without a repository.
  *
  * Deliberately NOT a diff parser. Hunk headers, context and both change signs

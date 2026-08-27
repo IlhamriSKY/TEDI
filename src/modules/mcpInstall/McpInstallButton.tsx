@@ -19,7 +19,14 @@ import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { getAutomationPort, setAutomationPort } from "@/modules/settings/store";
+import {
+  getAutomationPort,
+  getMcpSurface,
+  setAutomationPort,
+  setMcpSurface,
+} from "@/modules/settings/store";
+import { listExtensions } from "@/modules/extensions/store";
+import { disabledToolsFor, MCP_EXTENSION_ALLOWLIST, MCP_PACKS, PACK_TOKENS } from "./packs";
 import {
   Dialog,
   DialogContent,
@@ -63,17 +70,66 @@ export function McpInstallButton() {
   const [server, setServer] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
+  /** Pack ids switched OFF, and extension ids switched ON. Stored that way round
+   *  so a pack added later is on by default and a new extension is not. */
+  const [offPacks, setOffPacks] = useState<string[]>([]);
+  const [onExts, setOnExts] = useState<string[]>([]);
+  /** Only extensions that are installed, ENABLED, and really register AI tools.
+   *  Anything else would be a switch the server cannot honour. */
+  const [exts, setExts] = useState<{ id: string; name: string; tools: number; usable: boolean }[]>(
+    [],
+  );
+
   const refresh = useCallback(async () => {
     const root = pickedRoot();
-    const [cli, project, storedPort, path] = await Promise.all([
+    const [cli, project, storedPort, path, surfaceCfg] = await Promise.all([
       detect(),
       root ? projectStatus(root) : Promise.resolve(null),
       getAutomationPort(),
       serverPath(),
+      getMcpSurface(),
     ]);
     setRows(project ? [...cli, project] : cli);
     setPort(storedPort);
     setServer(path);
+    setOnExts(surfaceCfg.extensions);
+    // Stored as tool names; mapped back to pack ids so the switches reflect it.
+    const off = new Set(surfaceCfg.disabledTools);
+    setOffPacks(
+      MCP_PACKS.filter((p) => !p.always && p.tools.every((t) => off.has(t))).map((p) => p.id),
+    );
+    // The ALLOW-LIST, not "everything that registers a tool". Advertising an
+    // extension costs tokens on every request, so only the two an agent really
+    // drives are offered; the rest stay reachable through `run_command`.
+    // `listExtensions` reads the RUNTIME registry, so the count is what each
+    // one really registers, not what its manifest claims.
+    const live = listExtensions();
+    setExts(
+      MCP_EXTENSION_ALLOWLIST.map(({ id, label }) => {
+        const found = live.find((e) => e.id === id);
+        return {
+          id,
+          name: label,
+          tools: found?.aiTools.length ?? 0,
+          // INSTALLED AND ENABLED, and it really has tools. All three, because
+          // each fails differently: not installed = nothing to switch;
+          // disabled = deactivation CLEARS its runtime registry entries, so it
+          // would advertise tools that answer nothing; zero tools = a switch
+          // that turns nothing on. A row for any of those is a promise the
+          // server cannot keep.
+          usable: Boolean(found?.enabled) && (found?.aiTools.length ?? 0) > 0,
+        };
+      }).filter((e) => e.usable),
+    );
+  }, []);
+
+  const writeSurface = useCallback(async (nextOff: string[], nextExts: string[]) => {
+    setOffPacks(nextOff);
+    setOnExts(nextExts);
+    await setMcpSurface({ disabledTools: disabledToolsFor(nextOff), extensions: nextExts });
+    toast("MCP surface saved - TEDI's own agent already has it; reconnect your AI CLI", {
+      variant: "default",
+    });
   }, []);
 
   // Once on mount for the indicator, and again whenever the dialog opens - a
@@ -81,6 +137,19 @@ export function McpInstallButton() {
   useEffect(() => {
     void refresh().catch(() => setRows([]));
   }, [refresh, open]);
+
+  /** Standing cost of the current selection, to one decimal in thousands. It is
+   *  an estimate and says so; the point is that turning a pack off visibly moves
+   *  it, so the trade is legible while it is being made. Extension tools are
+   *  ~150 tokens apiece, measured against API Client's eleven. */
+  const estTokens = (
+    (MCP_PACKS.filter((p) => p.always || !offPacks.includes(p.id)).reduce(
+      (n, p) => n + (PACK_TOKENS[p.id] ?? 0),
+      0,
+    ) +
+      exts.filter((e) => onExts.includes(e.id)).reduce((n, e) => n + e.tools * 150, 0)) /
+    1000
+  ).toFixed(1);
 
   const installed = (rows ?? []).some((r) => r.installed);
   const live = channelLive();
@@ -184,62 +253,147 @@ export function McpInstallButton() {
             </DialogDescription>
           </DialogHeader>
 
-          <div className="flex flex-col gap-1">
-            {rows === null && (
-              <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
-                <Spinner className="size-4" /> Looking for AI CLIs&hellip;
-              </div>
-            )}
-            {rows?.map((row) => (
-              <label
-                key={row.id}
-                className={cn(
-                  "flex items-center justify-between gap-3 rounded-md px-2 py-2",
-                  row.present ? "hover:bg-accent/50" : "opacity-45",
-                )}
-              >
-                <span className="min-w-0">
-                  <span className="text-sm">{row.name}</span>
-                  <span className="text-muted-foreground block truncate text-xs">
-                    {row.present ? row.path : "not installed"}
+          {/* THE SCROLL CONTAINER. `DialogContent` is `flex flex-col` with
+              `max-h-[calc(100dvh-2rem)]` AND `overflow-hidden`, so anything past
+              that cap is clipped with nothing to scroll - which is exactly what
+              expanding the pack accordion did. Header and footer stay put; this
+              is the part that gives. `min-h-0` is load-bearing: without it a
+              flex child refuses to shrink below its content and the overflow
+              never engages. The negative margin + padding keep the switches'
+              focus rings from being cropped by the scroll edge. */}
+          <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-1">
+            <div className="flex flex-col gap-1">
+              {rows === null && (
+                <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
+                  <Spinner className="size-4" /> Looking for AI CLIs&hellip;
+                </div>
+              )}
+              {rows?.map((row) => (
+                <label
+                  key={row.id}
+                  className={cn(
+                    "flex items-center justify-between gap-3 rounded-md px-2 py-2",
+                    row.present ? "hover:bg-accent/50" : "opacity-45",
+                  )}
+                >
+                  <span className="min-w-0">
+                    <span className="text-sm">{row.name}</span>
+                    <span className="text-muted-foreground block truncate text-xs">
+                      {row.present ? row.path : "not installed"}
+                    </span>
                   </span>
-                </span>
-                {busy === row.id ? (
-                  <Spinner className="size-4 shrink-0" />
-                ) : (
-                  <Switch
-                    checked={row.installed}
-                    disabled={!row.present}
-                    onCheckedChange={(next) => void toggle(row, next)}
-                    aria-label={`${row.installed ? "Remove" : "Install"} MCP for ${row.name}`}
-                  />
-                )}
-              </label>
-            ))}
-            {rows?.length === 0 && (
-              <p className="text-muted-foreground py-4 text-sm">
-                No supported AI CLI found. Point any MCP client at{" "}
-                <code className="text-foreground">node {server}</code>.
-              </p>
-            )}
-          </div>
+                  {busy === row.id ? (
+                    <Spinner className="size-4 shrink-0" />
+                  ) : (
+                    <Switch
+                      checked={row.installed}
+                      disabled={!row.present}
+                      onCheckedChange={(next) => void toggle(row, next)}
+                      aria-label={`${row.installed ? "Remove" : "Install"} MCP for ${row.name}`}
+                    />
+                  )}
+                </label>
+              ))}
+              {rows?.length === 0 && (
+                <p className="text-muted-foreground py-4 text-sm">
+                  No supported AI CLI found. Point any MCP client at{" "}
+                  <code className="text-foreground">node {server}</code>.
+                </p>
+              )}
+            </div>
 
-          <div className="border-border/60 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
-            <span className="min-w-0">
-              <span className="text-sm">Automation channel</span>
-              <span className="text-muted-foreground block text-xs">
-                {live
-                  ? `Open on port ${port || DEFAULT_PORT}. Anything running as you can drive this window.`
-                  : port
-                    ? `Opens on port ${port} after a restart.`
-                    : "Off. Required for any of the above to connect."}
+            {/* What the server advertises. The tool list is loaded into EVERY
+              request of a connected CLI for the whole session, so this is a
+              standing bill and the user is the one who should size it. */}
+            <details className="border-border/60 rounded-md border">
+              <summary className="hover:bg-accent/40 cursor-pointer px-3 py-2 text-sm">
+                What the MCP exposes
+                <span className="text-muted-foreground ml-1.5 text-xs tabular-nums">
+                  ~{estTokens}k tokens per request
+                </span>
+              </summary>
+              <div className="border-border/60 flex flex-col gap-0.5 border-t px-1 py-1">
+                {MCP_PACKS.map((p) => (
+                  <label
+                    key={p.id}
+                    className={cn(
+                      "flex items-center justify-between gap-3 rounded px-2 py-1.5",
+                      p.always ? "opacity-60" : "hover:bg-accent/40",
+                    )}
+                  >
+                    <span className="min-w-0">
+                      <span className="text-[13px]">{p.name}</span>
+                      <span className="text-muted-foreground block text-[11px]">{p.hint}</span>
+                    </span>
+                    <Switch
+                      // A pack with no static tools has nothing to switch: the
+                      // Extensions category is populated per-extension below and
+                      // the AI one is not built yet. A live-looking switch that
+                      // turns nothing off would be the lie.
+                      checked={p.tools.length > 0 && (p.always || !offPacks.includes(p.id))}
+                      disabled={p.always || p.tools.length === 0}
+                      aria-label={p.name}
+                      onCheckedChange={(on) =>
+                        void writeSurface(
+                          on ? offPacks.filter((x) => x !== p.id) : [...offPacks, p.id],
+                          onExts,
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+
+                {exts.length > 0 && (
+                  <>
+                    <span className="text-muted-foreground mt-1 px-2 text-[10px] tracking-wide uppercase">
+                      Extension packs
+                    </span>
+                    {exts.map((e) => (
+                      <label
+                        key={e.id}
+                        className="hover:bg-accent/40 flex items-center justify-between gap-3 rounded px-2 py-1.5"
+                      >
+                        <span className="min-w-0">
+                          <span className="text-[13px]">{e.name}</span>
+                          <span className="text-muted-foreground block text-[11px]">
+                            {e.tools} AI tool{e.tools === 1 ? "" : "s"} advertised directly, so a
+                            CLI sees them without asking first.
+                          </span>
+                        </span>
+                        <Switch
+                          checked={onExts.includes(e.id)}
+                          aria-label={e.name}
+                          onCheckedChange={(on) =>
+                            void writeSurface(
+                              offPacks,
+                              on ? [...onExts, e.id] : onExts.filter((x) => x !== e.id),
+                            )
+                          }
+                        />
+                      </label>
+                    ))}
+                  </>
+                )}
+              </div>
+            </details>
+
+            <div className="border-border/60 flex items-center justify-between gap-3 rounded-md border px-3 py-2">
+              <span className="min-w-0">
+                <span className="text-sm">Automation channel</span>
+                <span className="text-muted-foreground block text-xs">
+                  {live
+                    ? `Open on port ${port || DEFAULT_PORT}. Anything running as you can drive this window.`
+                    : port
+                      ? `Opens on port ${port} after a restart.`
+                      : "Off. Required for any of the above to connect."}
+                </span>
               </span>
-            </span>
-            <Switch
-              checked={port > 0}
-              onCheckedChange={(on) => void setChannel(on)}
-              aria-label="Automation channel"
-            />
+              <Switch
+                checked={port > 0}
+                onCheckedChange={(on) => void setChannel(on)}
+                aria-label="Automation channel"
+              />
+            </div>
           </div>
 
           <DialogFooter className="sm:justify-between">

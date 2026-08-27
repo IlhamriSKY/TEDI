@@ -20,7 +20,6 @@ import { discardCheckpoint } from "./checkpoint";
 import { compactUiMessages } from "./compact";
 import { getMcpServers } from "./mcpConfig";
 import { saveMessages } from "./sessions";
-import { getLoadedSkills, loadSkills, skillSlug } from "./skills";
 
 /**
  * Outcome of intercepting a slash command.
@@ -54,8 +53,6 @@ export type SlashCommandMeta = {
    *  (`init`, `plan`) that persist on a message or the session. Ephemeral
    *  actions stay slash-only. */
   tagOnly?: boolean;
-  /** True for installed-skill commands so the picker groups them separately. */
-  isSkill?: boolean;
 };
 
 export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
@@ -93,13 +90,6 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     label: "Compact history",
     description: "Trim older messages to reclaim context (keeps the most recent turns).",
     icon: Minimize2,
-  },
-  skills: {
-    name: "skills",
-    invocation: "/skills",
-    label: "List skills",
-    description: "Show installed skills (invoke one with /<name>).",
-    icon: Sparkles,
   },
   mcp: {
     name: "mcp",
@@ -154,26 +144,6 @@ export const TAG_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).fi
   (c) => c.tagOnly,
 );
 
-/** Installed skills surfaced as `/` commands (one per skill, named after it) so
- *  users can invoke one directly. Built live from the loaded-skills cache. */
-export function skillSlashCommands(): SlashCommandMeta[] {
-  // Full description; the picker clamps the display (line-clamp-2) so there's no
-  // mid-word code truncation. Drop slugs colliding with a built-in command:
-  // tryRunSlashCommand resolves built-ins first, so a collided skill is
-  // unreachable — showing it as a duplicate `/` row would only mislead.
-  return getLoadedSkills()
-    .filter((s) => !(skillSlug(s) in SLASH_COMMANDS))
-    .map((s) => ({
-      name: skillSlug(s),
-      invocation: `/${skillSlug(s)}`,
-      label: s.name,
-      description: s.description || "Skill",
-      icon: Sparkles,
-      isSkill: true,
-      argHint: s.argHint,
-    }));
-}
-
 export const TEDI_CMD_RE =
   /^<tedi-command\s+name="([a-z0-9-]+)"(?:\s+state="([a-z]+)")?\s*\/>(?:\n+|$)/;
 
@@ -225,8 +195,8 @@ function showHelp(): void {
   });
 }
 
-/** Render a "what's installed" list into the info modal — shared by /skills and
- *  /mcp: a count subtitle when non-empty, a "where to add" hint when empty. */
+/** Render a "what's installed" list into the info modal for /mcp: a count
+ *  subtitle when non-empty, a "where to add" hint when empty. */
 function showListModal<T>(
   id: string,
   title: string,
@@ -242,26 +212,6 @@ function showListModal<T>(
     sections: items.length ? [{ rows: items.map(row) }] : [],
     footer: "Press Esc to dismiss.",
   });
-}
-
-/** Modal listing installed skills. Loads fresh so the list is accurate even if
- *  the picker cache hasn't warmed yet. */
-function showSkillsList(): void {
-  const root = useChatStore.getState().live.getWorkspaceRoot();
-  void loadSkills(root).then((skills) =>
-    showListModal(
-      "slash-skills",
-      "Installed skills",
-      skills,
-      `${skills.length} installed. Invoke one with /<name>, or manage in Settings → Agents → Skills.`,
-      "None installed. Add a GitHub repo with SKILL.md files in Settings → Agents → Skills.",
-      (s) => ({
-        kbd: `/${skillSlug(s)}`,
-        label: s.version ? `${s.name} v${s.version}` : s.name,
-        desc: s.description || "Skill",
-      }),
-    ),
-  );
 }
 
 /** Modal listing configured MCP servers and their enabled state. */
@@ -439,9 +389,6 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
     }
     case "compact":
       return compactActiveChat();
-    case "skills":
-      showSkillsList();
-      return { kind: "handled" };
     case "mcp":
       showMcpList();
       return { kind: "handled" };
@@ -475,20 +422,6 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
       };
     }
     default: {
-      // Installed skill invoked by name, e.g. `/<skill> [task]`.
-      if (lead === "/") {
-        const skill = getLoadedSkills().find((s) => skillSlug(s) === head);
-        if (skill) {
-          // Clean body (no absolute path); the agent loads it via the `skill`
-          // tool, which lists this skill by name.
-          const task = tail ? ` Apply it to: ${tail}` : "";
-          return {
-            kind: "send-prompt",
-            prompt: `Use the "${skill.name}" skill.${task}`,
-            commandName: head,
-          };
-        }
-      }
       return { kind: "none" };
     }
   }

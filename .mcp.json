@@ -2,9 +2,12 @@
   "mcpServers": {
     "tedi": {
       "command": "node",
-      "args": ["scripts/director/mcp.mjs"],
+      "args": [
+        "scripts/mcp/server.mjs"
+      ],
       "env": {
-        "TEDI_DEBUG_PORT": "9222"
+        "TEDI_DEBUG_PORT": "9222",
+        "TEDI_BUNDLE_ID": "id.ilhamrisky.tedi"
       }
     }
   }

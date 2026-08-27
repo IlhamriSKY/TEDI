@@ -4,7 +4,7 @@ import type { ToolSet } from "ai";
  * Grouping and filtering for the tool picker.
  *
  * Kept out of `tools.ts`, which pulls in every builder, so the pure parts stay
- * testable on their own: `scripts/tool-picker-verify.ts`.
+ * testable on their own: `scripts/ai/tool-picker-verify.ts`.
  */
 
 /** One row in the picker. */
@@ -34,10 +34,6 @@ export function builtinGroup(name: string): string {
   if (name.startsWith("run_subagent")) return "Sub-agents";
   if (name.includes("schedule")) return "Schedule";
   if (name === "fetch") return "Web";
-  if (name === "skill") return "Skills";
-  // TEDI's own configuration - its settings and its extensions - as opposed to
-  // the workspace, which is what every other group acts on.
-  if (name.startsWith("tedi_")) return "TEDI";
   if (name === "todo_write") return "Tasks";
   if (
     name === "edit" ||
@@ -67,24 +63,32 @@ export function mcpGroup(name: string): string | null {
 }
 
 /**
- * The "## MCP SERVERS" prompt block, counted from the tools the turn is really
+ * The "## MCP SERVERS" prompt block, derived from the tools the turn is really
  * sending.
  *
  * Deriving it here rather than from the live server list is the point: a server
  * whose tools the user unticked, or that failed to connect, has nothing in the
  * tool set and must not be advertised as "available in your tool list".
+ *
+ * NAMES ONLY, NO COUNT. This block sits in the SYSTEM PROMPT, which is the
+ * cached prefix of every request in the session, so anything volatile in it
+ * costs real money: an MCP server that finished listing its tools between two
+ * turns flipped "(1 tool)" to "(2 tools)", and that one word re-priced the whole
+ * prefix as a cache MISS for every later request. Measured in a real session:
+ * the change landed on request 4 of 11. The count was never worth that - the
+ * model receives the tool definitions themselves in the same request, so it can
+ * already see exactly which tools each server gave it. Server names change only
+ * when a server appears or drops out, which is both rarer and worth a re-cache.
  */
 export function mcpSummaryFor(toolNames: Iterable<string>): string {
-  const counts = new Map<string, number>();
+  const servers = new Set<string>();
   for (const name of toolNames) {
     const server = mcpServerOf(name);
     if (server === null) continue;
-    counts.set(server, (counts.get(server) ?? 0) + 1);
+    servers.add(server || "MCP");
   }
-  if (counts.size === 0) return "";
-  const lines = [...counts.entries()]
-    .sort(([a], [b]) => a.localeCompare(b))
-    .map(([server, n]) => `- **${server || "MCP"}** (${n} tool${n === 1 ? "" : "s"})`);
+  if (servers.size === 0) return "";
+  const lines = [...servers].sort((a, b) => a.localeCompare(b)).map((s) => `- **${s}**`);
   return `\n\n## MCP SERVERS\nThese MCP servers' tools are available in your tool list:\n${lines.join("\n")}`;
 }
 
@@ -133,10 +137,8 @@ const GROUP_ORDER = [
   "Browser",
   "Web",
   "Sub-agents",
-  "Skills",
   "Tasks",
   "Schedule",
-  "TEDI",
   "Extensions",
 ];
 

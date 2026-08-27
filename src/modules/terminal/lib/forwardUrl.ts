@@ -5,7 +5,7 @@
  *
  * Deliberately free of xterm/Tauri imports (unlike its caller and
  * `session-helpers`, both of which touch `window` at module scope) so
- * `scripts/ssh-forward-url-verify.ts` can exercise it under plain node.
+ * `scripts/ssh/ssh-forward-url-verify.ts` can exercise it under plain node.
  */
 
 function parse(url: string): URL | null {

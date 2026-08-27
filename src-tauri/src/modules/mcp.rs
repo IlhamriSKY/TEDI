@@ -171,7 +171,14 @@ fn mcp_spawn_inner(
     }
 
     // Replace any existing process under this id (reconnect) so we never leak.
-    if let Some(old) = procs().lock().unwrap().remove(&id) {
+    //
+    // The `remove` is deliberately its own statement. Edition 2021 keeps an
+    // `if let` scrutinee's temporaries alive for the whole body, so
+    // `if let Some(old) = procs().lock().unwrap().remove(&id) { ... }` held the
+    // GLOBAL registry lock across `kill_process_group`, which on Unix is a full
+    // fork/exec/wait of `kill`. Every other MCP command blocked behind it.
+    let old = procs().lock().unwrap().remove(&id);
+    if let Some(old) = old {
         kill_process_group(&old.child); // Unix: reap the grandchild too, not just the shim
         let _ = old.child.kill();
     }
@@ -321,7 +328,18 @@ fn mcp_spawn_inner(
         thread::spawn(move || {
             let code = child_wait.wait().ok().and_then(|s| s.code());
             let _ = on_event.send(McpEvent::Exit { code });
-            procs().lock().unwrap().remove(&id);
+            // Remove only if the registry still holds THIS process. The old code
+            // removed by id unconditionally, so on the documented reconnect path
+            // (kill the old, register the new under the same id) the dying
+            // process's wait thread deleted the BRAND-NEW entry moments after it
+            // was inserted. The server kept running while every later
+            // `mcp_write` answered "mcp server '<id>' is not running".
+            {
+                let mut map = procs().lock().unwrap();
+                if map.get(&id).is_some_and(|cur| Arc::ptr_eq(cur, &proc_ref)) {
+                    map.remove(&id);
+                }
+            }
             // The direct child is reaped; on Unix a grandchild may still hold the
             // pipe, parking the readers on read(). After a grace window, signal
             // them to stop so the threads + FDs are released.
@@ -378,11 +396,26 @@ pub async fn mcp_kill(id: String) -> Result<(), String> {
 }
 
 fn mcp_kill_inner(id: String) -> Result<(), String> {
-    if let Some(proc) = procs().lock().unwrap().remove(&id) {
+    // Take it out and RELEASE the registry lock before touching the process.
+    // Holding it across the body (which edition 2021 does for an `if let`
+    // scrutinee) meant this function could wedge the entire MCP backend: the
+    // `stdin.lock()` below blocks whenever a concurrent `mcp_write` is parked in
+    // `write_all` on a full pipe - the `npx` -> `node` grandchild case this file
+    // already worries about - and every `mcp_spawn`/`mcp_write`/`mcp_kill` for
+    // every server then queued behind the global mutex, on the shared blocking
+    // pool.
+    let proc = procs().lock().unwrap().remove(&id);
+    if let Some(proc) = proc {
         proc.stop_readers.store(true, Ordering::Release);
         kill_process_group(&proc.child); // Unix: reap the grandchild too
         let _ = proc.child.kill();
-        *proc.stdin.lock().unwrap() = None; // drop stdin → EOF to the child
+        // Dropping stdin sends EOF, which is how a well-behaved MCP server
+        // exits. `try_lock`, not `lock`: the child is already killed, so this is
+        // a courtesy - and waiting on a wedged writer to hand it over is exactly
+        // the stall described above. The handle drops with the Arc regardless.
+        if let Ok(mut guard) = proc.stdin.try_lock() {
+            *guard = None;
+        }
     }
     Ok(())
 }

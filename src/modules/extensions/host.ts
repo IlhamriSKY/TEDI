@@ -184,7 +184,7 @@ const HOST_FEATURE_SET: ReadonlySet<string> = new Set(HOST_FEATURES);
  * whole 100+ command surface: a shape written from memory rather than from the
  * Rust struct would be a type that LIES, which is worse than `unknown`. Every
  * entry below is transcribed from its `#[derive(Serialize)]` struct, including
- * its `serde(rename_all)` casing. `scripts/ext-invoke-types-verify.ts` reads
+ * its `serde(rename_all)` casing. `scripts/ext/ext-invoke-types-verify.ts` reads
  * those structs back out of the Rust source and fails if the field names
  * diverge.
  *

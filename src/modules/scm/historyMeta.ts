@@ -2,7 +2,7 @@
  * Pure presentation helpers for the history graph. Kept out of
  * `GitGraphView.tsx` for the same reason `statusMeta.ts` exists: a component
  * file that also exports plain functions is harder to reason about, and
- * `scripts/scm-ops-verify.ts` can import these without pulling React in.
+ * `scripts/scm/scm-ops-verify.ts` can import these without pulling React in.
  */
 
 /** Local-day bucket. `toDateString` is already local and stable, so it groups

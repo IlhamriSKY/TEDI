@@ -2,9 +2,9 @@ import { tool } from "ai";
 import { z } from "zod";
 import { scheduler } from "@/modules/scheduler";
 import type { TerminalTarget } from "@/modules/scheduler/types";
-import { checkShellCommand } from "../lib/security";
+
 import type { ToolContext } from "./context";
-import { applyShellTransformers } from "./shell";
+import { checkedShellCommand } from "./shell";
 
 /**
  * Some providers serialize nested arg objects as JSON strings or stringify
@@ -179,8 +179,6 @@ export function buildScheduleTools(ctx: ToolContext) {
         target: targetSchema,
       }),
       execute: async ({ text, target }) => {
-        const safety = checkShellCommand(text);
-        if (!safety.ok) return { error: safety.reason };
         const trimmed = text.replace(/[\r\n]+$/, "");
         // Raw PTY write with no bracketed-paste wrapper: an embedded newline
         // would auto-run the following lines with no approval. Type-only text
@@ -193,8 +191,12 @@ export function buildScheduleTools(ctx: ToolContext) {
         }
         // Route through the shell-transformer chain (e.g. RTK) like every other
         // CLI tool, then re-guard newlines: a transformer that injects one would
-        // auto-run lines via the raw (no-bracketed-paste) PTY write.
-        const effective = applyShellTransformers(trimmed, "terminal");
+        // auto-run lines via the raw (no-bracketed-paste) PTY write. The
+        // denylist is applied to the transformed text too - see
+        // `checkedShellCommand`.
+        const vetted = checkedShellCommand(trimmed, "terminal");
+        if (!vetted.ok) return { error: vetted.error };
+        const effective = vetted.command;
         if (/[\r\n]/.test(effective)) {
           return {
             error:
@@ -228,9 +230,9 @@ export function buildScheduleTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ command, target }) => {
-        const safety = checkShellCommand(command);
-        if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
+        const vetted = checkedShellCommand(trimmed, "terminal");
+        if (!vetted.ok) return { error: vetted.error };
         const t = normalizeTarget(target);
         // Don't write into a terminal mid-command / mid-TUI: it would corrupt the
         // running program's input instead of submitting a fresh command.
@@ -241,7 +243,7 @@ export function buildScheduleTools(ctx: ToolContext) {
             command: trimmed,
           };
         }
-        const effective = applyShellTransformers(trimmed, "terminal");
+        const effective = vetted.command;
         const ok = ctx.runInTerminal(t, effective);
         if (!ok) return { error: "target terminal not found", command: trimmed };
         return { command: trimmed, submitted: true, target: t };
@@ -271,9 +273,9 @@ export function buildScheduleTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ command, delay_seconds, fire_at_iso, action, target, label }) => {
-        const safety = checkShellCommand(command);
-        if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
+        const vetted = checkedShellCommand(trimmed, "terminal");
+        if (!vetted.ok) return { error: vetted.error };
         const effectiveAction = action ?? "submit";
         // An "inject" schedule types without Enter; an embedded newline would
         // auto-run the following lines at fire time with no re-approval. ("submit"
@@ -287,7 +289,7 @@ export function buildScheduleTools(ctx: ToolContext) {
         // Route through the shell-transformer chain (e.g. RTK) so a scheduled
         // command runs the same rewritten form as an immediate one. Re-guard the
         // inject case against a transformer-introduced newline.
-        const effectiveCommand = applyShellTransformers(trimmed, "terminal");
+        const effectiveCommand = vetted.command;
         if (effectiveAction === "inject" && /[\r\n]/.test(effectiveCommand)) {
           return {
             error:

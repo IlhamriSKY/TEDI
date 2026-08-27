@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import { isPdfPath, pathToFileUrl } from "@/lib/path";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
 import { type Tab } from "@/modules/tabs";
@@ -68,7 +69,7 @@ export function useFileActions({
     return () => setExtensionWorkspaceBridge(null);
   }, [handleOpenFile]);
 
-  // Same handler, exposed to a driving agent (`scripts/director/`). Opening a
+  // Same handler, exposed to a driving agent (`scripts/mcp/`). Opening a
   // file by path is the one editor entry point a driver otherwise cannot reach:
   // clicking the tree only works for a path already expanded into view, so any
   // deep file was unopenable. Routed through `handleOpenFile` rather than
@@ -77,15 +78,12 @@ export function useFileActions({
   // (see `shortcuts/lib/commandRegistry.ts`), and merged into it, since three
   // files contribute to that one object and none may clobber the others.
   useEffect(() => {
-    if (!(window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) return;
-    const w = window as unknown as { __tedi?: Record<string, unknown> };
-    w.__tedi = {
-      ...w.__tedi,
+    registerBridge({
       openFile: (path: string, pin = true) => {
         handleOpenFile(path, pin);
         return true;
       },
-    };
+    });
   }, [handleOpenFile]);
 
   // SSH tree calls this when the user clicks a remote file. Pin the tab

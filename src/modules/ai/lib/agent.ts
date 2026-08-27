@@ -80,7 +80,6 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
   read_browser_console: () => `Reading browser console`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
-  skill: (i) => `Using ${String(i.name ?? "skill")} skill`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
     const tasks = Array.isArray(i.tasks) ? i.tasks : [];
@@ -447,9 +446,6 @@ export type RunAgentOptions = {
   projectMemory?: string | null;
   /** Concatenated `.tedi/memory/*.md` (durable project memory). */
   memory?: string | null;
-  /** Pre-formatted "## SKILLS" block (name + description per available skill).
-   *  Byte-stable across turns so it stays in the cacheable prefix. */
-  skillsPrompt?: string | null;
   uiMessages: UIMessage[];
   abortSignal?: AbortSignal;
 };
@@ -470,7 +466,6 @@ function buildSystemPrompt(opts: {
   agentPersona?: { name: string; instructions: string } | null;
   projectMemory?: string | null;
   memory?: string | null;
-  skillsPrompt?: string | null;
   planMode?: boolean;
   chatMode?: boolean;
   /** Standing session goal from `/goal`, or null. */
@@ -485,7 +480,7 @@ function buildSystemPrompt(opts: {
     ? `\n\n## USER CUSTOM INSTRUCTIONS - follow unless they conflict with safety rules above\n${opts.customInstructions.trim()}`
     : "";
 
-  // Plain chat sends no tools, so memory/skills/MCP/orchestration text describes
+  // Plain chat sends no tools, so memory/MCP/orchestration text describes
   // capabilities the model does not have, billed every message. Persona and
   // custom instructions stay - the user wrote those.
   if (opts.chatMode) {
@@ -521,13 +516,11 @@ function buildSystemPrompt(opts: {
             : ""
         }${savedMemory}`
       : "";
-  // The skills block exists to point at the `skill` tool. Without it there is
-  // nothing to point at.
-  const skillsBlock =
-    has("skill") && opts.skillsPrompt?.trim() ? `\n\n${opts.skillsPrompt.trim()}` : "";
-  // Counted from the tools that survived rather than from the live servers, so a
+  // Derived from the tools that survived rather than from the live servers, so a
   // server whose tools are all unticked (or that failed to connect) is not
-  // advertised as "available in your tool list".
+  // advertised as "available in your tool list". Names only, no tool count: the
+  // count moved when a server finished listing between turns, and that re-priced
+  // this whole prefix as a cache miss for the rest of the session.
   const mcpBlock = mcpSummaryFor(opts.toolNames);
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
@@ -547,7 +540,7 @@ function buildSystemPrompt(opts: {
   const goalBlock = opts.goal?.trim()
     ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal. Do not restate it back to the user unprompted.\n\nDrive it to completion on your own. You will be asked to continue automatically after each turn, so do not stop to ask whether to proceed, and do not end a turn with a plan you could have executed. Stop early only if you are BLOCKED on something only the user can decide or authorize, and then say plainly what you need.\n\nWhen the goal is fully met AND you have verified it (tests, a build, or reading back what you changed), end that message with this exact line and nothing after it:\n${GOAL_DONE_MARKER}\nNever write that line for any other reason - it is what stops the run.`
     : "";
-  return `${hostBlock}${base}${memoryBlock}${memBlock}${skillsBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
+  return `${hostBlock}${base}${memoryBlock}${memBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
 }
 
 /** Appended for the turn when the user writes "ultrathink": a provider-agnostic
@@ -628,7 +621,6 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       agentPersona: opts.agentPersona,
       projectMemory: opts.projectMemory,
       memory: opts.memory,
-      skillsPrompt: opts.skillsPrompt,
       planMode: opts.planMode,
       chatMode,
       goal: activeGoalText(opts.toolContext.getSessionId()),

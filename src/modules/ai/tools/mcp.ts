@@ -3,6 +3,8 @@ import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { toast } from "@/components/ui/toast";
 import { getMcpClient } from "../lib/mcpClient";
 import { getMcpServers, type McpServerConfig } from "../lib/mcpConfig";
+import { TEDI_MCP_SERVER_NAME, type TediMcpDeps } from "../lib/tediMcpServer";
+import { getMcpSurface } from "@/modules/settings/store";
 import type { ToolContext } from "./context";
 
 /** Image/audio payload carried out of an MCP tool result so toModelOutput can
@@ -41,10 +43,14 @@ export function clampToolKey(key: string, max = 64): string {
 /** Convert an MCP tool definition to an AI SDK tool. */
 function mcpToolToAiTool(
   mcpTool: McpTool,
-  serverName: string,
   config: McpServerConfig,
   ctx: ToolContext,
+  /** The SAME deps `buildMcpToolsAsync` connected with. Passing them again is
+   *  not redundant: they are part of the client cache key, so omitting them here
+   *  resolves to a DIFFERENT client than the one that advertised this tool. */
+  builtinDeps: TediMcpDeps | undefined,
 ) {
+  const serverName = config.name;
   return tool({
     description: `${mcpTool.description ?? "MCP tool from " + serverName} [${serverName}]`,
     // MCP ships a raw JSON Schema; wrap it with jsonSchema() so the AI SDK
@@ -57,7 +63,7 @@ function mcpToolToAiTool(
     needsApproval: true,
     execute: async (input: Record<string, unknown>) => {
       try {
-        const client = await getMcpClient(config, ctx.getCwd() ?? undefined);
+        const client = await getMcpClient(config, ctx.getCwd() ?? undefined, builtinDeps);
         const result = await client.callTool(mcpTool.name, input);
 
         // Collect text inline; carry image/audio as media parts so they reach a
@@ -130,15 +136,36 @@ function mcpToolToAiTool(
 const _warnedFailedServers = new Set<string>();
 
 export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<string, Tool>> {
-  const servers = await getMcpServers();
-  const enabled = servers.filter((s) => s.enabled);
-  if (enabled.length === 0) return {};
+  // The pack switches in the MCP dialog gate the built-in server too, not just
+  // the stdio one an outside CLI connects to. One surface, one set of switches:
+  // turning the Settings pack off has to take `set_setting` away from TEDI's own
+  // agent as well, or the switch is trivially bypassed from inside.
+  const [servers, surface] = await Promise.all([getMcpServers(), getMcpSurface()]);
+  const disabledTools = surface.disabledTools;
+  // TEDI's own control surface is an MCP server like any other (see
+  // `lib/tediMcpServer.ts`) - it just runs in-process. Listing it first keeps it
+  // ahead of a user server that happens to share the name; the loop below then
+  // suffixes theirs on conflict rather than dropping either.
+  const enabled: McpServerConfig[] = [
+    { name: TEDI_MCP_SERVER_NAME, command: "", args: [], enabled: true, builtin: true },
+    ...servers.filter((s) => s.enabled && s.name !== TEDI_MCP_SERVER_NAME),
+  ];
 
   const tools: Record<string, Tool> = {};
 
+  // ONE deps object, used for the connect here AND captured by every tool's
+  // `execute`. They are part of the client cache key (`mcpClient.ts`), so the
+  // two call sites MUST agree or `execute` misses the cache and builds a second
+  // server from the default deps - `{ openSshTab: () => false }` and no disabled
+  // list. That is what made `mcp__tedi__ssh` answer `{ok:true, opened}` while
+  // opening nothing, and it re-registered every tool the packs had switched off.
+  // It only bit once a pack was disabled, because until then both keys computed
+  // the same empty variant.
+  const builtinDeps: TediMcpDeps = { openSshTab: ctx.openSshTab, disabledTools };
+
   for (const server of enabled) {
     try {
-      const client = await getMcpClient(server, ctx.getCwd() ?? undefined);
+      const client = await getMcpClient(server, ctx.getCwd() ?? undefined, builtinDeps);
       _warnedFailedServers.delete(server.name); // recovered
       for (const mcpTool of client.tools) {
         // Clamp to 64 chars: a long server+tool combo overflows the provider's
@@ -150,7 +177,12 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
         // suffix on conflict (re-clamped) so neither tool is silently dropped.
         let aiName = base;
         for (let n = 2; tools[aiName]; n++) aiName = clampToolKey(`${base}_${n}`);
-        tools[aiName] = mcpToolToAiTool(mcpTool, server.name, server, ctx);
+        tools[aiName] = mcpToolToAiTool(
+          mcpTool,
+          server,
+          ctx,
+          server.builtin ? builtinDeps : undefined,
+        );
       }
     } catch (e) {
       // Server failed to start — skip its tools, and tell the user once (an

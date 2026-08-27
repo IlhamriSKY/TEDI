@@ -11,6 +11,12 @@ export default defineConfig(async ({ mode }) => ({
   resolve: {
     alias: {
       "@": path.resolve(__dirname, "./src"),
+      // The shared MCP tool table. It cannot live under `src/`: it also ships as
+      // a bundle resource next to `scripts/mcp/server.mjs`, which runs in a
+      // bare node process with no `node_modules` beside it. An alias keeps the
+      // app-side import non-relative, which is what `scripts/check-imports.mjs`
+      // requires of anything crossing a module boundary.
+      "@mcp": path.resolve(__dirname, "./scripts/mcp"),
     },
   },
   esbuild: {
@@ -99,7 +105,7 @@ export default defineConfig(async ({ mode }) => ({
       : undefined,
     watch: {
       // `scripts/**` is outside the app's module graph, and a write there while
-      // `scripts/director` is driving the window must not reload it mid-task.
+      // `scripts/mcp` is driving the window must not reload it mid-task.
       ignored: ["**/src-tauri/**", "**/scripts/**"],
     },
   },

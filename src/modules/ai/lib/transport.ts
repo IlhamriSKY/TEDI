@@ -4,7 +4,6 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { getModelContextLimit, type DynamicModelId, type ProviderId } from "../config";
 import { injectContext, type LiveSnapshot, type SentEnvBlocks } from "./envContext";
 import { runAgentStream, type AgentUsageDelta } from "./agent";
-import { formatSkillsPrompt, loadSkills } from "./skills";
 import { buildMcpToolsAsync } from "../tools/mcp";
 import { compactUiMessages } from "./compact";
 import { providerHasPromptCache } from "./cache";
@@ -315,13 +314,11 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // servers would be connected for a turn that cannot call them. Skipping
       // is both the token saving and a latency one.
       const skip = snapshot.chatMode;
-      const [projectMemory, memory, skills, mcpTools] = await Promise.all([
+      const [projectMemory, memory, mcpTools] = await Promise.all([
         skip ? null : readTediMd(live.workspaceRoot),
         skip ? null : readMemory(live.workspaceRoot),
-        skip ? [] : loadSkills(live.workspaceRoot),
         skip ? undefined : buildMcpToolsAsync(deps.toolContext),
       ]);
-      const skillsPrompt = formatSkillsPrompt(skills);
 
       let requestMessages = messages;
 
@@ -380,7 +377,6 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             chatMode: snapshot.chatMode,
             projectMemory,
             memory,
-            skillsPrompt,
             mcpTools,
             uiMessages: augmented,
             abortSignal,

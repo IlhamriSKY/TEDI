@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import type { ShortcutId } from "../shortcuts";
 import type { ShortcutHandler } from "./useGlobalShortcuts";
 
@@ -56,7 +57,7 @@ export function runCommand(id: ShortcutId): boolean {
 
 /**
  * Automation surface for tooling driving TEDI over the WebView2 DevTools
- * Protocol (`TEDI_DEBUG_PORT`, see `scripts/director/`). Running a command by id
+ * Protocol (`TEDI_DEBUG_PORT`, see `scripts/mcp/`). Running a command by id
  * is deterministic where fuzzy-typing into the Command Palette is not, and
  * `listCommands` tells the driver what this build actually has registered.
  *
@@ -78,12 +79,13 @@ export function runCommand(id: ShortcutId): boolean {
  * (installed extensions and their own command registry) - and none may clobber
  * the others, in whichever order they happen to evaluate.
  */
-if ((window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) {
-  const w = window as unknown as { __tedi?: Record<string, unknown> };
-  w.__tedi = {
-    ...w.__tedi,
-    runCommand,
-    hasCommand,
-    listCommands: () => [...registry.keys()].sort(),
-  };
+/** Every command id this build has actually registered, sorted. Exported rather
+ *  than inlined below because BOTH transports need it: an outside AI CLI through
+ *  `window.__tedi`, and TEDI's own agent through `ai/tools/tedi.ts`. One
+ *  definition, two transports - the same rule the settings and extension
+ *  accessors follow, and `driver-verify` checks it. */
+export function listCommands(): string[] {
+  return [...registry.keys()].sort();
 }
+
+registerBridge({ runCommand, hasCommand, listCommands });

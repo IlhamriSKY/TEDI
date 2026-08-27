@@ -106,7 +106,7 @@ function watchedFiles(main: string | null | undefined): string[] {
  *            writer may still be mid-write.
  * - `reload` the same new value twice running: the file has settled.
  *
- * Exercised by `scripts/ext-hot-reload-verify.ts`.
+ * Exercised by `scripts/ext/ext-hot-reload-verify.ts`.
  */
 export function classifyStamp(
   known: number | undefined,

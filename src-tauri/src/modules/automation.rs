@@ -1,7 +1,7 @@
 //! Where the automation channel's port comes from.
 //!
 //! `TEDI_DEBUG_PORT=9222` opens the WebView2 DevTools Protocol on loopback and
-//! sets `window.__TEDI_AUTOMATION__`, which together are how `scripts/director/`
+//! sets `window.__TEDI_AUTOMATION__`, which together are how `scripts/mcp/`
 //! and the MCP server every AI CLI talks to reach a running TEDI.
 //!
 //! An env var alone made that unusable from the app itself. WebView2 fixes its

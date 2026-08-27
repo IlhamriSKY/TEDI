@@ -22,12 +22,11 @@ type Props = {
 };
 
 export function SnippetPickerContent({ items, activeIndex, onPick, onHover, emptyText }: Props) {
-  // Open terminals, built-in commands, installed skills, and snippets render in
+  // Open terminals, built-in commands and snippets render in
   // separate sections (Claude-Code style). Order matches the flat `items` array
   // so the running `cursor` stays in sync with keyboard nav.
   const terminals = items.filter((it) => it.kind === "terminal");
-  const builtinCommands = items.filter((it) => it.kind === "command" && !it.command.isSkill);
-  const skillCommands = items.filter((it) => it.kind === "command" && it.command.isSkill);
+  const builtinCommands = items.filter((it) => it.kind === "command");
   const snippets = items.filter((it) => it.kind === "snippet");
   let cursor = -1;
 
@@ -139,17 +138,6 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
               <SectionHeader label="Commands" />
               <ul>
                 {builtinCommands.map((it) => {
-                  cursor += 1;
-                  return renderCommand(it, cursor);
-                })}
-              </ul>
-            </>
-          )}
-          {skillCommands.length > 0 && (
-            <>
-              <SectionHeader label="Skills" />
-              <ul>
-                {skillCommands.map((it) => {
                   cursor += 1;
                   return renderCommand(it, cursor);
                 })}

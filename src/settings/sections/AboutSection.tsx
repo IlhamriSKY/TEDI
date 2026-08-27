@@ -6,7 +6,7 @@ import { IS_LINUX } from "@/lib/platform";
 import { fetchLinuxRelease } from "@/modules/updater/lib/useUpdater";
 import { ReleaseNotes } from "@/modules/updater/components/ReleaseNotes";
 import { BrandIcon } from "@/components/BrandIcon";
-import { getName, getVersion } from "@tauri-apps/api/app";
+import { getIdentifier, getName, getVersion } from "@tauri-apps/api/app";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { arch, platform } from "@tauri-apps/plugin-os";
 import { relaunch } from "@tauri-apps/plugin-process";
@@ -54,6 +54,10 @@ type CheckState =
 export function AboutSection() {
   const [version, setVersion] = useState("");
   const [name, setName] = useState("TEDI");
+  // Read, not hardcoded: a dev build is `id.ilhamrisky.tedi.dev`, and this row
+  // is what you check when a tool that keys off the bundle id looks at the
+  // wrong profile.
+  const [bundleId, setBundleId] = useState("");
   const [build] = useState(initialBuildLabel);
   const [checkState, setCheckState] = useState<CheckState>({ kind: "idle" });
   // Held in a ref, not state. The Update handle is non-serialisable and bound
@@ -64,6 +68,7 @@ export function AboutSection() {
   useEffect(() => {
     void getVersion().then(setVersion);
     void getName().then(setName);
+    void getIdentifier().then(setBundleId);
   }, []);
 
   const onCheck = () => {
@@ -109,7 +114,7 @@ export function AboutSection() {
           </dd>
 
           <dt className="text-muted-foreground">Bundle ID</dt>
-          <dd className="font-mono text-[11.5px]">id.ilhamrisky.tedi</dd>
+          <dd className="font-mono text-[11.5px]">{bundleId}</dd>
 
           <dt className="text-muted-foreground">License</dt>
           <dd>Apache 2.0</dd>

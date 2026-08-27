@@ -6,7 +6,7 @@ import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
  * The per-turn `<env>` block and where it goes in the message list.
  *
  * Split out of `transport.ts` so the placement rule is testable on its own
- * (`scripts/prompt-cache-verify.ts`): it is the single thing that decides
+ * (`scripts/ai/prompt-cache-verify.ts`): it is the single thing that decides
  * whether ANY prompt cache can hit on turn two, and it is not obvious.
  */
 
@@ -93,8 +93,14 @@ export function formatEnvBlock(live: LiveSnapshot): string | null {
     for (const t of live.terminals) {
       const star = t.isActive ? "*" : " ";
       const cwd = t.cwd ?? "";
+      // Another agent's pane, when there is one. Roughly two tokens, and it is
+      // the difference between "terminal 3 is a shell" and "terminal 3 is
+      // claude, waiting on a prompt" - which decides whether writing into it is
+      // help or interference. Only rendered when a CLI is actually there, so the
+      // usual case costs nothing.
+      const agent = t.agent ? `  [${t.agent}${t.agentState ? ":" + t.agentState : ""}]` : "";
       lines.push(
-        `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}`,
+        `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}${agent}`,
       );
     }
   }

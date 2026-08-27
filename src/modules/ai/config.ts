@@ -417,7 +417,7 @@ export const AGENTROUTER_BASE_URL = "https://agentrouter.org/v1";
 // which reads like a bad key. Measured 2026-07-31: PREFIX match, so trailing junk
 // is fine (the SDK appends its own), but the approved client must come FIRST and
 // `claude-cli/<v>` alone is rejected without "(external, cli". See
-// scripts/agentrouter-verify.ts. Requests must use `proxyOnlyFetch` - a WebView
+// scripts/ai/agentrouter-verify.ts. Requests must use `proxyOnlyFetch` - a WebView
 // fetch drops `User-Agent` silently.
 export const AGENTROUTER_USER_AGENT = "claude-cli/1.0.0 (external, cli)";
 export const AGENTROUTER_HEADERS: Readonly<Record<string, string>> = {
@@ -598,7 +598,7 @@ export function composePrompt(
 }
 
 // Tool-name groups the sections are tagged with. These are the same names the
-// picker stores in `disabledTools`; `scripts/prompt-tools-verify.ts` checks them
+// picker stores in `disabledTools`; `scripts/ai/prompt-tools-verify.ts` checks them
 // against the real built-in tool set so a rename cannot silently orphan a tag.
 const EDIT_TOOLS = ["edit", "multi_edit"] as const;
 const FS_MOVE_TOOLS = ["move_file", "copy_file", "delete_file"] as const;
@@ -848,7 +848,7 @@ const CORE_BLOCKS_LITE: readonly PromptBlock[] = [
 /**
  * Every tool name the core prompt is tagged with.
  *
- * Exported for `scripts/prompt-tools-verify.ts`: a tool renamed without its tag
+ * Exported for `scripts/ai/prompt-tools-verify.ts`: a tool renamed without its tag
  * being renamed too would leave its instructions in the prompt forever, which is
  * exactly the failure this whole structure exists to prevent.
  */

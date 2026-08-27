@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import {
@@ -81,7 +82,7 @@ export function usePaneHandles({
     else terminalRefs.current.delete(leafId);
   }, []);
 
-  // The automation surface for a driving agent (`scripts/director/`, and the MCP
+  // The automation surface for a driving agent (`scripts/mcp/`, and the MCP
   // server Claude Code talks to). Gated on `TEDI_DEBUG_PORT` like the rest of
   // `window.__tedi` (see `shortcuts/lib/commandRegistry.ts`).
   //
@@ -102,9 +103,6 @@ export function usePaneHandles({
   // events. It deliberately bypasses xterm's `onData`, so the AI-CLI detector
   // never fires - drive that path with real keys instead (`d.command()`).
   useEffect(() => {
-    if (!(window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__) return;
-    const w = window as unknown as { __tedi?: Record<string, unknown> };
-
     /**
      * Every non-private leaf in EVERY tab, read from the live tab tree.
      *
@@ -158,8 +156,7 @@ export function usePaneHandles({
       }
     };
 
-    w.__tedi = {
-      ...w.__tedi,
+    registerBridge({
       panes: () =>
         publicLeaves().map(({ tabId, tabTitle, leaf, active }) => ({
           tabId,
@@ -213,7 +210,7 @@ export function usePaneHandles({
         void h.save();
         return true;
       },
-    };
+    });
   }, []);
 
   const registerEditorHandle = useCallback(

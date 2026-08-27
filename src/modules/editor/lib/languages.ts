@@ -13,7 +13,7 @@
  * Extensions are matched first-definition-wins, so where two languages claim the
  * same suffix the earlier row is the deliberate default (`.m` is Objective-C,
  * not MATLAB; `.v` is Verilog, not V or Coq; `.pp` is Pascal, not Puppet). The
- * losing language stays reachable through the picker. `scripts/languages-verify.ts`
+ * losing language stays reachable through the picker. `scripts/editor/languages-verify.ts`
  * asserts every row is reachable, so a new row cannot silently shadow an old one.
  */
 import { Language, LanguageSupport, StreamLanguage, type StreamParser } from "@codemirror/language";
@@ -667,7 +667,7 @@ function isStreamParser(v: unknown): v is StreamParser<unknown> {
  * Deliberately absent: `http`, `diff`, `asciiarmor`, `mbox`, `brainfuck` and
  * `textile` have no comment syntax to give, so Ctrl+/ stays a no-op there
  * rather than inserting something that is not a comment.
- * `scripts/languages-verify.ts` checks every id here exists in the registry.
+ * `scripts/editor/languages-verify.ts` checks every id here exists in the registry.
  */
 const COMMENT_TOKENS: Record<string, { line?: string; block?: { open: string; close: string } }> = {
   apl: { line: "⍝" },

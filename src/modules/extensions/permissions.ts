@@ -27,7 +27,7 @@
  *   - the `permissions` enum in `extensions/manifest.schema.json`, which gives
  *     authors editor autocomplete inside `manifest.json`;
  *   - the `KnownPermission` union in `extensions/tedi.d.ts` (kept identical by
- *     `scripts/ext-api-parity.ts`);
+ *     `scripts/extensions/ext-api-parity.ts`);
  *   - `tedi ext validate`, which warns on a permission that matches nothing
  *     here and is not an `invoke:` grant, since that is almost always a typo
  *     that would otherwise fail silently at runtime.

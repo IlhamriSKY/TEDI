@@ -7,7 +7,7 @@
  * The editor is a third domain and is picked separately.
  *
  * Adding one: copy the closest family file, adjust, export it here. Every field
- * is required - `scripts/theme-verify.ts` fails on a preset that misses one.
+ * is required - `scripts/ui/theme-verify.ts` fails on a preset that misses one.
  */
 import type { CustomTheme } from "../customTheme";
 import { DARK_COLORS, EMPTY_BG, LIGHT_COLORS } from "./base";

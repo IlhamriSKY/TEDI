@@ -13,11 +13,10 @@ function previewText(value: string): { text: string; clipped: boolean } {
 
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
-import { notifySkillPathChanged } from "../lib/skillCache";
 import { checkWritableResolved } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import {
-  isReadOutsideScope,
+  isOutsideScopeResolved,
   resolvePath,
   scrubErrorPath,
   throwIfAborted,
@@ -199,7 +198,6 @@ async function applyEditsLocked(
     }
     await native.writeFile(abs, content);
     notifyMemoryPathChanged(abs);
-    notifySkillPathChanged(abs);
     // Edit keeps the directory entry but bumps mtime/size. Refresh so the
     // explorer's mtime and size columns stay accurate.
     dispatchFsRefreshForFile(abs);
@@ -226,7 +224,8 @@ async function guardEditPath(
 ): Promise<{ ok: true; abs: string } | { ok: false; result: { error: string; path: string } }> {
   throwIfAborted(ctx);
   const abs = resolvePath(path, ctx.getCwd());
-  if (refuseMut && isReadOutsideScope(path, ctx)) {
+  // Resolved, so a symlink out of the workspace cannot pass as in-scope.
+  if (refuseMut && (await isOutsideScopeResolved(path, ctx))) {
     return {
       ok: false,
       result: { error: "refused: a subagent may not mutate outside the workspace/cwd", path: abs },

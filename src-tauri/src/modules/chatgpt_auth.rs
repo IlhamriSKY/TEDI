@@ -235,7 +235,9 @@ async fn accept_callback(listener: &TcpListener) -> Result<String, String> {
         // The browser also asks for /favicon.ico. Answer it and keep listening,
         // or that request would be mistaken for the callback.
         if !target.starts_with("/auth/callback") {
-            let _ = stream.write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n").await;
+            let _ = stream
+                .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n")
+                .await;
             let _ = stream.shutdown().await;
             continue;
         }
@@ -375,7 +377,10 @@ mod tests {
         let challenge = b64url(&Sha256::digest(verifier.as_bytes()));
         assert_eq!(challenge, "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM");
         assert!(!challenge.contains('='), "must be unpadded");
-        assert!(!challenge.contains('+') && !challenge.contains('/'), "must be url-safe");
+        assert!(
+            !challenge.contains('+') && !challenge.contains('/'),
+            "must be url-safe"
+        );
     }
 
     #[test]

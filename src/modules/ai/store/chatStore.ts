@@ -1,3 +1,4 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import { Chat, type UIMessage } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { create } from "zustand";
@@ -62,6 +63,7 @@ type Live = {
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
   openPreview: (url: string) => number | null;
+  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
    *  Returns true if a new tab was created. */
   openTerminal: (cwd?: string | null) => boolean;
@@ -281,6 +283,7 @@ const NOOP_LIVE: Live = {
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
   openPreview: () => null,
+  openSshTab: () => false,
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
   consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),
@@ -462,6 +465,8 @@ function makeChat(sessionId: string): Chat<UIMessage> {
     getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
+    openSshTab: (id, name, isPrivate) =>
+      useChatStore.getState().live.openSshTab(id, name, isPrivate),
     listBrowsers: () => useChatStore.getState().live.listBrowsers(),
     navigateBrowser: (leafId, url) => useChatStore.getState().live.navigateBrowser(leafId, url),
     dispatchBrowser: (leafId, action) =>
@@ -1050,3 +1055,117 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
     restoringSessions.delete(sessionId);
   }
 }
+
+/**
+ * Automation surface for TEDI's own AI agent - ONE definition, two transports,
+ * the same rule the settings and extension accessors follow.
+ *
+ * This is the category that had nothing in it. An outside CLI could read every
+ * pane, terminal and editor but was blind to the agent living in the app beside
+ * it: whether it was thinking, what it was working on, what it had been asked.
+ * Two agents sharing a window and unable to see each other is the gap.
+ *
+ * `chats` is module-scoped and holds the LIVE `Chat` per session, so the
+ * conversation is read from there rather than from the persisted file - the file
+ * lags a turn behind, and lagging state read as current is the kind of silent
+ * wrong answer this whole surface is built to avoid.
+ *
+ * Sending goes through `enqueuePrompt`, the same queue the composer drains, so a
+ * prompt from outside is indistinguishable from one the user typed. It does NOT
+ * bypass approval: whatever the agent then tries still raises its usual cards.
+ */
+/**
+ * Why a browser call can fail while nothing is actually broken: THIS MODULE IS
+ * LOADED LAZILY with the AI panel, and the browser helpers below borrow the live
+ * ToolContext that panel builds. Before it has mounted once there is no context
+ * to borrow, and the honest answer is to say so rather than look absent.
+ */
+const NO_CONTEXT =
+  "TEDI has no live AI context yet - the AI panel is lazy-loaded. Run the ai.toggle command once, then retry.";
+
+registerBridge({
+  ai: () => {
+    const s = useChatStore.getState();
+    return {
+      status: s.agentMeta.status,
+      step: s.agentMeta.step,
+      approvalsPending: s.agentMeta.approvalsPending,
+      error: s.agentMeta.error,
+      usage: s.agentMeta.usage,
+      activeSessionId: s.activeSessionId,
+      queued: s.promptQueue.length,
+      sessions: s.sessions.map((x) => ({
+        id: x.id,
+        title: x.title,
+        updatedAt: x.updatedAt,
+        active: x.id === s.activeSessionId,
+      })),
+    };
+  },
+  /** The live conversation, newest last. `maxChars` because a long session
+   *  is megabytes and no caller wants it in a tool result. */
+  aiMessages: (sessionId?: string, maxChars = 8000) => {
+    const id = sessionId ?? useChatStore.getState().activeSessionId;
+    if (!id) return { error: "no active AI session" };
+    const chat = chats.get(id);
+    if (!chat) return { error: `session ${id} is not loaded in this window` };
+    const rows = chat.messages.map((m) => ({
+      role: m.role,
+      // Only the text parts: a tool call's arguments and results are the
+      // bulk of a message and almost never what the reader is after.
+      text: (m.parts ?? [])
+        .flatMap((p) => (p.type === "text" ? [p.text ?? ""] : []))
+        .join("")
+        .slice(0, 2000),
+      tools: (m.parts ?? []).flatMap((p) => (p.type.startsWith("tool-") ? [p.type.slice(5)] : [])),
+    }));
+    let used = 0;
+    const kept = [];
+    for (let i = rows.length - 1; i >= 0; i--) {
+      used += rows[i].text.length;
+      kept.unshift(rows[i]);
+      if (used > maxChars) break;
+    }
+    return { sessionId: id, total: rows.length, messages: kept };
+  },
+  /**
+   * The native browser panes, through the SAME live context ai-native's own
+   * browser tools use (`app/lib/buildLiveContext.ts`).
+   *
+   * Going through it rather than calling `preview_embed_*` directly is what
+   * makes `open` work at all: a preview pane has no native webview until the
+   * app has given it a URL, so `preview_embed_navigate` on a blank pane is a
+   * no-op and every later read answers "no open browser pane with that id".
+   * `openPreview` is the path that creates one.
+   */
+  // NEVER return a bare `null` from any of these. The driver's `#tedi`
+  // helper reads `null` as "this function does not exist on this build" and
+  // reports it as a missing automation surface - so a browser call made
+  // before the AI panel has ever mounted came back as "start TEDI with
+  // TEDI_DEBUG_PORT set", which is both wrong and unactionable. A sentence
+  // is the answer; null is a different question.
+  browserOpen: (url: string) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return c.openPreview(String(url)) ?? "could not open a browser pane";
+  },
+  browserNav: (leafId: number, url: string) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return c.navigateBrowser(Number(leafId), String(url)) || `leaf ${leafId} is not a browser pane`;
+  },
+  browserRead: async (leafId: number, fields = false) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return (await c.readBrowser(Number(leafId), Boolean(fields))) ?? "";
+  },
+  browserList: () => getToolContext()?.listBrowsers() ?? [],
+
+  /** Queue a prompt for the agent, exactly as the composer would. */
+  aiSend: (text: string) => {
+    const t = String(text ?? "").trim();
+    if (!t) return "empty prompt";
+    useChatStore.getState().enqueuePrompt(t);
+    return true;
+  },
+});

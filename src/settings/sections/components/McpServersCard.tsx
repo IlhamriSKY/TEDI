@@ -189,7 +189,7 @@ export function McpServersCard() {
       }
       description="Connect external tool servers via the Model Context Protocol. Each server exposes tools the AI agent can use (e.g. browser automation, database access)."
     >
-      {/* Add: paste the run command (name auto-derived), like installing a skill */}
+      {/* Add: paste the run command (name auto-derived) */}
       <div className="flex items-center gap-2">
         <Input
           value={cmd}

@@ -209,7 +209,7 @@ function parseBranches(raw: string): GitBranch[] {
   return out;
 }
 
-/** Exported so `scripts/scm-ops-verify.ts` can drive the real sequencing over a
+/** Exported so `scripts/scm/scm-ops-verify.ts` can drive the real sequencing over a
  *  recording runner instead of a live repository. */
 export function makeOps(run: Runner): GitOps {
   const ok = async (args: string[]) => {

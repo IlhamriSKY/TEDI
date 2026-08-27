@@ -107,6 +107,7 @@ import { AppDialogs } from "./components/AppDialogs";
 import { AppSidebar } from "./components/AppSidebar";
 import { WorkspaceArea } from "./components/WorkspaceArea";
 import { AppRightSlot } from "./components/AppRightSlot";
+import { startBridgeHost } from "@/modules/automation/bridgeHost";
 
 export default function App() {
   const isDevSession = import.meta.env.DEV;
@@ -230,6 +231,11 @@ export default function App() {
   useEffect(() => {
     if (agentDialogOpen) setAgentDialogMounted(true);
   }, [agentDialogOpen]);
+
+  // Answer capability calls arriving on the local socket (see
+  // `modules/automation/bridgeHost.ts`). Main window only, and idempotent, so a
+  // remount does not stack listeners.
+  useEffect(() => startBridgeHost(), []);
   useEffect(() => {
     if (newEditorOpen) setNewEditorMounted(true);
   }, [newEditorOpen]);
@@ -416,18 +422,6 @@ export default function App() {
     home,
     pickedRoot,
   );
-
-  // Persist the live workspace root so the Settings window (separate webview,
-  // shared localStorage) can target/scan the open project for AI skills. This
-  // mirrors exactly what the agent scans (explorerRoot ?? home), so a skill
-  // installed "to this project" lands where the agent actually looks.
-  useEffect(() => {
-    try {
-      localStorage.setItem("tedi.liveWorkspaceRoot", explorerRoot ?? home ?? "");
-    } catch {
-      /* storage unavailable */
-    }
-  }, [explorerRoot, home]);
 
   // Register the extension-host tabs/sidebar bridge setters and run the
   // sidebar / right-aux auto-restore effects. The shared refs (sidebar
@@ -938,6 +932,7 @@ export default function App() {
     openPreviewTab,
     setBrowserLeafUrl,
     newTab,
+    newSshTab,
     inheritedCwdForNewTab,
     splitActivePane,
     setActiveId,

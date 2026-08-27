@@ -1,4 +1,5 @@
 import { findLeaf, leaves, type PaneLeaf } from "@/modules/terminal";
+import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { useTabs } from "@/modules/tabs";
 import { pathSegments } from "@/lib/path";
@@ -41,12 +42,20 @@ function leafTitleForSnapshot(l: PaneLeaf): string {
 export function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
   const out: TerminalInfo[] = [];
   let fallback = 0;
+  // Read once for the whole walk, not per leaf. `getState()` on a zustand store
+  // is a plain property read, so this is cheap - but it is called for every turn
+  // of every agent, and the snapshot must be a consistent instant anyway.
+  const { statuses } = useAiCliStatuses.getState();
   for (const t of ctx.tabs) {
     if (t.kind !== "pane") continue;
     for (const l of leaves(t.paneTree)) {
       if (l.leafKind !== "terminal") continue;
       if (l.private) continue;
       fallback += 1;
+      // Live status from the detector, which keeps ticking for a pane in a
+      // hidden workspace; `activeTool` is the persisted fallback for a pane
+      // whose detector has not spoken since the last attach.
+      const status = statuses[l.id];
       out.push({
         tabId: t.id,
         leafId: l.id,
@@ -55,6 +64,8 @@ export function snapshotTerminals(ctx: LiveTerminalCtx): TerminalInfo[] {
         title: leafTitleForSnapshot(l),
         cwd: l.cwd ?? null,
         isActive: t.id === ctx.activeId && t.activeLeafId === l.id,
+        agent: status?.tool ?? l.activeTool ?? null,
+        agentState: status?.state ?? null,
       });
     }
   }

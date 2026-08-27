@@ -20,9 +20,10 @@
     "noUnusedParameters": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@mcp/*": ["./scripts/mcp/*"]
     }
   },
-  "include": ["src", "scripts/ext-api-parity.ts"],
+  "include": ["src", "scripts/ext/ext-api-parity.ts"],
   "references": [{ "path": "./tsconfig.node.json" }]
 }

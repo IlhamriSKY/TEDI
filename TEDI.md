@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.32.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.33.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -379,19 +379,33 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   is the console-subsystem launcher in `tedi-cli/`. A PATH shim
   (`~/.local/bin/tedi` on macOS/Linux) is installed from Settings and self-heals
   on launch.
-- **Director** (`scripts/director/`, Windows): drives a RUNNING TEDI over the
-  WebView2 DevTools Protocol - **17 MCP tools over one held connection**
-  (`mcp.mjs`), or `pnpm director <verb>` by hand. Real keys and mouse, any
-  command id, and it reads back what it did. `state` returns EVERY pane in EVERY
-  tab from the tab tree (not the DOM), each with its cwd / ssh host / running AI
-  CLI / open file / owning extension, so a driver can target or wait on a pane in
-  a tab it is not looking at; `sh` runs a command in one and returns the output;
-  `wait_for_terminal` blocks until a pane is back at its prompt (or prints a
-  string) instead of polling. Neither a terminal (WebGL canvas) nor a long file
-  (CodeMirror virtualises) can be read from the DOM, so both go through
-  `window.__tedi`, which **six** files now contribute to. **Private panes are
-  absent from all of it**, the same rule `app/lib/terminalSnapshot.ts` enforces
-  for the built-in agent.
+- **MCP server** (`scripts/mcp/`): how an outside AI CLI drives a RUNNING TEDI.
+  `server.mjs` speaks JSON-RPC over stdio and reaches the window through one of
+  **two transports** (`transport.mjs` picks per call) - **20 tools**, or
+  `pnpm mcp <verb>` by hand.
+  - **The local socket is the default** (`mcp_bridge.rs` <-> `socket.mjs`): a
+    named pipe on Windows, a unix socket elsewhere. Every platform, many clients
+    at once, authenticated by a per-run token, no restart to enable. It calls
+    capabilities by name in the app's own realm - the registry in
+    `modules/automation/bridge.ts`, which seven files register into and which
+    `window.__tedi` is now merely a view of.
+  - **CDP is pulled up lazily**, only for real keyboard/mouse input, window
+    capture and DOM reads, because a synthetic DOM event is not a trusted one.
+    Windows-only, one client, unauthenticated, needs the debug port - which is
+    why it is no longer the way in, only the way to do those five things. A
+    session that never calls `keys` / `type_text` / `click` / `drag` /
+    `screenshot` / `eval_js` / `state` / `read source:"dom"` opens no DevTools
+    connection at all. Real keys and mouse, any
+    command id, and it reads back what it did. `state` returns EVERY pane in EVERY
+    tab from the tab tree (not the DOM), each with its cwd / ssh host / running AI
+    CLI / open file / owning extension, so a driver can target or wait on a pane in
+    a tab it is not looking at; `sh` runs a command in one and returns the output;
+    `wait_for_terminal` blocks until a pane is back at its prompt (or prints a
+    string) instead of polling. Neither a terminal (WebGL canvas) nor a long file
+    (CodeMirror virtualises) can be read from the DOM, so both go through
+    `window.__tedi`, which **six** files now contribute to. **Private panes are
+    absent from all of it**, the same rule `app/lib/terminalSnapshot.ts` enforces
+    for the built-in agent.
   - **Beyond panes**: `inspect` lists commands / extensions / **settings** /
     **logs**; `set_setting` writes a preference live (via the store, because the
     Settings page is a separate webview nothing here can click); `extension`
@@ -405,16 +419,30 @@ dev` shares prod data. The daemon outlives the dev GUI; set
     THE PAGE - a tail, a substring test, a buffer hash - so a poll loop ships back
     an answer instead of ~20KB of scrollback per pane; `state` went from four
     DevTools round trips to one.
-  - **NOT the route for TEDI's own agent.** ai-native reaches the same settings
-    and extension control **in-realm** (`ai/tools/tedi.ts` -> `readSettings` /
-    `writeSetting` / `listExtensions` / `controlExtension`), calling the very
-    functions `window.__tedi` exposes. Pointing it at the MCP server instead
+  - **ONE DEFINITION, TWO TRANSPORTS.** `scripts/mcp/tools.mjs` holds every tool
+    name, pack, description and JSON Schema, and BOTH servers read it: the stdio
+    one above, and the in-process one TEDI's own agent talks to
+    (`ai/lib/tediMcpServer.ts`, an SDK `Server` over `InMemoryTransport`). The
+    file imports nothing, because it ships as a bundle resource beside
+    `server.mjs` with no `node_modules`; the app reaches it through the `@mcp/`
+    alias. Handlers stay separate - one drives the window over CDP, the other
+    calls the same functions in its own realm - but the CONTRACT cannot drift.
+    It used to: both sides declared their own schemas, and `ssh` ended up meaning
+    `{action, id}` on one and `{connectionId}` on the other, so the documented
+    call silently LISTED connections instead of opening one. `driver-verify`
+    now asserts the rule directly - `tediMcpServer.ts` may declare no description
+    or schema of its own - rather than diffing two hand-kept name lists.
+  - **The stdio server is NOT the route for TEDI's own agent.** Pointing it there
     would spawn node and connect back over CDP to the page it already runs in,
     would break whenever the automation port is off (the default), and would
-    fight the user's real CLI for the single DevTools client slot. **The
-    duplication worth removing is the definition, not the transport**, and
-    `director-verify` checks that both sides reference the shared function
-    rather than re-implementing it.
+    fight the user's real CLI for the single DevTools client slot.
+  - **The pack switches are enforced at CALL time**, on both transports. The
+    stdio server used to filter only `tools/list`, so a switched-off tool -
+    `eval_js` included - still ran when called by name, against the exact client
+    the switch exists to constrain. `set_setting` likewise cannot write
+    `approvalMode`, `disabledTools`, the provider base URLs or `terminalEnvPath`
+    (`AGENT_DENIED_PREFS`): those decide what the agent may do and where its
+    credentials go, so an agent must not be able to re-grant itself either.
   - **Turning it on**: `TEDI_DEBUG_PORT=9222` before launch, or the header's
     **Install MCP** button, which writes `automationPort` into the settings file
     for Rust to read at startup (`modules/automation.rs`) and registers the

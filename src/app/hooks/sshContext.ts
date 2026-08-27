@@ -2,7 +2,7 @@
  * Which SSH session the Remote file tree and Source Control act on.
  *
  * Extracted from `useSshLeafState` as a plain function so
- * `scripts/ssh-context-verify.ts` can exercise it: the `fromActiveLeaf` flag it
+ * `scripts/ssh/ssh-context-verify.ts` can exercise it: the `fromActiveLeaf` flag it
  * returns decides whether Source Control targets a REMOTE repository or the
  * local one, and getting that wrong is not cosmetic - a stage or a discard
  * lands on whichever repo the panel resolved to.
@@ -11,7 +11,7 @@ import { dirname } from "@/lib/path";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 // Deep import rather than the `@/modules/terminal` barrel: that barrel pulls in
 // xterm, which cannot load under plain node, and this file has to stay
-// runnable by scripts/ssh-context-verify.ts.
+// runnable by scripts/ssh/ssh-context-verify.ts.
 import { isRemoteEditorLeaf, leaves } from "@/modules/terminal/lib/panes";
 import type { SshConnectionBinding, SshStatus } from "@/modules/ssh/status";
 

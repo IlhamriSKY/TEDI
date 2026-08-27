@@ -5,11 +5,11 @@ import { recordFileMutation } from "../lib/checkpoint";
 import { lineSpan } from "../lib/lineStats";
 import { notifyMemoryPathChanged } from "../lib/memoryCache";
 import { native } from "../lib/native";
-import { notifySkillPathChanged } from "../lib/skillCache";
 import { checkDeletable, checkReadableResolved, checkWritableResolved } from "../lib/security";
 import { newQueuedEditId, usePlanStore } from "../store/planStore";
 import {
   isReadOutsideScope,
+  isOutsideScopeResolved,
   isScopeRootOrAncestor,
   resolvePath,
   scrubErrorPath,
@@ -123,8 +123,10 @@ export function buildFsTools(
   // The worker writes directly even in plan mode (its bash verification must see
   // real files, not queued edits); the main agent still queues for review.
   const ignorePlan = opts.ignorePlanMode ?? false;
-  const outOfScope = (p: string) =>
-    refuseMut && isReadOutsideScope(p, ctx)
+  // Resolved, not literal: a symlink inside the workspace pointing out of it
+  // used to satisfy this check and let an unattended worker write anywhere.
+  const outOfScope = async (p: string) =>
+    refuseMut && (await isOutsideScopeResolved(p, ctx))
       ? { error: "refused: a subagent may not mutate outside the workspace/cwd", path: p }
       : null;
   return {
@@ -145,7 +147,7 @@ export function buildFsTools(
         : undefined,
       execute: async ({ path, offset, limit }) => {
         const abs = resolvePath(path, ctx.getCwd());
-        if (refuseOutOfScope && isReadOutsideScope(path, ctx)) {
+        if (refuseOutOfScope && (await isOutsideScopeResolved(path, ctx))) {
           return {
             error: "refused: a subagent may not read outside the workspace/cwd",
             path: abs,
@@ -246,7 +248,7 @@ export function buildFsTools(
         // Same refusal `read_file` / `grep` / `glob` carry: with no approver
         // the `needsApproval` gate above is inert, so an unattended subagent
         // could enumerate any directory on disk.
-        if (refuseOutOfScope && isReadOutsideScope(path, ctx)) {
+        if (refuseOutOfScope && (await isOutsideScopeResolved(path, ctx))) {
           return {
             error: "refused: a subagent may not read outside the workspace/cwd",
             path: abs,
@@ -277,7 +279,7 @@ export function buildFsTools(
       execute: async ({ path, content }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const oos = outOfScope(abs);
+        const oos = await outOfScope(abs);
         if (oos) return oos;
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -358,7 +360,6 @@ export function buildFsTools(
             await native.writeFile(abs, content);
             ctx.readCache.add(abs);
             notifyMemoryPathChanged(abs);
-            notifySkillPathChanged(abs);
             dispatchFsRefreshForFile(abs);
             // A write replaces the whole file, so there are no per-hunk line
             // numbers to report the way `edit` has - just the resulting size.
@@ -385,7 +386,7 @@ export function buildFsTools(
       execute: async ({ path }) => {
         throwIfAborted(ctx);
         const abs = resolvePath(path, ctx.getCwd());
-        const oos = outOfScope(abs);
+        const oos = await outOfScope(abs);
         if (oos) return oos;
         const safety = await checkWritableResolved(abs);
         if (!safety.ok) return { error: safety.reason, path: abs };
@@ -420,7 +421,6 @@ export function buildFsTools(
         try {
           await native.createDir(abs);
           notifyMemoryPathChanged(abs);
-          notifySkillPathChanged(abs);
           dispatchFsRefreshForFile(abs);
           // Refresh the new dir so an immediately-expanded parent sees it.
           dispatchFsRefresh(abs);
@@ -450,9 +450,9 @@ export function buildFsTools(
         }
         const absFrom = resolvePath(from, ctx.getCwd());
         const absTo = resolvePath(to, ctx.getCwd());
-        const oosFrom = outOfScope(absFrom);
+        const oosFrom = await outOfScope(absFrom);
         if (oosFrom) return oosFrom;
-        const oosTo = outOfScope(absTo);
+        const oosTo = await outOfScope(absTo);
         if (oosTo) return oosTo;
         // Both endpoints pass the write guard: the source is being removed and
         // the destination created, so neither may touch a protected target.
@@ -479,8 +479,6 @@ export function buildFsTools(
           ctx.readCache.delete(absFrom);
           notifyMemoryPathChanged(absFrom);
           notifyMemoryPathChanged(absTo);
-          notifySkillPathChanged(absFrom);
-          notifySkillPathChanged(absTo);
           dispatchFsRefreshForFile(absFrom);
           dispatchFsRefreshForFile(absTo);
           return { from: absFrom, to: absTo, ok: true };
@@ -509,9 +507,9 @@ export function buildFsTools(
         }
         const absFrom = resolvePath(from, ctx.getCwd());
         const absTo = resolvePath(to, ctx.getCwd());
-        const oosFrom = outOfScope(absFrom);
+        const oosFrom = await outOfScope(absFrom);
         if (oosFrom) return oosFrom;
-        const oosTo = outOfScope(absTo);
+        const oosTo = await outOfScope(absTo);
         if (oosTo) return oosTo;
         // Source is read, destination is written - apply the matching guards.
         const sFrom = await checkReadableResolved(absFrom);
@@ -563,7 +561,7 @@ export function buildFsTools(
           };
         }
         const abs = resolvePath(path, ctx.getCwd());
-        const oos = outOfScope(abs);
+        const oos = await outOfScope(abs);
         if (oos) return oos;
         // Layered guards: symlink-resolved secret/system check, then the
         // root/top-level block (delete recurses), then workspace/cwd protection.
@@ -597,7 +595,6 @@ export function buildFsTools(
           await native.deletePath(abs);
           ctx.readCache.delete(abs);
           notifyMemoryPathChanged(abs);
-          notifySkillPathChanged(abs);
           dispatchFsRefreshForFile(abs);
           return { path: abs, deleted: true, ok: true };
         } catch (e) {

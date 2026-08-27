@@ -2,7 +2,7 @@
  * Pulling a dev server's url out of raw terminal output.
  *
  * Free of xterm/Tauri imports (unlike its caller and `session-helpers`, both of
- * which touch `window` at module scope) so `scripts/terminal-url-verify.ts` can
+ * which touch `window` at module scope) so `scripts/terminal/terminal-url-verify.ts` can
  * exercise it under node against bytes captured from real servers.
  */
 

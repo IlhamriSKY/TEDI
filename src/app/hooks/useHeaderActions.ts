@@ -1,8 +1,9 @@
+import { registerBridge } from "@/modules/automation/bridge";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
-import { type SshConnection } from "@/modules/ssh/connections";
+import { listConnections, type SshConnection } from "@/modules/ssh/connections";
 import { MAX_PANES_PER_TAB, type PaneTab } from "@/modules/tabs";
 import { leafIds } from "@/modules/terminal";
-import { useCallback, useMemo } from "react";
+import { useCallback, useEffect, useMemo } from "react";
 import { type TabsApi } from "./tabsApi";
 
 type Params = {
@@ -78,6 +79,37 @@ export function useHeaderActions({
     (conn: SshConnection, opts?: { private?: boolean }) => newSshTab(conn.id, conn.name, opts),
     [newSshTab],
   );
+  // SSH, for a driving agent. Saved connections are the one main feature with
+  // NO command id - the 38 registered ids have no `ssh.*` at all - so
+  // `run_command` could never reach them and an outside CLI could see an SSH
+  // pane in `state` without being able to open one. Opening a connection needs
+  // `newSshTab`, which is App-level and not importable, so the registration
+  // lives here beside it. Gated on `TEDI_DEBUG_PORT` and MERGED into
+  // `window.__tedi`, never assigned (see `shortcuts/lib/commandRegistry.ts`).
+  //
+  // Secrets never pass through: `listConnections` returns the saved profiles,
+  // whose keys and passphrases live in the keyring behind `getConnectionSecrets`,
+  // which is deliberately NOT exposed here.
+  useEffect(() => {
+    registerBridge({
+      sshConnections: async () =>
+        (await listConnections()).map((c) => ({
+          id: c.id,
+          name: c.name,
+          host: c.host,
+          port: c.port,
+          user: c.user,
+          authMode: c.authMode,
+        })),
+      sshConnect: async (id: string, isPrivate = false) => {
+        const conn = (await listConnections()).find((c) => c.id === id);
+        if (!conn) return `No saved SSH connection "${id}"`;
+        newSshTab(conn.id, conn.name, isPrivate ? { private: true } : undefined);
+        return true;
+      },
+    });
+  }, [newSshTab]);
+
   const headerCanSplit = useMemo(
     () => activePaneTab !== null && leafIds(activePaneTab.paneTree).length < MAX_PANES_PER_TAB,
     [activePaneTab],

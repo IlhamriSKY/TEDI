@@ -21,7 +21,7 @@ import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
-import { SLASH_COMMANDS, skillSlashCommands } from "../lib/slashCommands";
+import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
@@ -34,9 +34,7 @@ import { AiToolApproval } from "./AiToolApproval";
 import { ChevronRight, ChevronUp, Code, Terminal } from "lucide-react";
 
 function CommandSnippet({ name }: { name: string }) {
-  // Built-in command first, then an installed skill (`/my-skill` etc.) so
-  // skill commands render with a proper icon + label, not a bare fallback.
-  const meta = SLASH_COMMANDS[name] ?? skillSlashCommands().find((c) => c.name === name);
+  const meta = SLASH_COMMANDS[name];
   if (!meta) {
     return (
       <div className="border-border/50 bg-muted/40 inline-flex items-center gap-1.5 rounded-md border px-2 py-1 font-mono text-[11px]">

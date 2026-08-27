@@ -1,5 +1,5 @@
 // Pure unix-mode helpers behind the SSH permissions dialog. They live outside
-// the .tsx so `scripts/ssh-transfer-verify.ts` can import and exercise them
+// the .tsx so `scripts/ssh/ssh-transfer-verify.ts` can import and exercise them
 // without pulling React and Radix into a node process.
 
 /** One permission class, and how far its three bits sit in the mode. */

@@ -1,9 +1,9 @@
 import { tool } from "ai";
 import { z } from "zod";
-import { checkShellCommand, isTrustedEgressHost, trustEgressHost } from "../lib/security";
+import { isTrustedEgressHost, trustEgressHost } from "../lib/security";
 import type { ToolContext } from "./context";
 import { SHARED_TARGET_SCHEMA, flexBoolOpt, flexIntOpt, normalizeTargetExternal } from "./schedule";
-import { applyShellTransformers } from "./shell";
+import { checkedShellCommand } from "./shell";
 
 /**
  * Reject non-web URLs and cloud-metadata / link-local hosts before the AI opens
@@ -68,8 +68,6 @@ export function buildTerminalTools(ctx: ToolContext) {
           ),
       }),
       execute: async ({ command, explanation }) => {
-        const safety = checkShellCommand(command);
-        if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
         // suggest_command TYPES into the terminal via a raw PTY write (no
         // bracketed-paste wrapper), so an embedded \n/\r would auto-run every
@@ -82,7 +80,11 @@ export function buildTerminalTools(ctx: ToolContext) {
               "Refused: command contains an embedded newline. suggest_command only types a single line without running it. Use run_in_terminal (which requires approval) to execute a multi-line command.",
           };
         }
-        const effective = applyShellTransformers(trimmed, "terminal");
+        // Vets the model's command AND what the transformers turn it into - the
+        // second is the string that reaches the PTY. See `checkedShellCommand`.
+        const vetted = checkedShellCommand(trimmed, "terminal");
+        if (!vetted.ok) return { error: vetted.error };
+        const effective = vetted.command;
         // The newline guard above ran on the pre-transform text; re-check the
         // transformed result so a shell transformer that injects a newline can't
         // auto-run extra lines via the raw (no-bracketed-paste) PTY write below.
@@ -407,10 +409,10 @@ export function buildTerminalTools(ctx: ToolContext) {
       }),
       needsApproval: true,
       execute: async ({ command }) => {
-        const safety = checkShellCommand(command);
-        if (!safety.ok) return { error: safety.reason };
         const trimmed = command.replace(/[\r\n]+$/, "");
-        const effective = applyShellTransformers(trimmed, "terminal");
+        const vetted = checkedShellCommand(trimmed, "terminal");
+        if (!vetted.ok) return { error: vetted.error };
+        const effective = vetted.command;
 
         if (!ctx.isTerminalBusy()) {
           const ok = ctx.runInActiveTerminal(effective);
@@ -518,7 +520,7 @@ export function buildTerminalTools(ctx: ToolContext) {
 
     control_browser: tool({
       description:
-        "Drive an EXISTING in-app browser pane (from the <env> browsers list, by leaf_id): pass `url` to navigate it (a page or search URL) or `action` to go back/forward/reload, or `stop` to cancel a load that is hanging. Use this to reuse an open browser instead of spawning tabs; for a brand-new browser use Open Preview. Prefer Navigate And Read when you also need the page content. Auto.",
+        "Drive an EXISTING in-app browser pane (from the <env> browsers list, by leaf_id): pass `url` to navigate it (a page or search URL) or `action` to go back/forward/reload, or `stop` to cancel a load that is hanging. Use this to reuse an open browser instead of spawning tabs; for a brand-new browser use Open Preview. Prefer Navigate And Read when you also need the page content. back/forward/reload/stop are automatic; navigating to a new host asks once, same as Open Browser.",
       inputSchema: z.object({
         leafId: z
           .number()
@@ -535,6 +537,17 @@ export function buildTerminalTools(ctx: ToolContext) {
             "back/forward/reload drive session history; stop cancels a load in progress. Omit when `url` is set.",
           ),
       }),
+      // Navigating a pane is network egress, exactly like `open_browser` and
+      // `navigate_and_read` - the URL carries whatever the model puts in it. Both
+      // siblings gate on the host; this one did not, so it was the one browser
+      // tool that could reach an arbitrary host with no card. `unsafeBrowserUrl`
+      // is not that check: it only refuses bad schemes and metadata addresses.
+      //
+      // Only when a `url` is present: back/forward/reload/stop drive session
+      // history on a page the user already allowed, and gating those would ask
+      // for consent to leave a host rather than to reach one.
+      needsApproval: (input: { url?: string }) =>
+        typeof input.url === "string" && input.url.length > 0 && !isTrustedEgressHost(input.url),
       execute: async ({ leafId, url, action }) => {
         if (url && action) return { error: "pass either url or action, not both", leafId };
         if (url) {
@@ -542,6 +555,9 @@ export function buildTerminalTools(ctx: ToolContext) {
           if (bad) return { error: bad, leafId, url };
           if (!ctx.navigateBrowser(leafId, url))
             return { error: `no open browser pane with leaf_id ${leafId}`, leafId };
+          // Runs only once approval resolved, so this records what the user
+          // allowed - same order as `open_browser`.
+          trustEgressHost(url);
           researchBrowserLeafId = leafId; // the pane the agent drives is the reuse target
           return { ok: true, leafId, url };
         }

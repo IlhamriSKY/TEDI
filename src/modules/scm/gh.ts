@@ -9,7 +9,7 @@ import { invoke } from "@tauri-apps/api/core";
  * and the stack object on github.com - belong to GitHub's own `gh-stack`
  * extension, so this module drives it instead of reimplementing any of that
  * against the REST API. Same shape as `api.ts`: one `run` (an argument vector
- * to `gh_run`), so `scripts/gh-stack-verify.ts` can drive the real sequencing
+ * to `gh_run`), so `scripts/scm/gh-stack-verify.ts` can drive the real sequencing
  * over a recording runner.
  *
  * Local repositories only. `gh` runs on this machine against this working

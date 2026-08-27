@@ -9,7 +9,7 @@
  * and a non-array `forwards` would bind nothing while looking configured.
  *
  * Kept free of Tauri imports (the `SshConnection` import is type-only, so it
- * is erased at compile time) so `scripts/ssh-backup-verify.ts` can exercise
+ * is erased at compile time) so `scripts/ssh/ssh-backup-verify.ts` can exercise
  * the parser under plain node.
  */
 import type { SshConnection, SshAuthMode, SshPortForward } from "./connections";

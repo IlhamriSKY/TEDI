@@ -9,14 +9,8 @@ import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
 import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
-import {
-  TAG_COMMANDS,
-  VISIBLE_SLASH_COMMANDS,
-  skillSlashCommands,
-  type SlashCommandMeta,
-} from "../lib/slashCommands";
+import { TAG_COMMANDS, VISIBLE_SLASH_COMMANDS } from "../lib/slashCommands";
 import type { TerminalInfo } from "@/modules/scheduler/types";
-import { loadSkills } from "../lib/skills";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
 import { useSnippetsStore } from "../store/snippetsStore";
@@ -73,18 +67,6 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   // Mirror layer that paints the command token behind the transparent-text
   // textarea; scroll-synced via the textarea's onScroll below.
   const highlightRef = useRef<HTMLDivElement>(null);
-
-  // Installed skills surfaced in the `/` picker. Reloaded each time the slash
-  // picker opens so a just-installed skill shows without a restart, and the
-  // workspace root is already live (a mount-time read can land before the live
-  // bridge is set and miss project-local skills under `<root>/.tedi/skills`).
-  const [skillCmds, setSkillCmds] = useState<SlashCommandMeta[]>([]);
-  const slashPickerOpen = trigger?.kind === "slash";
-  useEffect(() => {
-    if (!slashPickerOpen) return;
-    const root = useChatStore.getState().live.getWorkspaceRoot();
-    void loadSkills(root).then(() => setSkillCmds(skillSlashCommands()));
-  }, [slashPickerOpen]);
 
   // Shell-style ArrowUp/Down through sent user messages. `histIndex` is the
   // position in `history` (0 = newest). `null` means not navigating; stepping
@@ -173,7 +155,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     //          `plan`); they behave like persistent session tags, not one-shot
     //          actions.
     if (trigger.kind === "slash") {
-      return [...VISIBLE_SLASH_COMMANDS, ...skillCmds].flatMap((command) =>
+      return VISIBLE_SLASH_COMMANDS.flatMap((command) =>
         !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
           ? [{ kind: "command" as const, command }]
           : [],
@@ -203,7 +185,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         : [],
     );
     return [...termItems, ...tagCmds, ...snipItems];
-  }, [trigger, snippets, skillCmds, terminals]);
+  }, [trigger, snippets, terminals]);
 
   /** Length of the navigable list. Drives ArrowUp/Down/Tab/Enter for any picker. */
   const navLength = isMention ? mention.items.length : filteredItems.length;

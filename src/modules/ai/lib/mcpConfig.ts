@@ -15,6 +15,10 @@ export type McpServerConfig = {
   env?: Record<string, string>;
   /** Whether the server is enabled. */
   enabled: boolean;
+  /** TEDI's own in-process server. No process is spawned: `command`/`args` are
+   *  unused and the client is linked to it over an in-memory transport. Never
+   *  persisted - it is synthesized per turn by `buildMcpToolsAsync`. */
+  builtin?: boolean;
 };
 
 /** Persisted MCP server configs. Stored in its own LazyStore. */

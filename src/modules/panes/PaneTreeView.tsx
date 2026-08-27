@@ -691,6 +691,16 @@ function PaneLeafFrame({
         if (!focused) onFocusLeaf(node.id);
       }}
       data-pane-leaf={node.id}
+      // Marks a leaf the user flagged private, so the DevTools automation
+      // surface can exclude it from anything that walks the DOM.
+      //
+      // `data-pane-leaf` cannot simply be omitted for a private leaf: two
+      // in-app hit-testers do `closest("[data-pane-leaf]")` on it
+      // (`useEditorFileDrop`, `useSelectionAskAi`), and dropping it would break
+      // file-drop and Ask-AI INSIDE private panes, which is the opposite of the
+      // intent. A separate marker leaves those working and gives the driver
+      // something to filter on. See `scripts/mcp/driver.mjs`.
+      data-pane-private={node.private ? "" : undefined}
       className={cn(
         "bg-background relative flex h-full w-full flex-col overflow-hidden rounded-md border shadow-sm transition-colors",
         focused ? "border-primary/60 ring-primary/30 ring-1" : "border-border",
