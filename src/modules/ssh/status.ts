@@ -29,6 +29,16 @@ export const sshHopLabel = (h: SshRouteHop): string => `${h.user}@${h.host}`;
 /** `user@host:port`. What tooltips and the tab hover card spell out. */
 export const sshHopDetail = (h: SshRouteHop): string => `${h.user}@${h.host}:${h.port}`;
 
+/**
+ * `reason` on the `disconnected` status the user's own Disconnect produces.
+ *
+ * A shared constant because it is the one thing that separates "you closed it"
+ * from "it broke", and the connect overlay reads it to decide whether to draw a
+ * red failure card. Emitted from two places; a literal in each would drift and
+ * turn a deliberate disconnect into a reported failure.
+ */
+export const SSH_USER_CLOSE_REASON = "closed by user";
+
 type SshStatusKind =
   | { kind: "idle" }
   | { kind: "connecting"; attempt: number }
@@ -172,6 +182,25 @@ export function foldSshBinding(
     return { connecting: prev?.connecting ?? false };
   }
   return { connecting: true };
+}
+
+/**
+ * Has this status ENDED a connect attempt, and how? Null while one is still in
+ * flight (or was never started), which is the whole point: the connect overlay
+ * keeps one card up from the first dial until this answers.
+ *
+ * `disconnected` is the interesting case, because it carries both meanings. The
+ * retry scheduler emits it when the last attempt has given up - a failure the
+ * user needs the reason for - and `disconnectSsh` emits it when the user
+ * themselves pressed Disconnect, which is not a failure and must not be drawn
+ * as one. `SSH_USER_CLOSE_REASON` is the only thing that separates them.
+ */
+export function sshAttemptOutcome(s: SshStatus | null | undefined): "connected" | "failed" | null {
+  if (!s) return null;
+  if (s.kind === "connected") return "connected";
+  if (s.kind === "error") return "failed";
+  if (s.kind === "disconnected" && s.reason !== SSH_USER_CLOSE_REASON) return "failed";
+  return null;
 }
 
 export type SshStatusDotTone = "neutral" | "warn" | "ok" | "bad";

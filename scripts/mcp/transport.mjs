@@ -142,6 +142,17 @@ export function makeTransport({ port } = {}) {
 
   async function getCdp() {
     if (cdp) return cdp;
+    // No port means the profile this server was pointed at has its automation
+    // channel switched OFF. Say that, rather than falling back to the usual
+    // 9222 and driving whichever OTHER TEDI happens to be listening there -
+    // real keystrokes into the wrong window is not a fallback, it is a bug.
+    if (!port) {
+      throw new Error(
+        "TEDI's automation channel is off for this profile, so real input, screenshots and " +
+          "eval_js have no way in. Turn it on in TEDI: header, Install MCP, Automation channel " +
+          "(it takes effect on the next restart). Everything else works without it.",
+      );
+    }
     cdpPromise ??= connect({ port }).then(
       (d) => {
         cdp = d;
@@ -158,6 +169,29 @@ export function makeTransport({ port } = {}) {
 
   const handler = {
     get(_t, method) {
+      /**
+       * A CATCH-ALL `get` MAKES THIS PROXY LOOK LIKE A PROMISE, AND THAT KILLED
+       * THE SERVER ON THE FIRST TOOL CALL.
+       *
+       * `await x` and `Promise.resolve(x)` decide whether `x` is a promise by
+       * READING `x.then` and checking it is callable. Every property here
+       * answered with a function, so the proxy passed that test, and the
+       * language then adopted it as a thenable: it called `then(resolve,
+       * reject)` and waited for one of them. `then` is not in `BRIDGED`, so the
+       * call fell through to CDP, found no `then` on the real driver, and threw
+       * - inside a promise nothing was holding. So `await tedi()` waited on a
+       * resolve that could never come (every tool hung), while the stray
+       * rejection took the whole process down with it (`Connection closed` on
+       * the client). One line each way.
+       *
+       * Symbols go the same way, and for the same reason: `util.inspect`,
+       * `JSON.stringify` and iteration all probe well-known symbols, and a
+       * function answering `Symbol.iterator` turns any of them into a throw.
+       *
+       * The rule is general - a proxy that answers everything must still say NO
+       * to the protocol the language itself uses to ask questions about it.
+       */
+      if (method === "then" || typeof method === "symbol") return undefined;
       if (method === "close") {
         return async () => {
           bridge?.close();

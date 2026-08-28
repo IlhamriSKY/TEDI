@@ -914,6 +914,84 @@ console.log("\n[bridge] every bridged method is a real, in-realm-only Driver met
 }
 
 // ---------------------------------------------------------------------------
+//
+// ONE PROFILE HAS TO DECIDE BOTH HALVES OF "which TEDI am I driving".
+// `TEDI_BUNDLE_ID` picks the settings file (pack switches) and the bridge
+// socket; the CDP port was a bare `env.TEDI_DEBUG_PORT || 9222` beside it. With
+// the id set and the port not - which is every hand-written config, and every
+// dev run - this server read ONE app's switches and dispatched REAL KEYSTROKES
+// into ANOTHER app's window. An end-to-end run did exactly that: aimed at a dev
+// profile, it sent `keys` and `screenshot` into the installed release.
+console.log("\n[cdp port] the port comes from the profile the bundle id names");
+{
+  const { resolveCdpPort } = (await import("./server.mjs")) as unknown as {
+    resolveCdpPort: (env: unknown, stored: number | null) => number | null;
+  };
+  const cases: [string, unknown, number | null, number | null][] = [
+    ["an explicit env var always wins", "9500", 9223, 9500],
+    ["...even when the profile says off", "9500", 0, 9500],
+    ["no env var: the profile's own port", undefined, 9223, 9223],
+    ["a profile with the channel off resolves to nothing", undefined, 0, null],
+    ["a profile that never stored one falls back to the default", undefined, null, 9222],
+    ["an empty env var is not a port", "", 9223, 9223],
+    ["a non-numeric env var is not a port", "yes", 9223, 9223],
+  ];
+  for (const [label, env, stored, want] of cases) {
+    const got = resolveCdpPort(env, stored);
+    if (got === want) console.log(`  ok: ${label} (${String(got)})`);
+    else fail(`${label}: got ${String(got)}, want ${String(want)}`);
+  }
+  // The one that was the bug: a named profile with its own port must NEVER
+  // resolve to the default, because the default is whatever OTHER TEDI is up.
+  if (resolveCdpPort(undefined, 9223) === 9222) {
+    fail("a dev profile still resolves to 9222 - it would drive the installed release");
+  }
+}
+
+// ---------------------------------------------------------------------------
+//
+// The transport is a Proxy with a catch-all `get`, and `server.mjs` reaches it
+// through `await tedi()`. `await` decides whether something is a promise by
+// reading `.then` and checking it is callable - so a proxy that answers every
+// property WITH A FUNCTION is adopted as a thenable, and the language calls
+// `then(resolve, reject)` and waits. Nothing ever resolved it: every tool call
+// hung, and the throw inside that orphaned call killed the server process, which
+// the client reported as "Connection closed".
+//
+// It shipped, because nothing here reaches `tedi()` without an app and the live
+// sweep drives `Driver` directly. This does it with no TEDI running at all: the
+// checks are about what the LANGUAGE asks the proxy, not about what it answers.
+console.log("\n[transport] the proxy must not pass for a promise");
+{
+  const { makeTransport } = await import("./transport.mjs");
+  const t = makeTransport({ port: 1 }) as Record<string, unknown>;
+
+  if (t.then === undefined) console.log("  ok: `then` is undefined, so it is not thenable");
+  else fail("the transport proxy answers `then`, so `await` will treat it as a promise and hang");
+
+  if (t[Symbol.iterator as unknown as string] === undefined) {
+    console.log("  ok: well-known symbols are undefined too");
+  } else {
+    fail("the proxy answers well-known symbols - inspect/stringify/iteration would throw");
+  }
+
+  // The actual failure, end to end, with no app: this used to never settle.
+  const settled = await Promise.race([
+    Promise.resolve(t).then(
+      () => "resolved",
+      () => "rejected",
+    ),
+    new Promise((r) => setTimeout(() => r("HUNG"), 1500)),
+  ]);
+  if (settled === "resolved") console.log("  ok: `await tedi()` settles with no TEDI running");
+  else fail(`\`await\` on the transport ${settled === "HUNG" ? "never settled" : "rejected"}`);
+
+  // And it is still a working driver afterwards.
+  if (typeof t.state === "function") console.log("  ok: real methods still resolve to functions");
+  else fail("guarding `then` broke ordinary method lookup");
+}
+
+// ---------------------------------------------------------------------------
 // 7. One definition, two transports.
 // ---------------------------------------------------------------------------
 
@@ -991,10 +1069,26 @@ if (!allowBlock) {
     fail("ALLOWED_VALUES has an inline literal - derive it from the runtime list instead");
   } else console.log("  ok: every allowed set is derived from its runtime list");
 
-  for (const key of ["theme", "approvalMode", "editorTheme"]) {
+  for (const key of ["theme", "approvalMode", "editorTheme", "defaultProviderId"]) {
     if (!new RegExp(`\\b${key}:`).test(allowBlock)) fail(`${key} lost its allowed-value check`);
     else console.log(`  ok: ${key} is validated`);
   }
+}
+
+// A preference whose DEFAULT is `null` has no type to infer, and that was read
+// as "nothing to check at all": the branch returned before the allow-list ran.
+// `defaultProviderId` defaults to null, so listing it above achieves nothing
+// unless that branch consults the set - and `getProvider` throws on an id
+// outside it, so the write succeeded and the NEXT agent turn was what broke.
+{
+  const fn = /export async function _writePreference[\s\S]*?\n\}/.exec(storeSrc)?.[0] ?? "";
+  const nullBranch = /if \(expected === null\) \{([\s\S]*?)\n  \}/.exec(fn)?.[1] ?? "";
+  if (!nullBranch) fail("the null-default branch of _writePreference is gone - recheck this");
+  else if (!/outsideSet|allowed/.test(nullBranch)) {
+    fail(
+      "a null-default preference skips ALLOWED_VALUES again - defaultProviderId would accept any string",
+    );
+  } else console.log("  ok: a null default still has to satisfy its allowed set");
 }
 if (!/must be one of/.test(storeSrc)) {
   fail("the rejection no longer names the allowed set, so a model cannot recover from it");

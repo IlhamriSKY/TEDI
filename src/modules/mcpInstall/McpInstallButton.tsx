@@ -278,7 +278,12 @@ export function McpInstallButton() {
                 >
                   <span className="min-w-0">
                     <span className="text-sm">{row.name}</span>
-                    <span className="text-muted-foreground block truncate text-xs">
+                    {/* The full path on hover: the row truncates from the right,
+                        which is exactly the end that says WHICH file this is. */}
+                    <span
+                      className="text-muted-foreground block truncate text-xs"
+                      title={row.present ? row.path : undefined}
+                    >
                       {row.present ? row.path : "not installed"}
                     </span>
                   </span>

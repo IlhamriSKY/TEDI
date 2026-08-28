@@ -76,3 +76,12 @@ FEATURE-STUDY.md
 # release built that way would reach users untested. Keep it local until one
 # release build has been through it deliberately.
 /src-tauri/.cargo/
+
+# The project-level MCP registration, written by the plug button in the header
+# (or by `claude mcp add`). It names an ABSOLUTE path to the server bundled in
+# THIS machine's TEDI install, so it is a per-developer file by construction:
+# committing one hands everyone else a path that does not exist on their disk.
+# It used to be tracked with a relative `scripts/mcp/server.mjs`, which worked
+# only from a repo checkout and, being invisible to the header switch, meant an
+# agent kept loading TEDI's MCP after that switch was turned off.
+/.mcp.json

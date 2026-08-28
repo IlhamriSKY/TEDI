@@ -7,6 +7,7 @@ import {
   LMSTUDIO_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_DEFAULT_BASE_URL,
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
+  PROVIDERS,
   tryGetModel,
   type AutocompleteProviderId,
   type DynamicModelId,
@@ -1231,8 +1232,16 @@ export async function setAutomationPort(port: number): Promise<void> {
  *
  * DERIVED, NOT RETYPED: every entry points at the same runtime array the TYPE
  * comes from, so adding an editor theme or a search engine cannot leave this
- * table behind. Only static sets belong here - model and provider ids are drawn
- * from a live catalogue, so an allow-list would reject valid new models.
+ * table behind. Only static sets belong here - MODEL ids are drawn from a live
+ * catalogue (SumoPod and AgentRouter publish theirs over `/v1/models`), so an
+ * allow-list on `lastModelId` would reject valid new models.
+ *
+ * PROVIDER ids are not that, and used to be lumped in with them. `ProviderId` is
+ * a closed union of twelve, every one of them in `PROVIDERS`, and `getProvider`
+ * THROWS on anything else - so leaving `defaultProviderId` unchecked meant an
+ * agent could store a provider that does not exist and break its own next
+ * request. One was found sitting in a real profile: `"__current__"`, a string no
+ * code in this repo produces or understands.
  */
 const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
   theme: THEME_PREFS,
@@ -1240,6 +1249,7 @@ const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
   editorTheme: EDITOR_THEMES,
   terminalThemeMode: TERMINAL_THEME_MODES,
   searchEngine: SEARCH_ENGINES.map((e) => e.id),
+  defaultProviderId: PROVIDERS.map((p) => p.id),
 };
 
 /**
@@ -1284,9 +1294,24 @@ export async function _writePreference(key: string, value: unknown): Promise<voi
     );
   }
   const expected = DEFAULT_PREFERENCES[key as keyof Preferences];
-  // `null` defaults (defaultProviderId, lastModelId) take whatever they are
-  // given; there is nothing to check against.
+  const allowed = ALLOWED_VALUES[key as PrefKey];
+  /** Outside the set, and not the `null` that IS the default for these keys. */
+  const outsideSet = (v: unknown) =>
+    Boolean(allowed) && v !== null && !allowed?.includes(v as string);
+
+  // A `null` default means there is no TYPE to infer - it does NOT mean there is
+  // nothing to check. Read as the latter, this branch skipped the allow-list
+  // too, and `defaultProviderId` went through it: a closed union of twelve ids,
+  // writable as any string at all. `set_setting defaultProviderId=whatever`
+  // answered ok, and `getProvider` then threw `Unknown provider` on the next
+  // turn - the tool reporting success for a write that broke the next request,
+  // which is the exact failure `ALLOWED_VALUES` was introduced to stop.
+  // `lastModelId` stays unchecked on purpose: model ids come from a live
+  // catalogue, so an allow-list there would reject valid new models.
   if (expected === null) {
+    if (outsideSet(value)) {
+      throw new Error(`"${key}" must be one of: ${allowed?.join(", ")} (got "${String(value)}")`);
+    }
     await writePref(key, value);
     return;
   }
@@ -1302,9 +1327,8 @@ export async function _writePreference(key: string, value: unknown): Promise<voi
       `"${key}" wants a ${typeof expected}, got ${coerced === null ? "null" : typeof coerced}`,
     );
   }
-  const allowed = ALLOWED_VALUES[key as PrefKey];
-  if (allowed && !allowed.includes(coerced as string)) {
-    throw new Error(`"${key}" must be one of: ${allowed.join(", ")} (got "${String(coerced)}")`);
+  if (outsideSet(coerced)) {
+    throw new Error(`"${key}" must be one of: ${allowed?.join(", ")} (got "${String(coerced)}")`);
   }
   await writePref(key, coerced);
 }

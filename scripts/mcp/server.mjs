@@ -15,7 +15,12 @@
  *   3. A tool list instead of a README. The schema IS the documentation, so an
  *      agent discovers the surface rather than being told about it.
  *
- * Registered for this repo in `.mcp.json`. TEDI must have been started with
+ * Registered by the plug button in TEDI's header, which writes the entry (and
+ * removes it) for every AI CLI on this machine plus the open folder's
+ * `.mcp.json`. That file is gitignored on purpose: it names an absolute path
+ * into THIS machine's install, and a tracked copy is one the switch cannot see,
+ * so it kept loading after the switch was turned off. TEDI must have been
+ * started with
  * `TEDI_DEBUG_PORT` set; if it was not, the tools say so and say how to fix it,
  * because this process starts fine either way (it must - Claude Code launches it
  * at session start, long before anyone has opened TEDI).
@@ -42,7 +47,41 @@ const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import
 // server logs.
 if (isMain) console.log = console.info = console.warn = console.debug = console.error;
 
-const PORT = Number(process.env.TEDI_DEBUG_PORT) || 9222;
+/**
+ * Which DevTools port to drive - i.e. WHICH TEDI the CDP-only tools reach.
+ *
+ * ONE PROFILE DECIDES BOTH HALVES. The socket half and the pack switches are
+ * resolved from `TEDI_BUNDLE_ID`; the CDP half used to be a bare
+ * `env.TEDI_DEBUG_PORT || 9222`, so with the id set and the port not, this
+ * server read ONE app's switches and dispatched real keystrokes into ANOTHER
+ * app's window. Not hypothetical: an end-to-end run against a dev profile sent
+ * `keys` and `screenshot` straight into the installed release, because 9222 is
+ * what the release happened to be listening on. The bundle id was introduced to
+ * stop exactly this and only closed the settings half of it.
+ *
+ * So: the env var still wins (the Install button writes both together, and a
+ * developer's explicit override must not be second-guessed), then the
+ * `automationPort` the NAMED profile actually stores, and only then the default.
+ * `null` means that profile has the channel switched off, which
+ * `makeTransport` reports as such rather than silently reaching for 9222.
+ */
+const DEFAULT_CDP_PORT = 9222;
+
+/**
+ * The rule on its own, so `driver-verify` can check it without an app or a
+ * settings file. `env` is the raw `TEDI_DEBUG_PORT`, `stored` the named
+ * profile's `automationPort` (null when the file has no such key).
+ */
+export function resolveCdpPort(env, stored) {
+  const fromEnv = Number(env);
+  if (fromEnv) return fromEnv;
+  // 0 is what the UI writes for "off"; absent means this profile has never been
+  // wired up. Both are "no channel here", not "try the usual port".
+  if (stored === 0) return null;
+  return stored ?? DEFAULT_CDP_PORT;
+}
+
+const cdpPort = () => resolveCdpPort(process.env.TEDI_DEBUG_PORT, currentSurface().port);
 
 /**
  * How tools reach TEDI. One object, two transports underneath.
@@ -58,7 +97,7 @@ const PORT = Number(process.env.TEDI_DEBUG_PORT) || 9222;
 let driver = null;
 
 function tedi() {
-  driver ??= makeTransport({ port: PORT });
+  driver ??= makeTransport({ port: cdpPort() });
   return Promise.resolve(driver);
 }
 
@@ -131,7 +170,19 @@ const HANDLERS = {
         const list = await d.terminals(a.lines ?? 200);
         if (!list.length) return "(no terminal panes open)";
         const want = a.leafId ?? (await d.focusedLeaf());
-        const one = list.find((t) => t.leafId === want) ?? list.at(-1);
+        // The fallback is for the case where NOTHING was named and focus is not
+        // in a terminal. A leafId the caller actually passed and that does not
+        // exist must not quietly return a different pane's scrollback: that
+        // answers a question about pane A with pane B's output, labelled as
+        // success, which is the one failure no error message ever follows. Same
+        // rule `sh` and `wait_for_terminal` apply.
+        const one =
+          list.find((t) => t.leafId === want) ?? (a.leafId === undefined ? list.at(-1) : null);
+        if (!one) {
+          throw new Error(
+            `Leaf ${a.leafId} is not a terminal. Terminals: ${list.map((t) => t.leafId).join(", ")}`,
+          );
+        }
         return `[leaf ${one.leafId} atPrompt=${one.atPrompt} running=${one.running}]\n${one.text}`;
       }
       case "editors": {
@@ -415,12 +466,15 @@ function readSurface() {
       return {
         disabled: new Set(Array.isArray(j.mcpDisabledTools) ? j.mcpDisabledTools : []),
         extensions: Array.isArray(j.mcpExtensionPacks) ? j.mcpExtensionPacks : [],
+        // Read HERE because this is already the file that says which app we are
+        // configured for - see `cdpPort` for why that matters.
+        port: typeof j.automationPort === "number" ? j.automationPort : null,
       };
     } catch {
       // Missing file, unreadable, or not JSON: try the next candidate.
     }
   }
-  return { disabled: new Set(), extensions: [] };
+  return { disabled: new Set(), extensions: [], port: null };
 }
 
 /**

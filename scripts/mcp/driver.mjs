@@ -815,7 +815,19 @@ export class Driver {
       // hide the mistake (waiting on an editor pane, or on a private one).
       if (!list.length)
         return { leafId: target, done: false, reason: "no terminal panes", tail: "" };
-      const t = list.find((x) => x.leafId === target) ?? list[list.length - 1];
+      // Same rule `sh` states above, and for a sharper reason: waiting is a
+      // claim about ONE pane. Falling back to the last terminal answered "done,
+      // prompt returned" from a pane the caller never named - so an agent
+      // waiting on its build was told it had finished by an idle shell sitting
+      // next to it. Only the no-leaf case may fall back, and only because
+      // `focusedLeaf` legitimately points at something that is not a terminal.
+      const t =
+        list.find((x) => x.leafId === target) ?? (leafId === null ? list[list.length - 1] : null);
+      if (!t) {
+        throw new Error(
+          `Leaf ${leafId} is not a terminal. Terminals: ${list.map((x) => x.leafId).join(", ")}`,
+        );
+      }
       if (text ? t.hit : t.atPrompt && !t.running) {
         await sleep(settle);
         return await finish(t.leafId, true, text ? "text appeared" : "prompt returned");

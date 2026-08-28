@@ -36,7 +36,12 @@ import {
 } from "@/modules/terminal/lib/panes";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
-import { sortPinnedFirst, syncPaneMirror, updateLeafTree } from "./tabHelpers";
+import {
+  nextActiveAfterClose,
+  sortPinnedFirst,
+  syncPaneMirror,
+  updateLeafTree,
+} from "./tabHelpers";
 import { useAuxTabs } from "./useAuxTabs";
 
 // Re-export the tab types from their new home so existing imports of
@@ -94,6 +99,22 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     ];
   });
   const [activeId, setActiveId] = useState(1);
+  /**
+   * Tabs in most-recently-active order, newest first. The back-stack that says
+   * where to land when the active tab closes.
+   *
+   * A ref, not state: nothing renders from it, and making it state would
+   * re-render the whole workspace on every tab switch to change a value only
+   * `pickAfterClose` reads.
+   */
+  const mruRef = useRef<number[]>([]);
+  if (mruRef.current[0] !== activeId) {
+    // Written during render rather than in an effect: closing a tab sets the
+    // next active id from inside a `setTabs` updater, and an effect would not
+    // have run yet if two closes land in one batch - the second would then read
+    // a stale stack and send the user somewhere they never were.
+    mruRef.current = [activeId, ...mruRef.current.filter((x) => x !== activeId)].slice(0, 50);
+  }
   const nextIdRef = useRef(3);
   // Sync ref of `tabs` so callbacks can read the latest array without relying
   // on React's eager state computation (skipped when the fiber already has
@@ -466,15 +487,31 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     );
   }, []);
 
-  const closeTab = useCallback((id: number) => {
-    setTabs((curr) => {
-      if (curr.length <= 1) return curr;
-      const idx = curr.findIndex((t) => t.id === id);
-      const next = curr.filter((t) => t.id !== id);
-      setActiveId((active) => (id === active ? next[Math.max(0, idx - 1)].id : active));
-      return next;
-    });
-  }, []);
+  /** `nextActiveAfterClose` against this hook's live back-stack. The rule itself
+   *  is in `tabHelpers` so it can be checked without React. */
+  const pickAfterClose = useCallback(
+    (closedId: number, next: Tab[], idx: number): number =>
+      nextActiveAfterClose(
+        mruRef.current,
+        closedId,
+        next.map((t) => t.id),
+        idx,
+      ),
+    [],
+  );
+
+  const closeTab = useCallback(
+    (id: number) => {
+      setTabs((curr) => {
+        if (curr.length <= 1) return curr;
+        const idx = curr.findIndex((t) => t.id === id);
+        const next = curr.filter((t) => t.id !== id);
+        setActiveId((active) => (id === active ? pickAfterClose(id, next, idx) : active));
+        return next;
+      });
+    },
+    [pickAfterClose],
+  );
 
   const selectByIndex = useCallback(
     (idx: number) => {
@@ -714,34 +751,40 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [allocOrdinal, allocBrowserOrdinal],
   );
 
-  const closePaneByLeaf = useCallback((leafId: number): void => {
-    setTabs((curr) => {
-      const tab = curr.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
-      if (!tab || tab.kind !== "pane") return curr;
-      const newTree = removeLeaf(tab.paneTree, leafId);
-      if (newTree === null) {
-        if (curr.length <= 1) return curr;
-        const idx = curr.findIndex((x) => x.id === tab.id);
-        const next = curr.filter((x) => x.id !== tab.id);
-        setActiveId((active) => (active === tab.id ? next[Math.max(0, idx - 1)].id : active));
-        return next;
-      }
-      const remaining = leafIds(newTree);
-      let newActive = tab.activeLeafId;
-      if (tab.activeLeafId === leafId) {
-        const sib = siblingLeafOf(tab.paneTree, leafId);
-        newActive = sib && remaining.includes(sib) ? sib : remaining[0];
-      }
-      return curr.map((x) => {
-        if (x.id !== tab.id || x.kind !== "pane") return x;
-        return syncPaneMirror({
-          ...x,
-          paneTree: newTree,
-          activeLeafId: newActive,
+  const closePaneByLeaf = useCallback(
+    (leafId: number): void => {
+      setTabs((curr) => {
+        const tab = curr.find((t) => t.kind === "pane" && hasLeaf(t.paneTree, leafId));
+        if (!tab || tab.kind !== "pane") return curr;
+        const newTree = removeLeaf(tab.paneTree, leafId);
+        if (newTree === null) {
+          if (curr.length <= 1) return curr;
+          const idx = curr.findIndex((x) => x.id === tab.id);
+          const next = curr.filter((x) => x.id !== tab.id);
+          // Closing the LAST pane in a tab closes the tab, so it has to land the
+          // same place `closeTab` does - this is the path a single-editor tab
+          // actually takes when its close button is the pane's, not the strip's.
+          setActiveId((active) => (active === tab.id ? pickAfterClose(tab.id, next, idx) : active));
+          return next;
+        }
+        const remaining = leafIds(newTree);
+        let newActive = tab.activeLeafId;
+        if (tab.activeLeafId === leafId) {
+          const sib = siblingLeafOf(tab.paneTree, leafId);
+          newActive = sib && remaining.includes(sib) ? sib : remaining[0];
+        }
+        return curr.map((x) => {
+          if (x.id !== tab.id || x.kind !== "pane") return x;
+          return syncPaneMirror({
+            ...x,
+            paneTree: newTree,
+            activeLeafId: newActive,
+          });
         });
       });
-    });
-  }, []);
+    },
+    [pickAfterClose],
+  );
 
   /**
    * Workspace switch. Replaces the tab list and active id atomically,

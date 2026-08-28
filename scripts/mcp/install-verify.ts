@@ -114,6 +114,64 @@ console.log("[mcpServers] an existing config survives the merge");
 }
 
 // ---------------------------------------------------------------------------
+// `claude mcp add` writes to the PROJECT bag by default ("local" scope), not to
+// the top-level one. Reading only the top level made the switch show OFF while
+// Claude Code loaded TEDI on every session from that bag, and turning it off
+// then removed nothing - the user's report that "the MCP is on even though I
+// switched it off".
+console.log("\n[mcpServers] the per-project scope of ~/.claude.json counts too");
+{
+  const localScope = JSON.stringify(
+    {
+      numStartups: 412,
+      mcpServers: { other: { command: "npx", args: ["-y", "@some/server"] } },
+      projects: {
+        "D:\\repo": {
+          history: [{ display: "hi" }],
+          mcpServers: {
+            tedi: entryFor("mcpServers", SERVER, PORT, BUNDLE),
+            keepme: { command: "node", args: ["x.mjs"] },
+          },
+        },
+      },
+    },
+    null,
+    2,
+  );
+
+  if (!readsAsInstalled(byId("claude"), localScope, SERVER, BUNDLE))
+    fail("a project-scoped entry read as NOT installed - the switch would lie");
+  else ok("a project-scoped entry reads as installed");
+
+  const removed = withoutEntry(byId("claude"), localScope);
+  const back = JSON.parse(removed) as {
+    numStartups: number;
+    mcpServers: Record<string, unknown>;
+    projects: Record<string, { mcpServers: Record<string, unknown>; history: unknown }>;
+  };
+  if (back.projects["D:\\repo"].mcpServers.tedi)
+    fail("uninstall left the project-scoped entry behind");
+  else if (!back.projects["D:\\repo"].mcpServers.keepme)
+    fail("uninstall took a sibling project-scoped server with it");
+  else if (!back.projects["D:\\repo"].history || !back.mcpServers.other || back.numStartups !== 412)
+    fail("uninstall damaged the rest of the file");
+  else ok("uninstall clears the project scope and leaves everything else");
+
+  // Installing has to converge on ONE entry: a leftover project-scoped copy
+  // outranks the top-level one and would keep pointing at its own old path.
+  const installed = JSON.parse(withEntry(byId("claude"), localScope, SERVER, PORT, BUNDLE)) as {
+    mcpServers: Record<string, unknown>;
+    projects: Record<string, { mcpServers: Record<string, unknown> }>;
+  };
+  if (installed.projects["D:\\repo"].mcpServers.tedi)
+    fail("install left a second, project-scoped entry that outranks the one it wrote");
+  else if (!installed.mcpServers.tedi) fail("install did not write the top-level entry");
+  else if (!installed.projects["D:\\repo"].mcpServers.keepme)
+    fail("install took a sibling project-scoped server with it");
+  else ok("install converges on one entry, at the top level");
+}
+
+// ---------------------------------------------------------------------------
 console.log("\n[mcpServers] an empty or missing file becomes a valid config");
 {
   const fresh = withEntry(byId("cursor"), "", SERVER, PORT, BUNDLE);

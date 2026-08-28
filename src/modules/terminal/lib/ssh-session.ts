@@ -20,6 +20,7 @@ import {
   buildSshRoute,
   failPendingSshHops,
   markSshHop,
+  SSH_USER_CLOSE_REASON,
   type SshStatus,
 } from "@/modules/ssh/status";
 import { remotePortOf, toLocalUrl } from "./forwardUrl";
@@ -141,7 +142,7 @@ export async function openSshForSession(
     if (s.sshUserClose) {
       emitSshStatus(s, {
         kind: "disconnected",
-        reason: "closed by user",
+        reason: SSH_USER_CLOSE_REASON,
         canRetry: true,
       });
       onExit(0);
@@ -469,7 +470,7 @@ export async function disconnectSsh(leafId: number): Promise<void> {
   if (pty) await pty.close().catch(() => {});
   emitSshStatus(s, {
     kind: "disconnected",
-    reason: "closed by user",
+    reason: SSH_USER_CLOSE_REASON,
     canRetry: true,
   });
   writeSshBanner(

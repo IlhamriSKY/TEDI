@@ -189,3 +189,38 @@ export function isEditorLikeTab(tab: Tab): boolean {
 // in `@/lib/pinned`. Re-exported here because the tab code reads more
 // naturally importing it alongside the other tab helpers.
 export { sortPinnedFirst } from "@/lib/pinned";
+
+/**
+ * Which tab to activate once the ACTIVE one closes.
+ *
+ * NOT the left neighbour, which is what both close paths did. Opening a file
+ * APPENDS a tab and activates it, so its left neighbour is simply whatever
+ * happened to be last in the strip - a tab the user never chose and usually was
+ * not working in. Closing the editor therefore threw them to the far end of the
+ * strip rather than back where they came from, and the more tabs they had open
+ * the further away they landed.
+ *
+ * Most-recently-used instead, which is the answer every editor gives: go back to
+ * the tab that was active before this one. `mru` is newest-first and may name
+ * tabs that have since been closed (or belong to another workspace), so
+ * membership in `remaining` is what qualifies an entry, not its presence in the
+ * stack.
+ *
+ * The neighbour survives as the fallback, for when there is no history to go
+ * back to at all: a freshly restored workspace, or a stack whose every entry has
+ * already been closed.
+ *
+ * @param mru        tab ids, most recently active first
+ * @param closedId   the tab being closed
+ * @param remaining  ids still open AFTER the close, in strip order
+ * @param idx        index the closed tab had, for the neighbour fallback
+ */
+export function nextActiveAfterClose(
+  mru: readonly number[],
+  closedId: number,
+  remaining: readonly number[],
+  idx: number,
+): number {
+  const back = mru.find((id) => id !== closedId && remaining.includes(id));
+  return back ?? remaining[Math.max(0, idx - 1)];
+}

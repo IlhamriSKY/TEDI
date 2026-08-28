@@ -24,7 +24,7 @@ import { getIdentifier } from "@tauri-apps/api/app";
 export const SERVER_NAME = "tedi";
 
 /** Default port. Nothing else on the machine claims it, and it is what the
- *  driver's own docs and `.mcp.json` in this repo have always used. */
+ *  driver's own docs have always used. */
 export const DEFAULT_PORT = 9222;
 
 type Format = "mcpServers" | "codexToml" | "opencode";
@@ -229,6 +229,32 @@ function codexBlock(server: string, port: number, bundle: string): string {
 
 // --- read / write ----------------------------------------------------------
 
+/**
+ * EVERY BAG IN THIS FILE THAT CAN HOLD OUR ENTRY, in the order they are written.
+ *
+ * One file, more than one scope. `~/.claude.json` carries the user-wide
+ * `mcpServers` at the top level AND a `projects["<dir>"].mcpServers` per folder -
+ * and the per-folder one is where `claude mcp add` puts a server by DEFAULT
+ * ("local" scope). Reading only the top level meant the switch could sit at OFF
+ * while Claude Code loaded TEDI on every session from the project bag, and
+ * turning it off then removed nothing: exactly the drift this module exists to
+ * avoid. The other hosts have no `projects` key, so they get the top bag alone.
+ */
+function bags(json: Record<string, unknown>, key: string): Record<string, unknown>[] {
+  const out: Record<string, unknown>[] = [];
+  const top = json[key];
+  if (top && typeof top === "object") out.push(top as Record<string, unknown>);
+  if (key !== "mcpServers") return out;
+  const projects = json.projects;
+  if (projects && typeof projects === "object") {
+    for (const p of Object.values(projects as Record<string, unknown>)) {
+      const b = (p as Record<string, unknown> | null)?.[key];
+      if (b && typeof b === "object") out.push(b as Record<string, unknown>);
+    }
+  }
+  return out;
+}
+
 /** Is our entry already in this file, and does it point at THIS install? */
 function readsAsInstalled(target: Target, text: string, server: string, bundle: string): boolean {
   if (!text.trim()) return false;
@@ -237,16 +263,18 @@ function readsAsInstalled(target: Target, text: string, server: string, bundle: 
     return Boolean(block?.includes(server) && block.includes(bundle));
   }
   try {
-    const json = JSON.parse(text) as Record<string, Record<string, unknown> | undefined>;
-    const entry = json[ROOT_KEY[target.format]]?.[SERVER_NAME];
+    const json = JSON.parse(text) as Record<string, unknown>;
     // Stale entries (an older install path) count as NOT installed, so the
     // button offers to fix them instead of showing a green light on a config
     // that points at a directory the updater replaced.
     // An entry written before the id was stamped, or by the OTHER build, reads
     // as not-installed: it would drive this TEDI while reading another's
     // switches, which is the exact failure this check exists to surface.
-    const text2 = entry ? JSON.stringify(entry) : "";
-    return Boolean(entry && text2.includes(server) && text2.includes(bundle));
+    return bags(json, ROOT_KEY[target.format]).some((bag) => {
+      const entry = bag[SERVER_NAME];
+      const text2 = entry ? JSON.stringify(entry) : "";
+      return Boolean(entry && text2.includes(server) && text2.includes(bundle));
+    });
   } catch {
     return false;
   }
@@ -269,9 +297,14 @@ function withEntry(
   // history. Parse-modify-serialize, never overwrite.
   const json = (text.trim() ? JSON.parse(text) : {}) as Record<string, unknown>;
   const key = ROOT_KEY[target.format];
-  const bag = (json[key] ?? {}) as Record<string, unknown>;
-  bag[SERVER_NAME] = entryFor(target.format, server, port, bundle);
-  json[key] = bag;
+  // Clear the per-folder copies first, so installing leaves EXACTLY ONE tedi
+  // entry - the top-level one written below. A leftover project-scoped entry
+  // outranks it in Claude Code and would keep pointing at whatever path it was
+  // added with, quietly ignoring the install that just claimed to have fixed it.
+  for (const bag of bags(json, key)) delete bag[SERVER_NAME];
+  const top = (json[key] ?? {}) as Record<string, unknown>;
+  top[SERVER_NAME] = entryFor(target.format, server, port, bundle);
+  json[key] = top;
   return `${JSON.stringify(json, null, 2)}\n`;
 }
 
@@ -281,8 +314,9 @@ function withoutEntry(target: Target, text: string): string {
     return text.replace(codexBlockRe(), "$1").replace(/\n{3,}/g, "\n\n");
   }
   const json = JSON.parse(text) as Record<string, unknown>;
-  const bag = json[ROOT_KEY[target.format]] as Record<string, unknown> | undefined;
-  if (bag) delete bag[SERVER_NAME];
+  // Out of every scope in the file, not just the top one: "off" has to mean the
+  // CLI cannot load us from this config at all.
+  for (const bag of bags(json, ROOT_KEY[target.format])) delete bag[SERVER_NAME];
   return `${JSON.stringify(json, null, 2)}\n`;
 }
 
@@ -362,6 +396,12 @@ export async function projectStatus(root: string): Promise<TargetStatus> {
   const [server, bundle] = await Promise.all([serverPath(), bundleId()]);
   return {
     ...PROJECT_TARGET,
+    // NAME THE FOLDER, not "this project". A CLI reads the `.mcp.json` of ITS
+    // OWN working directory, which is very often not the folder TEDI has open -
+    // and a row that only said "this project" read as global, so an agent still
+    // loading TEDI from some other repo's checked-in `.mcp.json` looked like
+    // this switch being ignored.
+    name: `${slash(root).split("/").pop() || root}/.mcp.json`,
     path,
     present: true,
     installed: readsAsInstalled(PROJECT_TARGET, await readOrEmpty(path), server, bundle),

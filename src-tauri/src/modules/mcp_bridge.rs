@@ -54,7 +54,7 @@ use tauri::{AppHandle, Emitter, Manager};
 use tokio::sync::oneshot;
 use uuid::Uuid;
 
-use crate::modules::ids::{app_data_dir, BUNDLE_ID};
+use crate::modules::ids::app_data_dir;
 
 /// Event the webview listens on. One per call.
 const CALL_EVENT: &str = "tedi://bridge-call";
@@ -105,8 +105,17 @@ fn token() -> &'static str {
 ///
 /// Beside `tedi-settings.json`, which the server already reads for the pack
 /// switches, so it needs no new way to locate anything.
+///
+/// `app_data_dir()` ALREADY ENDS IN `BUNDLE_ID` (see `ids.rs`). Joining it again
+/// wrote the handshake one directory too deep - `<data>/<id>/<id>/` - where the
+/// client never looks, so `connectBridge` answered "TEDI is not running" on a
+/// running app and every call fell back to CDP. Silently: `transport.mjs` only
+/// surfaces the bridge's reason when CDP ALSO fails, so on Windows with the
+/// debug port open it looked like it worked, and on macOS and Linux, where no
+/// port is ever opened, the whole surface was simply dead. The test below is
+/// what stops that coming back.
 fn handshake_path() -> Option<PathBuf> {
-    app_data_dir().map(|d| d.join(BUNDLE_ID).join("mcp-bridge.json"))
+    app_data_dir().map(|d| d.join("mcp-bridge.json"))
 }
 
 /// Socket address, per user and per profile, matching the PTY daemon's scheme.
@@ -381,6 +390,7 @@ pub fn mcp_bridge_info() -> serde_json::Value {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::ids::BUNDLE_ID;
 
     #[test]
     fn the_address_is_stable_within_a_run() {
@@ -412,11 +422,27 @@ mod tests {
         }
     }
 
+    /// BESIDE means BESIDE: the same directory `tedi-settings.json` is in, which
+    /// is `app_data_dir()` itself and is the only place `socket.mjs` looks.
+    ///
+    /// This test existed and passed while the file was being written to
+    /// `<data>/<id>/<id>/mcp-bridge.json`, because it only asked whether the path
+    /// ended in the right filename and mentioned the bundle id somewhere - both
+    /// true of a path one directory too deep. It asserted the name and not the
+    /// claim, so the bridge was unreachable for an entire release with a green
+    /// test sitting on top of it. Compare the PARENT.
     #[test]
     fn the_handshake_file_sits_beside_the_settings_file() {
-        if let Some(p) = handshake_path() {
-            assert!(p.ends_with("mcp-bridge.json"));
-            assert!(p.to_string_lossy().contains(BUNDLE_ID));
-        }
+        let (Some(p), Some(dir)) = (handshake_path(), app_data_dir()) else {
+            return;
+        };
+        assert!(p.ends_with("mcp-bridge.json"));
+        assert_eq!(
+            p.parent(),
+            Some(dir.as_path()),
+            "the handshake must be in app_data_dir() itself - `socket.mjs` looks \
+             for it beside tedi-settings.json and nowhere else"
+        );
+        assert!(dir.ends_with(BUNDLE_ID), "app_data_dir() already ends in the bundle id, so joining it again nests one level too deep");
     }
 }

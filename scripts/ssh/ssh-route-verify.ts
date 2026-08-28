@@ -20,9 +20,12 @@ import {
   buildSshRoute,
   failPendingSshHops,
   markSshHop,
+  SSH_USER_CLOSE_REASON,
+  sshAttemptOutcome,
   sshHopDetail,
   sshHopLabel,
   type SshRouteHop,
+  type SshStatus,
 } from "../../src/modules/ssh/status";
 
 let failed = 0;
@@ -133,6 +136,42 @@ check(
   failedHop && sshHopDetail(failedHop),
   "root@prod-db:22",
 );
+
+// ---------------------------------------------------------------------------
+// The connect overlay keeps ONE card up from the first dial until this says the
+// attempt is over, so anything it wrongly calls "over" takes the indicator down
+// mid-connect (the flicker) and anything it wrongly calls "still going" pins it
+// there forever.
+console.log("\n[outcome] only a finished attempt takes the connect card down");
+{
+  const outcome = (s: SshStatus | null) => sshAttemptOutcome(s);
+  ok("nothing reported yet is not an outcome", outcome(null) === null);
+  ok("idle is not an outcome", outcome({ kind: "idle" }) === null);
+  ok("dialling is not an outcome", outcome({ kind: "connecting", attempt: 1 }) === null);
+  ok(
+    "a retry between attempts is not an outcome",
+    outcome({ kind: "reconnecting", attempt: 2, nextDelayMs: 3000, reason: "reset" }) === null,
+  );
+  ok(
+    "a live shell channel is",
+    outcome({ kind: "connected", fingerprint: "SHA256:x", since: 0, sessionId: 7 }) === "connected",
+  );
+  ok(
+    "a host-key mismatch is a failure",
+    outcome({ kind: "error", message: "fingerprint changed", canRetry: true }) === "failed",
+  );
+  ok(
+    "giving up after the last retry is a failure",
+    outcome({ kind: "disconnected", reason: "auth failed", canRetry: true }) === "failed",
+  );
+  // The one that must NOT read as a failure: the user pressed Disconnect. Same
+  // `kind`, same shape, only the reason tells them apart - which is why that
+  // string is a shared constant and not a literal at each emit site.
+  ok(
+    "the user's own Disconnect is not a failure",
+    outcome({ kind: "disconnected", reason: SSH_USER_CLOSE_REASON, canRetry: true }) === null,
+  );
+}
 
 console.log(failed === 0 ? "\nAll ssh-route checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);
