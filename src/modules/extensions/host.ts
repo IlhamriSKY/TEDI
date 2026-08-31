@@ -66,8 +66,10 @@ import {
 } from "./sshBridge";
 import {
   createWorkspace as createWorkspaceBridge,
+  renameWorkspace as renameWorkspaceBridge,
   setActiveWorkspace as setActiveWorkspaceBridge,
 } from "./workspaceMgmtBridge";
+import { pinTab as pinTabBridge, renameTab as renameTabBridge } from "./tabControlBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 
@@ -295,6 +297,13 @@ export type AppContextSnapshot = {
     ordinal: number;
     state?: "idle" | "working" | "blocking";
     title?: string;
+    /** True when the tab this terminal lives in is pinned. A mirror needs it to
+     *  draw the same pin marker the desktop does and to offer Unpin. */
+    pinned?: boolean;
+    /** The user's own name for the tab (`null`/absent = the derived one). Kept
+     *  separate from `title`, which is the program's OSC 0/2 window title: a
+     *  rename must survive whatever a running TUI sets as its title. */
+    customTitle?: string;
     wsId?: string;
     wsName?: string;
     wsActive?: boolean;
@@ -373,6 +382,20 @@ export type ExtensionContext = {
     createWorkspace(name: string): Promise<{ ok: boolean; wsId?: string; error?: string }>;
     /** Switch the active workspace by id. Requires `workspaces:manage`. */
     setActiveWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }>;
+    /** Rename a workspace. Host-authoritative, like `renameTab`: the name
+     *  reaches you through `terminals[].wsName`, so the desktop has to be the
+     *  one that changes it. Requires `workspaces:manage`. */
+    renameWorkspace(wsId: string, name: string): Promise<{ ok: boolean; error?: string }>;
+    /** Pin or unpin the tab a mirrored terminal belongs to. `key` is the same id
+     *  `terminals[].ptyId` publishes (a daemon ptyId, or `ssh:<sessionId>`).
+     *  Pinning moves the tab to the end of the pinned run, exactly as the
+     *  desktop's own pin does. Requires `workspaces:manage`. */
+    setTabPinned(key: string, pinned: boolean): Promise<{ ok: boolean; error?: string }>;
+    /** Rename a mirrored terminal's tab, or pass `null` to drop back to the
+     *  derived name. `key` is as in `setTabPinned`. The new name shows up on the
+     *  next context change as `terminals[].customTitle`. Requires
+     *  `workspaces:manage`. */
+    renameTab(key: string, title: string | null): Promise<{ ok: boolean; error?: string }>;
   };
   /** Read/write app settings. Writes require `settings:write`. */
   settings: {
@@ -750,6 +773,18 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       setActiveWorkspace: (wsId) => {
         requirePermission(ext.id, declared, "workspaces:manage");
         return setActiveWorkspaceBridge(String(wsId ?? ""));
+      },
+      renameWorkspace: (wsId, name) => {
+        requirePermission(ext.id, declared, "workspaces:manage");
+        return renameWorkspaceBridge(String(wsId ?? ""), String(name ?? ""));
+      },
+      setTabPinned: (key, pinned) => {
+        requirePermission(ext.id, declared, "workspaces:manage");
+        return pinTabBridge(String(key ?? ""), !!pinned);
+      },
+      renameTab: (key, title) => {
+        requirePermission(ext.id, declared, "workspaces:manage");
+        return renameTabBridge(String(key ?? ""), title == null ? null : String(title));
       },
     },
     ai: {

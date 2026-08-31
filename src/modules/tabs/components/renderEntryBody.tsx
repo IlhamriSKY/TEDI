@@ -165,7 +165,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
         <span
           aria-hidden
           className={cn(
-            "pointer-events-none absolute top-1/2 left-1 h-4 w-[3px] -translate-y-1/2",
+            "pointer-events-none absolute top-1/2 left-1 h-4 w-px -translate-y-1/2",
             tabAccentClass(e),
           )}
         />

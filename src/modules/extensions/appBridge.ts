@@ -24,7 +24,7 @@ function terminalsSig(t: AppContextSnapshot["terminals"]): string {
   return t
     .map(
       (x) =>
-        `${x.ptyId}:${x.ordinal}:${x.state ?? ""}:${x.title ?? ""}:${x.wsId ?? ""}:${x.wsName ?? ""}:${x.wsActive ? 1 : 0}`,
+        `${x.ptyId}:${x.ordinal}:${x.state ?? ""}:${x.title ?? ""}:${x.pinned ? 1 : 0}:${x.customTitle ?? ""}:${x.wsId ?? ""}:${x.wsName ?? ""}:${x.wsActive ? 1 : 0}`,
     )
     .join(",");
 }

@@ -24,16 +24,23 @@ export type CreateWorkspaceFn = (
   name: string,
 ) => Promise<{ ok: boolean; wsId?: string; error?: string }>;
 export type SetActiveWorkspaceFn = (wsId: string) => Promise<{ ok: boolean; error?: string }>;
+export type RenameWorkspaceFn = (
+  wsId: string,
+  name: string,
+) => Promise<{ ok: boolean; error?: string }>;
 
 let creator: CreateWorkspaceFn | null = null;
 let activator: SetActiveWorkspaceFn | null = null;
+let renamer: RenameWorkspaceFn | null = null;
 
 export function setWorkspaceMgmtBridge(
   create: CreateWorkspaceFn | null,
   setActive: SetActiveWorkspaceFn | null,
+  rename: RenameWorkspaceFn | null = null,
 ): void {
   creator = create;
   activator = setActive;
+  renamer = rename;
 }
 
 export async function createWorkspace(
@@ -46,12 +53,27 @@ export async function createWorkspace(
   return creator(name);
 }
 
-export async function setActiveWorkspace(
-  wsId: string,
-): Promise<{ ok: boolean; error?: string }> {
+export async function setActiveWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }> {
   if (!activator) {
     console.warn("[extensions] setActiveWorkspace called before App wired the bridge; ignoring");
     return { ok: false, error: "workspace bridge not ready" };
   }
   return activator(wsId);
+}
+
+/**
+ * Rename a workspace. Like the tab rename in `tabControlBridge.ts` this is
+ * host-authoritative: the name reaches a mirror through the app-context snapshot
+ * (`terminals[].wsName`), so the desktop has to be the one that changes it or the
+ * next push would put the old name straight back.
+ */
+export async function renameWorkspace(
+  wsId: string,
+  name: string,
+): Promise<{ ok: boolean; error?: string }> {
+  if (!renamer) {
+    console.warn("[extensions] renameWorkspace called before App wired the bridge; ignoring");
+    return { ok: false, error: "workspace bridge not ready" };
+  }
+  return renamer(wsId, name);
 }

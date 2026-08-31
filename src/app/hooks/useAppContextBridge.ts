@@ -93,6 +93,10 @@ export function useAppContextBridge({
     const walk = (wsTabs: Tab[], wsId: string, wsName: string, wsActive: boolean) => {
       for (const t of wsTabs) {
         if (t.kind !== "pane") continue;
+        // Pinning is a property of the TAB, renaming of the LEAF - the same
+        // split the desktop uses, so a mirror can offer both without inventing
+        // its own model.
+        const pinned = t.pinned ?? false;
         for (const l of leaves(t.paneTree)) {
           if (l.leafKind !== "terminal" || typeof l.terminalOrdinal !== "number") continue;
           let key: string | null = null;
@@ -115,6 +119,8 @@ export function useAppContextBridge({
             ordinal: l.terminalOrdinal,
             state: aiState === "done" ? "idle" : aiState,
             title: titles[l.id],
+            pinned,
+            customTitle: l.customTitle,
             wsId,
             wsName,
             wsActive,

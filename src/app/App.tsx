@@ -69,6 +69,7 @@ import { ThemeProvider } from "@/modules/theme";
 import { listConnections, type SshConnection } from "@/modules/ssh/connections";
 import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
 import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge";
+import { setTabControlBridge } from "@/modules/extensions/tabControlBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
@@ -376,6 +377,7 @@ export default function App() {
   const wsSetActive = useWorkspacesStore((s) => s.setActiveId);
   const wsCreate = useWorkspacesStore((s) => s.createWorkspace);
   const wsRemove = useWorkspacesStore((s) => s.removeWorkspace);
+  const wsRename = useWorkspacesStore((s) => s.renameWorkspace);
   const wsSaveTabs = useWorkspacesStore((s) => s.saveWorkspaceTabs);
   const wsFlush = useWorkspacesStore((s) => s.flush);
 
@@ -648,9 +650,71 @@ export default function App() {
         switchToWorkspace(wsId);
         return { ok: true };
       },
+      async (wsId, name) => {
+        if (!useWorkspacesStore.getState().workspaces.some((w) => w.id === wsId)) {
+          return { ok: false, error: "workspace not found" };
+        }
+        // Same normalisation the Workspaces panel's inline rename applies. A
+        // blank name is refused rather than stored: unlike a TAB, a workspace
+        // has no derived name to fall back to, so an empty one would leave a
+        // nameless row in both the panel and the mirror.
+        const trimmed = (name || "").trim().slice(0, 60);
+        if (!trimmed) return { ok: false, error: "name is empty" };
+        wsRename(wsId, trimmed);
+        return { ok: true };
+      },
     );
     return () => setWorkspaceMgmtBridge(null, null);
-  }, [wsCreate, switchToWorkspace]);
+  }, [wsCreate, switchToWorkspace, wsRename]);
+
+  // Wire the tab-control bridge so the Remote Access extension can pin and
+  // rename a mirrored terminal's tab from the browser. Both are
+  // host-authoritative - a rename done only in the browser would be overwritten
+  // by the next context push, and a pin only moves the tab in THIS strip - so
+  // the browser asks the desktop to do it and reads the result back.
+  //
+  // Terminals are addressed by the same key the context snapshot publishes: the
+  // daemon ptyId for a local terminal, `ssh:<sessionId>` for an SSH one.
+  useEffect(() => {
+    // ponytail: resolves within the ACTIVE workspace only - `useTabs` owns just
+    // those tabs, and a background workspace's tabs live in a cached snapshot
+    // that pinning would not write back. Callers get a named error; widen by
+    // switching the workspace first if that ever matters.
+    const find = (key: string) => {
+      for (const t of tabs) {
+        if (t.kind !== "pane") continue;
+        for (const l of leaves(t.paneTree)) {
+          if (l.leafKind !== "terminal") continue;
+          const k = l.ptyId
+            ? l.ptyId
+            : (() => {
+                const st = sshStatuses.get(l.id);
+                return st && st.kind === "connected" ? `ssh:${st.sessionId}` : null;
+              })();
+          if (k === key) return { tabId: t.id, leafId: l.id };
+        }
+      }
+      return null;
+    };
+    setTabControlBridge(
+      async (key, pinned) => {
+        const hit = find(key);
+        if (!hit) return { ok: false, error: "terminal not in the active workspace" };
+        setTabPinned(hit.tabId, pinned);
+        return { ok: true };
+      },
+      async (key, title) => {
+        const hit = find(key);
+        if (!hit) return { ok: false, error: "terminal not in the active workspace" };
+        // Same normalisation the desktop's inline rename applies: blank means
+        // "drop back to the derived name", not "a tab called nothing".
+        const trimmed = (title ?? "").trim().slice(0, 60);
+        renameLeaf(hit.leafId, trimmed || null);
+        return { ok: true };
+      },
+    );
+    return () => setTabControlBridge(null, null);
+  }, [tabs, sshStatuses, setTabPinned, renameLeaf]);
 
   const {
     pendingClose,

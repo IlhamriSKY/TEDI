@@ -4,6 +4,17 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.35] - 31-08-2026
+
+### Added
+
+- **An extension can pin and rename a mirrored terminal's tab, and rename a workspace.** The browser mirror was meant to offer the same tab controls the desktop does, and could not: all three are host-authoritative. The desktop owns tab ORDER, and it republishes each tab's title on every context change, so a rename done in the browser was overwritten by the very next push. `ctx.app` gained `setTabPinned`, `renameTab` and `renameWorkspace`, all on the existing `workspaces:manage` grant, so the browser asks the desktop and reads the answer back. Terminals are addressed by the key the context snapshot already publishes - the daemon `ptyId`, or `ssh:<sessionId>` - so an extension can act on anything it can see and nothing it cannot. Only an id and a display string ever cross; none of the three can spawn, read, or write a PTY. See [tabControlBridge.ts](src/modules/extensions/tabControlBridge.ts), [workspaceMgmtBridge.ts](src/modules/extensions/workspaceMgmtBridge.ts), [host.ts](src/modules/extensions/host.ts).
+- **The app-context snapshot carries each terminal's pin state and the user's own name for its tab.** `terminals[]` gained `pinned` and `customTitle`. Without them a mirror could offer a pin button but never draw the pin, and had no way to tell the name you chose from the window title a running program happens to be setting - which is exactly the pair a TUI rewrites constantly. `customTitle` is deliberately separate from `title` for that reason. The dedup signature that decides whether a context change is worth pushing had to learn both fields as well; a value the signature does not read is a value that never reaches an extension. See [useAppContextBridge.ts](src/app/hooks/useAppContextBridge.ts), [appBridge.ts](src/modules/extensions/appBridge.ts), [tedi.d.ts](extensions/tedi.d.ts).
+
+### Changed
+
+- **Every tab indicator is one pixel, and none of them is a shadow.** The active tab's accent stripe was three pixels, the Settings tab underline two, and the selected row in both the project tree and the Workspaces panel drew its marker with a two-pixel inset `box-shadow` - four weights for one idea, two of them rendered by a property meant for shadows. They are all a 1px rule now, and the two shadows became a real one-pixel element positioned inside the row, so a row still does not shift when it is selected. See [tabs.tsx](src/components/ui/tabs.tsx), [renderEntryBody.tsx](src/modules/tabs/components/renderEntryBody.tsx), [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx), [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx).
+
 ## [0.4.34] - 28-08-2026
 
 ### Fixed

@@ -163,6 +163,12 @@ export type AppContextTerminal = {
   /** Host-captured, glyph-stripped OSC 0/2 window title. Prefer this over
    *  re-deriving a title from the byte stream. */
   title?: string;
+  /** True when the tab this terminal lives in is pinned. */
+  pinned?: boolean;
+  /** The user's own name for the tab (absent = the derived one). Kept separate
+   *  from `title`, which is whatever a running program set as its window
+   *  title. */
+  customTitle?: string;
   wsId?: string;
   wsName?: string;
   wsActive?: boolean;
@@ -792,6 +798,17 @@ export type ExtensionContext = {
     createWorkspace(name: string): Promise<{ ok: boolean; wsId?: string; error?: string }>;
     /** Switch the active workspace by id. Requires `workspaces:manage`. */
     setActiveWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }>;
+    /** Rename a workspace. The new name reaches you through
+     *  `terminals[].wsName`. Requires `workspaces:manage`. */
+    renameWorkspace(wsId: string, name: string): Promise<{ ok: boolean; error?: string }>;
+    /** Pin or unpin the tab a terminal belongs to. `key` is the id
+     *  `terminals[].ptyId` publishes (a daemon ptyId, or `ssh:<sessionId>`).
+     *  Requires `workspaces:manage`. */
+    setTabPinned(key: string, pinned: boolean): Promise<{ ok: boolean; error?: string }>;
+    /** Rename a terminal's tab, or pass `null` to drop back to the derived name.
+     *  `key` is as in `setTabPinned`; the result shows up as
+     *  `terminals[].customTitle`. Requires `workspaces:manage`. */
+    renameTab(key: string, title: string | null): Promise<{ ok: boolean; error?: string }>;
   };
 
   /** App settings, namespaced under `ext:<your-id>:`. Built-in settings are
