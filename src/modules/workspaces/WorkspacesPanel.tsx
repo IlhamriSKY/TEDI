@@ -854,13 +854,13 @@ function EntryRowItem({
         if (canRename && e.kind === "pane-leaf") onSetRenaming(e.leafId);
       }}
       className={cn(
-        "relative flex w-full flex-col justify-center text-left text-[11px] transition-colors",
+        "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
         // Make room for the hover actions so they never sit on top of the label.
         // One button reserves 5, both (pencil + close) reserve 10.
         actionCount === 1 && "group-hover/row:pr-5",
         actionCount === 2 && "group-hover/row:pr-10",
         isActiveLeaf
-          ? "bg-sidebar-accent text-sidebar-accent-foreground before:absolute before:inset-y-0 before:left-0 before:w-px before:bg-[color:var(--ring)] before:content-['']"
+          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
       )}
     >

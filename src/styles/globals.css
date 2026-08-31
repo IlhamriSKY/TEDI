@@ -379,6 +379,26 @@
   * {
     @apply border-border outline-ring/50;
   }
+
+  /* Keyboard focus is exactly ONE pixel, and it is an outline rather than a
+   * shadow. The rule above only ever set the outline COLOUR, so the width came
+   * from the browser: Chromium draws `outline: auto` as a 2px two-tone ring,
+   * which is what showed up around a file-tree row on Tab.
+   *
+   * `:focus-visible`, not `:focus`, so this appears when you tab to something
+   * and never when you click it.
+   *
+   * The offset is negative so the line is drawn INSIDE the element. A row in the
+   * explorer sits in an `overflow-hidden` scroller, and an outline drawn outside
+   * its box gets clipped on the left and right edges.
+   *
+   * A component that declares its own focus treatment still wins: Tailwind
+   * utilities outrank `@layer base`, so this is the floor for the many plain
+   * elements (tree rows, tab strips, status pills) that never had one. */
+  :focus-visible {
+    outline: 1px solid var(--ring);
+    outline-offset: -1px;
+  }
   body {
     @apply bg-background text-foreground;
     margin: 0;
