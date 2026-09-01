@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.36] - 31-08-2026
+
+### Fixed
+
+- **The one-pixel rule went on the wrong thing in 0.4.35, and the active-tab markers are back.** "Every tab indicator is one pixel" was read as the marker that shows which tab is ACTIVE, and all four were thinned. The intended target was the outline you get when you tab to something with the keyboard, which is a different affordance entirely. Restored exactly as they were: the 3px accent stripe on a pane tab, the 2px underline on a line-variant tab, and the inset marker on a selected row in both the project tree and the Workspaces panel. See [tabs.tsx](src/components/ui/tabs.tsx), [renderEntryBody.tsx](src/modules/tabs/components/renderEntryBody.tsx), [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx), [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx).
+- **Keyboard focus is now a deliberate one-pixel outline instead of whatever the browser drew.** The base layer only ever set the focus outline's COLOUR, never its width, so the width came from Chromium, which renders `outline: auto` as a 2px two-tone ring — most visible as a fat halo around a row in the project tree when you tabbed onto it. It is `1px solid var(--ring)` now, with a negative offset so the line is drawn INSIDE the element: a tree row lives in an `overflow-hidden` scroller, and an outline drawn outside its box gets clipped at the left and right edges. It hangs off `:focus-visible` rather than `:focus`, so it appears when you tab to something and never when you click it, and a component that declares its own focus treatment still wins, because Tailwind utilities outrank `@layer base`. Every window imports this stylesheet, so Settings and a floated pane get it too. See [globals.css](src/styles/globals.css).
+
 ## [0.4.35] - 31-08-2026
 
 ### Added
