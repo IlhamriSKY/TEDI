@@ -34,6 +34,7 @@ import {
   wrapCompartment,
 } from "./lib/extensions";
 import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
+import { isNotePath, notesReady, registerNoteFlush } from "./lib/notes";
 
 initVimGlobals();
 import { resolveLanguage } from "./lib/languageResolver";
@@ -328,6 +329,47 @@ export function EditorPane({
   // makes @uiw/react-codemirror reconfigure and wipes the language compartment.
   const saveRef = useRef(save);
   saveRef.current = save;
+
+  /**
+   * Quick notes (scratch files in the app data dir) save themselves: they
+   * exist so a throwaway thought survives quitting TEDI, and nobody presses
+   * Ctrl+S on a throwaway thought. Plain `save`, never the format-on-save
+   * wrapper - reformatting under the cursor mid-typing is not a save.
+   */
+  const autosaveRef = useRef(false);
+  useEffect(() => {
+    void notesReady.then(() => (autosaveRef.current = isNotePath(path)));
+  }, [path]);
+  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const handleChange = useCallback(
+    (next: string) => {
+      onChange(next);
+      if (!autosaveRef.current) return;
+      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
+      autosaveTimer.current = setTimeout(() => {
+        autosaveTimer.current = null;
+        void saveRef.current();
+      }, 600);
+    },
+    [onChange],
+  );
+  /** Write a debounced autosave out now. No-op when none is pending. */
+  const flushAutosave = useCallback(async () => {
+    if (!autosaveTimer.current) return;
+    clearTimeout(autosaveTimer.current);
+    autosaveTimer.current = null;
+    await saveRef.current();
+  }, []);
+  // Two ways the last few keystrokes could be dropped: the pane going away (tab
+  // closed, workspace switched), and the window closing - which never unmounts
+  // React, hence the registry the quit guard drains.
+  useEffect(() => {
+    const off = registerNoteFlush(flushAutosave);
+    return () => {
+      off();
+      void flushAutosave();
+    };
+  }, [flushAutosave]);
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
   const onCloseRef = useRef(onClose);
@@ -866,7 +908,7 @@ export function EditorPane({
             <CodeMirror
               ref={cmRef}
               value={doc.content}
-              onChange={onChange}
+              onChange={handleChange}
               theme={themeExt ?? undefined}
               extensions={extensions}
               height="100%"

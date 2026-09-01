@@ -10,13 +10,16 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { Bot, Columns2, Globe, Lock, Plus, Rows2, SquareTerminal } from "lucide-react";
+import { Bot, Columns2, Globe, Lock, NotepadText, Plus, Rows2, SquareTerminal } from "lucide-react";
 
 type NewTabMenuProps = {
   onNewTerminal: () => void;
   /** Open a new local terminal tab pre-flagged as private. */
   onNewPrivateTerminal?: () => void;
   onNewPreview: () => void;
+  /** Open a scratch note in the editor: a quick-notes file that needs no name,
+   *  no folder and no Ctrl+S (it autosaves and comes back after a restart). */
+  onNewNote: () => void;
   /** Open the agent picker (`AgentSpawnDialog`). */
   onOpenAgents: () => void;
   /** Split the active pane. Wired into the `+` dropdown next to New Terminal.
@@ -31,6 +34,7 @@ export function NewTabMenu({
   onNewTerminal,
   onNewPrivateTerminal,
   onNewPreview,
+  onNewNote,
   onOpenAgents,
   onSplit,
   canSplit,
@@ -75,6 +79,10 @@ export function NewTabMenu({
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "Shift", "N")}
           </span>
+        </DropdownMenuItem>
+        <DropdownMenuItem onSelect={() => onNewNote()}>
+          <NotepadText size={14} strokeWidth={1.75} />
+          <span className="flex-1 whitespace-nowrap">Note</span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNewPreview()}>
           <Globe size={14} strokeWidth={1.75} />

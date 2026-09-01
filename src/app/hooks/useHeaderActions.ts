@@ -1,4 +1,6 @@
+import { toast } from "@/components/ui/toast";
 import { registerBridge } from "@/modules/automation/bridge";
+import { createNote } from "@/modules/editor/lib/notes";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { listConnections, type SshConnection } from "@/modules/ssh/connections";
 import { MAX_PANES_PER_TAB, type PaneTab } from "@/modules/tabs";
@@ -12,7 +14,7 @@ type Params = {
   openPreviewTab: (url: string) => number | null;
   handleClose: (id: number) => void;
   requestCloseLeaf: (leafId: number) => void;
-} & Pick<TabsApi, "setActiveId" | "focusPane" | "pinTab" | "newSshTab">;
+} & Pick<TabsApi, "setActiveId" | "focusPane" | "pinTab" | "newSshTab" | "openFileTab">;
 
 /**
  * Stable handlers for the memoised `<Header/>`. Each was previously an inline
@@ -31,12 +33,14 @@ export function useHeaderActions({
   focusPane,
   pinTab,
   newSshTab,
+  openFileTab,
 }: Params): {
   handleOpenDetectedPreview: () => void;
   handleAddProviderKey: () => void;
   handleHeaderSelectEntry: (tabId: number, leafId: number | null) => void;
   handleHeaderCloseEntry: (tabId: number, leafId: number | null) => void;
   handleHeaderNewPreview: () => void;
+  handleHeaderNewNote: () => void;
   handleHeaderPinLeaf: (tabId: number, leafId: number) => void;
   handleHeaderOpenExtensions: () => void;
   handleHeaderOpenSettings: () => void;
@@ -66,6 +70,15 @@ export function useHeaderActions({
     [requestCloseLeaf, handleClose],
   );
   const handleHeaderNewPreview = useCallback(() => openPreviewTab(""), [openPreviewTab]);
+  // `+` -> Note. The note is a real file (see `modules/editor/lib/notes`), so
+  // from here on it is an ordinary editor tab: it autosaves, and workspace
+  // restore brings it back with the text intact after a quit.
+  const handleHeaderNewNote = useCallback(() => {
+    void createNote().then(
+      (path) => openFileTab(path),
+      (e) => toast(`New note failed: ${String(e)}`, { variant: "error" }),
+    );
+  }, [openFileTab]);
   const handleHeaderPinLeaf = useCallback(
     (tabId: number, leafId: number) => {
       focusPane(tabId, leafId);
@@ -121,6 +134,7 @@ export function useHeaderActions({
     handleHeaderSelectEntry,
     handleHeaderCloseEntry,
     handleHeaderNewPreview,
+    handleHeaderNewNote,
     handleHeaderPinLeaf,
     handleHeaderOpenExtensions,
     handleHeaderOpenSettings,

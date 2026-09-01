@@ -1013,6 +1013,7 @@ export default function App() {
     handleHeaderSelectEntry,
     handleHeaderCloseEntry,
     handleHeaderNewPreview,
+    handleHeaderNewNote,
     handleHeaderPinLeaf,
     handleHeaderOpenExtensions,
     handleHeaderOpenSettings,
@@ -1028,6 +1029,7 @@ export default function App() {
     focusPane,
     pinTab,
     newSshTab,
+    openFileTab,
   });
 
   // Activate a tab and focus a specific leaf inside it. Backs the Workspaces
@@ -1055,6 +1057,7 @@ export default function App() {
             onSetTabPinned={setTabPinned}
             onRenameLeaf={renameLeaf}
             onNewPreview={handleHeaderNewPreview}
+            onNewNote={handleHeaderNewNote}
             onOpenAgents={() => setAgentDialogOpen(true)}
             onPinLeaf={handleHeaderPinLeaf}
             onReorderTabs={reorderTabs}

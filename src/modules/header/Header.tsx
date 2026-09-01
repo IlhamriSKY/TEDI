@@ -34,6 +34,8 @@ type Props = {
   /** Set a leaf's tab name, or `null` to fall back to the derived one. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
   onNewPreview: () => void;
+  /** `+` -> Note: open a scratch note in the editor. */
+  onNewNote: () => void;
   /** `+` -> Agent...: open the agent picker dialog. */
   onOpenAgents: () => void;
   /** Pin a preview-editor leaf on double-click. */
@@ -109,6 +111,7 @@ function HeaderImpl({
   onSetTabPinned,
   onRenameLeaf,
   onNewPreview,
+  onNewNote,
   onOpenAgents,
   onPinLeaf,
   onReorderTabs,
@@ -261,6 +264,7 @@ function HeaderImpl({
           onSetTabPinned={onSetTabPinned}
           onRenameLeaf={onRenameLeaf}
           onNewPreview={onNewPreview}
+          onNewNote={onNewNote}
           onOpenAgents={onOpenAgents}
           onPinLeaf={onPinLeaf}
           onReorderTabs={onReorderTabs}

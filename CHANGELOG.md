@@ -4,6 +4,13 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.37] - 01-09-2026
+
+### Added
+
+- **`+` -> Note opens an editor you never have to name, place, or save.** Writing a thought down meant creating a file first: choose a name, choose a folder, and remember to press Ctrl+S, and if you forgot the last one, closing TEDI took the text with it. A note is one click now, and what it opens is a real `note-N.md` under the app data dir rather than an unsaved buffer, because an unsaved buffer is precisely the thing that dies when the window closes. Being an ordinary file is also why nothing else had to change: the editor pane, the workspace serializer and workspace restore already handle it, so the tab comes back with its text after a restart, and the notes never land in the project you happen to have open. The only thing that marks a file as a note is where it lives, and that is what turns the autosave on. See [notes.ts](src/modules/editor/lib/notes.ts), [NewTabMenu.tsx](src/modules/tabs/components/NewTabMenu.tsx), [useHeaderActions.ts](src/app/hooks/useHeaderActions.ts).
+- **A note saves itself, including the keystrokes typed just before you close the window.** The autosave is a 600 ms debounce on the note's own buffer, and a plain save rather than the format-on-save wrapper, because reformatting under the cursor while someone is still typing is not a save. A debounce on its own would still drop the last few characters at the one moment that matters: closing the window never unmounts React, so the pane cleanup that would flush the write never runs. An editor holding a pending write registers it instead, and the quit guard drains that registry inside the same capped flush that already persists the workspace snapshot, so a slow or failed write can no more wedge the close than it could before. See [EditorPane.tsx](src/modules/editor/EditorPane.tsx), [useQuitGuard.ts](src/app/hooks/useQuitGuard.ts), [notes-verify.ts](scripts/editor/notes-verify.ts).
+
 ## [0.4.36] - 31-08-2026
 
 ### Fixed
