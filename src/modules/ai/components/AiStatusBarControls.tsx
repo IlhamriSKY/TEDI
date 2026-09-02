@@ -17,6 +17,7 @@ import { APPROVAL_MODE_SEND } from "../lib/approvalModeStyle";
 import { ACCEPTED_FILES, useComposer } from "../lib/composer";
 import { useChatStore } from "../store/chatStore";
 import { ModelDropdown } from "./ModelDropdown";
+import { ReasoningDropdown } from "./ReasoningDropdown";
 import { CircleStop, Mic, Plus, Send, Sparkles } from "lucide-react";
 
 export function AiOpenButton({ onToggle, active }: { onToggle: () => void; active: boolean }) {
@@ -121,6 +122,10 @@ export function AiStatusBarControls() {
       )}
 
       <ModelDropdown />
+
+      {/* Renders nothing unless the selected model has a real reasoning
+          parameter, so the toolbar gains no width for models without one. */}
+      <ReasoningDropdown />
 
       <span className="bg-border mx-1 h-5 w-px" aria-hidden />
 

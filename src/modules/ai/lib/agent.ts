@@ -8,6 +8,7 @@ import {
   type ToolSet,
   type UIMessage,
 } from "ai";
+import { findLastIndex } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   AGENTROUTER_BASE_URL,
@@ -41,9 +42,14 @@ import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
-import { applyToolFilter, mcpSummaryFor } from "../tools/catalog";
+import { activeToolNames, applyToolFilter, mcpSummaryFor } from "../tools/catalog";
 import type { Tool } from "ai";
-import { applyCacheBreakpoints, applyStepCacheBreakpoints, noteProviderCacheRead } from "./cache";
+import {
+  applyCacheBreakpoints,
+  applyStepCacheBreakpoints,
+  noteProviderCacheRead,
+  providerRequestOptions,
+} from "./cache";
 import {
   compactModelMessagesDetailed,
   compactStepMessages,
@@ -510,7 +516,7 @@ function buildSystemPrompt(opts: {
   const savedMemory = opts.memory?.trim() ? `\n\nSaved memory:\n${opts.memory.trim()}` : "";
   const memBlock =
     savedMemory || has("write_file")
-      ? `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\` and is auto-loaded here.${
+      ? `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\`, auto-loaded here when present.${
           has("write_file")
             ? ` To remember a fact across sessions, write or update a short markdown file there (create the folder if missing).`
             : ""
@@ -611,24 +617,46 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
         },
         new Set(usePreferencesStore.getState().disabledTools),
       );
-  const toolNames = new Set(Object.keys(tools ?? {}));
+  const allToolNames = new Set(Object.keys(tools ?? {}));
 
-  const systemText =
-    buildSystemPrompt({
-      modelId: modelInfo.id,
-      toolNames,
-      customInstructions: opts.customInstructions,
-      agentPersona: opts.agentPersona,
-      projectMemory: opts.projectMemory,
-      memory: opts.memory,
-      planMode: opts.planMode,
-      chatMode,
-      goal: activeGoalText(opts.toolContext.getSessionId()),
-    }) + (ultrathink ? ULTRATHINK_DIRECTIVE : "");
+  // The browser tools that need an open pane are withheld while there is none.
+  //
+  // DECIDED ONCE PER TURN, not per step. Adding or removing a tool definition
+  // invalidates Anthropic's tools cache AND the system and message caches behind
+  // it, so recomputing this per step meant the ordinary browser flow - open a
+  // pane at step 0, use it at step 1 - rewrote the whole ~13k-token prefix
+  // mid-turn, at the 1h write price. Per turn, the set is stable for the whole
+  // tool loop and can only change between prompts - which is also when the
+  // `<env>` block first lists the new pane and gives the model a leafId to
+  // address it by.
+  const activeTools = activeToolNames(allToolNames, opts.toolContext.listBrowsers().length > 0);
+  // THE PROMPT MUST DESCRIBE THE SAME SET. `PromptSection.needs` exists precisely
+  // so the prompt never instructs a tool the turn does not send; computing the
+  // tool gate separately would have reintroduced that bug by another route.
+  const toolNames = activeTools ? new Set(activeTools) : allToolNames;
+
+  const systemText = buildSystemPrompt({
+    modelId: modelInfo.id,
+    toolNames,
+    customInstructions: opts.customInstructions,
+    agentPersona: opts.agentPersona,
+    projectMemory: opts.projectMemory,
+    memory: opts.memory,
+    planMode: opts.planMode,
+    chatMode,
+    goal: activeGoalText(opts.toolContext.getSessionId()),
+  });
 
   // Optional main-agent temperature override. Only sent when the user set one,
   // so reasoning models that reject sampling params stay untouched by default.
   const coreTemperature = resolvePromptTemperature(getPromptOverrides(), "core");
+
+  // The reasoning level the user picked FOR THIS MODEL, or "" for the provider's
+  // own default. Read here, per turn, so a change applies to the next prompt the
+  // same way a model swap does. Keyed by provider AND id because the same id can
+  // be served by two providers with different accepted values.
+  const reasoningChoice =
+    usePreferencesStore.getState().modelReasoning[`${provider}::${modelInfo.id}`] ?? "";
 
   // `tools` is what applies each tool's `toModelOutput` to REPLAYED history, not
   // just to this turn's live results. Without it the SDK re-sends the raw
@@ -662,6 +690,45 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
     { role: "system", content: systemText },
     ...compact.messages,
   ];
+  // ULTRATHINK rides on the newest USER message, not the system one.
+  //
+  // It is turn-scoped text, and the system message is the cached prefix: BP1
+  // marks that whole message, and on Anthropic a change to system content
+  // invalidates the system cache AND every cached turn of the conversation
+  // behind it - so one "ultrathink" re-processed the entire history uncached to
+  // deliver 321 characters. Here the divergence is confined to the newest user
+  // message, which is new bytes every turn anyway.
+  //
+  // The trade-off, stated because it is not free: the directive is NOT persisted
+  // into the stored UI message, so next turn replays that message without it and
+  // the prefix diverges at that point. For an occasional "ultrathink" among
+  // ordinary turns - the common case - that is far cheaper than the two whole-
+  // history rewrites the system-message placement cost. For a user who types it
+  // on EVERY turn it is slightly worse, because the old placement kept the
+  // system block byte-identical across consecutive ultrathink turns. If that
+  // ever matters, the fix is the one `<env>` already uses: remember the block
+  // per message id and replay it (`envContext.ts`), not a move back into system.
+  if (ultrathink) {
+    const i = findLastIndex(baseMessages, (m) => m.role === "user");
+    const m = i >= 0 ? baseMessages[i] : null;
+    if (m) {
+      // `convertToModelMessages` emits either shape depending on the UI message,
+      // and concatenating onto a parts array would stringify to "[object Object]".
+      baseMessages[i] = {
+        ...m,
+        content:
+          typeof m.content === "string"
+            ? m.content + ULTRATHINK_DIRECTIVE
+            : [...m.content, { type: "text", text: ULTRATHINK_DIRECTIVE }],
+      } as ModelMessage;
+    } else {
+      // No user message survived compaction, so there is nowhere cheap to put
+      // it. Fall back to the system message rather than dropping the directive
+      // silently: the user asked for deeper reasoning and a no-op would look
+      // like the model simply ignored them.
+      baseMessages[0] = { role: "system", content: systemText + ULTRATHINK_DIRECTIVE };
+    }
+  }
   const finalMessages = applyCacheBreakpoints(baseMessages, provider);
 
   let stepsSeen = 0;
@@ -715,6 +782,9 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       params: {
         ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
         maxSteps: MAX_AGENT_STEPS,
+        // The Debug view must report what was SENT; a reasoning level that never
+        // reached the request would otherwise look applied.
+        ...(reasoningChoice ? { reasoningEffort: reasoningChoice } : {}),
         ...(chatMode ? { chatMode: true } : {}),
       },
       system: systemText,
@@ -730,12 +800,17 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
     model,
     messages: finalMessages,
     ...(coreTemperature !== undefined ? { temperature: coreTemperature } : {}),
-    // The Responses API stores a conversation server-side by DEFAULT, and the
-    // ChatGPT backend refuses a request that asks it to. Sending `store: false`
-    // is what makes that endpoint answer at all; everywhere else this key is
-    // ignored, so it costs nothing to leave it provider-scoped.
-    ...(provider === "chatgpt" ? { providerOptions: { openai: { store: false } } } : {}),
+    // Per-provider request options: ChatGPT's mandatory `store: false`, and
+    // OpenAI's prompt-cache key + 24h retention. See `providerRequestOptions`.
+    ...providerRequestOptions(
+      provider,
+      opts.toolContext.getSessionId(),
+      modelInfo.id,
+      reasoningChoice,
+    ),
     tools,
+    // Turn-stable;  can still override it for step 0.
+    ...(activeTools ? { activeTools } : {}),
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.
@@ -759,6 +834,9 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       // Re-mark per step so the rolling BP3 has a tool tail to land on; at turn
       // start there is none, and the tail was re-sent uncached every step.
       const messages = applyStepCacheBreakpoints(compacted, provider);
+      // Step 0 only, and it OVERRIDES the turn's `activeTools` on purpose: the
+      // point is to force the first call to be a fan-out. Every later step falls
+      // back to the turn-stable set passed to `streamText`.
       return forceSpawnStep0 && stepNumber === 0
         ? { messages, activeTools: ["run_subagents"], toolChoice: "required" }
         : { messages };

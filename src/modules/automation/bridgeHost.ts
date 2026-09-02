@@ -23,6 +23,11 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
 import { callBridge } from "./bridge";
+// Side-effect import: registers the DOM-read capabilities (`state`, `text`,
+// `focusedLeaf`, `paneHandle`). They have no React state, so there is nowhere
+// else natural to hang them, and the host is the one module guaranteed to load
+// before any capability call can arrive.
+import "./domState";
 
 type BridgeCall = { callId: string; name: string; args?: unknown[] };
 

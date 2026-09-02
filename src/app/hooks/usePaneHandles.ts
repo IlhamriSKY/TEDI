@@ -1,4 +1,5 @@
 import { registerBridge } from "@/modules/automation/bridge";
+
 import { type EditorPaneHandle } from "@/modules/editor";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import {
@@ -21,6 +22,31 @@ import {
 } from "react";
 import { isQuitting } from "./useQuitGuard";
 import { type TabsApi } from "./tabsApi";
+
+/**
+ * How many ROWS to ask xterm for, always.
+ *
+ * `getBuffer(n)` returns the last n ROWS and strips the trailing blank ones, and
+ * on a pane that has not scrolled those last rows ARE the blanks - so a narrow
+ * read hands back "", which a change-detector reads as "nothing happened". Read
+ * wide, trim after.
+ */
+const TERMINAL_BUFFER_ROWS = 200;
+
+/** Last `n` lines of a buffer, trailing blank run trimmed. */
+function tailLines(s: string, n: number): string {
+  return s.trimEnd().split("\n").slice(-n).join("\n");
+}
+
+/** 32-bit FNV-1a. Small, stable, and enough to answer "did this change?". */
+function fnv1a(s: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
 
 type Params = {
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
@@ -151,6 +177,15 @@ export function usePaneHandles({
           return { url: leaf.url, pageTitle: leaf.title };
         case "extension-panel":
           return { extensionId: leaf.extensionId, panelId: leaf.panelId, state: leaf.state };
+        case "ai":
+          // Which conversation this pane is a view onto. Without it an agent can
+          // see that an AI pane exists but not which session it holds, so it
+          // cannot line the pane up against `ai read`/`ai status`, which are
+          // addressed BY session id.
+          return { sessionId: leaf.sessionId };
+        // `board` and `scm` genuinely carry no state - they rebuild from the
+        // live tab tree and the workspace root - so `{}` is the honest answer
+        // for them, not a gap.
         default:
           return {};
       }
@@ -189,6 +224,86 @@ export function usePaneHandles({
         h.focus();
         return true;
       },
+      /**
+       * Focus a pane and CONFIRM the keystrokes will land there.
+       *
+       * `focusLeaf` alone answers "the handle existed", which is not the same
+       * claim: a handle exists for panes in BACKGROUND tabs too, and `.focus()`
+       * on a hidden element does nothing. Verifying against the DOM is what makes
+       * the answer mean what `focus_pane` promises, and it is why that tool could
+       * not simply be bridged as-is.
+       *
+       * The `isPublic` gate is spelled out here rather than delegated. Every
+       * capability that touches a leaf must carry it IN ITS OWN BODY -
+       * `driver-verify` checks that structurally, because the regression that
+       * actually happens is a new accessor written without the filter, and a
+       * check that followed delegation could not see one.
+       */
+      focusPaneVerified: (leafId: number) => {
+        if (!isPublic(leafId)) return false;
+        const h = terminalRefs.current.get(leafId) ?? editorRefs.current.get(leafId);
+        if (!h) return false;
+        h.focus();
+        const el = document.activeElement?.closest("[data-pane-leaf]:not([data-pane-private])");
+        return el ? Number(el.getAttribute("data-pane-leaf")) === leafId : false;
+      },
+      /**
+       * Every terminal's flags plus the LAST `lines` lines.
+       *
+       * REDUCED HERE, and that is the point. Every text read must ask xterm for
+       * `TERMINAL_BUFFER_ROWS` rows (asking for fewer returns "" on a pane that
+       * has not scrolled), so a caller that trims on its own side ships the whole
+       * ~20 KB buffer of every open pane across the transport just to keep three
+       * lines. `sh` and `wait_for_terminal` poll this several times a second.
+       */
+      termTails: (lines = 200) =>
+        [...terminalRefs.current.entries()]
+          .filter(([leafId]) => isPublic(leafId))
+          .map(([leafId, h]) => ({
+            leafId,
+            atPrompt: h.isAtPrompt(),
+            running: h.isProcessRunning(),
+            text: tailLines(h.getBuffer(TERMINAL_BUFFER_ROWS) ?? "", lines),
+          })),
+      /**
+       * The poll projection for `sh` and `wait_for_terminal`: flags, optionally
+       * a 32-bit FNV-1a of each buffer, and optionally whether `needle` appears.
+       *
+       * BOTH REDUCTIONS HAPPEN HERE, which is the point. `sh` only needs to know
+       * whether a buffer CHANGED and `wait_for_terminal` only whether a string
+       * APPEARED; answering either on the far side means shipping every open
+       * pane's ~20 KB scrollback across the transport several times a second.
+       *
+       * `wantHash` exists so the commonest poll of all - waiting for a prompt -
+       * touches no buffer at all. It reads two booleans that do not come from
+       * the buffer, so building one (and hashing it) several times a second, per
+       * pane, for the life of the command, is pure work on the UI thread.
+       */
+      termProbe: (
+        needle: string | null = null,
+        wantHash = true,
+        onlyLeafId: number | null = null,
+      ) =>
+        [...terminalRefs.current.entries()]
+          .filter(([leafId]) => isPublic(leafId))
+          .map(([leafId, h]) => {
+            // `onlyLeafId` scopes the EXPENSIVE half. The flags are cheap and the
+            // caller still needs every pane's (it picks a target from this list),
+            // but building and hashing a 200-row buffer is not - and `sh` polls
+            // this ~7x a second for the life of a command while watching exactly
+            // one pane. Without the scope the reduction merely moved that cost
+            // off the socket and onto the UI thread, for every open terminal.
+            const wantsText = onlyLeafId === null || onlyLeafId === leafId;
+            const text =
+              wantsText && (needle || wantHash) ? (h.getBuffer(TERMINAL_BUFFER_ROWS) ?? "") : "";
+            return {
+              leafId,
+              atPrompt: h.isAtPrompt(),
+              running: h.isProcessRunning(),
+              hash: wantHash && wantsText ? fnv1a(text) : 0,
+              hit: needle && wantsText ? text.includes(needle) : false,
+            };
+          }),
       // `maxChars` because a driver reading a 20k-line file into a tool result
       // helps nobody; it has the file on disk. This is for seeing the LIVE,
       // possibly unsaved buffer, which is the part disk cannot answer.

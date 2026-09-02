@@ -34,14 +34,14 @@ const MAX_RESPONSE_BYTES = 2 * 1024 * 1024; // 2 MB
  *
  * NOT for:
  * - Interactive web pages (use browser tools instead)
- * - Pages requiring JavaScript rendering (use Open Preview)
+ * - Pages requiring JavaScript rendering (use open_browser)
  * - Authentication flows (use browser tools)
  */
 export function buildFetchTools() {
   return {
     fetch: tool({
       description:
-        "Fetch a URL and return its content. For APIs, JSON endpoints, text files, or simple HTML. No JavaScript execution. Use for data retrieval when you don't need browser rendering. For interactive/JS-heavy pages, use Open Preview instead. The first request to a given host raises an approval card; after the user allows it, that host is automatic for the rest of the session. localhost and .test dev servers never ask. POST always asks.",
+        "Fetch a URL and return its content. For APIs, JSON endpoints, text files, or simple HTML. No JavaScript execution. Use for data retrieval when you don't need browser rendering. For interactive/JS-heavy pages, use open_browser instead. The first request to a given host raises an approval card; after the user allows it, that host is automatic for the rest of the session. localhost and .test dev servers never ask. POST always asks.",
       inputSchema: z.object({
         url: z.string().url().describe("Full http(s) URL to fetch."),
         method: z

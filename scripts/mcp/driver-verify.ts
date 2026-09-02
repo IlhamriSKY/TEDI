@@ -58,6 +58,9 @@ const expressions: string[] = [];
  * `editors()`, and the first one to get a non-mappable answer throws into
  * `state`'s degrade path, which would silently skip the rest.
  */
+/** True for the `{ v }`-enveloped shape `Driver#tedi` builds. */
+const isTediCall = (e: string): boolean => e.includes("=> ({ v })");
+
 const fakeCdp = {
   send(method: string, params: { expression?: string }) {
     if (method === "Runtime.evaluate" && params.expression) {
@@ -74,7 +77,9 @@ const fakeCdp = {
           : /__tedi\?\.(terminals|editors|panes|extensions|listCommands)/.test(e)
             ? []
             : {};
-      return Promise.resolve({ result: { value } });
+      // A `#tedi` call is wrapped as `{ v }` so a legitimate null can be told
+      // apart from a missing capability; a bare `eval` (box, metrics) is not.
+      return Promise.resolve({ result: { value: isTediCall(e) ? { v: value } : value } });
     }
     return Promise.resolve({});
   },
@@ -328,24 +333,36 @@ console.log("  ok: every handler, and every mode of one, reaches its Driver meth
 type TermState = { atPrompt: boolean; running: boolean; text: string };
 
 /**
- * RUN the expression the driver injected, against a stub `window`, and return
- * what the page would have returned.
+ * Play the app's terminal capabilities against a scripted timeline.
  *
- * The harness used to answer `__tedi.terminals` reads by handing back the raw
- * rows, which quietly assumed the injected code was the identity function. It is
- * not: every terminal read now REDUCES in the page - a tail, a substring test, a
- * buffer hash - so the polling loops are driven by JS that lived inside a
- * template literal and that nothing executed until it reached a user's window.
+ * WHAT MOVED, AND WHY THIS HARNESS CHANGED SHAPE. The per-poll reduction used to
+ * be JS the driver INJECTED as a template literal, so this file executed that
+ * string to check it. Injection is CDP and CDP is Windows-only, which left `sh`,
+ * `wait_for_terminal`, `state` and `read` dead on macOS and Linux - so the
+ * reductions moved into the app (`usePaneHandles.ts`: `termTails`, `termProbe`)
+ * and the driver now calls them by name over whichever transport it has.
  *
- * Executing it here is what makes the `\\n` in that JS checkable at all. Written
- * with one backslash it splits on a literal two-character sequence, the "tail"
- * is the WHOLE buffer, and every `includes()` assertion in this file still
- * passes. Only a line count catches it - see the check below.
+ * The stub below therefore plays the CAPABILITY, not the injected string. It
+ * still models the trap the old one existed for: `getBuffer(n)` returns the last
+ * n ROWS and strips the trailing blanks, so on a pane that has not scrolled a
+ * read narrower than the viewport comes back "" - an empty string a
+ * change-detector reads as "nothing happened". The app-side rule that prevents
+ * it (always ask `TERMINAL_BUFFER_ROWS`, trim after) is what `calls.asked`
+ * checks here.
  */
-function runInjected(expr: string, rows: unknown[]): unknown {
-  // `window` as a parameter shadows any global of that name, so the expression
-  // reaches the stub and nothing else.
-  return new Function("window", `return (${expr});`)({ __tedi: { terminals: () => rows } });
+const TERMINAL_BUFFER_ROWS = 200;
+
+function tailLines(text: string, n: number): string {
+  return text.trimEnd().split("\n").slice(-n).join("\n");
+}
+
+function fnv1a(text: string): number {
+  let h = 2166136261;
+  for (let i = 0; i < text.length; i++) {
+    h ^= text.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
 }
 
 function scriptedTerminal(
@@ -353,34 +370,73 @@ function scriptedTerminal(
   { leafId = 3, empty = false, viewportRows = 30 } = {},
 ) {
   const calls = { terminals: 0, writes: [] as string[], smallReads: 0, asked: [] as number[] };
+
+  /** `getBuffer(rows)` as xterm really behaves it. */
+  const buffer = (text: string, rows: number): string => {
+    calls.asked.push(rows);
+    if (rows < viewportRows) {
+      calls.smallReads++;
+      return "";
+    }
+    return text;
+  };
+
+  const rowsNow = (): Array<TermState & { leafId: number }> => {
+    if (empty) return [];
+    const at = Math.min(calls.terminals, script.length - 1);
+    calls.terminals++;
+    return [{ leafId, ...script[at] }];
+  };
+
   const cdp = {
     send(method: string, params: { expression?: string }) {
       if (method !== "Runtime.evaluate") return Promise.resolve({});
       const e = params.expression ?? "";
       if (e.includes("__tedi?.termWrite")) {
         calls.writes.push(e);
-        return Promise.resolve({ result: { value: true } });
+        return Promise.resolve({ result: { value: { v: true } } });
       }
-      if (e.includes("__tedi?.terminals")) {
-        const at = Math.min(calls.terminals, script.length - 1);
-        calls.terminals++;
-        // MODELS THE REAL `getBuffer(n)`, which is the whole point of this
-        // harness. It returns the last n ROWS and then strips the trailing blank
-        // ones, and `buffer.active.length` counts the empty rows below the
-        // cursor. So on a pane that has not scrolled, a read narrower than the
-        // viewport lands entirely in blanks and comes back as "" - not an error,
-        // an empty string that a change-detector reads as "nothing happened".
-        // The flags do not go through the buffer, so they stay truthful.
-        const asked = Number(/terminals\?\.\((\d+)\)/.exec(e)?.[1] ?? 200);
-        calls.asked.push(asked);
-        const blanked = asked < viewportRows;
-        if (blanked) calls.smallReads++;
-        const row = { leafId, ...script[at], text: blanked ? "" : script[at].text };
-        // Through the REAL injected reducer, not around it.
-        return Promise.resolve({ result: { value: runInjected(e, empty ? [] : [row]) } });
+      if (e.includes("__tedi?.termProbe")) {
+        const args = /\bf\((.*?)\)/.exec(e)?.[1] ?? "null";
+        const [needle, wantHashRaw] = args.split(", ");
+        const want = needle === "null" ? null : (JSON.parse(needle) as string);
+        const wantHash = wantHashRaw !== "false";
+        return Promise.resolve({
+          result: {
+            value: {
+              v: rowsNow().map((r) => {
+                // Mirrors the capability: no buffer is built at all unless a hash
+                // or a needle actually needs one.
+                const text = want || wantHash ? buffer(r.text, TERMINAL_BUFFER_ROWS) : "";
+                return {
+                  leafId: r.leafId,
+                  atPrompt: r.atPrompt,
+                  running: r.running,
+                  hash: wantHash ? fnv1a(text) : 0,
+                  hit: want ? text.includes(want) : false,
+                };
+              }),
+            },
+          },
+        });
       }
-      // `focusedLeaf()` - the pane the driver would be typing into.
-      if (e.includes("activeElement")) return Promise.resolve({ result: { value: leafId } });
+      if (e.includes("__tedi?.termTails")) {
+        const lines = Number(/\bf\((\d+)\)/.exec(e)?.[1] ?? 200);
+        return Promise.resolve({
+          result: {
+            value: {
+              v: rowsNow().map((r) => ({
+                leafId: r.leafId,
+                atPrompt: r.atPrompt,
+                running: r.running,
+                text: tailLines(buffer(r.text, TERMINAL_BUFFER_ROWS), lines),
+              })),
+            },
+          },
+        });
+      }
+      if (e.includes("__tedi?.focusedLeaf"))
+        return Promise.resolve({ result: { value: { v: leafId } } });
       return Promise.resolve({ result: { value: {} } });
     },
   };
@@ -488,16 +544,26 @@ console.log("\n[sh] does not guess a pane when focus is elsewhere and several ar
     send(method: string, params: { expression?: string }) {
       if (method !== "Runtime.evaluate") return Promise.resolve({});
       const e = params.expression ?? "";
-      if (e.includes("__tedi?.termWrite")) return Promise.resolve({ result: { value: true } });
-      if (e.includes("__tedi?.terminals")) {
-        const rows = [
-          { leafId: 4, ...PROMPT },
-          { leafId: 9, ...PROMPT },
-        ];
-        return Promise.resolve({ result: { value: runInjected(e, rows) } });
+      if (e.includes("__tedi?.termWrite"))
+        return Promise.resolve({ result: { value: { v: true } } });
+      if (e.includes("__tedi?.termProbe")) {
+        return Promise.resolve({
+          result: {
+            value: {
+              v: [4, 9].map((leafId) => ({
+                leafId,
+                atPrompt: PROMPT.atPrompt,
+                running: PROMPT.running,
+                hash: 1,
+                hit: false,
+              })),
+            },
+          },
+        });
       }
       // Focus is in an EDITOR leaf, which is a real leaf id and not a terminal.
-      if (e.includes("activeElement")) return Promise.resolve({ result: { value: 7 } });
+      if (e.includes("__tedi?.focusedLeaf"))
+        return Promise.resolve({ result: { value: { v: 7 } } });
       return Promise.resolve({ result: { value: {} } });
     },
   };
@@ -533,12 +599,13 @@ console.log("\n[waitTerminal] both conditions, and the empty case");
   // The two halves of the read-width rule, pinned in both directions, because
   // "optimising" either one is the mistake that keeps getting made.
   //
-  // The POLL must be cheap: it reads two booleans, never `t.text`, so there is
-  // no buffer to build in the page and nothing for a narrow read to blank out.
-  // Widening it back to 200 rows means rebuilding every pane's scrollback three
-  // times a second to answer a question about two flags.
+  // The POLL must be cheap: it reads two booleans that do not come from the
+  // buffer, so it must not build one AT ALL - `termProbe(needle, wantHash)` is
+  // called with `wantHash: false` here, and a buffer read would mean rebuilding
+  // every pane's scrollback several times a second to answer a question about
+  // two flags. Stricter than the old "ask for 1 row" rule, which still built one.
   const poll = calls.asked.slice(0, -1);
-  if (poll.some((n) => n > 1)) fail(`prompt poll asked for ${Math.max(...poll)} rows, want 1`);
+  if (poll.length) fail(`prompt poll read the buffer ${poll.length}x, want 0`);
   else console.log(`  ok: ${poll.length} prompt polls, 1 row each (flags only)`);
   // The FINAL read carries text, so it must be wide - a narrow one returns "".
   const last = calls.asked.at(-1) ?? 0;
@@ -719,8 +786,10 @@ console.log("\n[extension tools] an AI tool's result is returned, a command's is
   const reply = (value: unknown) => ({
     send: (method: string, params: { expression?: string }) =>
       method === "Runtime.evaluate" && params.expression?.includes("runExtensionCommand")
-        ? Promise.resolve({ result: { value } })
-        : Promise.resolve({ result: { value: {} } }),
+        ? // Every `#tedi` answer is wrapped as `{ v }` so a legitimate null can be
+          // told apart from a missing capability. See `Driver#tedi`.
+          Promise.resolve({ result: { value: { v: value } } })
+        : Promise.resolve({ result: { value: { v: {} } } }),
   });
   const call = (value: unknown) =>
     (
@@ -911,6 +980,44 @@ console.log("\n[bridge] every bridged method is a real, in-realm-only Driver met
       `  ok: all ${Object.keys(BRIDGED as object).length} bridged methods are pure in-realm calls`,
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// A COMPOSITE method runs on a driver with NO DevTools connection at all, so it
+// must never reach `this.eval`, `this.cdp` or `this.invoke`. `bridgeOnlyDriver`
+// builds `new Driver(null, null)`, so the day one of them grows a CDP line it
+// throws "Cannot read properties of null" - and only on macOS and Linux, where
+// nobody developing on Windows would ever see it. `driver.mjs` claims this file
+// checks that; until now it did not.
+// ---------------------------------------------------------------------------
+console.log("\n[composite] sh / waitTerminal stay pure enough to run without CDP");
+{
+  const { COMPOSITE } = await import("./driver.mjs");
+  const { BRIDGED } = await import("./transport.mjs");
+  const src = await readFile("scripts/mcp/driver.mjs", "utf8");
+  const proto = Object.getOwnPropertyNames(Driver.prototype);
+  const bridged = BRIDGED as Record<string, string>;
+  for (const method of COMPOSITE as string[]) {
+    if (!proto.includes(method)) {
+      fail(`COMPOSITE names "${method}", which is not a Driver method`);
+      continue;
+    }
+    if (method in bridged) {
+      fail(`"${method}" is in BOTH COMPOSITE and BRIDGED - it is one or the other`);
+    }
+    const at = src.indexOf(`\n  async ${method}(`);
+    if (at < 0) {
+      fail(`could not locate ${method} in driver.mjs to check it`);
+      continue;
+    }
+    const body = src.slice(at, src.indexOf("\n  }", at));
+    for (const banned of ["this.eval(", "this.cdp", "this.invoke("]) {
+      if (body.includes(banned)) {
+        fail(`COMPOSITE "${method}" reaches ${banned} - it cannot run on a bridge-only driver`);
+      }
+    }
+  }
+  console.log(`  ok: ${(COMPOSITE as string[]).length} composite methods use only bridged calls`);
 }
 
 // ---------------------------------------------------------------------------

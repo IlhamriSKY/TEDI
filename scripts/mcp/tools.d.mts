@@ -22,11 +22,30 @@ export type ToolSchema = {
   required?: readonly string[];
 };
 
+/**
+ * MCP tool annotations, as of the 2025-11-25 / 2026-07-28 schema.
+ *
+ * Only the two hints that change what a client DOES are modelled. The spec's
+ * defaults are pessimistic - an unannotated tool reads as `destructiveHint:
+ * true, openWorldHint: true` - so a pure read like `state` looked exactly as
+ * dangerous as `eval_js` to every client that gates on them, and TEDI's own
+ * agent had to raise an approval card for a snapshot. `idempotentHint` and
+ * `openWorldHint` are omitted deliberately: nothing in the ecosystem acts on
+ * them, and this table is loaded into every request of every connected CLI.
+ */
+export type ToolAnnotations = {
+  /** No side effects at all. Lets a client auto-approve. */
+  readOnlyHint?: boolean;
+  /** Mutates, but reversibly and without destroying anything. */
+  destructiveHint?: boolean;
+};
+
 export type ToolDef = {
   /** Which pack switch governs this tool. See `src/modules/mcpInstall/packs.ts`. */
   pack: "tedi" | "settings" | "browser" | "ai" | "misc";
   description: string;
   schema: ToolSchema;
+  annotations?: ToolAnnotations;
 };
 
 export declare const TOOL_DEFS: Record<string, ToolDef>;

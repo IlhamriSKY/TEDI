@@ -32,15 +32,30 @@ const PROJECT_MEMORY_TRUNCATION_NOTE =
 /** Bound the preloaded project-memory doc so it cannot dominate the prompt. Over
  *  budget, cut at the last markdown header at or before it so a table or
  *  sentence is never severed, then append a read-on-demand pointer; falls back
- *  to a paragraph break, then a hard slice. Head-truncation, not section-aware
- *  pruning - fine because the useful head leads the doc. */
+ *  to a line break, then a hard slice. The line fallback only fires on a doc
+ *  whose sections are so long the header cut would deliver almost nothing; it can
+ *  land between two table rows, which is the price of not delivering 10 bytes.
+ *  Head-truncation, not section-aware pruning - fine because the head leads. */
 function boundProjectMemory(content: string, budget = TEDI_MD_PRELOAD_BYTES): string {
   const trimmed = content.trim();
   if (trimmed.length <= budget) return trimmed;
   const window = trimmed.slice(0, budget);
   let sectionCut = -1;
   for (const m of window.matchAll(/\n#{1,6} /g)) sectionCut = m.index ?? sectionCut;
-  const cut = sectionCut > 0 ? sectionCut : window.lastIndexOf("\n\n");
+  // A section boundary is preferred - it never severs a table or a sentence -
+  // but it must not silently deliver almost nothing. The cut was "the last
+  // header at or before the budget" with no floor, so a doc whose FIRST section
+  // runs past the budget preloaded a handful of characters and said so nowhere;
+  // the amount also moved every time somebody edited a heading.
+  //
+  // The floor is a QUARTER of the budget, chosen to catch that collapse and
+  // nothing else: an ordinary doc keeps the section cut it already had (this
+  // repo's TEDI.md still preloads its usual ~5.7 KB), and only the pathological
+  // shape falls through to a line boundary - which severs no line and is always
+  // no worse than the paragraph break it replaces. A higher floor would
+  // "fix" documents that were never broken, at real cost: this text sits in the
+  // cached system prefix of every single request.
+  const cut = sectionCut > budget * 0.25 ? sectionCut : window.lastIndexOf("\n");
   const head = (cut > 0 ? trimmed.slice(0, cut) : window).trimEnd();
   return head + PROJECT_MEMORY_TRUNCATION_NOTE;
 }

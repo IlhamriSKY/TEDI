@@ -17,6 +17,22 @@ import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
 import { coerceInt, flexArrayOpt, flexIntOpt } from "./schedule";
 
 /**
+ * Schema ceiling for the sub-agent fields the RUNTIME clamps.
+ *
+ * These three - `summary_kb`, `max_concurrency` and `depends_on` - all advertise
+ * in their own descriptions that an over-large value is CLAMPED (or, for a
+ * dependency past the task cap, dropped and reported). Bounding the schema at
+ * the clamp itself would make the schema REFUSE what the description promises to
+ * accept, and a refusal costs the model a round trip to re-guess a number it was
+ * told it could send.
+ *
+ * So the bound exists only to keep zod from emitting the 55-character
+ * safe-integer range on every request (see `PANE_ID_MAX`), and sits far above
+ * every real clamp. The clamp itself stays where it belongs: in the handler.
+ */
+const CLAMPED_FIELD_MAX = 1000;
+
+/**
  * True when spawning this type would hand the child mutating tools.
  *
  * Mirrors `runSubagent`'s own `isWorker` test EXACTLY (`agents/runSubagent.ts`):
@@ -112,7 +128,7 @@ export function buildSubagentTools(ctx: ToolContext) {
             "Self-contained instruction. The subagent has no memory of prior conversation - include all relevant context.",
           ),
         description: z.string().optional().describe("Short label shown on the spawn card."),
-        summary_kb: flexIntOpt().describe(
+        summary_kb: flexIntOpt({ min: 0, max: CLAMPED_FIELD_MAX }).describe(
           "Optional summary size (KB) fed back. Default sensible; capped at a built-in max.",
         ),
       }),
@@ -196,10 +212,10 @@ export function buildSubagentTools(ctx: ToolContext) {
             ),
           }),
         ).describe("Subagent tasks to run."),
-        max_concurrency: flexIntOpt({ min: 1 }).describe(
+        max_concurrency: flexIntOpt({ min: 1, max: CLAMPED_FIELD_MAX }).describe(
           "Max subagents in flight at once. Default sensible; higher values clamped to a built-in max.",
         ),
-        summary_kb: flexIntOpt().describe(
+        summary_kb: flexIntOpt({ min: 0, max: CLAMPED_FIELD_MAX }).describe(
           "Optional per-subagent summary size (KB) fed back to you. Default sensible; capped at a built-in max. Lower for cheap/short results.",
         ),
       }),

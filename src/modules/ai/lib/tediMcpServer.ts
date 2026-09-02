@@ -67,6 +67,7 @@ import { readSettings, writeSetting } from "@/modules/settings/preferences";
 import { controlExtension, listExtensions, runExtensionCommand } from "@/modules/extensions/store";
 import { listCommands, runCommand } from "@/modules/shortcuts/lib/commandRegistry";
 import { listConnections } from "@/modules/ssh/connections";
+import { listWorkspacesForAgent } from "@/modules/workspaces/store";
 
 /** Becomes the `MCP: tedi` group and the `mcp__tedi__*` key prefix, so changing
  *  it renames every tool the model sees. */
@@ -133,6 +134,7 @@ const HANDLERS: Record<string, Handler> = {
     if (what === "commands") return json({ commands: listCommands() });
     if (what === "extensions") return json(listExtensions());
     if (what === "settings") return json(readSettings());
+    if (what === "workspaces") return json({ workspaces: listWorkspacesForAgent() });
     // `logs` is in the shared schema because the stdio server reads the DevTools
     // console over CDP. There is no in-realm twin, and inventing one that
     // returned an empty list would read as "nothing was logged".
@@ -231,6 +233,9 @@ export async function startTediMcpServer(deps: TediMcpDeps) {
       name,
       description: TOOL_DEFS[name].description,
       inputSchema: TOOL_DEFS[name].schema,
+      // Same table, same annotations, so a client sees the identical contract on
+      // either transport - which is the whole reason the table is shared.
+      ...(TOOL_DEFS[name].annotations ? { annotations: TOOL_DEFS[name].annotations } : {}),
     })),
   }));
 

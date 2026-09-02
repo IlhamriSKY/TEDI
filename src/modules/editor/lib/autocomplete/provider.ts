@@ -6,6 +6,7 @@ import {
 import { buildLanguageModel } from "@/modules/ai/lib/agent";
 import { EMPTY_PROVIDER_KEYS } from "@/modules/ai/lib/keyring";
 import { resolvePromptTemperature, resolvePromptText } from "@/modules/ai/lib/prompts";
+import { reasoningControlFor, reasoningProviderOptions } from "@/modules/ai/lib/reasoning";
 import { getPromptOverrides } from "@/modules/ai/store/promptsStore";
 import { generateText } from "ai";
 import { buildUserPrompt, COMPLETION_SYSTEM_PROMPT, type CompletionRequest } from "./prompt";
@@ -64,27 +65,19 @@ export async function requestCompletion(
   });
 
   const isReasoning = isThinkingModel(modelId);
-  // Completion wants an answer, not deliberation, so ask every family that
-  // thinks by default to think as little as it can. The gateway-backed
-  // providers (deepseek / sumopod / openai-compatible) are built through
-  // createOpenAICompatible under those names, so their options namespace is the
-  // name, not "openai" - listing all of them is what actually delivers the hint.
-  const providerOptions = isReasoning
-    ? {
-        cerebras: { reasoningEffort: "low" },
-        groq: { reasoningEffort: "low" },
-        openai: { reasoningEffort: "low" },
-        deepseek: { reasoningEffort: "low" },
-        sumopod: { reasoningEffort: "low" },
-        agentrouter: { reasoningEffort: "low" },
-        "openai-compatible": { reasoningEffort: "low" },
-        // Gemini thinks before emitting text, which at a 128-token cap means an
-        // empty completion. `thinkingLevel` is the current control; the older
-        // `thinkingBudget` is kept only for back-compat and sending BOTH is a
-        // 400, so this deliberately sets one. "minimal" is the floor on the 3.x
-        // line (full off is no longer available).
-        google: { thinkingConfig: { thinkingLevel: "minimal" } },
-      }
+  // Completion wants an answer, not deliberation, so ask the model for the
+  // LOWEST reasoning level it actually supports.
+  //
+  // Resolved through the shared capability table rather than re-derived here.
+  // This used to set `reasoningEffort: "low"` under seven namespaces at once
+  // plus a Google `thinkingLevel` - a shotgun, because a model id alone does not
+  // say which client built it. It could not know that `low` is not the floor on
+  // the gpt-5.x line (`none` is), that gpt-5.x-codex rejects `none` outright, or
+  // that Gemini 2.5 takes an integer budget and 400s on a level. One table now,
+  // covered by one verify, and a model with no control gets no parameter at all.
+  const control = reasoningControlFor(deps.provider, modelId);
+  const providerOptions = control
+    ? reasoningProviderOptions(deps.provider, modelId, control.values[0])
     : undefined;
 
   const overrides = getPromptOverrides();

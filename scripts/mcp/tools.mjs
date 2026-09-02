@@ -34,6 +34,7 @@
 export const TOOL_DEFS = {
   state: {
     pack: "tedi",
+    annotations: { readOnlyHint: true },
     description:
       "Snapshot of the window. Call it first: it names the leafIds every other tool takes. `panes` " +
       "is EVERY pane in EVERY tab with what identifies it - a terminal's cwd, ssh host, running AI " +
@@ -54,16 +55,21 @@ export const TOOL_DEFS = {
 
   inspect: {
     pack: "tedi",
+    annotations: { readOnlyHint: true },
     description:
       "List what TEDI has. `commands`: ids for `run_command`. `extensions`: what is installed, " +
       "whether each is ENABLED, and its commands/panels/AI tools - a disabled extension and an " +
       "absent one look identical in the UI. `settings`: every preference the app is running on " +
-      "(write with `set_setting`). `logs`: console output and uncaught errors - the only place a " +
-      "half-rendered window says why.",
+      "(write with `set_setting`). `workspaces`: every workspace, which one is ACTIVE, and each " +
+      "one's view - tabs, kanban or canvas; `state` only ever describes the active one. `logs`: " +
+      "console output and uncaught errors - the only place a half-rendered window says why.",
     schema: {
       type: "object",
       properties: {
-        what: { type: "string", enum: ["commands", "extensions", "settings", "logs"] },
+        what: {
+          type: "string",
+          enum: ["commands", "extensions", "settings", "workspaces", "logs"],
+        },
         level: {
           type: "string",
           enum: ["log", "info", "warn", "error"],
@@ -76,6 +82,7 @@ export const TOOL_DEFS = {
 
   read: {
     pack: "tedi",
+    annotations: { readOnlyHint: true },
     description:
       "Read one surface. `terminal`: a pane's scrollback, and the ONLY way to see a terminal - xterm " +
       "draws to a WebGL canvas, so DOM tools return nothing for one. `editors`: every open editor's " +
@@ -121,6 +128,7 @@ export const TOOL_DEFS = {
 
   set_setting: {
     pack: "settings",
+    annotations: { destructiveHint: false },
     description:
       "Change one TEDI preference; keys and current values from `inspect settings`. Applies live and " +
       "persists. The Settings page is a separate webview no tool here can read or click, so this is " +
@@ -160,6 +168,7 @@ export const TOOL_DEFS = {
 
   wait_for_terminal: {
     pack: "tedi",
+    annotations: { readOnlyHint: true },
     description:
       "Block until a terminal pane finishes; returns why it stopped plus its last lines. USE THIS " +
       "INSTEAD OF POLLING `read`. No `text`: waits for the shell prompt, right for a command. " +
@@ -204,6 +213,7 @@ export const TOOL_DEFS = {
 
   open_file: {
     pack: "tedi",
+    annotations: { destructiveHint: false },
     description:
       "Open a file in TEDI's editor by absolute path, exactly as clicking it in the explorer would " +
       "(a PDF still opens in a browser pane). Use it to show the user what you are talking about; " +
@@ -217,6 +227,7 @@ export const TOOL_DEFS = {
 
   save_editor: {
     pack: "tedi",
+    annotations: { destructiveHint: false },
     description: "Save an editor pane to disk. Use after `type_text` into an editor.",
     schema: {
       type: "object",
@@ -272,6 +283,7 @@ export const TOOL_DEFS = {
 
   focus_pane: {
     pack: "tedi",
+    annotations: { destructiveHint: false },
     description:
       "Give a pane keyboard focus without clicking into it, so the next `keys`/`type_text` lands " +
       "there. Clicking works too but moves an editor's caret to wherever the pane's centre was.",
@@ -280,6 +292,7 @@ export const TOOL_DEFS = {
 
   drag: {
     pack: "misc",
+    annotations: { destructiveHint: false },
     description:
       "Drag a selector by (dx, dy) with real pointer moves. How panes and the sidebar get resized. " +
       "Take the pane splitter's index from `state.paneHandle`; never guess an nth, and -1 means only " +
@@ -312,6 +325,7 @@ export const TOOL_DEFS = {
 
   ai: {
     pack: "ai",
+    annotations: { destructiveHint: false },
     description:
       "TEDI's OWN built-in agent, which runs in the app beside you. `status`: what it is doing " +
       "right now, its pending approvals, token usage and sessions. `read`: its live conversation. " +
@@ -332,6 +346,7 @@ export const TOOL_DEFS = {
 
   ssh: {
     pack: "tedi",
+    annotations: { destructiveHint: false },
     description:
       "Saved SSH connections: list them, or open one in a new tab. There is no command id for this " +
       "(`run_command` cannot reach it), so this is the only route. Keys and passphrases stay in the " +
@@ -352,6 +367,7 @@ export const TOOL_DEFS = {
 
   browser: {
     pack: "browser",
+    annotations: { destructiveHint: false },
     description:
       "Drive TEDI's native browser panes. `open` a url, `list` the panes, `navigate`, `read` the " +
       "rendered page text, or `console` for its output and errors. A preview pane is a SEPARATE " +

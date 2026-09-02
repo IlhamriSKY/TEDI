@@ -18,7 +18,7 @@ import {
   type ToolContext,
 } from "./context";
 import { resolveRoot } from "./search";
-import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
+import { PANE_ID_MAX, flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
 
 const AI_READ_CAP = 200 * 1024;
 /**
@@ -135,7 +135,7 @@ export function buildFsTools(
         "Read a UTF-8 text file, or an image (PNG/JPEG/GIF/WebP/BMP/AVIF) which is returned as a viewable image. Refuses other binaries, oversized, and sensitive files (.env, keys). Text: the WHOLE file by default (up to 10000 lines / 200KB); a `truncated` flag plus `nextOffset` come back when it did not fit, so re-call with that offset. Images cap at 4MB and ignore offset/limit. A path outside the workspace/cwd needs approval.",
       inputSchema: z.object({
         path: z.string().describe("Absolute path, or relative to the active terminal cwd."),
-        offset: flexIntOpt({ min: 0 }).describe(
+        offset: flexIntOpt({ min: 0, max: PANE_ID_MAX }).describe(
           "0-based line offset to start reading from. Default 0.",
         ),
         limit: flexIntOpt({ min: 1, max: 10_000 }).describe(

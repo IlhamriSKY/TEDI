@@ -11,6 +11,40 @@ import type { ToolContext } from "./context";
  *  hand it to a multimodal model as a real file part. */
 type McpMedia = { data: string; mimeType: string };
 
+/**
+ * Cap on one MCP tool result, in characters.
+ *
+ * TEDI's own in-process server already caps at this number, and the comment
+ * there argues the cap exists so "the same call costs the same on either
+ * transport". That reasoning only ever covered TEDI's two servers: a THIRD-PARTY
+ * server's result was uncapped, went into the window at full size, and then sat
+ * in replayed history for the rest of the session. One crawl or one `SELECT *`
+ * could dominate every later request.
+ */
+const MAX_RESULT_CHARS = 20000;
+
+/**
+ * Cap on ONE base64 media part, in characters.
+ *
+ * The expensive half. A screenshot or audio blob from a third-party server was
+ * returned uncapped, forwarded into the model message, and then replayed with
+ * the history for the rest of the session - the same unbounded growth the text
+ * cap exists to prevent, on the payload that costs the most. ~4 MB of base64 is
+ * already far past anything a model reads usefully.
+ */
+const MAX_MEDIA_CHARS = 4_000_000;
+
+/** Drop over-large parts rather than truncating them: half a base64 image is not
+ *  a smaller image, it is a corrupt one the model cannot decode. */
+function capMedia(media: McpMedia[]): McpMedia[] {
+  return media.filter((m) => m.data.length <= MAX_MEDIA_CHARS);
+}
+
+function capResult(text: string): string {
+  if (text.length <= MAX_RESULT_CHARS) return text;
+  return `${text.slice(0, MAX_RESULT_CHARS)}\n... truncated at ${MAX_RESULT_CHARS} characters. Ask for something narrower.`;
+}
+
 /** Sanitize a tool name to the provider-safe charset for use as an AI SDK tool
  *  key (also reused by extension tools). */
 export function sanitizeToolName(name: string): string {
@@ -52,19 +86,40 @@ function mcpToolToAiTool(
 ) {
   const serverName = config.name;
   return tool({
-    description: `${mcpTool.description ?? "MCP tool from " + serverName} [${serverName}]`,
+    // No `[server]` suffix. The key the model calls is already
+    // `mcp__<server>__<tool>`, so the server name was being billed twice per
+    // tool on every request to say the same thing.
+    description: mcpTool.description ?? `MCP tool from ${serverName}`,
     // MCP ships a raw JSON Schema; wrap it with jsonSchema() so the AI SDK
     // treats it as a schema. Passing the bare object throws "schema is not a
     // function" when streamText prepares the tools (it expects Zod or jsonSchema).
     inputSchema: jsonSchema<Record<string, unknown>>(
       mcpTool.inputSchema as Parameters<typeof jsonSchema>[0],
     ),
-    // Always require approval for MCP tools — they are external processes.
-    needsApproval: true,
+    // Approval on every MCP call, with ONE exception: a tool the BUILT-IN `tedi`
+    // server annotates `readOnlyHint`.
+    //
+    // The spec is explicit that a client MUST treat annotations as untrusted,
+    // and that is exactly why the exception is scoped to `config.builtin`: that
+    // server is TEDI's own code in TEDI's own realm, and its annotations come
+    // from the table in this repo, not from a third party. A third-party server
+    // could claim `readOnlyHint` on anything, so its claim buys it nothing.
+    //
+    // In practice this is exactly one tool: `inspect`, the only handler the
+    // in-process server both serves and annotates read-only. It reads TEDI's own
+    // command / extension / settings / workspace lists, which carry no secrets,
+    // and it used to raise a card the user had to clear before the agent could
+    // see anything - while `read_file`, a strictly wider read, ran unattended
+    // because it happens to be a native tool.
+    needsApproval: !(config.builtin && mcpTool.annotations?.readOnlyHint === true),
     execute: async (input: Record<string, unknown>) => {
       try {
         const client = await getMcpClient(config, ctx.getCwd() ?? undefined, builtinDeps);
-        const result = await client.callTool(mcpTool.name, input);
+        // Pressing Stop has to reach the server too, or the model stream aborts
+        // while the call keeps running.
+        const result = await client.callTool(mcpTool.name, input, {
+          signal: ctx.abortSignal,
+        });
 
         // Collect text inline; carry image/audio as media parts so they reach a
         // multimodal model (toModelOutput below) instead of being flattened to a
@@ -88,16 +143,25 @@ function mcpToolToAiTool(
           }
         }
 
-        const text = textParts.join("\n");
+        let text = textParts.join("\n");
+        // MCP 2025-06-18 added `structuredContent`, and a server that declares an
+        // `outputSchema` may put the real answer only there. Reading `content`
+        // alone turned those calls into "(no displayable content)" while the
+        // answer was discarded. The spec asks servers to ALSO serialize it into a
+        // text block for back-compat, so only fall back to it when `content` gave
+        // us nothing - forwarding both would bill the same payload twice.
+        if (!text && result.structuredContent !== undefined) {
+          text = JSON.stringify(result.structuredContent);
+        }
         if (result.isError) {
-          return { error: text || "MCP tool returned an error." };
+          return { error: capResult(text) || "MCP tool returned an error." };
         }
         // A side-effect-only success (no text, no media) must not return "" — the
         // model can't tell that from a no-op and may pointlessly retry.
         if (!text && media.length === 0) {
           return { content: "(tool succeeded; no displayable content)" };
         }
-        return { content: text, media };
+        return { content: capResult(text), media: capMedia(media) };
       } catch (e) {
         return {
           error: e instanceof Error ? e.message : `MCP tool "${mcpTool.name}" failed.`,
@@ -163,9 +227,21 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   // the same empty variant.
   const builtinDeps: TediMcpDeps = { openSshTab: ctx.openSshTab, disabledTools };
 
-  for (const server of enabled) {
+  // Connect every server AT ONCE, then register in the fixed `enabled` order.
+  // Serially awaiting each spawn + handshake + tools/list meant an `npx -y` cold
+  // start was paid once per server before the first token of the turn. Settling
+  // in parallel and registering afterwards keeps the resulting key order
+  // deterministic, which is what a provider prompt cache keys on - a tool set
+  // that reorders between turns re-prices the whole prefix.
+  const connected = await Promise.allSettled(
+    enabled.map((s) => getMcpClient(s, ctx.getCwd() ?? undefined, builtinDeps)),
+  );
+
+  for (const [i, server] of enabled.entries()) {
+    const settled = connected[i];
     try {
-      const client = await getMcpClient(server, ctx.getCwd() ?? undefined, builtinDeps);
+      if (settled.status === "rejected") throw settled.reason;
+      const client = settled.value;
       _warnedFailedServers.delete(server.name); // recovered
       for (const mcpTool of client.tools) {
         // Clamp to 64 chars: a long server+tool combo overflows the provider's

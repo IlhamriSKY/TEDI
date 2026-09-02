@@ -239,6 +239,17 @@ export type Preferences = {
   /** Pinned model ids. Shown as "Pinned" at the top of the AI model dropdown. Newest first. */
   pinnedModelIds: string[];
   /**
+   * Chosen reasoning level per model, keyed `provider::modelId`.
+   *
+   * A MAP, not a scalar, because the accepted values are per-model: a level
+   * picked for one model is meaningless on the next, and a single field would
+   * carry it across. Only models the user has actually tuned appear here; an
+   * absent entry means "send no reasoning parameter", which is the default and
+   * costs nothing. Entries whose model no longer offers that value are ignored
+   * on read rather than deleted, so switching away and back keeps the choice.
+   */
+  modelReasoning: Record<string, string>;
+  /**
    * Approval mode for AI tool calls.
    * "ask": every mutating tool needs approval (default).
    * "semi": file edits need approval; shell commands auto-approve.
@@ -412,6 +423,7 @@ const KEY_SSH_IN_RIGHT_PANEL = "sshInRightPanel";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
+const KEY_MODEL_REASONING = "modelReasoning";
 const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
@@ -543,6 +555,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   extensionShortcuts: {} as Record<string, KeyBinding[]>,
   pinnedModelIds: [],
+  modelReasoning: {} as Record<string, string>,
   approvalMode: "ask",
   lastModelId: null,
   lastProviderId: null,
@@ -681,6 +694,8 @@ export async function loadPreferences(): Promise<Preferences> {
       get<Record<string, KeyBinding[]>>(KEY_EXTENSION_SHORTCUTS) ??
       DEFAULT_PREFERENCES.extensionShortcuts,
     pinnedModelIds: get<string[]>(KEY_PINNED_MODELS) ?? DEFAULT_PREFERENCES.pinnedModelIds,
+    modelReasoning:
+      get<Record<string, string>>(KEY_MODEL_REASONING) ?? DEFAULT_PREFERENCES.modelReasoning,
     approvalMode: get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
     lastProviderId: get<string | null>(KEY_LAST_PROVIDER) ?? DEFAULT_PREFERENCES.lastProviderId,
@@ -1029,6 +1044,10 @@ export async function setExtensionShortcuts(
 
 export async function setPinnedModelIds(value: string[]): Promise<void> {
   await writePref(KEY_PINNED_MODELS, value);
+}
+
+export async function setModelReasoning(value: Record<string, string>): Promise<void> {
+  await writePref(KEY_MODEL_REASONING, value);
 }
 
 export async function setApprovalMode(value: ApprovalMode): Promise<void> {
@@ -1450,6 +1469,7 @@ export async function onPreferencesChange(
     shortcuts: KEY_SHORTCUTS,
     extensionShortcuts: KEY_EXTENSION_SHORTCUTS,
     pinnedModelIds: KEY_PINNED_MODELS,
+    modelReasoning: KEY_MODEL_REASONING,
     approvalMode: KEY_APPROVAL_MODE,
     lastModelId: KEY_LAST_MODEL,
     lastProviderId: KEY_LAST_PROVIDER,

@@ -160,6 +160,65 @@ export function groupTools(
     .sort((a, b) => rank(a.group) - rank(b.group) || a.group.localeCompare(b.group));
 }
 
+/**
+ * Browser tools that cannot be called until a browser pane exists.
+ *
+ * Every one of these takes a REQUIRED `leafId` naming an already-open pane, and
+ * the only place that id comes from is the `<env>` block's `browsers:` list. With
+ * no pane open there is no id to pass, so they are not merely unlikely to be
+ * called - they are uncallable, and their definitions are ~11 600 characters of
+ * a ~37 000-character tool payload billed on every request of every session,
+ * including the overwhelming majority that never open a browser at all.
+ *
+ * `open_browser` is deliberately NOT here: it takes a url, needs no pane, and is
+ * how a pane comes to exist. It also answers the one-shot lookup case on its own
+ * (`read: true` returns the page text in the same call), which is exactly what
+ * the prompt tells the model to do when nothing is open.
+ *
+ * These are switched off with `activeTools`, ONCE PER TURN, and are never removed
+ * from the tool set: the picker still lists them, `disabledTools` still governs
+ * them, and replayed history still resolves them. The turn after a pane exists
+ * they are all back - which is also the turn `<env>` first names that pane, so
+ * the model gains the tools and the leafId to use them together.
+ *
+ * Per turn rather than per step because adding or removing a tool definition
+ * invalidates Anthropic's tools cache and everything cached behind it. Deciding
+ * this per step rewrote the whole prefix mid-turn in exactly the flow it was
+ * meant to help.
+ */
+export const BROWSER_PANE_TOOL_NAMES = [
+  "control_browser",
+  "navigate_and_read",
+  "read_browser",
+  "read_browser_console",
+  "browser_click",
+  "browser_click_at",
+  "browser_hover",
+  "browser_press_key",
+  "browser_screenshot",
+  "browser_scroll",
+  "browser_type",
+] as const;
+
+/**
+ * The tools worth sending THIS step, or `undefined` for "all of them".
+ *
+ * `undefined` is not a detail: `activeTools` is compared with `includes` on every
+ * tool for every step, so returning a full list where nothing is filtered is
+ * pure work, and it also pins the value where the SDK would otherwise skip the
+ * filter entirely.
+ */
+export function activeToolNames(
+  toolNames: Iterable<string>,
+  hasBrowserPane: boolean,
+): string[] | undefined {
+  if (hasBrowserPane) return undefined;
+  const off = new Set<string>(BROWSER_PANE_TOOL_NAMES);
+  const all = [...toolNames];
+  const kept = all.filter((n) => !off.has(n));
+  return kept.length === all.length ? undefined : kept;
+}
+
 /** The tools that spawn sub-agents. */
 export const SUBAGENT_TOOL_NAMES = ["run_subagent", "run_subagents"] as const;
 

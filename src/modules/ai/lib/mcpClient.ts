@@ -9,6 +9,27 @@ import type { McpServerConfig } from "./mcpConfig";
 let connSeq = 0;
 
 /**
+ * Per-call ceiling for `tools/call`, in ms.
+ *
+ * A bound has to exist - a server that never answers must not park the turn
+ * forever - but it belongs well above the SDK's 60s default, which was cutting
+ * off the long crawls and queries the `busy` flag below was written to protect.
+ * Ten minutes is past any interactive tool call while still being finite.
+ */
+const MCP_CALL_TIMEOUT_MS = 10 * 60 * 1000;
+
+/**
+ * Budget for the whole `tools/list` walk, and for one page of it.
+ *
+ * Discovery is not a tool call: it happens before the first token of the turn,
+ * so its worst case is time the user spends staring at nothing. These are
+ * deliberately tight - a server that cannot list its tools in a few seconds is
+ * one whose tools this turn can do without.
+ */
+const LIST_TOOLS_BUDGET_MS = 15_000;
+const LIST_TOOLS_PAGE_TIMEOUT_MS = 5_000;
+
+/**
  * Lightweight MCP client wrapper. Each instance manages one stdio connection to
  * an MCP server process. Designed to be created/destroyed per-agent-turn so
  * that tool lists are always fresh.
@@ -67,8 +88,7 @@ export class McpClient {
         // Some servers don't report version.
       }
 
-      const toolsResult = await this.client.listTools();
-      this._tools = toolsResult.tools;
+      this._tools = await this.listAllTools();
       this._connected = true;
     } catch (e) {
       // Handshake/listTools failed after the process was spawned. disconnect()
@@ -89,6 +109,58 @@ export class McpClient {
       }
       throw e;
     }
+  }
+
+  /**
+   * Every tool the server has, following `nextCursor` to the end.
+   *
+   * `listTools()` returns ONE page. The SDK does not paginate for you, and MCP
+   * lets the server pick the page size, so a server with a long catalogue was
+   * silently losing every tool past page one - no error, no log, the tool simply
+   * was not offered and the failure read as "the AI can't do that".
+   *
+   * BOUNDED IN WALL CLOCK, not just in pages. This runs on the turn's critical
+   * path - `buildMcpToolsAsync` is awaited before the first token - so a slow or
+   * hostile server must not be able to hold the whole turn. Pages alone were not
+   * enough: at the SDK's 60s default per request, a page cap of 20 is a
+   * twenty-minute stall. A deadline across the whole walk, plus a per-request
+   * timeout well under it, bounds the worst case at a few seconds.
+   *
+   * A repeated cursor is a broken server rather than a big one; stopping keeps
+   * what we have instead of looping, and would otherwise duplicate every tool.
+   */
+  private async listAllTools(): Promise<McpTool[]> {
+    const out: McpTool[] = [];
+    let cursor: string | undefined;
+    const seen = new Set<string>();
+    const deadline = Date.now() + LIST_TOOLS_BUDGET_MS;
+    for (let page = 0; page < 20 && Date.now() < deadline; page++) {
+      const res = await this.client.listTools(cursor ? { cursor } : undefined, {
+        timeout: LIST_TOOLS_PAGE_TIMEOUT_MS,
+      });
+      out.push(...res.tools);
+      const next = res.nextCursor;
+      if (!next || seen.has(next)) break;
+      seen.add(next);
+      cursor = next;
+    }
+    // RE-PRIME the SDK's per-tool metadata from the WHOLE list.
+    //
+    // `listTools()` ends by caching output-schema validators and task-support
+    // flags, and it CLEARS that cache first - so after a paginated walk only the
+    // LAST page's metadata survives, and a page-one tool declaring
+    // `taskSupport: "required"` would be invoked as a plain call and refused.
+    // Paginating without this trades one silent bug for another.
+    //
+    // The method is private, hence the cast; the optional call is deliberate, so
+    // an SDK that renames or drops it degrades to single-page behaviour instead
+    // of throwing.
+    if (seen.size > 0) {
+      (
+        this.client as unknown as { cacheToolMetadata?: (t: McpTool[]) => void }
+      ).cacheToolMetadata?.(out);
+    }
+    return out;
   }
 
   /** Closes the connection and terminates the server process. Safe to call at
@@ -126,14 +198,30 @@ export class McpClient {
     return this._serverInfo;
   }
 
-  /** Call a tool on the MCP server. */
-  async callTool(name: string, args: Record<string, unknown>): Promise<CallToolResult> {
+  /**
+   * Call a tool on the MCP server.
+   *
+   * `signal` and `timeout` are both load-bearing and both were missing. Without
+   * the signal, pressing Stop aborted the model stream and left the MCP call
+   * running to completion - the server kept working, and its process stayed busy
+   * so the idle sweep skipped it. Without an explicit timeout the SDK applies
+   * `DEFAULT_REQUEST_TIMEOUT_MSEC` (60s), which directly contradicts the `busy`
+   * flag above, whose whole reason for existing is a ">5min crawl/query".
+   */
+  async callTool(
+    name: string,
+    args: Record<string, unknown>,
+    opts: { signal?: AbortSignal; timeoutMs?: number } = {},
+  ): Promise<CallToolResult> {
     if (!this._connected) {
       throw new Error(`MCP server "${this.config.name}" is not connected.`);
     }
     this._inFlight++;
     try {
-      return (await this.client.callTool({ name, arguments: args })) as CallToolResult;
+      return (await this.client.callTool({ name, arguments: args }, undefined, {
+        signal: opts.signal,
+        timeout: opts.timeoutMs ?? MCP_CALL_TIMEOUT_MS,
+      })) as CallToolResult;
     } finally {
       this._inFlight--;
     }
@@ -191,7 +279,12 @@ export async function getMcpClient(
   sweepIdleClients();
   const key = clientKey(
     config.name,
-    cwd,
+    // The in-process server spawns nothing and reads no cwd, so keying it on one
+    // only guaranteed a miss: `pinTurnCwd` moves with any workspace or terminal
+    // switch, and the next turn would discard a live server, rebuild it and
+    // re-run `tools/list` for a byte-identical answer. It was the one place MCP
+    // work repeated per turn.
+    config.builtin ? undefined : cwd,
     config.builtin ? [...(builtinDeps?.disabledTools ?? [])].sort().join(",") : undefined,
   );
 
@@ -254,6 +347,11 @@ export async function disconnectAllMcpClients(): Promise<void> {
   const clients = [...activeClients.values()].map((e) => e.client);
   activeClients.clear();
   connecting.clear();
+  // Bump every generation too. Without this a connect still in flight at quit
+  // passes its own generation check, re-inserts into the map that was just
+  // cleared, and leaves a spawned server alive past the point the quit guard
+  // believed everything was reaped.
+  for (const key of [...connectGen.keys()]) connectGen.set(key, (connectGen.get(key) ?? 0) + 1);
   await Promise.allSettled(clients.map((c) => c.disconnect()));
 }
 

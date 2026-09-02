@@ -149,6 +149,8 @@ const HANDLERS = {
         return json(await d.extensions());
       case "settings":
         return json(await d.settings());
+      case "workspaces":
+        return json(await d.workspaces());
       case "logs": {
         // Awaited because the transport proxy is uniformly async (see
         // `transport.mjs`); `logs` itself is a synchronous read of the CDP
@@ -159,7 +161,9 @@ const HANDLERS = {
           : "(nothing logged since this session connected)";
       }
       default:
-        throw new Error(`Unknown "what": ${a.what}. Have: commands, extensions, settings, logs.`);
+        throw new Error(
+          `Unknown "what": ${a.what}. Have: commands, extensions, settings, workspaces, logs.`,
+        );
     }
   },
 
@@ -508,25 +512,35 @@ function currentSurface() {
  * the answer survive a cold start. Prefixed `ext_` so an extension can never
  * shadow one of ours.
  */
-const CACHE = path.join(tmpdir(), "tedi-mcp-ext-tools.json");
+// KEYED BY BUNDLE ID, like the settings file and the bridge socket. A single
+// fixed name in the shared temp dir meant a dev profile's cold start served the
+// RELEASE profile's extension tool list and routed `ext_*` calls from it - the
+// same "one profile has to decide both halves" bug as the CDP port, one
+// directory over. It also let any other local user pre-plant the file.
+const CACHE = path.join(
+  tmpdir(),
+  `tedi-mcp-ext-tools-${(process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi").replace(/[^a-zA-Z0-9._-]/g, "_")}.json`,
+);
 
 async function extensionTools() {
-  if (!currentSurface().extensions.length) return [];
+  if (!currentSurface().extensions.length) return { list: [], live: true };
   let installed = null;
+  let live = true;
   try {
     installed = await (await tedi()).extensions();
     writeFileSync(CACHE, JSON.stringify(installed));
   } catch {
+    live = false;
     // TEDI is not up yet. Serve the last snapshot rather than silently
     // dropping a pack the user switched on.
     try {
       installed = JSON.parse(readFileSync(CACHE, "utf8"));
     } catch {
-      return [];
+      return { list: [], live: false };
     }
   }
   const wanted = new Set(currentSurface().extensions);
-  return (installed ?? [])
+  const list = (installed ?? [])
     .filter((e) => wanted.has(e.id))
     .flatMap((e) =>
       (e.aiTools ?? []).map((t) => ({
@@ -538,6 +552,7 @@ async function extensionTools() {
         _ext: { extensionId: e.id, tool: t.name },
       })),
     );
+  return { list, live };
 }
 
 function coreToolList() {
@@ -546,6 +561,13 @@ function coreToolList() {
     name,
     description: TOOL_DEFS[name].description,
     inputSchema: TOOL_DEFS[name].schema,
+    // Annotations, where the table declares one. The spec's DEFAULTS are the
+    // pessimistic ones (destructive, open-world), so an unannotated `state` -
+    // the verb every agent is told to call before every move - read exactly as
+    // dangerous as `eval_js` to any client that gates on them, and cost the user
+    // an approval prompt per snapshot. Omitted where TEDI has nothing honest to
+    // say, because an absent annotation and a wrong one are not the same thing.
+    ...(TOOL_DEFS[name].annotations ? { annotations: TOOL_DEFS[name].annotations } : {}),
   }));
 }
 
@@ -560,11 +582,44 @@ function coreToolList() {
  * paths await the same promise now.
  */
 let extIndexPromise = null;
+let extIndexKey = null;
+let extIndexLive = false;
 function ensureExtIndex() {
-  extIndexPromise ??= extensionTools().then((list) => ({
-    advertised: list.map(({ _ext, ...rest }) => rest),
-    routes: new Map(list.map((t) => [t.name, t._ext])),
-  }));
+  // KEYED ON THE CURRENT PACK LIST, for the same reason `currentSurface` has a
+  // TTL at all. A plain `??=` froze the routes map at first use while the packs
+  // it is built from were re-read every second, and that broke the switch BOTH
+  // ways: turning a pack OFF left its `ext_*` tools routable (the call-site gate
+  // only asks whether SOME pack is on, and `ext_*` names never appear in
+  // `surface.disabled`, so nothing else caught it - the exact bypass the switch
+  // exists to prevent); turning one ON never advertised its tools, because the
+  // promise had already resolved.
+  const key = [...currentSurface().extensions].sort().join(",");
+  // A DISK-FALLBACK ANSWER IS NOT CACHEABLE. Claude Code launches this server at
+  // session start, routinely before TEDI is open, so the first `tools/list`
+  // answers from the snapshot - and keying only on the pack list froze that
+  // stale answer for the rest of the session. Retry until a query really reached
+  // the app.
+  if (extIndexPromise && extIndexKey === key && extIndexLive) return extIndexPromise;
+  extIndexKey = key;
+  extIndexPromise = extensionTools()
+    .then(({ list, live }) => {
+      extIndexLive = live;
+      return {
+        advertised: list.map(({ _ext, ...rest }) => rest),
+        routes: new Map(list.map((t) => [t.name, t._ext])),
+      };
+    })
+    .catch((e) => {
+      // Never cache a rejection: `??=` on a rejected promise is permanent, and
+      // this is awaited on the hot path of BOTH tools/list and tools/call, so
+      // one transient failure would break the tool surface for the whole
+      // session with no way back. Drop it so the next call retries.
+      if (extIndexKey === key) {
+        extIndexPromise = null;
+        extIndexKey = null;
+      }
+      throw e;
+    });
   return extIndexPromise;
 }
 
@@ -623,6 +678,33 @@ async function callTool(name, args) {
 
 // --- JSON-RPC over stdio ----------------------------------------------------
 
+/**
+ * Protocol revisions this server answers to, newest first.
+ *
+ * EVERY REVISION AN MCP CLIENT IN THE WILD STILL SPEAKS IS LISTED, and that is
+ * the point. Answering with a version the client does not know is not a soft
+ * downgrade - the SDK's `Client.connect()` treats it as fatal and drops the
+ * connection, so TEDI's whole tool surface vanishes from that host with no
+ * tool-level error to explain it. A short list is therefore far more dangerous
+ * than a long one.
+ *
+ * 2025-03-26 is included even though it made JSON-RPC batching mandatory and
+ * this server refuses batches: the refusal is a well-formed `-32600` on the ONE
+ * frame (see the guard in the stdin reader), and no mainstream client emits
+ * batches anyway. Losing one frame shape beats losing the session.
+ *
+ * What this still fixes is the real bug: the version was ECHOED, so the server
+ * claimed to speak any string a client named, including revisions that do not
+ * exist yet.
+ */
+const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
+
+/** The client's version when we support it, otherwise our own latest. */
+function negotiateProtocol(requested) {
+  return SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST_PROTOCOL_VERSION;
+}
+
 function send(msg) {
   process.stdout.write(`${JSON.stringify(msg)}\n`);
 }
@@ -636,9 +718,15 @@ async function handle(msg) {
   switch (msg.method) {
     case "initialize":
       return reply({
-        // Echo the client's version when it names one: the field is a
-        // negotiation, and pinning our own would make a newer client downgrade.
-        protocolVersion: msg.params?.protocolVersion ?? "2025-06-18",
+        // NEGOTIATE, do not echo. The spec is explicit: if the server supports
+        // the requested version it MUST answer with that same version, and
+        // otherwise MUST answer with one it DOES support, leaving the client to
+        // accept or disconnect. Echoing whatever arrived meant the server
+        // claimed to speak any string a client named - including 2025-03-26,
+        // whose mandatory JSON-RPC batching this server does not implement, and
+        // including future revisions it has never seen. Answering with our own
+        // latest is the spec's own downgrade signal, not a downgrade bug.
+        protocolVersion: negotiateProtocol(msg.params?.protocolVersion),
         capabilities: { tools: {} },
         serverInfo: { name: "tedi", version: "1.0.0" },
       });
@@ -684,6 +772,26 @@ if (isMain) {
         msg = JSON.parse(line);
       } catch {
         continue; // A frame we cannot parse has no id to answer on.
+      }
+      // A batch (array), a bare `null`, or a scalar. Nothing between the parse
+      // and the dispatch used to check that a frame is a JSON-RPC OBJECT, and
+      // `handle` assumes it is:
+      //   * an array's `.id` is undefined, so it hit the notification guard and
+      //     was answered with SILENCE - every request inside it hung forever;
+      //   * `null.id` THREW inside handle, and the `.catch` below dereferenced
+      //     the same null again, so one malformed line killed the process and
+      //     took every in-flight call with it.
+      // Batching was removed from MCP in 2025-06-18. Refuse it out loud.
+      if (!msg || typeof msg !== "object" || Array.isArray(msg)) {
+        send({
+          jsonrpc: "2.0",
+          id: null,
+          error: {
+            code: -32600,
+            message: "Invalid Request: batches and non-object frames are not supported",
+          },
+        });
+        continue;
       }
       // Not awaited: JSON-RPC replies carry their id, so order does not matter,
       // and a 20-second `sh` must not hold a `state` behind it. Tracked, though -

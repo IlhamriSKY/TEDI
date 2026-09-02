@@ -10,7 +10,7 @@ import {
   throwIfAborted,
   type ToolContext,
 } from "./context";
-import { flexIntOpt, flexIntReq } from "./schedule";
+import { PANE_ID_MAX, flexIntOpt, flexIntReq } from "./schedule";
 
 /**
  * Run registered extension transformers over a command before it hits the
@@ -188,7 +188,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
       description:
         "Read logs from a Bash Background handle. Pass since_offset (from previous next_offset) to tail incrementally.",
       inputSchema: z.object({
-        handle: flexIntReq(),
+        handle: flexIntReq({ min: 0, max: PANE_ID_MAX }),
         since_offset: flexIntOpt(),
       }),
       execute: async ({ handle, since_offset }) => {
@@ -206,7 +206,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
 
     bash_list: tool({
       description:
-        "List Bash Background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates - reuse the existing handle instead of re-spawning, and open its served URL with Open Preview if it's a server. Auto.",
+        "List Bash Background processes (running + exited). Call BEFORE spawning a dev server to avoid duplicates: reuse the existing handle instead of re-spawning. Auto.",
       inputSchema: z.object({}),
       execute: async () => {
         try {
@@ -220,7 +220,7 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
 
     bash_kill: tool({
       description: "Kill a Bash Background process by handle. Idempotent.",
-      inputSchema: z.object({ handle: flexIntReq() }),
+      inputSchema: z.object({ handle: flexIntReq({ min: 0, max: PANE_ID_MAX }) }),
       execute: async ({ handle }) => {
         try {
           await native.shellBgKill(handle);

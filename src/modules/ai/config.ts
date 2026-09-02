@@ -672,9 +672,10 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
       },
       { text: `- Keep scope tight. No unrequested refactors or side quests.` },
       { text: `- Pass objects and numbers natively.` },
-      {
-        text: `- Never use em dash punctuation (—) or emoji in any output. Use hyphen (-), colon (:), pipe (|), comma, or semicolon.`,
-      },
+      // The em-dash / emoji ban lives ONCE, in `# Delegation and output`. It was
+      // stated here too, untagged, so both copies shipped on every full-variant
+      // request. The surviving copy is the later one: it carries the "in code,
+      // keep exact punctuation" carve-out this one lacked, and it lands last.
     ],
   },
   {

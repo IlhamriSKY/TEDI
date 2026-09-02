@@ -1,4 +1,5 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
+import { registerBridge } from "@/modules/automation/bridge";
 import { sortPinnedFirst } from "@/lib/pinned";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { create } from "zustand";
@@ -478,3 +479,38 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
 export function newWorkspaceId(): string {
   return `ws-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 6)}`;
 }
+
+/**
+ * Workspaces, for the automation bridge.
+ *
+ * The one part of TEDI's shape an agent could not see AT ALL. `panes()` reads
+ * `tabsRef`, which is the ACTIVE workspace's tabs, so every pane in every other
+ * workspace was invisible with nothing saying so - and since 0.4.39 a workspace
+ * is also looked at three ways (tabs, kanban, canvas), which changes what
+ * clicking and dragging even mean. An agent that cannot read `view` is guessing.
+ *
+ * Names and counts only, never `tabs`: the saved tab tree is the biggest object
+ * in the store and an agent asking "which workspace am I in" does not want it.
+ * Read-only on purpose - switching workspaces tears down and rebuilds every
+ * pane, which is not something to hand over without a user asking for it.
+ */
+export function listWorkspacesForAgent(): Array<{
+  id: string;
+  name: string;
+  active: boolean;
+  view: WorkspaceView;
+  tabCount: number;
+  pinned: boolean;
+}> {
+  const { workspaces, activeId } = useWorkspacesStore.getState();
+  return workspaces.map((w) => ({
+    id: w.id,
+    name: w.name,
+    active: w.id === activeId,
+    view: w.view ?? "tabs",
+    tabCount: w.tabs.length,
+    pinned: w.pinned === true,
+  }));
+}
+
+registerBridge({ workspaces: listWorkspacesForAgent });

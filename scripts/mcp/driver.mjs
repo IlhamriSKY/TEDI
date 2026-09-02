@@ -101,77 +101,12 @@ function charEvent(ch) {
 
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
-/**
- * Rows to pull whenever the TEXT of a terminal buffer matters.
- *
- * `TerminalPaneHandle.getBuffer(n)` returns the last n ROWS of xterm's buffer
- * and then strips the trailing blank ones. `buffer.active.length` is
- * `ybase + rows`, so on a pane that has not scrolled yet those last rows are the
- * EMPTY ones below the cursor: ask for fewer rows than the viewport is tall and
- * every row you get back is blank, they are all stripped, and the answer is "".
- *
- * Not an error - an empty string, which a change-detector reads as "nothing has
- * happened yet". That is how a 12-row read turned `sh("echo hi")` on a fresh
- * pane into a full 20-second timeout reporting "still running" for a command
- * that had already finished. Trimming to what the caller asked for is free in
- * JS afterwards; guessing low at the source is not.
- */
-const BUFFER_ROWS = 200;
-
-/**
- * `sh`'s poll projection: flags plus a 32-bit FNV-1a of the buffer, computed in
- * the page. `sh` needs to know only whether the buffer CHANGED, and comparing
- * the text itself means shipping every open pane's ~20KB scrollback across the
- * DevTools socket every 150ms for the whole life of the command.
- */
-const SH_PROBE =
-  "{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hash: (() => {" +
-  " let h = 2166136261; const s = t.text;" +
-  " for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }" +
-  " return h >>> 0; })() }";
-
-/**
- * Index of a splitter BETWEEN TWO PANES among all resize handles, or -1.
- *
- * Shared by `paneHandleIndex()` and `state()` rather than written twice: `state`
- * folds it into its single round trip, and two copies of this would drift.
- *
- * The obvious version - "the first handle inside the leaf's closest panel
- * group" - is wrong in a way that only shows up with ONE pane open: a single
- * leaf renders no group at all (`PaneTreeView`), so `closest` walks up to the
- * app's outer layout and the answer comes back 0, which is the SIDEBAR's handle.
- * Dragging that collapses the sidebar and takes every later explorer and editor
- * step with it, silently. So identify the group by its own children instead:
- * only pane panels carry `id="pane-<leafId>"`, where the outer layout's are
- * `sidebar` / `workspace` / `right-slot`.
- */
-const PANE_HANDLE_EXPR = `(() => {
-  const inPaneGroup = (h) => {
-    const g = h.closest('[data-slot=resizable-panel-group]');
-    if (!g) return false;
-    // Panels belonging to THIS group, not to one nested inside it, and not
-    // matched through a wrapper the panel library might add. A split inside a
-    // split gives every level its own pane- panels, so ownership has to be
-    // decided by the panel's own nearest group.
-    const mine = [...g.querySelectorAll('[data-slot=resizable-panel][id^="pane-"]')]
-      .filter((p) => p.closest('[data-slot=resizable-panel-group]') === g);
-    return mine.length >= 2;
-  };
-  return [...document.querySelectorAll('[data-slot=resizable-handle]')].findIndex(inPaneGroup);
-})()`;
-
-/**
- * Last `n` lines of a buffer, trimmed of the trailing blank run - as a source
- * fragment, because every use of it now runs IN THE PAGE (see
- * `#terminalsReduced`). The Node-side copy is gone: trimming here meant
- * shipping the untrimmed buffer to Node first, which was the point.
- *
- * `\\n` is deliberate. This string is INJECTED JS, so the escape has to survive
- * into the page's parser as a newline; a single backslash would split on a
- * literal two-character sequence and quietly return the whole buffer as the
- * "tail" - a bug every `includes()` assertion passes straight through.
- */
-const TAIL_FN = `(s, n) => String(s ?? "").trimEnd().split("\\n").slice(-n).join("\\n")`;
+// SH_PROBE, PANE_HANDLE_EXPR and TAIL_FN are gone. Every one of them was an
+// injected-JS fragment, and injection is CDP, and CDP is Windows-only - which is
+// why `state`, `sh`, `wait_for_terminal` and `read` could not run on macOS or
+// Linux at all. The same reductions now live in the app
+// (`modules/automation/domState.ts` and the `termTails` / `termProbe`
+// capabilities) and are reached by name over whichever transport is available.
 
 /** `Ctrl+Shift+P` -> the CDP key event fields for one press. Exported for the
  *  sweep's chord check, which is the only guard on the virtual-key mapping: the
@@ -437,6 +372,8 @@ export class Driver {
   constructor(cdp, target) {
     this.cdp = cdp;
     this.target = target;
+    /** Set by `bridgeOnlyDriver`. See `#tedi`. */
+    this.bridgeCall = null;
   }
 
   /** Await this before the process exits, or the next run cannot attach. */
@@ -492,15 +429,14 @@ export class Driver {
 
   /** Run a TEDI command by shortcut id (see `commands()`), bypassing the palette. */
   async cmd(id) {
-    const ok = await this.eval(`window.__tedi?.runCommand(${JSON.stringify(id)}) ?? null`);
-    if (ok === null)
-      throw new Error("window.__tedi missing: is this TEDI, and is the build current?");
-    if (!ok) throw new Error(`No handler registered for command "${id}" right now`);
-    return ok;
+    // `runCommandStrict`, not `runCommand`: an unregistered command must THROW,
+    // or `run_command` answers "ran <id>" for something that never ran. The
+    // check used to live here, which is exactly why this could not be bridged.
+    return this.#tedi("runCommandStrict", String(id));
   }
 
   commands() {
-    return this.eval("window.__tedi?.listCommands() ?? []");
+    return this.#tedi("listCommands");
   }
 
   /**
@@ -512,58 +448,17 @@ export class Driver {
    * a script can type `git status` but never find out what it printed.
    */
   /**
-   * Read every terminal and REDUCE EACH ONE IN THE PAGE, returning only what
-   * `project` builds.
-   *
-   * The reduction has to happen here, not in Node, and that is the single
-   * biggest efficiency fact about this driver. Every text read must ask xterm
-   * for `BUFFER_ROWS` rows (see the constant - asking for fewer returns ""), so
-   * a poll loop that reduces on the Node side ships the whole ~20KB buffer of
-   * every open pane across the DevTools socket several times a second, to
-   * compare it against a string or slice three lines off the end. Projecting
-   * in-page sends back the answer instead of the haystack.
-   *
-   * `project` is a JS expression over `t` (one terminal: leafId, atPrompt,
-   * running, text) and `tail(s, n)`.
-   *
-   * `rows` may ONLY be lowered by a projection that never touches `t.text`.
-   * `getBuffer(n)` returns the last n ROWS and strips the trailing blank ones,
-   * and on a pane that has not scrolled those last rows ARE the blanks, so a
-   * narrow read hands back "" - not an error, an empty string a change-detector
-   * reads as "nothing happened". The prompt-wait poll qualifies because it reads
-   * two booleans; nothing else does.
-   */
-  async #terminalsReduced(project, rows = BUFFER_ROWS) {
-    const out = await this.eval(`(() => {
-      const list = window.__tedi?.terminals?.(${Number(rows)});
-      if (!list) return null;
-      const tail = ${TAIL_FN};
-      return list.map((t) => (${project}));
-    })()`);
-    if (out === null) {
-      throw new Error(
-        "window.__tedi.terminals missing. The automation surface only exists when TEDI was STARTED " +
-          "with TEDI_DEBUG_PORT set (Rust injects the flag the frontend keys off), so setting it " +
-          "after launch is too late. Restart with it, in a dev or a release build alike.",
-      );
-    }
-    return out;
-  }
-
-  /**
    * Read every terminal: its buffer, whether it is sitting at a prompt, and
    * whether a command is still running.
    *
    * `lines` is how many lines you get BACK, never how many rows xterm is asked
-   * for - that is always `BUFFER_ROWS`, and the trim happens in the page. The
+   * for - the capability always reads wide and trims after. The
    * distinction used to be the caller's problem and it was the source of a real
    * bug: a small `lines` reached `getBuffer` as a small ROW count and came back
    * empty on any pane that had not scrolled. Passing 1 here is now honest.
    */
   terminals(lines = 200) {
-    return this.#terminalsReduced(
-      `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, text: tail(t.text, ${Number(lines)}) }`,
-    );
+    return this.#tedi("termTails", Number(lines));
   }
 
   /** Boolean form of `waitTerminal`'s prompt case, for `command()`. `running`
@@ -580,15 +475,7 @@ export class Driver {
    * take focuses back to an older pane.
    */
   focusedLeaf() {
-    // `:not([data-pane-private])` is the privacy filter, and it has to be on the
-    // MATCHED element, not applied afterwards: focus resting in a private pane
-    // used to return that pane's id, which every `sh` / `read terminal` /
-    // `save_editor` call then used as its default target. The honest answer is
-    // null - the driver already handles "no focused leaf".
-    return this.eval(
-      `(() => { const el = document.activeElement?.closest('[data-pane-leaf]:not([data-pane-private])');
-        return el ? Number(el.getAttribute('data-pane-leaf')) : null; })()`,
-    );
+    return this.#tedi("focusedLeaf");
   }
 
   /**
@@ -601,7 +488,22 @@ export class Driver {
    * property and the cause is three minutes back in the launch command.
    */
   async #tedi(fn, ...args) {
-    const call = `window.__tedi?.${fn}?.(${args.map((a) => JSON.stringify(a)).join(", ")}) ?? null`;
+    // A bridge-backed driver calls the capability directly. That is what lets
+    // the COMPOSITE methods below - `sh`, `waitTerminal` - run over the local
+    // socket without a second copy of their poll loops: every primitive they use
+    // is a capability, so redirecting this one method redirects all of them.
+    if (this.bridgeCall) return await this.bridgeCall(fn, args);
+    // Wrapped as `{ v }`, not returned bare. A capability that legitimately
+    // answers NULL - `focusedLeaf` when focus is outside any pane, `text` when
+    // the selector matches nothing or lands in a private one - is not the same
+    // thing as a capability that is not there, and the old `?? null` could not
+    // tell them apart: an empty selector reported "start TEDI with
+    // TEDI_DEBUG_PORT set", which is both wrong and unactionable.
+    // `Promise.resolve` covers the async capabilities (`state`); CDP is asked to
+    // await the result, so both shapes arrive resolved.
+    const call = `(() => { const f = window.__tedi?.${fn}; return f ? Promise.resolve(f(${args
+      .map((a) => JSON.stringify(a))
+      .join(", ")})).then((v) => ({ v })) : null; })()`;
     const out = await this.eval(call);
     if (out === null) {
       throw new Error(
@@ -610,7 +512,7 @@ export class Driver {
           `this build predates ${fn}.`,
       );
     }
-    return out;
+    return out.v;
   }
 
   /**
@@ -742,6 +644,20 @@ export class Driver {
   }
 
   /**
+   * Every workspace: id, name, which one is ACTIVE, its view, tab count, pinned.
+   *
+   * The one thing `state` cannot tell you. `panes()` reads the ACTIVE
+   * workspace's tab tree, so every pane in every other workspace is absent with
+   * nothing saying so - and `view` decides whether the panes are laid out as
+   * tabs, a kanban board, or a free canvas, which changes what a drag means.
+   * Names and counts only: the saved tab tree is the largest object in the store
+   * and nobody asking "which workspace am I in" wants it.
+   */
+  workspaces() {
+    return this.#tedi("workspaces");
+  }
+
+  /**
    * Write one preference. `true`, or a sentence naming the problem.
    *
    * The write broadcasts on `tedi://prefs-changed`, so the app and an open
@@ -787,7 +703,7 @@ export class Driver {
     // How much tail to report when it returns. NOT how much to poll: waiting for
     // a prompt reads two booleans, so the poll asks for one row and the tail is
     // fetched once at the end; waiting for TEXT has to search the buffer, and
-    // that read must be a full `BUFFER_ROWS` or it can come back empty (see the
+    // that read must be a full-width one or it can come back empty (see the
     // constant).
     lines = 8,
   } = {}) {
@@ -798,19 +714,13 @@ export class Driver {
       const t = (await this.terminals(lines)).find((x) => x.leafId === leaf);
       return { leafId: leaf, done, reason, tail: t?.text ?? "" };
     };
-    // The needle is tested IN THE PAGE. A `text` wait otherwise pulls every
-    // pane's whole buffer across the socket three times a second purely to run
-    // `includes` on it in Node; this ships back one boolean per pane instead.
-    const probe = text
-      ? `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hit: t.text.includes(${JSON.stringify(text)}) }`
-      : `{ leafId: t.leafId, atPrompt: t.atPrompt, running: t.running, hit: false }`;
-    // One row for the prompt case: that probe reads two booleans and never
-    // touches `t.text`, so there is no buffer to build in the page and nothing
-    // for a narrow read to blank out. The `text` case has to search the buffer,
-    // so it pays the full `BUFFER_ROWS` - see `#terminalsReduced`.
-    const probeRows = text ? BUFFER_ROWS : 1;
+    // The needle is tested IN THE APP (`termProbe`), which ships one boolean
+    // per pane instead of every pane's whole buffer three times a second.
     for (;;) {
-      const list = await this.#terminalsReduced(probe, probeRows);
+      // `wantHash: false` - this loop reads two booleans and a substring test,
+      // never the hash, so there is no reason for the app to build a buffer for
+      // the prompt case at all.
+      const list = await this.#tedi("termProbe", text ?? null, false, target);
       // Nothing will ever come back, so stalling the full timeout would only
       // hide the mistake (waiting on an editor pane, or on a private one).
       if (!list.length)
@@ -844,11 +754,12 @@ export class Driver {
    * centre happened to be.
    */
   async focusPane(leafId) {
-    if (!(await this.#tedi("focusLeaf", Number(leafId)))) return false;
-    // Verified, not assumed. The handle exists for panes in BACKGROUND tabs too,
-    // and `focus()` on a hidden element does nothing, so "the handle answered"
-    // is not the same as "the next keystroke lands there".
-    return (await this.focusedLeaf()) === Number(leafId);
+    // Verified in-realm by `focusPaneVerified`, not assumed. The handle exists
+    // for panes in BACKGROUND tabs too, and `focus()` on a hidden element does
+    // nothing, so "the handle answered" is not "the next keystroke lands there".
+    // The verify used to be a second round trip from here, which is why this
+    // could not be bridged.
+    return this.#tedi("focusPaneVerified", Number(leafId));
   }
 
   /** Write straight to a terminal's PTY. See `sh`, which is the safe half. */
@@ -879,7 +790,7 @@ export class Driver {
    * opening one on purpose is legitimate, and the buffer is still the answer.
    */
   async sh(text, { leafId = null, timeout = 20000, lines = 60, settle = 150 } = {}) {
-    const list = await this.#terminalsReduced(SH_PROBE);
+    const list = await this.#tedi("termProbe", null);
     if (!list.length) throw new Error("No terminal pane is open. Run `cmd tab.new` first.");
     // Which pane, decided explicitly. The focused leaf is often NOT a terminal -
     // `data-pane-leaf` is on every leaf, so an editor or browser pane answers
@@ -909,7 +820,9 @@ export class Driver {
     const deadline = Date.now() + timeout;
     for (;;) {
       await sleep(settle);
-      const now = (await this.#terminalsReduced(SH_PROBE)).find((t) => t.leafId === target);
+      const now = (await this.#tedi("termProbe", null, true, target)).find(
+        (t) => t.leafId === target,
+      );
       if (!now) throw new Error(`Terminal ${target} disappeared mid-command`);
       // Hashes, not the text itself. "Has the buffer changed" is one bit, and
       // shipping ~20KB across the socket every 150ms to answer it is the whole
@@ -1089,18 +1002,7 @@ export class Driver {
    * CodeMirror virtualises, so a long file returns only the rendered window.
    */
   text(selector, { nth = 0 } = {}) {
-    return this.eval(`(() => {
-      const el = document.querySelectorAll(${JSON.stringify(selector)})[${Number(nth)}];
-      if (!el) return null;
-      // A selector that happens to land inside a private pane is the DOM route
-      // around the privacy rule: '.cm-content' reads a private editor's buffer
-      // line by line, and CodeMirror renders it as ordinary text. Refuse by
-      // ancestry rather than by selector, so no future selector reopens it.
-      if (el.closest && el.closest('[data-pane-private]')) return null;
-      const lines = el.classList?.contains("cm-content") ? el.querySelectorAll(".cm-line") : [];
-      if (lines.length) return [...lines].map((l) => l.textContent).join("\\n");
-      return el.innerText || el.textContent || "";
-    })()`);
+    return this.#tedi("text", String(selector), Number(nth));
   }
 
   /**
@@ -1118,7 +1020,7 @@ export class Driver {
    * outer layout's are `sidebar` / `workspace` / `right-slot`.
    */
   paneHandleIndex() {
-    return this.eval(PANE_HANDLE_EXPR);
+    return this.#tedi("paneHandle");
   }
 
   /**
@@ -1131,77 +1033,18 @@ export class Driver {
    * is the discovery list, so a script can find a control by aria-label instead
    * of guessing at class names.
    */
-  async state({ tail = 3, buttons = false } = {}) {
-    return await this.eval(`(() => {
-      const q = (s) => [...document.querySelectorAll(s)];
-      const kind = (el) => el.querySelector('.xterm-screen') ? 'terminal'
-        : el.querySelector('.cm-content') ? 'editor' : 'browser';
-      const modal = document.querySelector('[role=dialog][data-state=open],[role=alertdialog][data-state=open]');
-      const a = document.activeElement;
-      const focusLeaf = a?.closest('[data-pane-leaf]');
-      return {
-        window: { w: innerWidth, h: innerHeight },
-        sidebar: Math.round(document.querySelector('[data-testid=sidebar]')?.getBoundingClientRect().width ?? 0),
-        tabs: (() => {
-          // A tab's innerText is '<leaf number>\\n<name>' per leaf, so a split tab
-          // repeats the same name once per pane and the FIRST line is a bare
-          // number. Drop the numeric lines, dedupe the rest, keep the first
-          // element per id (the group wrapper, which covers every leaf in it).
-          const seen = new Map();
-          for (const e of q('[data-tab-id]')) {
-            const id = e.getAttribute('data-tab-id');
-            if (seen.has(id)) continue;
-            const lines = (e.innerText || '').split('\\n').map((l) => l.trim())
-              .filter((l) => l && !/^\\d+$/.test(l));
-            seen.set(id, [...new Set(lines)].join(' | ').slice(0, 48));
-          }
-          return [...seen].map(([id, label]) => ({ id: Number(id), label }));
-        })(),
-        leaves: q('[data-pane-leaf]:not([data-pane-private])').map((e) => ({ id: Number(e.getAttribute('data-pane-leaf')), kind: kind(e) })),
-        focusLeaf: focusLeaf && !focusLeaf.hasAttribute('data-pane-private') ? Number(focusLeaf.getAttribute('data-pane-leaf')) : null,
-        focus: a ? a.tagName + (a.placeholder ? ' "' + a.placeholder + '"' : '') : null,
-        dialog: modal ? modal.getAttribute('role') + ': ' + (modal.textContent || '').trim().slice(0, 60) : null,
-        toasts: q('button').filter((b) => /^dismiss$/i.test((b.getAttribute('aria-label') || b.textContent || '').trim())).length,
-        // Opt-in. With Source Control open this is 60+ aria-labels, which is
-        // several hundred tokens of the agent's context on a verb it is told to
-        // call constantly. It is a DISCOVERY list - useful once, then never
-        // again - so it is fetched once, deliberately.
-        buttons: ${buttons ? "true" : "false"} ? [...new Set(q('button[aria-label]').map((b) =>
-          // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
-          // siblings are one control, and listing each one buries the rest of
-          // the UI. Only a trailing path-shaped token is folded.
-          b.getAttribute('aria-label').replace(/\\s\\S*[\\\\\\/]\\S*$/, ' <path>')))].sort() : undefined,
-        // -1 when only one pane is open, which is the honest answer: there is no
-        // splitter between panes to drag yet.
-        paneHandle: ${PANE_HANDLE_EXPR},
-        // The window.__tedi half, folded into the SAME round trip. It used to
-        // be three more: paneHandle, terminals, panes. state() is the verb an
-        // agent is told to call before every move, so four DevTools round trips
-        // and a full 200-row buffer per pane was the driver's dominant cost.
-        // (No backticks anywhere in here - this whole block is one template
-        // literal, and one in a comment ends it. It cost a syntax error once.)
-        //
-        // Degrades instead of throwing, in-page: this is the verb reached for
-        // when something is ALREADY wrong, and the DOM half above (leaves, the
-        // RENDERED layout) stays useful when the automation surface is missing.
-        ...(() => {
-          try {
-            const list = window.__tedi?.terminals?.(${BUFFER_ROWS});
-            const panes = window.__tedi?.panes?.();
-            if (!list || !panes) return { panes: [], tediError: 'window.__tedi is missing: start TEDI with TEDI_DEBUG_PORT set (a dev or a release build alike); setting it after launch is too late.' };
-            // Tails merged INTO the pane list rather than sitting in a list of
-            // their own: one row per pane carrying both what the pane IS and
-            // what it last printed. Read wide (see BUFFER_ROWS - a narrow read
-            // returns ""), trimmed here, so only the tail crosses the socket.
-            const tailOf = ${TAIL_FN};
-            const tails = new Map(list.map((t) => [t.leafId, tailOf(t.text, ${Number(tail)})]));
-            return { panes: panes.map((p) => tails.has(p.leafId) ? { ...p, tail: tails.get(p.leafId) } : p) };
-          } catch (err) {
-            return { panes: [], tediError: String(err && err.message ? err.message : err) };
-          }
-        })(),
-      };
-    })()`);
+  /**
+   * Snapshot of the window: tabs, panes, focus, dialog, toasts, pane handle,
+   * and each pane's last lines.
+   *
+   * The whole 68-line DOM read used to be INJECTED here as a template literal,
+   * which made it CDP-only - and CDP is Windows-only, so `state` (the verb every
+   * agent is told to call first) did not exist at all on macOS or Linux. It now
+   * lives in the app as `modules/automation/domState.ts` and is reached by name,
+   * so both transports run the SAME code and the socket path works everywhere.
+   */
+  state({ tail = 3, buttons = false } = {}) {
+    return this.#tedi("state", { tail, buttons });
   }
 
   async waitFor(selector, { nth = 0, timeout = 10000 } = {}) {
@@ -1352,4 +1195,33 @@ export class Driver {
     await writeFile(file, Buffer.from(data, "base64"));
     return file;
   }
+}
+
+/**
+ * Driver methods that are pure COMPOSITIONS of bridged capabilities.
+ *
+ * Each is a loop over `#tedi` calls and nothing else - no `this.eval`, no
+ * `this.cdp`, no trusted input - so a driver whose `#tedi` points at the local
+ * socket runs them unchanged. That is what makes `sh` and `wait_for_terminal`
+ * work on macOS and Linux, where the DevTools port does not exist, WITHOUT a
+ * second copy of the poll loops (which would drift, and drift here is a silent
+ * wrong answer rather than an error).
+ *
+ * They are not in `BRIDGED` because they are not single capability calls;
+ * `driver-verify` checks that distinction from both sides.
+ */
+export const COMPOSITE = ["sh", "waitTerminal", "waitForPrompt"];
+
+/**
+ * A `Driver` with no DevTools connection at all, whose `#tedi` calls go straight
+ * to a capability caller.
+ *
+ * Only the `#tedi`-only methods and the COMPOSITE ones above will work on it -
+ * anything reaching for `this.cdp` throws, which is the honest answer for a
+ * platform with no debug port.
+ */
+export function bridgeOnlyDriver(call) {
+  const d = new Driver(null, null);
+  d.bridgeCall = call;
+  return d;
 }

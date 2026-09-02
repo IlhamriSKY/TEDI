@@ -24,7 +24,7 @@
  * exactly as before; this decides where that lands.
  */
 
-import { connect } from "./driver.mjs";
+import { bridgeOnlyDriver, connect, COMPOSITE } from "./driver.mjs";
 import { connectBridge } from "./socket.mjs";
 
 /**
@@ -41,6 +41,29 @@ import { connectBridge } from "./socket.mjs";
  */
 export const BRIDGED = {
   panes: "panes",
+  // The DOM reads and the terminal reductions. These were the LAST CDP-only
+  // calls that did not genuinely need a trusted input event or the compositor,
+  // and CDP is Windows-only - so `state`, `sh`, `read`, `run_command`,
+  // `wait_for_terminal`, `focus_pane` and `inspect commands` did not work on
+  // macOS or Linux at all. Each now names a real in-app capability that does the
+  // SAME work the injected JS used to (`modules/automation/domState.ts`,
+  // `usePaneHandles.ts`, `commandRegistry.ts`), so there is one implementation
+  // and both transports get the same answer.
+  state: "state",
+  text: "text",
+  focusedLeaf: "focusedLeaf",
+  paneHandleIndex: "paneHandle",
+  commands: "listCommands",
+  cmd: "runCommandStrict",
+  focusPane: "focusPaneVerified",
+  // `termTails`, NOT the app's `terminals`. The driver's `terminals(lines)`
+  // means "give me the last `lines` LINES"; the app's `terminals(rows)` means
+  // "ask xterm for `rows` ROWS", and a row count below the viewport comes back
+  // "" on a pane that has not scrolled. Mapping one to the other would turn
+  // `lines: 60` into a 60-ROW read and, on a fresh pane, an empty answer that a
+  // change-detector reads as "nothing happened". `termTails` reads wide, trims
+  // after.
+  terminals: "termTails",
   termWrite: "termWrite",
   editors: "editors",
   editorSave: "editorSave",
@@ -49,6 +72,7 @@ export const BRIDGED = {
   extCommand: "runExtensionCommand",
   extControl: "extControl",
   settings: "settings",
+  workspaces: "workspaces",
   setSetting: "setSetting",
   sshConnections: "sshConnections",
   sshConnect: "sshConnect",
@@ -62,30 +86,28 @@ export const BRIDGED = {
 };
 
 /**
- * DELIBERATELY NOT BRIDGED, and why - each of these looks bridgeable and is not.
- * The verify above enforces the rule mechanically; this records the reasoning so
- * nobody "completes" the map without doing the work each one needs.
+ * WHAT IS STILL CDP-ONLY, AND WHY.
  *
- *   `focusPane`  calls `focusLeaf` and then VERIFIES with `focusedLeaf()`, a DOM
- *                read. The handle exists for panes in background tabs too, and
- *                `focus()` on a hidden element does nothing, so bridging it would
- *                return "the handle answered" as if it meant "the next keystroke
- *                lands there".
- *   `cmd`        throws when `runCommand` returns false. Bridged, the raw boolean
- *                would come back and `run_command`'s handler would answer
- *                `ran <id>` for a command that never ran - a fake success.
- *   `commands`   swallows a missing surface with `?? []` rather than throwing,
- *                which `#tedi` does not. Same list, different failure semantics.
- *   `terminals`  reduces IN THE PAGE (tail / hash / substring), which is what
- *                keeps `sh`'s poll loop from shipping ~20KB of scrollback per
- *                pane per tick. `sh` and `wait_for_terminal` share that path.
- *   `state`, `text`, `focusedLeaf`, `box`, `metrics` read the DOM.
- *   `keys`, `type`, `click`, `drag`, `screenshot`, `eval_js` need a trusted
- *                input event or the compositor.
+ *   `keys`, `type`, `click`, `drag`, `screenshot`  need a TRUSTED input event or
+ *                the compositor. `Input.dispatchKeyEvent` produces an event the
+ *                page treats as real; a synthetic DOM event is not the same
+ *                thing, and no in-realm capability can be.
+ *   `eval_js`    is arbitrary JS in the page, which is what CDP IS.
+ *   `box`, `metrics`  are geometry reads that only matter alongside the input
+ *                verbs above, so they follow them.
+ *   `logs`       is CDP's own console ring buffer, kept in this process. There
+ *                is no in-realm twin, and inventing one that returned an empty
+ *                list would read as "nothing was logged".
  *
- * Bridging the first four needs a matching capability registered in the app -
- * one that verifies focus in-realm, preserves the throw, and does the terminal
- * reduction there. Worth doing; not worth guessing at.
+ * Everything else that used to be here - `state`, `text`, `focusedLeaf`,
+ * `terminals`, `cmd`, `commands`, `focusPane` - is bridged now, and `sh` /
+ * `waitTerminal` reach the socket as COMPOSITE methods (see `driver.mjs`), which
+ * is what makes the always-on `tedi` pack work on macOS and Linux at all. Each
+ * needed a capability that preserved its semantics, not a raw rename: `cmd` has
+ * to THROW on an unregistered id or `run_command` reports a fake success,
+ * `focusPane` has to VERIFY focus landed rather than report that a handle
+ * existed, and the terminal reads have to reduce in-realm or every poll ships a
+ * whole scrollback.
  */
 
 /**
@@ -98,6 +120,10 @@ export const BRIDGED = {
  */
 const COERCE = {
   termWrite: (leafId, data) => [Number(leafId), String(data)],
+  text: (selector, nth = 0) => [String(selector), Number(nth)],
+  cmd: (id) => [String(id)],
+  focusPane: (leafId) => [Number(leafId)],
+  terminals: (lines = 200) => [Number(lines)],
   editors: (maxChars = 20000) => [Number(maxChars)],
   editorSave: (leafId) => [Number(leafId)],
   openFile: (file) => [String(file)],
@@ -220,6 +246,17 @@ export function makeTransport({ port } = {}) {
             throw new Error(
               `${e.message}${bridgeErr ? ` (and the local bridge: ${bridgeErr.message})` : ""}`,
             );
+          }
+        }
+        // A COMPOSITE method is a loop over bridged capabilities and nothing
+        // else, so it runs on a driver whose `#tedi` points at the socket. That
+        // is what makes `sh` and `wait_for_terminal` work where there is no
+        // DevTools port at all, without a second copy of their poll loops.
+        if (COMPOSITE.includes(method)) {
+          const b = await getBridge();
+          if (b) {
+            const d = bridgeOnlyDriver((name, callArgs) => b.call(name, callArgs));
+            return await d[method](...args);
           }
         }
         const d = await getCdp();

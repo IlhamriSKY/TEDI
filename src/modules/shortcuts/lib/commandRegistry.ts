@@ -74,4 +74,18 @@ export function listCommands(): string[] {
   return [...registry.keys()].sort();
 }
 
-registerBridge({ runCommand, hasCommand, listCommands });
+/**
+ * `runCommand`, but a command with no handler is an ERROR, not `false`.
+ *
+ * The distinction is the whole reason this exists. `run_command` answers
+ * `ran <id>` on success, so a bare boolean crossing the bridge would have the
+ * MCP handler report success for a command that never ran - a fake success, and
+ * the reason `cmd` could not simply be bridged. The CDP driver already threw
+ * here; this keeps the two transports answering identically.
+ */
+export function runCommandStrict(id: ShortcutId): true {
+  if (!runCommand(id)) throw new Error(`No handler is registered for command "${id}" right now`);
+  return true;
+}
+
+registerBridge({ runCommand, runCommandStrict, hasCommand, listCommands });

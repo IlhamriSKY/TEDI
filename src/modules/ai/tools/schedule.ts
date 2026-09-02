@@ -94,6 +94,23 @@ function coerceArray(v: unknown): unknown {
   return [v];
 }
 
+/**
+ * Upper bound for the small non-negative integers TEDI tools take: pane, tab and
+ * leaf ids, shell handles, ordinals, line offsets.
+ *
+ * BOUNDS ARE TOKENS, NOT DECORATION. Zod renders a bare `z.number().int()` with
+ * the full safe-integer range, so every unbounded field ships
+ * `"minimum":-9007199254740991,"maximum":9007199254740991` - 55 characters that
+ * tell the model nothing, on every tool that takes one, on every request.
+ *
+ * i32 is chosen because it is unreachable for all of them, not merely generous:
+ * ids come from one monotonic in-process counter, and no file has two billion
+ * lines. A bound must stay unreachable - a rejected value comes back to the model
+ * as a tool-error it has to spend a step correcting, so a bound that a real call
+ * could exceed trades 55 characters for a wasted round trip.
+ */
+export const PANE_ID_MAX = 2_147_483_647;
+
 /** Optional int that tolerates stringified numbers and explicit null.
  *  Output is `number | undefined`. */
 export function flexIntOpt(opts: { min?: number; max?: number } = {}) {
@@ -130,9 +147,9 @@ export function flexArrayOpt<T extends z.ZodTypeAny>(item: T) {
 
 const targetObjectSchema = z
   .object({
-    leaf_id: flexIntOpt(),
-    tab_id: flexIntOpt(),
-    ordinal: flexIntOpt({ min: 1 }),
+    leaf_id: flexIntOpt({ min: 0, max: PANE_ID_MAX }),
+    tab_id: flexIntOpt({ min: 0, max: PANE_ID_MAX }),
+    ordinal: flexIntOpt({ min: 1, max: 10_000 }),
     title: z.string().nullable().optional(),
   })
   .strict();
