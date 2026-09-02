@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (124 commands today).
+index of the backend API surface (126 commands today).
 
 ```mermaid
 flowchart LR
@@ -167,7 +167,7 @@ explicit "add a key" error. The layering:
 - **`lib/`**: the engine. `agent.ts` (builds the model, assembles the system
   prompt, runs `streamText` with the stop guards), `transport.ts` (retries,
   over-context recovery, the per-turn `<env>` block), `composer.tsx`, `sessions.ts`,
-  history `compact.ts` / `checkpoint.ts`, prompt `cache.ts`, `skills.ts`,
+  history `compact.ts` / `checkpoint.ts`, prompt `cache.ts`,
   `mcpClient.ts`, `prompts.ts` (every built-in prompt is user-overridable), and
   `security.ts` (the symlink-resolved secret deny-list, on both read and write).
 - **`tools/`**: the agent's tool definitions, including a full browser-automation

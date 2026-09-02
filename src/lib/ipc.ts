@@ -40,3 +40,15 @@ export const IPC_EVENTS = {
   /** Rust -> main window: run a command registry id passed to `tedi cmd <id>` (single-instance forward). */
   RUN_COMMAND: "tedi:run-command",
 } as const;
+
+/**
+ * Decode one base64 data frame from a Rust `Channel`. Both streaming channels
+ * (PTY and SSH) carry their bytes this way, so the decoder lives here with the
+ * payload shapes rather than being copied into each bridge.
+ */
+export function decodeBase64(b64: string): Uint8Array {
+  const bin = atob(b64);
+  const arr = new Uint8Array(bin.length);
+  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+  return arr;
+}

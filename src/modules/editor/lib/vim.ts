@@ -69,3 +69,15 @@ export function initVimGlobals(): void {
   Vim.map("<Left>", "h", "visual");
   Vim.map("<Right>", "l", "visual");
 }
+
+/**
+ * True when real keyboard focus sits inside an editor that has vim mode on.
+ *
+ * Keyed off REAL focus, not the active leaf: with an editor leaf active but
+ * focus in the explorer, the AI composer or a dialog, the app chords must still
+ * fire. `data-vim-mode` is set by `EditorPane`.
+ */
+export function isVimEditorFocused(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  return !!el?.closest('[data-vim-mode="on"]');
+}

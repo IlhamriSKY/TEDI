@@ -100,10 +100,6 @@ export async function getChatGptAccount(): Promise<ChatGptAccount | null> {
   return { email: t.email, plan: t.plan, accountId: t.account_id };
 }
 
-export async function isSignedInToChatGpt(): Promise<boolean> {
-  return (await readTokens()) !== null;
-}
-
 // Concurrent turns (a chat plus a sub-agent, or two sub-agents) would each see
 // the same expiring token and each burn a refresh. Share one in-flight attempt.
 let refreshing: Promise<ChatGptTokens | null> | null = null;

@@ -56,28 +56,14 @@ export function runCommand(id: ShortcutId): boolean {
 }
 
 /**
- * Automation surface for tooling driving TEDI over the WebView2 DevTools
- * Protocol (`TEDI_DEBUG_PORT`, see `scripts/mcp/`). Running a command by id
- * is deterministic where fuzzy-typing into the Command Palette is not, and
- * `listCommands` tells the driver what this build actually has registered.
+ * Automation surface for tooling driving TEDI (see `scripts/mcp/`). Running a
+ * command by id is deterministic where fuzzy-typing into the Command Palette is
+ * not, and `listCommands` tells the driver what this build actually has
+ * registered.
  *
- * Present only when TEDI was started with `TEDI_DEBUG_PORT`, in a dev build and
- * a released one alike: Rust injects `window.__TEDI_AUTOMATION__` from the same
- * env var that opens the port (see `lib.rs`), so one switch governs both halves
- * and neither exists without it. Not gated on the build profile, because the app
- * worth automating is often the one that shipped.
- *
- * That it is gated at all is about surface, not privilege: a DevTools client
- * could reach all of this anyway, and extension code shares this realm already
- * (see `extensions/permissions.ts` on the v1 trust model). But pane reads and
- * writes hang off the same object, and nothing here has any reason to exist in a
- * session that never asked to be driven.
- *
- * Merged, not assigned: FOUR files contribute to `window.__tedi` - this one
- * (commands), `usePaneHandles` (every pane, and reading/writing terminals and
- * editors), `useFileActions` (open a file by path) and `extensions/store`
- * (installed extensions and their own command registry) - and none may clobber
- * the others, in whichever order they happen to evaluate.
+ * Registration is one of the seven contributors to `modules/automation/bridge`,
+ * which owns the whole surface; see that file for why registering is ungated and
+ * only the `window.__tedi` mirror is gated on `TEDI_DEBUG_PORT`.
  */
 /** Every command id this build has actually registered, sorted. Exported rather
  *  than inlined below because BOTH transports need it: an outside AI CLI through

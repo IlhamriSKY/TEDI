@@ -1,8 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
-import { useEffect, useRef, useState } from "react";
-import { toForwardSlash } from "@/lib/path";
-import { coalesceResume } from "@/lib/windowResume";
-import { joinPath } from "@/lib/path";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { joinPath, toForwardSlash } from "@/lib/path";
+import { useVisibilityPoll } from "@/lib/windowResume";
 import { parentDir, tryReadText } from "@/modules/editor/lib/formatters/configWalk";
 import {
   PROJECT_URL_FILES,
@@ -133,16 +132,48 @@ const DEAD_STRIKES = 2;
  */
 export function useLiveUrl(urls: string[]): string | null {
   const [live, setLive] = useState<string | null>(null);
-  // Read inside the interval so a candidate change does not have to tear the
-  // timer down; `key` below is what actually restarts the effect.
+  // Read inside the probe so a candidate change does not have to tear the timer
+  // down; `key` below is what actually restarts the effect.
   const urlsRef = useRef(urls);
   urlsRef.current = urls;
   // The joined string, NOT the array: the caller's memo recomputes on every
   // `tabs` change (any leaf added, closed or focused), and depending on the
-  // array identity would rebuild the interval each time.
+  // array identity would restart the poll each time.
   const key = urls.join("|");
 
+  const strikes = useRef(0);
+  // Load-bearing, not decorative: `port_is_open`'s DNS half is an untimed
+  // `spawn_blocking(to_socket_addrs)` (only the connect gets the 600ms timeout),
+  // so an unresolvable `.test` vhost can outlast the interval.
+  const inFlight = useRef(false);
+  // Bumped whenever the candidate list changes, so a probe that resolves after
+  // the switch cannot publish a url from the list it started against.
+  const generation = useRef(0);
+
+  const probe = useCallback(async () => {
+    if (inFlight.current) return;
+    inFlight.current = true;
+    const mine = generation.current;
+    try {
+      for (const url of urlsRef.current) {
+        const up = await isUp(url);
+        if (generation.current !== mine) return;
+        if (up) {
+          strikes.current = 0;
+          setLive(url);
+          return;
+        }
+      }
+      strikes.current++;
+      if (strikes.current >= DEAD_STRIKES) setLive(null);
+    } finally {
+      inFlight.current = false;
+    }
+  }, []);
+
   useEffect(() => {
+    generation.current++;
+    strikes.current = 0;
     const list = urlsRef.current;
     if (list.length === 0) {
       setLive(null);
@@ -151,77 +182,11 @@ export function useLiveUrl(urls: string[]): string | null {
     // Invariant 1. Keeping a still-valid pick stops an unrelated list change
     // from blinking the pill.
     setLive((prev) => (prev && list.includes(prev) ? prev : list[0]));
+    void probe();
+  }, [key, probe]);
 
-    let cancelled = false;
-    let strikes = 0;
-    // Load-bearing, not decorative: `port_is_open`'s DNS half is an untimed
-    // `spawn_blocking(to_socket_addrs)` (only the connect gets the 600ms
-    // timeout), so an unresolvable `.test` vhost can outlast the interval.
-    let inFlight = false;
-
-    const probeNow = async () => {
-      if (inFlight) return;
-      inFlight = true;
-      try {
-        for (const url of urlsRef.current) {
-          const up = await isUp(url);
-          if (cancelled) return;
-          if (up) {
-            strikes = 0;
-            setLive(url);
-            return;
-          }
-        }
-        strikes++;
-        if (strikes >= DEAD_STRIKES) setLive(null);
-      } finally {
-        inFlight = false;
-      }
-    };
-
-    let intervalId: number | null = null;
-    const start = () => {
-      if (intervalId !== null) return;
-      intervalId = window.setInterval(() => {
-        if (document.visibilityState === "visible") void probeNow();
-      }, PROBE_MS);
-    };
-    const stop = () => {
-      if (intervalId !== null) {
-        window.clearInterval(intervalId);
-        intervalId = null;
-      }
-    };
-    // Both fire on a return from lock; one coalescer between them stops the
-    // double probe (same pattern as the git / file-tree polls).
-    const probeOnResume = coalesceResume(() => void probeNow());
-    const onVisibility = () => {
-      if (document.visibilityState === "visible") {
-        probeOnResume();
-        start();
-      } else {
-        stop();
-      }
-    };
-    const onFocus = () => {
-      probeOnResume();
-      start();
-    };
-    const onBlur = () => stop();
-
-    void probeNow();
-    if (document.visibilityState === "visible") start();
-    document.addEventListener("visibilitychange", onVisibility);
-    window.addEventListener("focus", onFocus);
-    window.addEventListener("blur", onBlur);
-    return () => {
-      cancelled = true;
-      stop();
-      document.removeEventListener("visibilitychange", onVisibility);
-      window.removeEventListener("focus", onFocus);
-      window.removeEventListener("blur", onBlur);
-    };
-  }, [key]);
+  // Same visible-only timer + resume coalescing as the git / file-tree polls.
+  useVisibilityPoll(() => void probe(), PROBE_MS, urls.length > 0);
 
   return live;
 }

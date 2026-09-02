@@ -10,7 +10,8 @@ import { invoke } from "@tauri-apps/api/core";
 const cache = new Map<string, string>();
 const inflight = new Map<string, Promise<string | null>>();
 
-function mimeForRelPath(rel: string): string {
+/** MIME type for an extension asset path, for building its `data:` URL. */
+export function mimeForRelPath(rel: string): string {
   const lower = rel.toLowerCase();
   if (lower.endsWith(".svg")) return "image/svg+xml";
   if (lower.endsWith(".png")) return "image/png";

@@ -890,7 +890,16 @@ export function EditorPane({
   // Keep CodeMirror mounted during markdown preview; unmounting drops the
   // language compartment and loses highlighting until path changes.
   return (
-    <div ref={outerRef} className="relative flex h-full min-h-0 flex-col">
+    // `data-vim-mode` is what `isVimEditorFocused` (lib/vim) keys the app's
+    // shortcut gate off, so vim keeps the Ctrl chords it defines while this
+    // editor has focus. An attribute, not the preference alone: an extension's
+    // `ctx.ui.codeEditor` is CodeMirror too but has no vim, and would otherwise
+    // swallow those chords into nothing.
+    <div
+      ref={outerRef}
+      data-vim-mode={vimMode ? "on" : undefined}
+      className="relative flex h-full min-h-0 flex-col"
+    >
       <ContextMenu
         onOpenChange={(open) =>
           open && setMenuHasSelection(!cmRef.current?.view?.state.selection.main.empty)

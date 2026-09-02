@@ -786,7 +786,6 @@ pub fn run() {
             mcp::mcp_write,
             mcp::mcp_kill,
             mcp_bridge::mcp_bridge_reply,
-            mcp_bridge::mcp_bridge_info,
             ssh::ssh_open,
             ssh::ssh_write,
             ssh::ssh_resize,
@@ -824,8 +823,6 @@ pub fn run() {
             extensions::commands::ext_enable,
             extensions::commands::ext_disable,
             extensions::commands::ext_uninstall,
-            extensions::commands::github_head_sha,
-            extensions::commands::github_repo_text_files,
         ])
         .on_window_event(|window, event| {
             // Mirror main-window minimize/restore onto the settings child.
@@ -1010,14 +1007,11 @@ mod ui_thread_guard {
         "cli_install_path_shim",
         "cli_take_initial_update_request",
         "http_abort",
-        // Both do in-memory work only, and both are on a hot path where an
-        // `spawn_blocking` hop would cost more than it could ever save.
-        // `mcp_bridge_reply` is one `HashMap::remove` plus a `oneshot::send`, and
-        // it runs once per bridge call, so it is the reply latency of every tool
-        // an outside CLI invokes. `mcp_bridge_info` formats a socket address from
-        // env vars. Neither touches the filesystem, a subprocess or a socket, and
-        // neither holds a lock across an await.
-        "mcp_bridge_info",
+        // In-memory work only, on a hot path where an `spawn_blocking` hop would
+        // cost more than it could ever save: one `HashMap::remove` plus a
+        // `oneshot::send`, run once per bridge call, so it is the reply latency
+        // of every tool an outside CLI invokes. It touches no filesystem,
+        // subprocess or socket, and holds no lock across an await.
         "mcp_bridge_reply",
         "pty_close",
         "pty_resize",

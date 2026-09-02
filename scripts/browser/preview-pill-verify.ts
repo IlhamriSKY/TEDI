@@ -92,19 +92,30 @@ console.log("2. liveness has exactly one authority, and it never stops polling")
     "it walks the candidates and takes the first that answers",
   );
   assert(
-    /strikes\+\+;\s*\n\s*if \(strikes >= DEAD_STRIKES\) setLive\(null\)/.test(projectUrl),
+    /strikes\.current\+\+;\s*\n\s*if \(strikes\.current >= DEAD_STRIKES\) setLive\(null\)/.test(
+      projectUrl,
+    ),
     "and only drops the url after DEAD_STRIKES consecutive dead rounds",
   );
-  // If the effect keyed on the array it would rebuild the interval on every
-  // `tabs` change, which is every leaf add / close / focus.
+  // If the effect keyed on the array it would restart the poll on every `tabs`
+  // change, which is every leaf add / close / focus.
   assert(
-    /const key = urls\.join\("\|"\)/.test(projectUrl) && /\}, \[key\]\);/.test(projectUrl),
+    /const key = urls\.join\("\|"\)/.test(projectUrl) && /\}, \[key, probe\]\);/.test(projectUrl),
     "the effect keys on the joined string, not the array identity",
   );
+  // The gating itself lives in the shared helper the git and file-tree polls
+  // use, so assert BOTH halves: that this file delegates to it, and that the
+  // helper still stops on hide and blur. A hand-rolled second copy was the drift.
   assert(
-    /document\.visibilityState === "visible"/.test(projectUrl) &&
-      /window\.addEventListener\("blur", onBlur\)/.test(projectUrl),
-    "the poll is gated on window visibility like the git and file-tree polls",
+    /useVisibilityPoll\(\(\) => void probe\(\), PROBE_MS, urls\.length > 0\)/.test(projectUrl) &&
+      /from "@\/lib\/windowResume"/.test(projectUrl),
+    "the poll is the shared visibility poll, not a second copy of it",
+  );
+  const windowResume = read("src/lib/windowResume.ts");
+  assert(
+    /document\.visibilityState === "visible"/.test(windowResume) &&
+      /window\.addEventListener\("blur", stop\)/.test(windowResume),
+    "and that helper is gated on window visibility, stopping on hide and blur",
   );
   // The regression that would quietly undo the whole feature.
   assert(

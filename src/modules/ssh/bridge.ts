@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { decodeBase64 } from "@/lib/ipc";
 
 /** First-connect host-key confirmation request from the backend. */
 export type SshHostKeyPrompt = { promptId: string; fingerprint: string; host: string };
@@ -108,13 +109,6 @@ export type SshSession = {
   resize: (cols: number, rows: number) => Promise<void>;
   close: () => Promise<void>;
 };
-
-function decodeBase64(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
 
 export async function openSsh(input: SshOpenInput, handlers: SshHandlers): Promise<SshSession> {
   const channel = new Channel<SshEvent>();

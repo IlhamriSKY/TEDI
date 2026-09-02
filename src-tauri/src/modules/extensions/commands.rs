@@ -674,59 +674,6 @@ pub async fn ext_uninstall(
     Ok(())
 }
 
-/// Default branch + HEAD commit SHA of a public repo, resolved off github.com's
-/// git smart-HTTP (not the REST API), so it carries no 60 req/h rate limit. Used
-/// by the skills installer's lightweight update check.
-#[derive(Debug, Serialize, Clone)]
-pub struct RepoHead {
-    pub branch: String,
-    pub sha: String,
-}
-
-#[tauri::command]
-pub async fn github_head_sha(owner: String, repo: String) -> Result<RepoHead, String> {
-    let owner_repo = super::github::normalize_owner_repo(&format!("{owner}/{repo}"))?;
-    let (o, r) = owner_repo
-        .split_once('/')
-        .ok_or_else(|| "expected owner/repo".to_string())?;
-    let (branch, sha) = super::github::resolve_head(o, r).await?;
-    Ok(RepoHead { branch, sha })
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct RepoTextFile {
-    pub path: String,
-    pub content: String,
-}
-
-#[derive(Debug, Serialize, Clone)]
-pub struct RepoTextFiles {
-    pub branch: String,
-    pub sha: String,
-    pub files: Vec<RepoTextFile>,
-}
-
-/// Every small text file in a public repo, fetched via codeload (no REST API,
-/// no 60 req/h cap, no token). The skills installer scans the returned set for
-/// `SKILL.md` files and their bundled siblings, replacing the per-file GitHub
-/// API + raw fetches it used to make.
-#[tauri::command]
-pub async fn github_repo_text_files(owner: String, repo: String) -> Result<RepoTextFiles, String> {
-    let owner_repo = super::github::normalize_owner_repo(&format!("{owner}/{repo}"))?;
-    let (o, r) = owner_repo
-        .split_once('/')
-        .ok_or_else(|| "expected owner/repo".to_string())?;
-    let (branch, sha, files) = super::github::fetch_repo_text_files(o, r).await?;
-    Ok(RepoTextFiles {
-        branch,
-        sha,
-        files: files
-            .into_iter()
-            .map(|(path, content)| RepoTextFile { path, content })
-            .collect(),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::stamp_files;

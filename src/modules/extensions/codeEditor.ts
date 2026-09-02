@@ -153,6 +153,12 @@ const baseTheme = EditorView.theme({
     backgroundColor: "var(--background) !important",
     color: "var(--foreground)",
     height: "100%",
+    // Same geometry as the editor pane (`editor/lib/extensions.ts`), which is
+    // the whole point of this theme: an extension's editor must not sit lower
+    // in its panel than the editor pane does in its own. This one used to add
+    // 8px above the first line, so SQL Explorer and API Client opened with a
+    // visible gap under their toolbars that no other editor in the app had.
+    padding: "0 0 0 8px",
   },
   ".cm-scroller": {
     fontFamily: `var(--tedi-mono-font, ${MONO_FONT_CSS_FALLBACK})`,
@@ -167,14 +173,21 @@ const baseTheme = EditorView.theme({
   ".cm-content": {
     caretColor: "var(--foreground)",
     backgroundColor: "transparent !important",
-    padding: "8px 0",
+    paddingLeft: "0",
+    marginLeft: "0",
+  },
+  ".cm-line": {
+    paddingLeft: "4px",
   },
   ".cm-gutters": {
     backgroundColor: "var(--background) !important",
     color: "var(--muted-foreground)",
     border: "none",
     borderRight: "1px solid var(--border) !important",
+    marginRight: "0 !important",
+    zIndex: "3",
   },
+  ".cm-gutter": { backgroundColor: "transparent !important" },
   ".cm-lineNumbers": { minWidth: "32px" },
   ".cm-lineNumbers .cm-gutterElement": { opacity: "0.55", padding: "0 8px", textAlign: "right" },
   // Same chevron as the editor pane, but it stays visible instead of appearing

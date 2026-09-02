@@ -10,7 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { Bot, Columns2, Globe, Lock, NotepadText, Plus, Rows2, SquareTerminal } from "lucide-react";
+import { Bot, Columns2, FileCode, Globe, Lock, Plus, Rows2, SquareTerminal } from "lucide-react";
 
 type NewTabMenuProps = {
   onNewTerminal: () => void;
@@ -75,14 +75,14 @@ export function NewTabMenu({
         ) : null}
         <DropdownMenuItem onSelect={() => onOpenAgents()}>
           <Bot size={14} strokeWidth={1.75} />
-          <span className="flex-1 whitespace-nowrap">Agent...</span>
+          <span className="flex-1 whitespace-nowrap">Agents...</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "Shift", "N")}
           </span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNewNote()}>
-          <NotepadText size={14} strokeWidth={1.75} />
-          <span className="flex-1 whitespace-nowrap">Note</span>
+          <FileCode size={14} strokeWidth={1.75} />
+          <span className="flex-1 whitespace-nowrap">Editor</span>
         </DropdownMenuItem>
         <DropdownMenuItem onSelect={() => onNewPreview()}>
           <Globe size={14} strokeWidth={1.75} />

@@ -32,8 +32,50 @@ import {
 } from "@/components/ui/alert-dialog";
 import { CornerUpLeft, Search, Trash2 } from "lucide-react";
 
+/** Stable identity for a chord, so two bindings can be compared. */
+function chordKey(b: KeyBinding): string {
+  return [b.ctrl && "ctrl", b.shift && "shift", b.alt && "alt", b.meta && "meta"]
+    .filter(Boolean)
+    .concat(b.key.toLowerCase())
+    .join("+");
+}
+
+/**
+ * Every action that claims each chord, across the core catalog and every
+ * extension keybinding, with the user's overrides applied to both.
+ *
+ * Rebinding had no feedback at all, so a user could hand the same chord to two
+ * actions and only find out that one of them stopped working. At runtime core
+ * wins a chord an extension also wants (`coreShortcutFor`), and among two core
+ * actions the first in `SHORTCUTS` wins, so the loser is always silent.
+ */
+function chordOwners(
+  userShortcuts: Partial<Record<ShortcutId, KeyBinding[]>>,
+  extBindings: { extensionId: string; item: { command?: string; key?: string } }[],
+  extOverrides: Record<string, KeyBinding[]>,
+): Map<string, { id: string; label: string }[]> {
+  const owners = new Map<string, { id: string; label: string }[]>();
+  const add = (b: KeyBinding | null, id: string, label: string) => {
+    if (!b) return;
+    const k = chordKey(b);
+    owners.set(k, [...(owners.get(k) ?? []), { id, label }]);
+  };
+  for (const s of SHORTCUTS) {
+    for (const b of userShortcuts[s.id] ?? s.defaultBindings) add(b, s.id, s.label);
+  }
+  for (const { extensionId, item } of extBindings) {
+    const id = item.command;
+    if (!id) continue;
+    const bindings = extOverrides[id] ?? (item.key ? [parseKeybindingString(item.key)] : []);
+    for (const b of bindings) add(b, id, extensionId);
+  }
+  return owners;
+}
+
 export function ShortcutsSection() {
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
+  const extKeybindings = useRegistry(keybindingsRegistry);
+  const extOverrides = usePreferencesStore((s) => s.extensionShortcuts);
   const [search, setSearch] = useState("");
   const [recordingId, setRecordingId] = useState<ShortcutId | null>(null);
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
@@ -47,6 +89,10 @@ export function ShortcutsSection() {
       (s) => s.label.toLowerCase().includes(lower) || s.group.toLowerCase().includes(lower),
     );
   }, [search]);
+
+  // Recomputed per render: 43 catalog entries plus a handful of extension
+  // bindings, and it has to follow both the overrides and a live install.
+  const owners = chordOwners(userShortcuts, extKeybindings, extOverrides);
 
   const onRecord = (id: ShortcutId, binding: KeyBinding) => {
     const next = { ...userShortcuts, [id]: [binding] };
@@ -100,7 +146,7 @@ export function ShortcutsSection() {
       </div>
 
       <div className="flex flex-col gap-8">
-        <ExtensionShortcutsGroup search={search} />
+        <ExtensionShortcutsGroup search={search} owners={owners} />
         {SHORTCUT_GROUPS.map((group) => {
           const items = filteredShortcuts.filter((s) => s.group === group);
           if (items.length === 0) return null;
@@ -122,6 +168,8 @@ export function ShortcutsSection() {
                     onClear={() => onClear(s.id)}
                     onReset={() => onResetShortcut(s.id)}
                     userBindings={userShortcuts[s.id]}
+                    owners={owners}
+                    ownerId={s.id}
                   />
                 ))}
               </div>
@@ -163,6 +211,8 @@ function ShortcutRow({
   onClear,
   onReset,
   userBindings,
+  owners,
+  ownerId,
 }: {
   shortcut: Shortcut;
   isRecording: boolean;
@@ -172,11 +222,25 @@ function ShortcutRow({
   onClear: () => void;
   onReset: () => void;
   userBindings?: KeyBinding[];
+  owners: Map<string, { id: string; label: string }[]>;
+  /** This row's own owner id, excluded from its own clash list. */
+  ownerId: string;
 }) {
   const bindings = userBindings !== undefined ? userBindings : shortcut.defaultBindings;
   const isModified = userBindings !== undefined;
   const hasBindings = bindings && bindings.length > 0;
   const isReadOnly = !!shortcut.readOnly;
+  // Anything else on this chord. Excluded by id, so a shortcut that lists the
+  // same chord twice (zoomIn's `Mod+=` and `Mod+Shift+=`) is not its own clash.
+  const clash = hasBindings
+    ? [
+        ...new Set(
+          (owners.get(chordKey(bindings[0])) ?? [])
+            .filter((o) => o.id !== ownerId)
+            .map((o) => o.label),
+        ),
+      ]
+    : [];
 
   return (
     <div className="group hover:bg-muted/30 flex items-center justify-between px-3 py-2.5 transition-colors">
@@ -184,6 +248,11 @@ function ShortcutRow({
         <span className="text-[12.5px] font-medium">{shortcut.label}</span>
         {isReadOnly ? (
           <span className="text-muted-foreground text-[10.5px]">Built-in. Not rebindable.</span>
+        ) : null}
+        {clash.length > 0 ? (
+          <span className="text-destructive text-[10.5px]">
+            Also used by {clash.join(", ")}
+          </span>
         ) : null}
       </div>
 
@@ -334,7 +403,13 @@ function Recorder({
  * persistence to `preferences.extensionShortcuts` are generic. Hidden when
  * no extension contributes shortcuts.
  */
-function ExtensionShortcutsGroup({ search }: { search: string }) {
+function ExtensionShortcutsGroup({
+  search,
+  owners,
+}: {
+  search: string;
+  owners: Map<string, { id: string; label: string }[]>;
+}) {
   const keybindingEntries = useRegistry(keybindingsRegistry);
   const commandEntries = useRegistry(commandsRegistry);
   const extensions = useExtensionsStore((s) => s.list);
@@ -414,6 +489,8 @@ function ExtensionShortcutsGroup({ search }: { search: string }) {
                 writeOverrides(next);
               }}
               userBindings={isModified ? effective : undefined}
+              owners={owners}
+              ownerId={row.commandId}
             />
           );
         })}

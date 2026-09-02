@@ -9,6 +9,7 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 import { corsFallbackFetch } from "@/modules/ai/lib/httpProxy";
 import { useExtensionsStore } from "@/modules/extensions";
 import type { InstalledExtension } from "@/modules/extensions";
+import { mimeForRelPath } from "@/modules/extensions/icon";
 import { safeParseManifest } from "@/modules/extensions/manifest";
 
 import { Label } from "../components/Label";
@@ -66,18 +67,6 @@ function extractOwnerRepo(input: string): string | null {
   // Backend's `safe()` rejects spaces and a few specials; rough mirror.
   if (/\s/.test(owner) || /\s/.test(repo)) return null;
   return `${owner}/${repo}`;
-}
-
-/** MIME type for the manifest icon path. Mirrors `icon.ts`; duplicated to keep the preview dialog standalone. */
-function mimeForIconPath(rel: string): string {
-  const lower = rel.toLowerCase();
-  if (lower.endsWith(".svg")) return "image/svg+xml";
-  if (lower.endsWith(".png")) return "image/png";
-  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
-  if (lower.endsWith(".webp")) return "image/webp";
-  if (lower.endsWith(".gif")) return "image/gif";
-  if (lower.endsWith(".ico")) return "image/x-icon";
-  return "application/octet-stream";
 }
 
 type RawPeek = {
@@ -289,7 +278,7 @@ export function ExtensionsSection() {
 
       let iconUrl: string | null = null;
       if (raw.icon_base64 && raw.icon_rel_path) {
-        iconUrl = `data:${mimeForIconPath(raw.icon_rel_path)};base64,${raw.icon_base64}`;
+        iconUrl = `data:${mimeForRelPath(raw.icon_rel_path)};base64,${raw.icon_base64}`;
       }
 
       // If this id is already installed, this is an update / re-install:

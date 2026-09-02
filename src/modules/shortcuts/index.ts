@@ -1,6 +1,7 @@
 export {
   isTerminalControlChord,
   isTerminalMetaChord,
+  isVimControlChord,
   parseKeybindingString,
   SHORTCUTS,
   SHORTCUT_GROUPS,

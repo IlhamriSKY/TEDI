@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.37.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.38.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -37,7 +37,7 @@ Six invariants (rationale in [ARCHITECTURE.md](ARCHITECTURE.md#2-design-principl
 1. **Two processes.** Frontend (`src/`, React webview) owns UI; backend
    (`src-tauri/`, Rust) owns every OS resource. The webview reaches the OS only
    via `invoke("cmd", args)`; streaming output returns over a Tauri `Channel`.
-   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 124
+   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 126
    commands) which is the whole backend API index.
 2. **Two webviews.** The main window and a separate Settings window
    (`src/settings/`). They share state via `tauri-plugin-store`, not React.
@@ -55,7 +55,7 @@ pointer-events-none` so PTYs and dev servers keep streaming.
 
 ```
 src-tauri/                      Backend (Rust)
-  src/lib.rs                    invoke_handler (all 124 commands) + boot + CLI dispatch
+  src/lib.rs                    invoke_handler (all 126 commands) + boot + CLI dispatch
   src/main.rs                   thin shim
   src/modules/
     pty/{mod,session,shell_init,job,path_probe}.rs + scripts/   interactive PTYs
@@ -84,10 +84,11 @@ src/                            Frontend (React webview), alias @/* -> src/*
   lib/                          shared helpers (cn, path, format, iconRegistry, ...)
   styles/                       global CSS / theme tokens
   modules/
-    ai/        browser/       commandPalette/  editor/    explorer/
-    extensions/ header/       panes/           scheduler/ scm/
-    settings/  shortcuts/     ssh/             statusbar/ tabs/
-    terminal/  theme/         updater/         workspaces/
+    ai/         automation/   browser/         commandPalette/  editor/
+    explorer/   extensions/   header/          mcpInstall/      panes/
+    scheduler/  scm/          settings/        shortcuts/       ssh/
+    statusbar/  tabs/         terminal/        theme/           updater/
+    workspaces/
 ```
 
 ## Backend (`src-tauri/src/modules/`)
@@ -155,7 +156,7 @@ Logs at `<data_dir>/id.ilhamrisky.tedi/logs/tedi-ptyd.log` (`TEDI_PTYD_LOG=debug
 
 macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
-## Frontend (`src/modules/`, 19 modules)
+## Frontend (`src/modules/`, 21 modules)
 
 | Module            | Role                                                                                                                                                                                                                                                           |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -168,7 +169,7 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                |
 | `header/`         | Top bar, inline search (`SearchInline` adapts terminal vs editor), custom `WindowControls` (Linux/Windows).                                                                                                                                                    |
 | `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                |
-| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers wired in App.tsx by id. Use `metaKey \|\| ctrlKey`.                                                                                                                                                           |
+| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers by id in App.tsx. App's `isDisabled` decides who owns a chord: a focused terminal keeps its control codes, a focused vim editor keeps `isVimControlChord`, core beats any extension (`coreShortcutFor`).      |
 | `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                       |
 | `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                              |
 | `theme/`          | `next-themes` provider.                                                                                                                                                                                                                                        |
@@ -178,6 +179,8 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `scheduler/`      | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs).                                                                                                                                                              |
 | `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                |
 | `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                              |
+| `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                        |
+| `mcpInstall/`     | The header **Install MCP** button: registers the stdio server with the installed AI CLIs and writes `automationPort`.                                                                                                                                          |
 
 **Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
 ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
@@ -201,7 +204,7 @@ Engine (`lib/`): `agent.ts` (`streamText` + `buildLanguageModel`), `transport.ts
 state), `sessions.ts` + `store/chatStore.ts` (sessions at `tedi-sessions.json`,
 global not per-workspace), `security.ts` (symlink-resolved secret deny-list on read
 and write), `cache.ts` (Anthropic cache breakpoints), `compact.ts`, `checkpoint.ts`,
-`errors.ts`, `skills.ts`, `mcpClient.ts` / `mcpTransport.ts`, `prompts.ts`.
+`errors.ts`, `mcpClient.ts` / `mcpTransport.ts`, `prompts.ts`.
 
 **Voice input**: a mic button in the composer and the status bar
 (`hooks/useWhisperRecording.ts`, `AiInputBar.tsx`, `AiStatusBarControls.tsx`)
@@ -218,9 +221,7 @@ Typing `ultrathink` appends a deeper-reasoning directive for that turn.
 `read_file` results, then old tool results at 72% of the window, then hard-drop at
 85%), and runs again between steps against a flat resend budget. Project memory is
 `<workspace>/TEDI.md` (capped at 12KB, so keep this file tight) plus
-`<workspace>/.tedi/memory/*.md` (32KB). **Skills** are `SKILL.md` folders under
-`~/.tedi/skills` and `<workspace>/.tedi/skills`; name and description go in the
-prompt, the body is loaded on demand. **MCP** is stdio-only, configured in
+`<workspace>/.tedi/memory/*.md` (32KB). **MCP** is stdio-only, configured in
 Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 
 **Tools** (`tools/`, the real capability surface; keep in sync with the
@@ -236,7 +237,6 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 | `terminal.ts`              | terminal: `suggest_command`, `read_terminal` (auto); `open_terminal`, `run_in_terminal`, `consolidate_terminals`, `group_tabs`, `rotate_pane`, `close_terminal` (mixed). browser: `open_browser`, `control_browser`, `navigate_and_read`, `read_browser`, `read_browser_console`, `browser_scroll`, `browser_hover`, `browser_screenshot` (auto); `browser_type`, `browser_click`, `browser_click_at`, `browser_press_key` (approval) | mixed    |
 | `schedule.ts`              | terminal/schedule listing + send (auto); `run_in_terminal_by_id`, `schedule_command` (approval)                                                                                                                                                                                                                                                                                                                                       | mixed    |
 | `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                                                                                                                                                                                                                                                                                            | auto     |
-| `skill.ts`                 | `skill` (loads an installed `SKILL.md`; hidden when none installed)                                                                                                                                                                                                                                                                                                                                                                   | auto     |
 | `todo.ts`                  | `todo_write`                                                                                                                                                                                                                                                                                                                                                                                                                          | auto     |
 | `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                                                                                                                                                                                                                                                                                                  | approval |
 
@@ -313,6 +313,7 @@ committed) and holds working copies for local iteration:
 | `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                           |
 | `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                             |
 | `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                 |
+| `tedi.ai-usage`              | Status-bar usage meters: `statusbar:write` with a label + progress, `settings:*`, gated `invoke`.                                                                                               |
 
 **Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
 the dev profile's app-data dir (`link:ext` / `relink:ext` / `unlink:ext` manage
@@ -403,7 +404,7 @@ dev` shares prod data. The daemon outlives the dev GUI; set
     `wait_for_terminal` blocks until a pane is back at its prompt (or prints a
     string) instead of polling. Neither a terminal (WebGL canvas) nor a long file
     (CodeMirror virtualises) can be read from the DOM, so both go through
-    `window.__tedi`, which **six** files now contribute to. **Private panes are
+    the capability bridge the seven files above register into. **Private panes are
     absent from all of it**, the same rule `app/lib/terminalSnapshot.ts` enforces
     for the built-in agent.
   - **Beyond panes**: `inspect` lists commands / extensions / **settings** /
@@ -465,7 +466,7 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   logged-in apps, DRM video, WebSockets, and HMR work. The agent drives it with a
   full tool set and can read the page's **console errors** (`read_browser_console`),
   which closes the run-it, see-it-break, fix-it loop.
-- **Skills** (`SKILL.md` folders, progressive disclosure) and **MCP** (stdio).
+- **MCP** (stdio), both as a client and as a server driving a running window.
 - **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`), ten agents.
 - **Plan mode** (`>plan`) queuing mutations into one review diff.
 - **Autocomplete on any provider**, including local (LM Studio, Ollama, llama.cpp,

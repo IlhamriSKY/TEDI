@@ -377,16 +377,6 @@ pub fn mcp_bridge_reply(call_id: String, reply: BridgeReply) {
     }
 }
 
-/// Where a client should look. Exposed so the Install-MCP flow can show it and
-/// `mcp-install-verify` can assert the shape without booting the app.
-#[tauri::command]
-pub fn mcp_bridge_info() -> serde_json::Value {
-    serde_json::json!({
-        "socket": socket_address(),
-        "handshakeFile": handshake_path().map(|p| p.to_string_lossy().into_owned()),
-    })
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;

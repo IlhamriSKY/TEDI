@@ -33,7 +33,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { AgentRunBridge, hasAnyKey, useChatStore } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
 import { useRightPanelStore, useSidebarPlacementStore } from "@/modules/extensions";
-import { type EditorPaneHandle } from "@/modules/editor";
+import { isVimEditorFocused, type EditorPaneHandle } from "@/modules/editor";
 import { Header, type SearchInlineHandle } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
@@ -41,6 +41,7 @@ import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import {
   isTerminalControlChord,
   isTerminalMetaChord,
+  isVimControlChord,
   useExtensionShortcuts,
   useGlobalShortcuts,
   type ShortcutHandlers,
@@ -936,6 +937,16 @@ export default function App() {
         }
         return false;
       }
+
+      // A focused editor with vim mode on owns the bare-Ctrl chords the vim
+      // keymap defines, for the same reason the terminal branch below exists:
+      // on Win/Linux `Mod` is Ctrl, so nine of them (Ctrl+B/D/E/F/I/P/T/W/[)
+      // fired an app action and vim never saw the key. Scoped to REAL focus in
+      // a vim editor, so vim mode changes nothing anywhere else, and to the
+      // chords vim actually binds, so Ctrl+K / Ctrl+G / Ctrl+H keep their app
+      // action instead of going dead. Runs before the terminal branch because
+      // an editor is never a terminal leaf.
+      if (isVimControlChord(e) && isVimEditorFocused()) return true;
 
       // A focused terminal owns every bare-Ctrl control code (Ctrl+E, Ctrl+W,
       // Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab, the tmux/screen prefix, …) and

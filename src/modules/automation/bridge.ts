@@ -25,7 +25,7 @@
  * `__TEDI_AUTOMATION__` because being on `window` IS the exposure: any script in
  * the page could read it. A registry in a module has no such reach - it is
  * reachable only by code that imports it. So the gate moved to where it belongs:
- * `publishToWindow` (below) still refuses without the flag, and each transport
+ * `syncWindow` (below) still refuses without the flag, and each transport
  * authenticates for itself. That is what lets the local-socket bridge answer
  * while the DevTools port stays shut.
  */
@@ -44,14 +44,10 @@ export function registerBridge(fns: Record<string, BridgeFn>): void {
   syncWindow();
 }
 
-/** Names currently registered, sorted. For diagnostics and the bridge verify. */
-export function bridgeNames(): string[] {
+/** Names currently registered, sorted. Read by `callBridge` so an unknown
+ *  capability reports what IS available. */
+function bridgeNames(): string[] {
   return [...registry.keys()].sort();
-}
-
-/** True when `name` is registered and callable right now. */
-export function hasBridge(name: string): boolean {
-  return registry.has(name);
 }
 
 /**

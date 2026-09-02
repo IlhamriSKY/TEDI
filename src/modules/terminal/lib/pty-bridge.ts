@@ -1,4 +1,5 @@
 import { invoke, Channel } from "@tauri-apps/api/core";
+import { decodeBase64 } from "@/lib/ipc";
 
 export type PtyEvent = { type: "data"; data: string } | { type: "exit"; code: number };
 
@@ -28,13 +29,6 @@ export type PtySession = {
 
 /** Shape returned by the Rust `pty_open` / `pty_attach` commands. */
 type PtyOpenResult = { id: number; sessionId: string; alive: boolean };
-
-function decodeBase64(b64: string): Uint8Array {
-  const bin = atob(b64);
-  const arr = new Uint8Array(bin.length);
-  for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
-  return arr;
-}
 
 function makeChannel(handlers: PtyHandlers): Channel<PtyEvent> {
   const channel = new Channel<PtyEvent>();

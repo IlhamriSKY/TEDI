@@ -529,6 +529,72 @@ export function isTerminalMetaChord(e: KeyboardEvent): boolean {
 }
 
 /**
+ * Bare-Ctrl chords `@replit/codemirror-vim` binds, so a focused vim editor can
+ * own them the way a focused terminal owns its control codes.
+ *
+ * On Windows/Linux `Mod` is Ctrl, so the catalog claimed nine of these
+ * (Ctrl+B page-up, Ctrl+D half-page, Ctrl+E scroll, Ctrl+F page-down, Ctrl+I
+ * jump-forward, Ctrl+P, Ctrl+T, Ctrl+W, Ctrl+[ Escape) and vim never saw the
+ * key. Ctrl+C / Ctrl+V already fell through via the copy/paste branch of App's
+ * `isDisabled`; they are listed anyway so this set is the vim keymap, not a
+ * subset that happens to be enough today.
+ *
+ * The list is exactly what the package binds - checked against its
+ * `defaultKeymap`, NOT vim's full manual - so a chord vim does not define
+ * (Ctrl+K, Ctrl+G, Ctrl+H, Ctrl+comma) keeps its app action instead of going
+ * silently dead in an editor. macOS is unaffected: Mod is Cmd there.
+ */
+const VIM_CONTROL_CODES: ReadonlySet<string> = new Set([
+  "KeyA",
+  "KeyB",
+  "KeyC",
+  "KeyD",
+  "KeyE",
+  "KeyF",
+  "KeyI",
+  "KeyN",
+  "KeyO",
+  "KeyP",
+  "KeyQ",
+  "KeyR",
+  "KeyT",
+  "KeyU",
+  "KeyV",
+  "KeyW",
+  "KeyX",
+  "KeyY",
+  "BracketLeft",
+]);
+
+/** True when `e` is a bare-Ctrl chord the vim keymap defines. See
+ *  [[VIM_CONTROL_CODES]]; gated on a focused vim editor in App's `isDisabled`. */
+export function isVimControlChord(e: KeyboardEvent): boolean {
+  if (!e.ctrlKey || e.shiftKey || e.altKey || e.metaKey) return false;
+  return VIM_CONTROL_CODES.has(e.code);
+}
+
+/**
+ * The core shortcut that claims this chord, or null.
+ *
+ * Reserved even when the entry is `readOnly`: those document a key CodeMirror
+ * or the AI composer owns (Mod+/ toggle-comment, Enter send), so an extension
+ * taking one still breaks that surface. Used by `useExtensionShortcuts` to make
+ * core win a shared chord deterministically - both dispatchers are capture-phase
+ * `window` listeners, so the winner used to be decided by registration order,
+ * and `useGlobalShortcuts` re-registers on every rebind (flipping it).
+ */
+export function coreShortcutFor(
+  e: KeyboardEvent,
+  userShortcuts: Partial<Record<ShortcutId, KeyBinding[]>>,
+): ShortcutId | null {
+  for (const s of SHORTCUTS) {
+    const bindings = userShortcuts[s.id] || s.defaultBindings;
+    if (bindings.some((b) => matchBinding(e, b, s.id))) return s.id;
+  }
+  return null;
+}
+
+/**
  * Parses an extension's `contributes.keybindings[].key` string
  * (e.g. "Mod+Shift+E", "Ctrl+K", "Alt+Shift+ArrowLeft") into a `KeyBinding`.
  * VS Code grammar:
