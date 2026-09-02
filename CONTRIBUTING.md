@@ -123,17 +123,32 @@ Formatting is enforced by tooling - don't hand-format. The repo ships with:
 
 ## Commits & PRs
 
-We squash-merge every PR - the **PR title becomes the squash commit**, so it should follow [Conventional Commits](https://www.conventionalcommits.org/):
+We squash-merge every PR - the **PR title becomes the squash commit**, so the title is the thing that has to be right:
 
 ```
-feat(terminal): add split panes
-fix(explorer): prevent input from disappearing on create
-chore(deps): bump tauri to 2.x
-docs(readme): clarify Linux install on Arch
+Type(Scope) [II]: what changed
 ```
 
-Types: `feat`, `fix`, `chore`, `docs`, `perf`, `refactor`, `test`, `build`, `ci`.
-Common scopes: `terminal`, `editor`, `explorer`, `pty`, `ai`, `settings`, `tabs`, `shortcuts`, `agents`, `ui`.
+```
+Feat(Terminal) [IR]: add split panes
+Fix(Explorer) [KI]: prevent input from disappearing on create
+Chore(Deps) [RF]: bump tauri to 2.x
+Docs(Readme) [PN]: clarify Linux install on Arch
+Fix [IR]: sanitize LD_LIBRARY_PATH for child processes when running as AppImage
+```
+
+This is [Conventional Commits](https://www.conventionalcommits.org/) with two additions - the type and scope are capitalised, and every subject carries the author's initials.
+
+| Part      | Rule                                                                                                                        |
+| --------- | --------------------------------------------------------------------------------------------------------------------------- |
+| `Type`    | Capitalised. One of `Feat`, `Fix`, `Chore`, `Docs`, `Perf`, `Refactor`, `Test`, `Build`, `CI`, `Style`, `Release`. Append `!` for a breaking change: `Feat! [IR]: drop the v1 config` |
+| `(Scope)` | Optional but preferred. Capitalised; acronyms stay upper-case - `(UI)`, `(AI)`, `(SSH)`, `(SCM)`, `(MCP)`, `(CLI)`, not `(Ui)`. Hyphenated scopes capitalise both halves: `(Remote-Access)` |
+| `[II]`    | **Required.** The initials of whoever wrote the change - first letter of first name plus first letter of last name, upper-case. Not the initials of whoever merges it |
+| `subject` | Imperative mood, lower-case first word, no trailing period. Say what the change does, not what you did                        |
+
+Common scopes: `Terminal`, `Editor`, `Explorer`, `Panes`, `Tabs`, `PTY`, `AI`, `Settings`, `Shortcuts`, `SSH`, `SCM`, `UI`, `Extensions`, `Browser`, `Installer`, `CI`.
+
+**Why the initials.** TEDI is a fork with several contributors, and `git log --oneline` is the view most people actually read. The initials put authorship in that one line, so a merged contribution stays visibly theirs even though the merge commit is the maintainer's. The whole history from the fork point onward follows this format; upstream commits from before the fork are left exactly as they were.
 
 Within a PR, individual commit messages can be whatever - they get squashed.
 

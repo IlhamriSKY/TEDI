@@ -1,6 +1,19 @@
 <!--
-PR title should follow Conventional Commits - it becomes the squash commit message.
-Examples: feat(terminal): add split panes / fix(explorer): close button alignment
+PR TITLE FORMAT - it becomes the squash commit message, so it is not optional:
+
+    Type(Scope) [II]: what changed
+
+  Type    Capitalised: Feat, Fix, Chore, Docs, Perf, Refactor, Test, Build, CI, Release
+  (Scope) Optional. Capitalised, acronyms stay upper: (Terminal) (UI) (SSH) (AI)
+  [II]    YOUR initials - the person who wrote the change, not the merger
+  subject Imperative, lower-case first word, no trailing period
+
+Examples:
+    Feat(Terminal) [IR]: add split panes
+    Fix(Explorer) [KI]: prevent input from disappearing on create
+    Chore(Deps) [RF]: bump tauri to 2.x
+
+See CONTRIBUTING.md -> "Commits & PRs" for the full rules.
 -->
 
 ## What
