@@ -1,9 +1,11 @@
 import { cn } from "@/lib/utils";
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
-import { buildEntries, type PaneEntry } from "@/modules/tabs/lib/entries";
+import { buildEntries, entryAgentState, type PaneEntry } from "@/modules/tabs/lib/entries";
+import { useAiSessionStatus } from "@/modules/ai/lib/sessionStatus";
 import type { Tab } from "@/modules/tabs";
 import { useGitBranch } from "@/modules/scm/branch";
 import { useSshHosts } from "@/modules/ssh/connections";
+import { useAiSessionTitles } from "@/modules/ai/lib/sessionTitles";
 import type { SshStatus } from "@/modules/ssh/status";
 import {
   aiCliStateColorClass,
@@ -17,7 +19,11 @@ import { ChevronRight, Folder, GitBranch } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
 /**
- * Kanban of the workspace's terminals, grouped by what their AI CLI is doing.
+ * Kanban of the workspace's AGENTS, grouped by what each is doing: a terminal
+ * running an AI CLI, and a pane holding one of TEDI's own chats. Both report
+ * the same four states, so both drop into the same columns - the question the
+ * board answers is "which of my agents needs me", and the native one is an
+ * agent like any other.
  * The body of a `board` PANE LEAF, so it wears the ordinary pane header - drag
  * handle, close, split, the same one every terminal and editor has - rather
  * than a second hand-rolled copy of it. Mounted from `PaneTreeView`.
@@ -63,12 +69,14 @@ export function WorkspaceBoard({
   const sshHosts = useSshHosts();
   const titles = useTerminalTitles((s) => s.titles);
 
+  const aiTitles = useAiSessionTitles();
   const cards = useMemo(
     () =>
-      buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses).filter(
-        (e): e is PaneEntry => e.kind === "pane-leaf" && e.leafKind === "terminal",
+      buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses, aiTitles).filter(
+        (e): e is PaneEntry =>
+          e.kind === "pane-leaf" && (e.leafKind === "terminal" || e.leafKind === "ai"),
       ),
-    [tabs, sshHosts, sshStatuses, aiCliStatuses],
+    [tabs, sshHosts, sshStatuses, aiCliStatuses, aiTitles],
   );
 
   // Push every change to the float window. Keyed on the computed cards, so a
@@ -95,6 +103,10 @@ export function BoardColumns({
   titles: Record<number, string>;
   onOpen?: (tabId: number, leafId: number) => void;
 }) {
+  // Read here rather than passed in: the float window renders this component
+  // with cards it received over an event, and would have no way to send a live
+  // status map along with them.
+  const aiStates = useAiSessionStatus((s) => s.states);
   return (
     <div className="flex h-full min-h-0 w-full flex-col overflow-hidden">
       {cards.length === 0 ? (
@@ -110,7 +122,7 @@ export function BoardColumns({
             {COLUMNS.map((col) => {
               // A terminal with no AI CLI running is idle in the only sense the
               // board has.
-              const inCol = cards.filter((c) => (c.aiCliStatus?.state ?? "idle") === col.state);
+              const inCol = cards.filter((c) => entryAgentState(c, aiStates) === col.state);
               return (
                 <section key={col.state} className="flex min-w-0 flex-col gap-1.5">
                   <header className="flex items-center gap-1.5 px-0.5">

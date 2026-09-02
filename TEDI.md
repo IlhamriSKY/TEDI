@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.38.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.39.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -158,33 +158,118 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
 ## Frontend (`src/modules/`, 21 modules)
 
-| Module            | Role                                                                                                                                                                                                                                                           |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                   |
-| `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. `lib/notes.ts`: `+` -> Note opens a quick note, a real `note-N.md` under the app data dir that autosaves (debounced, drained by the quit guard) and restores with the workspace.                                                                                                                                                |
-| `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                            |
-| `browser/`        | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL.                          |
-| `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`).                                                                                                                                                                           |
-| `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                           |
-| `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                |
-| `header/`         | Top bar, inline search (`SearchInline` adapts terminal vs editor), custom `WindowControls` (Linux/Windows).                                                                                                                                                    |
-| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                |
-| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers by id in App.tsx. App's `isDisabled` decides who owns a chord: a focused terminal keeps its control codes, a focused vim editor keeps `isVimControlChord`, core beats any extension (`coreShortcutFor`).      |
-| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                       |
-| `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                              |
-| `theme/`          | `next-themes` provider.                                                                                                                                                                                                                                        |
-| `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                    |
-| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance.                                                                                                                                                                    |
-| `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution. |
-| `scheduler/`      | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs).                                                                                                                                                              |
-| `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                |
-| `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                              |
-| `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                        |
-| `mcpInstall/`     | The header **Install MCP** button: registers the stdio server with the installed AI CLIs and writes `automationPort`.                                                                                                                                          |
+| Module            | Role                                                                                                                                                                                                                                                                                             |
+| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                                                     |
+| `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. `lib/notes.ts`: `+` -> Note opens a quick note, a real `note-N.md` under the app data dir that autosaves (debounced, drained by the quit guard) and restores with the workspace. |
+| `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                                                              |
+| `browser/`        | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL.                                                            |
+| `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`) plus the workspace canvas view (`CanvasView`, free-floating windows).                                                                                                                                        |
+| `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                                                             |
+| `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                                                  |
+| `header/`         | Top bar: workspace view toggle (tabs/kanban/canvas), inline search (`SearchInline` adapts terminal vs editor), a light/dark toggle beside Install MCP, custom `WindowControls` (Linux/Windows).                                                                                                  |
+| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                                                  |
+| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers by id in App.tsx. App's `isDisabled` decides who owns a chord: a focused terminal keeps its control codes, a focused vim editor keeps `isVimControlChord`, core beats any extension (`coreShortcutFor`).                                        |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                                                         |
+| `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                                                                |
+| `theme/`          | Theme provider. Light/dark is toggled from the header button; Settings no longer offers an Appearance picker, and `system` survives only as the first-run default.                                                                                                                               |
+| `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                                                      |
+| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance.                                                                                                                                                                                                      |
+| `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution.                                   |
+| `scheduler/`      | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs).                                                                                                                                                                                                |
+| `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                                                  |
+| `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                                                                |
+| `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                                                          |
+| `mcpInstall/`     | The header **Install MCP** button: registers the stdio server with the installed AI CLIs and writes `automationPort`.                                                                                                                                                                            |
 
 **Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
 ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
-are `terminal` / `editor` / `browser` / `ssh` / `extension-panel`.
+are `terminal` / `editor` / `browser` / `ssh` / `extension-panel` / `board` /
+`scm` / `ai`.
+
+**Agent status**: TEDI's own chats report the SAME four states a terminal's AI
+CLI does (`AiCliState`: idle / working / blocking / done), per session, from
+`useAiSessionStatus` - each `AiPanePanel` derives its own from `useChat` plus the
+count of tool calls awaiting the user, because `agentMeta` is a single global
+field for the active session and cannot speak for a chat in another pane.
+`blocking` outranks everything (an approval buried under "working" is in the
+wrong Board column), and `done` is the working -> quiet EDGE held until the chat
+is looked at, never a standing state. The **Board** therefore charts both kinds
+of agent in one set of columns (`entryAgentState`), and the pane icon and tab
+chip tint from the same palette.
+
+**AI panes**: an `ai` leaf holds a chat SESSION id, so the agent opens in a
+split or on the canvas as well as the right slot, several chats at once, one
+pane per conversation picked from history (`+` -> AI Chat, or the canvas Add
+menu). `openAiPane` dedupes on the session via `findAiPane`: two `useChat`
+views over one Chat would be the same conversation twice sharing one composer.
+The runtime still has ONE active session - the composer, `agentMeta`, plan mode
+and tool approvals are all keyed to it, while background sessions keep
+streaming into their own transcript - so every pane renders its chat live but
+only the active one can be typed into, and clicking a pane makes it active.
+
+**Workspace views** (`Workspace.view`: `tabs` | `kanban` | `canvas`): how a
+workspace presents its panes, switched from the three toolbar toggles left of
+the tab strip and persisted per workspace. `tabs` is the classic strip of tabs
+and splits. `kanban` gives the whole area to `WorkspaceBoard`. `canvas`
+(`panes/CanvasView.tsx`) floats EVERY pane in the workspace as a draggable,
+resizable, overlapping window on one dot-grid surface, with eight resize handles
+per window, an Add menu covering every leaf kind plus each installed extension
+panel (SQL Explorer, API Client), and Tidy. The tab strip hides in the latter
+two: both already show the whole workspace, so a strip beside them would be a
+second, disagreeing index of what is on screen.
+
+The pane tabs still exist under all three, and `WorkspaceArea` HIDES rather than
+swaps them, because unmounting the stack would tear down every xterm and
+CodeMirror even though `useSessionDisposal` keys off the pane TREE. Canvas
+geometry lives on the LEAF (`PaneLeaf.canvasRect`, percentages of the canvas
+box, so it is responsive): it travels with a pane between tabs and round-trips
+through the existing leaf serializer instead of needing a positional side-table
+keyed by ids a saved tree does not carry. `setCanvasRects` merges FIELD BY
+FIELD, because a drag reads the rect at pointerdown after the click that started
+it already raised the window, so writing a whole rectangle back would undo the
+raise. A pane with no rect is seeded on first render, which is what lets one
+arrive from any path (the canvas Add menu, a split, a tab opened in tabs view, a
+workspace saved before canvas existed) without a single opener knowing about
+geometry.
+
+The canvas itself is **edgeless**: window rectangles are canvas units with no
+0..100 wall, so a pane may sit at -120 or 900. The viewport pans (drag the
+background) and zooms (Ctrl + wheel, or the toolbar cluster) as
+`translate(pan%) scale(zoom)` on a box-sized layer with a top-left origin, so a
+point at `p` sits at `pan + p * zoom` - one mapping the drag math, the pan clamp
+and the minimap all read. The Add menu opens from the toolbar button AND
+from a right-click on empty canvas (one `addMenu` element rendered by both
+openers, anchored to the pointer, so the two can never offer different things).
+Canvas zoom and the pane count are badges built from the status bar
+`ZoomControl`'s own chrome, which is also what tells the canvas zoom apart from
+the bare `- 100% +` a window header carries for its own. A **minimap** bottom
+right frames content plus viewport, letterboxed to its aspect, and is always on;
+the percentage readout is **Fit all panes**. Panning is clamped against the CONTENT bounding
+box, never a fixed frame, with half a screen of overscroll so a window can
+always be dragged out past the current edge. A terminal is raster-scaled at
+zoom != 1 (soft but exactly placed - a transform leaves xterm's own layout
+alone, unlike CSS `zoom`), and a browser pane's native webview is hidden while
+zoomed rather than shown cropped.
+
+Windows outside the viewport (plus half a screen of margin) are CULLED to
+`visible: false`. That is a bug fix, not an optimisation: a terminal holds a
+WebGL context only while its pane is visible and Chromium caps live contexts at
+about 16, so a canvas showing every pane in the workspace at once evicted them
+and an evicted context paints BLANK - "the terminal sometimes disappears". The
+geometry behind all of it (viewport, cull, pan clamp, fit, minimap letterbox)
+lives in `panes/canvasViewport.ts`, pure and covered by
+`scripts/panes/canvas-viewport-verify.ts`.
+
+Each canvas window also has its own **content zoom** (Ctrl/Cmd + wheel over it;
+the header shows the percentage only away from 100%, and clicking it resets).
+`CanvasRect.zoom` rides the rectangle for the same reason `z` does, so it needs
+no second setter, serializer hook or seeding path. It is applied per leaf kind,
+through the arm that works there: a terminal scales xterm's `fontSize`
+(`paneZoom`, since CSS `zoom` on a WebGL canvas breaks cursor and glyph
+positioning), every DOM-bodied pane takes CSS `zoom`, and a browser pane is a
+native webview no CSS can reach so it keeps its own zoom buttons. The canvas Add menu calls the ORDINARY tab openers, so a pane added
+there is a normal pane tab that is still present when you switch back.
 
 ## AI subsystem (`src/modules/ai/`)
 

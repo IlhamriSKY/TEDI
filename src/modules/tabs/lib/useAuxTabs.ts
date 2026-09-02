@@ -15,7 +15,7 @@ import {
   type ScmTab,
   type Tab,
 } from "./tabTypes";
-import { syncPaneMirror, titleFromUrl, updateLeafTree } from "./tabHelpers";
+import { findAiPane, syncPaneMirror, titleFromUrl, updateLeafTree } from "./tabHelpers";
 
 /**
  * Shared mutable handles `useTabs` threads into the aux-tab sub-hook. These
@@ -177,15 +177,16 @@ export function useAuxTabs({
   }, []);
 
   /**
-   * Open (or focus) the workspace Board. A board is a pane LEAF, not a
-   * standalone tab, so it arrives as a pane tab holding one - which is what
-   * gives it the ordinary pane header (drag, close, split) rather than a second
-   * hand-rolled copy of it. Same single-instance dedup as `openScmTab`: two
-   * boards would chart the same workspace twice.
+   * Open (or focus) a STATELESS pane: one whose leaf carries nothing but its
+   * kind, because its content is derived from the live workspace - the Board
+   * (rebuilt from the tab tree) and Source Control (driven by the workspace
+   * root). Each is a pane LEAF rather than a standalone tab so it gets the
+   * ordinary pane header, and a split or a canvas can hold it. Deduped to one
+   * instance: two of either would show the same workspace twice.
    */
-  const openBoardTab = useCallback(() => {
+  const openStatelessPane = useCallback((leafKind: "board" | "scm", title: string) => {
     const existing = tabsRef.current.find(
-      (t) => t.kind === "pane" && leaves(t.paneTree).some((l) => l.leafKind === "board"),
+      (t) => t.kind === "pane" && leaves(t.paneTree).some((l) => l.leafKind === leafKind),
     );
     if (existing) {
       setActiveId(existing.id);
@@ -193,13 +194,51 @@ export function useAuxTabs({
     }
     const tabId = nextIdRef.current++;
     const leafId = nextIdRef.current++;
-    const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "board" };
+    const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind };
+    setTabs((curr) => [
+      ...curr,
+      syncPaneMirror({ id: tabId, kind: "pane", title, paneTree: leaf, activeLeafId: leafId }),
+    ]);
+    setActiveId(tabId);
+    return tabId;
+  }, []);
+
+  const openBoardTab = useCallback(() => openStatelessPane("board", "Board"), [openStatelessPane]);
+  /** Source Control as a PANE. Distinct from `openScmTab`, the full-tab surface. */
+  const openScmPane = useCallback(
+    () => openStatelessPane("scm", "Source Control"),
+    [openStatelessPane],
+  );
+
+  /**
+   * Open (or focus) one AI chat as a pane. Deduped on the SESSION, not the tab:
+   * a chat may appear in exactly one pane, because two `useChat` views over the
+   * same Chat are one conversation rendered twice sharing one composer, not two
+   * chats. Opening an already-open session focuses it, which is also what makes
+   * the canvas menu able to grey those entries out.
+   */
+  const openAiPane = useCallback((sessionId: string) => {
+    const open = findAiPane(tabsRef.current, sessionId);
+    if (open) {
+      setActiveId(open.tabId);
+      setTabs((curr) =>
+        curr.map((x) =>
+          x.id === open.tabId && x.kind === "pane"
+            ? syncPaneMirror({ ...x, activeLeafId: open.leafId })
+            : x,
+        ),
+      );
+      return open.tabId;
+    }
+    const tabId = nextIdRef.current++;
+    const leafId = nextIdRef.current++;
+    const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "ai", sessionId };
     setTabs((curr) => [
       ...curr,
       syncPaneMirror({
         id: tabId,
         kind: "pane",
-        title: "Board",
+        title: "AI",
         paneTree: leaf,
         activeLeafId: leafId,
       }),
@@ -459,6 +498,8 @@ export function useAuxTabs({
     openGitDiffTab,
     openScmTab,
     openBoardTab,
+    openScmPane,
+    openAiPane,
     newBrowserTab,
     openExtensionTab,
     openExtensionPane,

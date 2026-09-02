@@ -12,7 +12,6 @@ import { cn } from "@/lib/utils";
 import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { SEARCH_ENGINES, searchEngineById } from "@/modules/settings/searchEngines";
-import type { ThemePref } from "@/modules/settings/store";
 import {
   UI_ZOOM_DEFAULT,
   UI_ZOOM_MAX,
@@ -39,7 +38,6 @@ import {
 import { CONTENT_FONT_OPTIONS } from "@/lib/fonts";
 import { previewNotificationSound } from "@/lib/blockingBeep";
 import { IS_WINDOWS } from "@/lib/platform";
-import { useTheme } from "@/modules/theme";
 import { invoke } from "@tauri-apps/api/core";
 import { disable, enable, isEnabled } from "@tauri-apps/plugin-autostart";
 import { useEffect, useRef, useState } from "react";
@@ -50,24 +48,13 @@ import { SettingsAccordion } from "../components/SettingsAccordion";
 import { AdditionalPathEditor } from "./components/AdditionalPathEditor";
 import { CliAgentsCard } from "./components/CliAgentsCard";
 import { UploadButton } from "../components/UploadButton";
-import { ChevronDown, Download, Monitor, Moon, Sun, type LucideIcon } from "lucide-react";
+import { ChevronDown, Download } from "lucide-react";
 
 type ShimInstallResult =
   | { status: "installed"; path: string; target: string; on_path: boolean }
   | { status: "not_applicable"; message: string };
 
-const APPEARANCE: {
-  id: ThemePref;
-  label: string;
-  icon: LucideIcon;
-}[] = [
-  { id: "system", label: "System", icon: Monitor },
-  { id: "light", label: "Light", icon: Sun },
-  { id: "dark", label: "Dark", icon: Moon },
-];
-
 export function GeneralSection() {
-  const { theme, setTheme } = useTheme();
   const autostart = usePreferencesStore((s) => s.autostart);
   const restoreWindowState = usePreferencesStore((s) => s.restoreWindowState);
   const terminalWebglEnabled = usePreferencesStore((s) => s.terminalWebglEnabled);
@@ -150,32 +137,7 @@ export function GeneralSection() {
 
   return (
     <div className="flex flex-col gap-6">
-      <SectionHeader title="General" description="Appearance, editor, and startup." />
-
-      <div className="flex flex-col gap-2">
-        <Label>Appearance</Label>
-        <div className="grid grid-cols-3 gap-2">
-          {APPEARANCE.map((o) => {
-            const Icon = o.icon;
-            return (
-              <button
-                key={o.id}
-                type="button"
-                onClick={() => setTheme(o.id)}
-                className={cn(
-                  "group bg-card flex h-20 cursor-pointer flex-col items-center justify-center gap-1.5 rounded-lg border transition-all",
-                  theme === o.id
-                    ? "border-foreground/60 ring-foreground/20 ring-1"
-                    : "border-border/60 hover:border-border",
-                )}
-              >
-                <Icon size={18} strokeWidth={1.5} />
-                <span className="text-[11.5px]">{o.label}</span>
-              </button>
-            );
-          })}
-        </div>
-      </div>
+      <SectionHeader title="General" description="Editor, zoom, and startup." />
 
       <div className="flex flex-col gap-2">
         <Label>Zoom</Label>

@@ -105,11 +105,82 @@ export type SavedBoardLeaf = {
   customTitle?: string;
 };
 
+/**
+ * Source Control as a pane leaf. Stateless like the board: the panel reads the
+ * live workspace root, so existence is the whole of its saved state.
+ */
+export type SavedScmLeaf = {
+  kind: "leaf";
+  leafKind: "scm";
+  private?: boolean;
+  /** User-chosen tab name from the tab's right-click "Rename". */
+  customTitle?: string;
+};
+
+/**
+ * An extension panel mounted as a pane (SQL Explorer, API Client). Restorable
+ * from its ids alone: `ExtensionPanelMount` subscribes to the renderer registry
+ * and shows a placeholder until the owning extension finishes activating, so a
+ * restored leaf lights up on its own. Before this existed the whole pane TAB
+ * was dropped from the snapshot, which meant a canvas holding a database or API
+ * window vanished on restart along with the terminals beside it.
+ */
+export type SavedExtensionPanelLeaf = {
+  kind: "leaf";
+  leafKind: "extension-panel";
+  extensionId: string;
+  panelId: string;
+  /** Which instance of a per-key panel this is. */
+  reuseKey?: string;
+  /** Cached chrome (label + icon hint) so the strip reads right before the
+   *  extension activates and refreshes them. */
+  title?: string;
+  icon?: string;
+  private?: boolean;
+  customTitle?: string;
+};
+
+/**
+ * An AI chat pane. Only the session id: the conversation lives in the global
+ * chat store, so a restored pane rebinds to the same chat, and a session the
+ * user has since deleted restores as an empty shell rather than a dead pane.
+ */
+export type SavedAiLeaf = {
+  kind: "leaf";
+  leafKind: "ai";
+  sessionId: string;
+  private?: boolean;
+  customTitle?: string;
+};
+
+/** One canvas window's geometry, percentages of the canvas box. Saved on the
+ *  LEAF (see `CanvasRect`), so it travels with the pane and needs no positional
+ *  side-table keyed by ids a saved tree does not carry. */
+export type SavedCanvasRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  z: number;
+  /** Per-pane content zoom. Absent = 1. */
+  zoom?: number;
+};
+
+/** Shared by every saved leaf kind: the pane's rectangle in the workspace's
+ *  canvas view. Absent = never placed there. */
+type SavedLeafCommon = { canvasRect?: SavedCanvasRect };
+
 export type SavedPaneNode =
-  | SavedTerminalLeaf
-  | SavedEditorLeaf
-  | SavedBrowserLeaf
-  | SavedBoardLeaf
+  | ((
+      | SavedTerminalLeaf
+      | SavedEditorLeaf
+      | SavedBrowserLeaf
+      | SavedBoardLeaf
+      | SavedScmLeaf
+      | SavedExtensionPanelLeaf
+      | SavedAiLeaf
+    ) &
+      SavedLeafCommon)
   | {
       kind: "split";
       dir: "row" | "col";
@@ -128,6 +199,13 @@ export type SavedPaneTab = {
    *  a pin the user has to redo on every launch is not a pin. Absent on state
    *  written before pinning existed, which reads as unpinned. */
   pinned?: boolean;
+  /**
+   * Canvas mode: one rectangle per SAVED leaf, in `leaves(paneTree)` order.
+   * Present = this tab restores as a canvas. Positional rather than keyed by
+   * leaf id for the same reason `activeLeafIndex` is an index: a saved tree
+   * carries no ids, restore mints fresh ones.
+   */
+  canvas?: SavedCanvasRect[];
 };
 
 /**
@@ -144,11 +222,22 @@ export type SavedPreviewTab = {
 export type SavedTab = SavedPaneTab | SavedPreviewTab;
 // ai-diff tabs are session-only. Never persisted.
 
+/**
+ * How a workspace's panes are presented. `tabs` is the classic strip of tabs and
+ * splits; `kanban` charts its terminals by what their AI CLI is doing; `canvas`
+ * floats every pane of the workspace as a draggable, resizable window on one
+ * surface. Per WORKSPACE, not per tab: the tab strip is hidden in the other two,
+ * because both of them already show the whole workspace at once.
+ */
+export type WorkspaceView = "tabs" | "kanban" | "canvas";
+
 export type Workspace = {
   id: string;
   name: string;
   tabs: SavedTab[];
   activeTabIndex: number;
+  /** Absent on state written before views existed, which reads as "tabs". */
+  view?: WorkspaceView;
   /**
    * Pinned workspaces sort to the top of the panel and show a pin instead of
    * the close button.
@@ -181,6 +270,8 @@ type Actions = {
   /** Create an empty workspace. Caller must save prior tabs and call setActiveId to switch. */
   createWorkspace: (name: string) => Workspace;
   renameWorkspace: (id: string, name: string) => void;
+  /** Switch a workspace between the tabs / kanban / canvas presentations. */
+  setWorkspaceView: (id: string, view: WorkspaceView) => void;
   /** Pin or unpin a workspace, re-sorting so pinned ones stay on top. */
   setWorkspacePinned: (id: string, pinned: boolean) => void;
   removeWorkspace: (id: string) => void;
@@ -301,6 +392,14 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     renameWorkspace(id, name) {
       set({
         workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, name } : w)),
+      });
+      void persist();
+    },
+
+    setWorkspaceView(id, view) {
+      if (get().workspaces.find((w) => w.id === id)?.view === view) return;
+      set({
+        workspaces: get().workspaces.map((w) => (w.id === id ? { ...w, view } : w)),
       });
       void persist();
     },

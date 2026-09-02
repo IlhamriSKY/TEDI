@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.39] - 02-09-2026
+
+### Added
+
+- **A workspace can now be looked at three ways: tabs, kanban, or canvas.** The three toggles sit left of the tab strip and the choice is saved per workspace, so each project keeps the layout you left it in. `canvas` floats EVERY pane in the workspace as a draggable, resizable, overlapping window on one edgeless surface: terminals, editors, browsers, source control, the board, and any extension panel (SQL Explorer, API Client) all at once, with no tab strip. `kanban` gives the whole area to the board. It is not a new tab kind and not a second pane store: the pane tabs still exist underneath and the canvas simply lays their leaves out itself, which is why every PTY, session, AI context and workspace restore behaves exactly as it does in tabs view, and why switching views respawns nothing. See [CanvasView.tsx](src/modules/panes/CanvasView.tsx), [WorkspaceArea.tsx](src/app/components/WorkspaceArea.tsx).
+- **The canvas has no edges.** A window may sit at -300 or 900; the viewport pans by dragging the background and zooms with Ctrl + wheel or the toolbar badge, and panning is bounded by where your panes actually are rather than by a frame. A minimap bottom right shows the whole arrangement plus the slice you are looking at, letterboxed so the picture matches the canvas, and the percentage readout is Fit all panes. Geometry lives on the LEAF as percentages, so it travels with a pane between tabs, rescales instead of clipping when the window resizes, and round-trips through the existing workspace serializer. See [canvasViewport.ts](src/modules/panes/canvasViewport.ts).
+- **Every canvas window has its own content zoom.** Ctrl + wheel over a window, or the buttons that appear in its header, so a pane squeezed into a corner is still readable. It is applied through whatever actually works for that pane kind: a terminal scales xterm's font size, every DOM-bodied pane takes CSS zoom, and a browser pane keeps its own zoom buttons because it is a native webview no CSS can reach.
+- **TEDI's own AI opens as a pane, one per conversation.** The agent was the right slot and nowhere else; now `+` -> AI Chat, or the canvas Add menu, opens any chat from your history as a pane, in a split or on the canvas, several at once. A chat may appear in exactly one pane: opening one already open focuses it, because two views over one conversation share a composer and are not a second chat. See [AiMiniWindow.tsx](src/modules/ai/components/AiMiniWindow.tsx), [AiChatMenuItems.tsx](src/modules/ai/components/AiChatMenuItems.tsx).
+- **The native agent reports status like a terminal agent does, and joins the board.** Each chat reports idle / working / blocking / done per session, so the kanban charts both kinds of agent in one set of columns and one glance answers "which of my agents needs me". `blocking` outranks everything, because an approval filed under "working" sits in the wrong column - the one you are watching. `done` is the working-to-quiet edge held until you look, not a standing state. See [sessionStatus.ts](src/modules/ai/lib/sessionStatus.ts).
+- **Source Control is a pane.** It was a whole tab or nothing; it is now an ordinary leaf, so it works on the canvas and in a split beside the terminal you are running commands in.
+- **Light and dark now toggle from the toolbar**, beside Install MCP, in the same style as the buttons next to it. Switching theme is something people do while working, and a separate Settings window is the wrong place for it. Two states only.
+
+### Changed
+
+- **The Appearance picker is gone from Settings.** The header button replaces it. The OS default still seeds a first run; it is simply no longer offered as a thing to pick.
+- **The OS logo in the status bar lost its box.** It sat in a bordered square at 11px while every other mark in that row is a bare 14px icon, so it read as a button you could press rather than part of the breadcrumb.
+- **The kanban button is gone from each workspace row.** Kanban is a view now, reachable from the toolbar for the workspace you are actually in, so a per-row button that only ever worked on the active workspace had nothing left to do.
+- **Extension panels survive a restart.** A pane tab containing one was dropped from the workspace snapshot whole, which meant a canvas holding SQL Explorer or API Client vanished on the next launch and took the terminals beside it along. They round-trip on their ids now. See [serialize.ts](src/modules/workspaces/serialize.ts).
+- **The workspace view has a command.** It was the only major surface with none, so it could not be reached from the palette or rebound. `Mod+Shift+M` cycles it.
+
+### Fixed
+
+- **Terminals could go blank on a busy canvas.** A terminal holds a WebGL context only while its pane is visible, and browsers cap live contexts at about sixteen. Tabs view shows one tab at a time, but a canvas showing every pane in the workspace at once sailed past that cap, and an evicted context paints nothing until the DOM fallback catches up. Windows outside the viewport are culled now, so the number of live contexts is back to what is actually on screen. See [canvasViewport.ts](src/modules/panes/canvasViewport.ts), [canvas-viewport-verify.ts](scripts/panes/canvas-viewport-verify.ts).
+- **A diff opened while in canvas or kanban view was invisible and unreachable.** Both views hide the tab strip, and the diff surfaces only render in tabs view, so an AI-proposed edit silently went nowhere. A tab that is not a pane is not something either view has anything to say about, so the workspace falls back to the tabs presentation for as long as one is active, and closing it drops straight back onto the canvas.
+- **The terminal sat in a box inside its own window.** It was the only leaf kind drawn with padding, which reads as an inset in a split but as a second frame on a canvas window that already has a border, a header and a shadow. It fills the window now, like every other pane.
+- **Zoom steps were eaten in bursts.** Several wheel ticks or two fast clicks land in one React batch, where the render closure still holds the pre-step value, so every event computed the same target and only one stuck: a four-click zoom-out moved one step. Both the pane zoom and the canvas zoom now step off the live value.
+
 ## [0.4.38] - 02-09-2026
 
 ### Added

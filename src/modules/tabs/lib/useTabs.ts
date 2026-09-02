@@ -17,6 +17,7 @@ import {
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
   setLeafPtyId as setLeafPtyIdInTree,
+  setLeafCanvasRect as setLeafCanvasRectInTree,
   setLeafCustomTitle as setLeafCustomTitleInTree,
   setLeafTerminalTheme as setLeafTerminalThemeInTree,
   setSplitSizes as setSplitSizesInTree,
@@ -30,6 +31,7 @@ import {
   type PaneLeaf,
   type PaneNode,
   type BrowserLeafState,
+  type CanvasRect,
   type ExtensionPanelLeafState,
   type SplitDir,
   type TerminalLeafState,
@@ -138,6 +140,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     openGitDiffTab,
     openScmTab,
     openBoardTab,
+    openScmPane,
+    openAiPane,
     newBrowserTab,
     openExtensionTab,
     openExtensionPane,
@@ -560,6 +564,25 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * in that palette; the serializer persists the choice. No-op for non-terminal
    * leaves or when the value is unchanged.
    */
+  /**
+   * Merge canvas-view geometry into one or more leaves, wherever they live.
+   * The single writer behind every canvas layout change - a drag, a resize,
+   * click-to-front, the first-render seed, Tidy - because they all say the same
+   * thing: these panes now have this geometry. Routes through `updateLeafTree`,
+   * so it does not care which tab owns the leaf, which is the whole point of a
+   * canvas that spans the workspace.
+   */
+  const setCanvasRects = useCallback((patch: Record<number, Partial<CanvasRect>>) => {
+    setTabs((curr) => {
+      let next = curr;
+      for (const [key, rect] of Object.entries(patch)) {
+        const leafId = Number(key);
+        next = updateLeafTree(next, leafId, (tree) => setLeafCanvasRectInTree(tree, leafId, rect));
+      }
+      return next;
+    });
+  }, []);
+
   const setLeafTerminalTheme = useCallback((leafId: number, themeId: string | null) => {
     setTabs((curr) =>
       updateLeafTree(curr, leafId, (tree) => setLeafTerminalThemeInTree(tree, leafId, themeId)),
@@ -1155,6 +1178,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     openGitDiffTab,
     openScmTab,
     openBoardTab,
+    openScmPane,
+    openAiPane,
     closeTab,
     selectByIndex,
     setLeafCwd,
@@ -1177,6 +1202,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     rotateLeafSplit,
     replaceAllTabs,
     allocId,
+    setCanvasRects,
     reorderTabs,
     setTabPinned,
     reorderLeafInGroup,

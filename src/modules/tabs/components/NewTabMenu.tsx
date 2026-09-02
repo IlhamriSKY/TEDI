@@ -10,6 +10,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { fmtShortcut, MOD_KEY } from "@/lib/platform";
 import { cn } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
+import { AiChatMenuItems } from "@/modules/ai/components/AiChatMenuItems";
 import { Bot, Columns2, FileCode, Globe, Lock, Plus, Rows2, SquareTerminal } from "lucide-react";
 
 type NewTabMenuProps = {
@@ -20,6 +21,8 @@ type NewTabMenuProps = {
   /** Open a scratch note in the editor: a quick-notes file that needs no name,
    *  no folder and no Ctrl+S (it autosaves and comes back after a restart). */
   onNewNote: () => void;
+  /** Open one AI chat as a pane, picked from history. Deduped per session. */
+  onOpenAiChat: (sessionId: string) => void;
   /** Open the agent picker (`AgentSpawnDialog`). */
   onOpenAgents: () => void;
   /** Split the active pane. Wired into the `+` dropdown next to New Terminal.
@@ -35,6 +38,7 @@ export function NewTabMenu({
   onNewPrivateTerminal,
   onNewPreview,
   onNewNote,
+  onOpenAiChat,
   onOpenAgents,
   onSplit,
   canSplit,
@@ -91,6 +95,7 @@ export function NewTabMenu({
             {fmtShortcut(MOD_KEY, "Alt", "P")}
           </span>
         </DropdownMenuItem>
+        <AiChatMenuItems onOpen={onOpenAiChat} />
         {onSplit ? (
           <>
             <DropdownMenuSeparator />

@@ -36,7 +36,13 @@ import {
   type SshStatus,
 } from "../../src/modules/ssh/status";
 import type { SavedPaneNode, SavedTab } from "../../src/modules/workspaces/store";
-import { editorPaneSession, type PaneNode } from "../../src/modules/terminal/lib/panes";
+import { findAiPane } from "../../src/modules/tabs/lib/tabHelpers";
+import {
+  editorPaneSession,
+  type CanvasRect,
+  type PaneLeaf,
+  type PaneNode,
+} from "../../src/modules/terminal/lib/panes";
 import type { Tab } from "../../src/modules/tabs";
 
 let nextId = 1;
@@ -373,15 +379,118 @@ console.log("\n[mount] a remote pane must never open an editor without a session
   check("a reconnect adopts the fresh session", editorPaneSession(remote, 9, 5), 9);
 }
 
+console.log("\n[ai] a chat pane round-trips on its session, and only one may hold it");
+
+// An AI pane carries the SESSION id, never the conversation: the chat lives in
+// the global chat store. Restore therefore has to bring the id back untouched,
+// or the pane rebinds to the wrong chat - or to none.
+{
+  const aiLeaf = (leafId: number, sessionId: string): PaneNode => ({
+    kind: "leaf",
+    id: leafId,
+    leafKind: "ai",
+    sessionId,
+  });
+  const saved = serializeTabs([tab(split("row", [aiLeaf(1401, "s-abc"), term(1402)]), 1401)])[0];
+  check("an ai pane is saved", shape(saved), "split(ai,terminal)");
+  const back = savedToTab(saved, id);
+  const first =
+    back.kind === "pane" && back.paneTree.kind === "split" ? back.paneTree.children[0] : null;
+  check(
+    "and comes back bound to the same session",
+    first?.kind === "leaf" && first.leafKind === "ai" ? first.sessionId : null,
+    "s-abc",
+  );
+}
+
+// The rule the whole feature rests on: a chat may appear in exactly ONE pane.
+// `openAiPane` asks this before adding, and focuses the hit instead.
+{
+  const aiLeaf = (leafId: number, sessionId: string): PaneNode => ({
+    kind: "leaf",
+    id: leafId,
+    leafKind: "ai",
+    sessionId,
+  });
+  const t1 = tab(aiLeaf(1501, "s-one"), 1501);
+  const t2 = tab(split("row", [term(1502), aiLeaf(1503, "s-two")]), 1502);
+  const tabs = [t1, t2];
+  check("finds a chat open in a single-leaf tab", findAiPane(tabs, "s-one"), {
+    tabId: t1.id,
+    leafId: 1501,
+  });
+  check("finds one nested in a split", findAiPane(tabs, "s-two"), {
+    tabId: t2.id,
+    leafId: 1503,
+  });
+  check("and reports nothing for a chat that is not open", findAiPane(tabs, "s-three"), null);
+}
+
+console.log("\n[canvas] window geometry must round-trip on the LEAF");
+
+// A canvas rectangle lives on the leaf, so it round-trips with the pane, moves
+// with it between tabs, and needs no positional side-table keyed by ids a saved
+// tree does not carry. Every leaf kind may hold one, and the serializer
+// whitelists leaf fields one at a time - so it is appended in ONE place per
+// direction, and this is what proves both places are wired.
+{
+  const withRect = (n: PaneNode, r: CanvasRect): PaneNode => ({
+    ...(n as PaneLeaf),
+    canvasRect: r,
+  });
+  const a = withRect(term(1101), { x: 10, y: 20, w: 30, h: 40, z: 1 });
+  const b = withRect(editor(1102, "/w/a.ts"), { x: 50, y: 5, w: 45, h: 60, z: 2 });
+  const saved = serializeTabs([tab(split("row", [a, b]), 1101)])[0];
+  const savedTree = pane(saved).paneTree;
+  check(
+    "rects persist on both leaf kinds",
+    savedTree.kind === "split"
+      ? savedTree.children.map((c) => (c as { canvasRect?: CanvasRect }).canvasRect?.x)
+      : null,
+    [10, 50],
+  );
+  const back = savedToTab(saved, id);
+  const tree = back.kind === "pane" ? back.paneTree : null;
+  check(
+    "and come back on the fresh leaves",
+    tree?.kind === "split" ? tree.children.map((c) => (c as PaneLeaf).canvasRect?.z) : null,
+    [1, 2],
+  );
+}
+
+// A pane never placed on a canvas must not grow the key: `CanvasView` seeds one
+// on first render, and a persisted zero-rect would restore as a 0x0 window.
+{
+  const saved = serializeTabs([tab(split("row", [term(1201), term(1202)]), 1201)])[0];
+  const savedTree = pane(saved).paneTree;
+  check(
+    "an unplaced pane saves no rect",
+    savedTree.kind === "split" ? savedTree.children.map((c) => "canvasRect" in c) : null,
+    [false, false],
+  );
+}
+
 console.log("\n[active index] savedActiveTabIndex must match what serializeTabs emits");
 
-// The pre-existing drift: an extension-panel tab was counted but never emitted.
+// An extension panel now ROUND-TRIPS on its ids. It used to take its whole pane
+// tab out of the snapshot, which meant a canvas holding a database or API
+// window vanished on restart along with the terminals beside it.
 {
   const extTab = tab(extPanel(801), 801);
   const paneTab = tab(term(802), 802);
   const tabs = [extTab, paneTab];
-  check("extension-panel tab is not emitted", serializeTabs(tabs).length, 1);
-  check("index skips the dropped extension-panel tab", savedActiveTabIndex(tabs, paneTab.id), 0);
+  check("extension-panel tab IS emitted", serializeTabs(tabs).length, 2);
+  check("index counts the extension-panel tab", savedActiveTabIndex(tabs, paneTab.id), 1);
+  check("extension panel keeps its kind", shape(serializeTabs(tabs)[0]), "extension-panel");
+  const back = savedToTab(serializeTabs(tabs)[0], id);
+  const leaf = back.kind === "pane" ? back.paneTree : null;
+  check(
+    "and comes back bound to its extension",
+    leaf?.kind === "leaf" && leaf.leafKind === "extension-panel"
+      ? [leaf.extensionId, leaf.panelId]
+      : null,
+    ["tedi.sql-explorer", "main"],
+  );
 }
 
 // Same drift via a dropped remote-editor-only tab.

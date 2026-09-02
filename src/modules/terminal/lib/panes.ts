@@ -172,10 +172,88 @@ export type BoardLeafState = {
   customTitle?: string;
 };
 
-export type LeafState =
-  TerminalLeafState | EditorLeafState | BrowserLeafState | ExtensionPanelLeafState | BoardLeafState;
+/**
+ * Source Control as a pane leaf, so it can sit on a canvas (or next to a
+ * terminal in a split) instead of only owning a whole tab. Carries no state:
+ * the panel reads the live workspace root from `PaneMetaContext`, exactly as
+ * the `scm` TAB reads it from App.
+ */
+export type ScmLeafState = {
+  leafKind: "scm";
+  /** Privacy flag kept for uniformity with the other leaf kinds. */
+  private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
+};
 
-export type PaneLeaf = { kind: "leaf"; id: PaneId } & LeafState;
+/**
+ * One AI chat, as a pane. Carries the SESSION id, not the conversation: the
+ * chat itself lives in `chatStore` (global, keyed by session, persisted in
+ * `tedi-sessions.json`), so a pane is a view onto a session exactly as the
+ * right-slot panel is - and a restored pane rebinds by id.
+ *
+ * Two panes may never hold the same session: `openAiPane` focuses the existing
+ * one instead. Two `useChat` views over one Chat would render the same
+ * transcript twice while sharing one composer, which is not a second chat, just
+ * a confusing copy of the first.
+ */
+export type AiLeafState = {
+  leafKind: "ai";
+  sessionId: string;
+  /** Privacy flag kept for uniformity with the other leaf kinds. */
+  private?: boolean;
+  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
+  customTitle?: string;
+};
+
+export type LeafState =
+  | TerminalLeafState
+  | EditorLeafState
+  | BrowserLeafState
+  | ExtensionPanelLeafState
+  | BoardLeafState
+  | ScmLeafState
+  | AiLeafState;
+
+/**
+ * One window's geometry in the workspace's CANVAS view. Percentages of the
+ * canvas box (0..100), not pixels: that is what makes a canvas responsive -
+ * resizing the window, the sidebar or the right slot rescales every window
+ * instead of leaving them clipped off the edge.
+ *
+ * It lives on the LEAF, not on the tab, because canvas view flattens the whole
+ * workspace onto one surface: a pane's rectangle has to survive the pane moving
+ * between tabs, and it round-trips through the existing leaf serializer instead
+ * of needing a positional side-table (a saved tree carries no leaf ids).
+ * Absent = never placed; `CanvasView` seeds one on first render.
+ */
+export type CanvasRect = {
+  x: number;
+  y: number;
+  w: number;
+  h: number;
+  /** Stacking order. Click-to-focus sets it to max+1. Rendered as `zIndex`
+   *  rather than by reordering the DOM, so a bring-to-front never reparents a
+   *  live xterm canvas or CodeMirror view. */
+  z: number;
+  /**
+   * Per-pane content zoom, composed with the global `contentZoom` preference.
+   * Undefined = 1. Rides this type for the same reason `z` does: it is how the
+   * pane is PRESENTED on the canvas, so it wants the one field-merging setter,
+   * the one serializer hook and the one seeding path the rectangle already has.
+   *
+   * Applied per leaf kind, through the arm that works there: a terminal scales
+   * xterm's `fontSize` (CSS `zoom` on a WebGL canvas breaks cursor and glyph
+   * positioning - see `effectiveTerminalFontSize`), and every DOM-bodied pane
+   * takes CSS `zoom`. A browser pane is a NATIVE webview composited over the
+   * DOM, which no CSS can touch, so it keeps its own zoom buttons instead.
+   */
+  zoom?: number;
+};
+
+/** `canvasRect` sits here rather than on each `LeafState` member: it applies to
+ *  every leaf kind, and one declaration is one place to keep it. */
+export type PaneLeaf = { kind: "leaf"; id: PaneId; canvasRect?: CanvasRect } & LeafState;
 
 export type PaneNode =
   | PaneLeaf
@@ -408,6 +486,22 @@ export function setLeafCustomTitle(n: PaneNode, id: PaneId, title: string | null
 }
 
 /** Update a preview leaf's current URL. No-op for other leaves or mismatched ids. */
+/** Merge canvas geometry into one leaf. FIELD BY FIELD, so a caller sends only
+ *  what it changed: a drag reads the rect at pointerdown, but the click that
+ *  started it has already raised the window, so writing a whole rectangle back
+ *  would restore the stale `z` and drop the window behind its neighbours. */
+export function setLeafCanvasRect(n: PaneNode, id: PaneId, patch: Partial<CanvasRect>): PaneNode {
+  if (isLeaf(n)) {
+    if (n.id !== id) return n;
+    return { ...n, canvasRect: { ...DEFAULT_CANVAS_RECT, ...n.canvasRect, ...patch } };
+  }
+  return { ...n, children: n.children.map((c) => setLeafCanvasRect(c, id, patch)) };
+}
+
+/** Fallback for a patch that lands on a leaf with no rect yet. `CanvasView`
+ *  normally seeds a cascaded one first; this only keeps the type total. */
+const DEFAULT_CANVAS_RECT: CanvasRect = { x: 4, y: 5, w: 46, h: 48, z: 1 };
+
 export function updateBrowserLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
   if (isLeaf(n)) {
     if (n.id !== id || n.leafKind !== "browser" || n.url === url) return n;
@@ -517,6 +611,17 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
   if (leaf.leafKind === "board") {
     // No state of its own: the columns are rebuilt from the live tab tree.
     return { leafKind: "board", ...(leaf.private ? { private: true } : {}) };
+  }
+  if (leaf.leafKind === "scm") {
+    // Same deal: the panel is driven by the live workspace root.
+    return { leafKind: "scm", ...(leaf.private ? { private: true } : {}) };
+  }
+  if (leaf.leafKind === "ai") {
+    return {
+      leafKind: "ai",
+      sessionId: leaf.sessionId,
+      ...(leaf.private ? { private: true } : {}),
+    };
   }
   return {
     leafKind: "browser",

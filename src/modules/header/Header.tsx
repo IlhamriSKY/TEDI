@@ -9,13 +9,25 @@ import { memo, useEffect, useRef, useState, type RefObject } from "react";
 import { SearchInline, type SearchInlineHandle, type SearchTarget } from "./SearchInline";
 import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
+import type { WorkspaceView } from "@/modules/workspaces/store";
 import { SshMenu } from "@/modules/ssh/SshMenu";
 import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
 import { McpInstallButton } from "@/modules/mcpInstall/McpInstallButton";
+import { useTheme } from "@/modules/theme";
 import type { SshConnection } from "@/modules/ssh/connections";
 import type { SshStatus } from "@/modules/ssh/status";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
-import { FolderOpen, PanelLeft, Puzzle, Settings } from "lucide-react";
+import {
+  Columns3,
+  FolderOpen,
+  LayoutDashboard,
+  Moon,
+  PanelLeft,
+  Puzzle,
+  Settings,
+  SquareKanban,
+  Sun,
+} from "lucide-react";
 
 type Props = {
   tabs: Tab[];
@@ -36,8 +48,18 @@ type Props = {
   onNewPreview: () => void;
   /** `+` -> Note: open a scratch note in the editor. */
   onNewNote: () => void;
+  /** `+` -> AI Chat: open one chat from history as a pane. */
+  onOpenAiChat: (sessionId: string) => void;
   /** `+` -> Agent...: open the agent picker dialog. */
   onOpenAgents: () => void;
+  /** How the active workspace presents its panes. Drives the TOGGLE's state,
+   *  not the strip - a workspace stays "in canvas mode" even while a diff tab
+   *  is borrowing the tabs presentation. */
+  view: WorkspaceView;
+  /** Whether to draw the tab strip. See `effectiveView` in App. */
+  showTabStrip: boolean;
+  /** Switch the active workspace between tabs / kanban / canvas. */
+  onSetView: (view: WorkspaceView) => void;
   /** Pin a preview-editor leaf on double-click. */
   onPinLeaf: (tabId: number, leafId: number) => void;
   /** Drag-and-drop reorder of the tab strip. */
@@ -100,6 +122,51 @@ function onHeaderMouseDown(e: React.MouseEvent<HTMLElement>) {
   }
 }
 
+/**
+ * Tabs / Kanban / Canvas, the three ways a workspace can present its panes.
+ *
+ * In the toolbar rather than the Workspaces sidebar because two of the three
+ * HIDE the tab strip, and a switch you have to open a collapsible panel to
+ * reach is a poor way back from a view you did not mean to enter. The setting
+ * is still per workspace - this just writes the active one.
+ */
+function WorkspaceViewToggle({
+  view,
+  onSetView,
+}: {
+  view: WorkspaceView;
+  onSetView: (view: WorkspaceView) => void;
+}) {
+  const items: { id: WorkspaceView; label: string; Icon: typeof PanelLeft }[] = [
+    { id: "tabs", label: "Tabs", Icon: Columns3 },
+    { id: "kanban", label: "Kanban", Icon: SquareKanban },
+    { id: "canvas", label: "Canvas", Icon: LayoutDashboard },
+  ];
+  return (
+    <div className="flex shrink-0 items-center gap-0.5">
+      {items.map(({ id, label, Icon }) => (
+        <IconTooltip key={id} label={label}>
+          <Button
+            onClick={() => onSetView(id)}
+            aria-label={`${label} view`}
+            aria-pressed={view === id}
+            variant="ghost"
+            size="icon-sm"
+            className={cn(
+              "size-6 shrink-0 rounded",
+              view === id
+                ? "bg-accent text-accent-foreground"
+                : cn("text-muted-foreground", TOOLBAR_HOVER),
+            )}
+          >
+            <Icon size={15} strokeWidth={1.75} />
+          </Button>
+        </IconTooltip>
+      ))}
+    </div>
+  );
+}
+
 function HeaderImpl({
   tabs,
   activeId,
@@ -112,7 +179,11 @@ function HeaderImpl({
   onRenameLeaf,
   onNewPreview,
   onNewNote,
+  onOpenAiChat,
   onOpenAgents,
+  view,
+  showTabStrip,
+  onSetView,
   onPinLeaf,
   onReorderTabs,
   onReorderLeafInGroup,
@@ -145,6 +216,8 @@ function HeaderImpl({
     return () => ro.disconnect();
   }, []);
 
+  const { resolvedTheme, setTheme } = useTheme();
+
   const extensionsButton = (
     <IconTooltip label="Extensions">
       <Button
@@ -155,6 +228,29 @@ function HeaderImpl({
         aria-label="Extensions"
       >
         <Puzzle size={16} strokeWidth={1.75} />
+      </Button>
+    </IconTooltip>
+  );
+
+  // Light / dark, as one toolbar button beside Install MCP. It replaced the
+  // three-card Appearance picker in Settings: switching theme is a thing people
+  // do while working, and a separate window is the wrong place for it. Two
+  // states only, no "system" - the OS default still seeds a first run, it just
+  // is not offered as a thing to pick.
+  const themeButton = (
+    <IconTooltip label={resolvedTheme === "dark" ? "Switch to light" : "Switch to dark"}>
+      <Button
+        variant="ghost"
+        size="icon"
+        className={cn("text-muted-foreground", TOOLBAR_HOVER, "size-7 shrink-0 rounded-md")}
+        onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
+        aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
+      >
+        {resolvedTheme === "dark" ? (
+          <Sun size={15} strokeWidth={1.75} />
+        ) : (
+          <Moon size={15} strokeWidth={1.75} />
+        )}
       </Button>
     </IconTooltip>
   );
@@ -211,6 +307,9 @@ function HeaderImpl({
           </IconTooltip>
         </div>
 
+        <span className="bg-border mx-0.5 h-5 w-px shrink-0" />
+        <WorkspaceViewToggle view={view} onSetView={onSetView} />
+
         {/* Drag spacer between the left and right icon clusters. */}
         <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
 
@@ -228,6 +327,7 @@ function HeaderImpl({
         <ExtensionHeaderItems />
         {extensionsButton}
         <McpInstallButton />
+        {themeButton}
         {settingsButton}
 
         {USE_CUSTOM_WINDOW_CONTROLS && (
@@ -238,49 +338,57 @@ function HeaderImpl({
         )}
       </div>
 
-      {/* Row 2: tab strip across full width. h-10 (40px) fits the 28px triggers + 10px scrollbar.
+      {/* Row 2: tab strip. Hidden in kanban and canvas view, which each show the
+          whole workspace at once - a strip of the same panes beside them would
+          be a second, disagreeing index of the thing already on screen. It comes
+          BACK for a non-pane tab (a diff, source control, an extension tab):
+          those are not panes, so neither view has anything to say about them,
+          and without the strip one would be unreachable. h-10 (40px) fits the 28px triggers + 10px scrollbar.
           Painted with the canvas (`bg-background`) so the strip recesses below the toolbar's
           `bg-card`, and the active tab (accent) reads as lifted out of the strip. */}
-      <div
-        data-tauri-drag-region
-        onMouseDown={onHeaderMouseDown}
-        // `data-tab-strip` marks the whole row (tabs + the trailing drag region)
-        // as an OS file-drop target: dropping a file here opens it in an editor,
-        // a folder opens a terminal tab. Hit-tested by `useEditorFileDrop`,
-        // which also sets `data-drop-active` while a drag hovers the row - the
-        // only affordance the user gets, since Tauri's native drag intercept
-        // means no HTML dragover fires to style against.
-        data-tab-strip
-        className="border-border/60 bg-background data-[drop-active=true]:bg-accent/50 flex h-10 shrink-0 items-center border-t pl-2 transition-colors"
-      >
-        <TabBar
-          tabs={tabs}
-          activeId={activeId}
-          onSelectEntry={onSelectEntry}
-          onCloseEntry={onCloseEntry}
-          onNewTerminal={onNewTerminal}
-          onNewPrivateTerminal={onNewPrivateTerminal}
-          onTogglePrivate={onTogglePrivate}
-          onSetTabPinned={onSetTabPinned}
-          onRenameLeaf={onRenameLeaf}
-          onNewPreview={onNewPreview}
-          onNewNote={onNewNote}
-          onOpenAgents={onOpenAgents}
-          onPinLeaf={onPinLeaf}
-          onReorderTabs={onReorderTabs}
-          onReorderLeafInGroup={onReorderLeafInGroup}
-          onMoveLeafToGroup={onMoveLeafToGroup}
-          onMoveLeafToNewTab={onMoveLeafToNewTab}
-          onRotateLeafSplit={onRotateLeafSplit}
-          onSplit={onSplit}
-          canSplit={canSplit}
-          sshStatuses={sshStatuses}
-          aiCliStatuses={aiCliStatuses}
-          compact={compact}
-        />
-        {/* Trailing drag region after the tabs. */}
-        <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
-      </div>
+      {showTabStrip ? (
+        <div
+          data-tauri-drag-region
+          onMouseDown={onHeaderMouseDown}
+          // `data-tab-strip` marks the whole row (tabs + the trailing drag region)
+          // as an OS file-drop target: dropping a file here opens it in an editor,
+          // a folder opens a terminal tab. Hit-tested by `useEditorFileDrop`,
+          // which also sets `data-drop-active` while a drag hovers the row - the
+          // only affordance the user gets, since Tauri's native drag intercept
+          // means no HTML dragover fires to style against.
+          data-tab-strip
+          className="border-border/60 bg-background data-[drop-active=true]:bg-accent/50 flex h-10 shrink-0 items-center border-t pl-2 transition-colors"
+        >
+          <TabBar
+            tabs={tabs}
+            activeId={activeId}
+            onSelectEntry={onSelectEntry}
+            onCloseEntry={onCloseEntry}
+            onNewTerminal={onNewTerminal}
+            onNewPrivateTerminal={onNewPrivateTerminal}
+            onTogglePrivate={onTogglePrivate}
+            onSetTabPinned={onSetTabPinned}
+            onRenameLeaf={onRenameLeaf}
+            onNewPreview={onNewPreview}
+            onNewNote={onNewNote}
+            onOpenAiChat={onOpenAiChat}
+            onOpenAgents={onOpenAgents}
+            onPinLeaf={onPinLeaf}
+            onReorderTabs={onReorderTabs}
+            onReorderLeafInGroup={onReorderLeafInGroup}
+            onMoveLeafToGroup={onMoveLeafToGroup}
+            onMoveLeafToNewTab={onMoveLeafToNewTab}
+            onRotateLeafSplit={onRotateLeafSplit}
+            onSplit={onSplit}
+            canSplit={canSplit}
+            sshStatuses={sshStatuses}
+            aiCliStatuses={aiCliStatuses}
+            compact={compact}
+          />
+          {/* Trailing drag region after the tabs. */}
+          <div data-tauri-drag-region className="h-full min-w-2 flex-1" />
+        </div>
+      ) : null}
     </div>
   );
 }

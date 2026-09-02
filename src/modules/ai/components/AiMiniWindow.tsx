@@ -11,9 +11,10 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import { memo, useEffect, useMemo, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
+import { deriveAiState, useAiSessionStatus } from "../lib/sessionStatus";
 import { usePlanStore } from "../store/planStore";
 import { useSidebarPlacementStore } from "@/modules/extensions";
 import { revealColumn } from "@/lib/sectionDrag";
@@ -105,23 +106,77 @@ export const AiSidebarPanel = memo(function AiSidebarPanel({
   );
 });
 
+/**
+ * One AI chat as a workspace PANE, bound to an explicit session instead of the
+ * globally active one - which is what lets several chats be open at once, in
+ * splits and on the canvas. Deduped per session by `openAiPane`.
+ *
+ * Clicking anywhere in the pane makes its chat the active one, so the composer
+ * follows the pane you are working in.
+ */
+export const AiPanePanel = memo(function AiPanePanel({ sessionId }: { sessionId: string }) {
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const switchSession = useChatStore((s) => s.switchSession);
+  const known = useChatStore((s) => s.sessions.some((x) => x.id === sessionId));
+  const live = sessionId === activeSessionId;
+
+  if (!known) {
+    return (
+      <div className="text-muted-foreground flex h-full items-center justify-center px-4 text-center text-[11px]">
+        This chat is no longer in your history.
+      </div>
+    );
+  }
+  return (
+    <div
+      data-ai-pane
+      onMouseDownCapture={() => {
+        if (!live) switchSession(sessionId);
+        // Looking at a chat is what clears its `done` badge, exactly as
+        // focusing a terminal clears its agent's.
+        useAiSessionStatus.getState().acknowledge(sessionId);
+      }}
+      className="flex h-full min-h-0 flex-col overflow-hidden text-[12px]"
+    >
+      <Body sessionId={sessionId} surface="pane" live={live} />
+    </div>
+  );
+});
+
 function Body({
   sessionId,
   onClose,
   dragHandle,
+  surface = "sidebar",
+  live = true,
 }: {
   sessionId: string;
-  onClose: () => void;
+  onClose?: () => void;
   dragHandle?: ReactNode;
+  /** `pane` drops the panel header: a pane frame already draws one, with the
+   *  same icon, the chat's name and a close button. */
+  surface?: "sidebar" | "pane";
+  /**
+   * Whether this view owns the composer. The AI runtime has ONE active session -
+   * the composer, `agentMeta`, plan mode and tool approvals are all keyed to it
+   * (see `chatStore`), and background sessions keep streaming into their own
+   * transcript regardless. So every pane renders its own conversation live, but
+   * only the active one can be typed into; clicking a pane makes it active.
+   */
+  live?: boolean;
 }) {
   const focusInput = useChatStore((s) => s.focusInput);
+  const switchSession = useChatStore((s) => s.switchSession);
 
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
   const helpers = useChat<UIMessage>({ chat });
+  useReportAiState(sessionId, helpers.status, helpers.messages);
 
   return (
     <>
-      <Header onClose={onClose} dragHandle={dragHandle} />
+      {surface === "sidebar" ? (
+        <Header onClose={onClose ?? (() => {})} dragHandle={dragHandle} />
+      ) : null}
 
       <PlanModeStrip />
 
@@ -144,9 +199,58 @@ function Body({
       <GoalStrip sessionId={sessionId} />
       <TodoStrip sessionId={sessionId} />
 
-      <AiInputBar messages={helpers.messages} />
+      {live ? (
+        <AiInputBar messages={helpers.messages} />
+      ) : (
+        // Not the active chat, so the composer belongs to another view. Say so
+        // and offer the one click that fixes it, rather than showing an input
+        // that would send somewhere else.
+        <button
+          type="button"
+          onClick={() => switchSession(sessionId)}
+          className="border-border/60 text-muted-foreground hover:text-foreground hover:bg-muted/40 shrink-0 border-t px-3 py-2 text-left text-[11px]"
+        >
+          Click to make this the active chat
+        </button>
+      )}
     </>
   );
+}
+
+/**
+ * Publish this chat's run state for the Board, the tab chip and the pane icon.
+ *
+ * The approval scan is the same one `AgentRunBridge` does, but that bridge is
+ * mounted once for the ACTIVE session, so it cannot speak for a chat sitting in
+ * another pane - which is the entire reason panes needed their own reporter.
+ */
+function useReportAiState(sessionId: string, status: string, messages: UIMessage[]): void {
+  const report = useAiSessionStatus((s) => s.report);
+  const forget = useAiSessionStatus((s) => s.forget);
+  const approvals = useMemo(() => {
+    let n = 0;
+    for (const m of messages) {
+      if (m.role !== "assistant") continue;
+      for (const part of m.parts) {
+        if ((part as { state?: string }).state === "approval-requested") n++;
+      }
+    }
+    return n;
+  }, [messages]);
+  // Remembered across renders so a turn ending can be told from a chat that was
+  // already quiet: only the working -> quiet EDGE earns `done`.
+  const wasWorking = useRef(false);
+  useEffect(() => {
+    const busy = status === "submitted" || status === "streaming";
+    const next = deriveAiState(
+      status as "submitted" | "streaming" | "ready" | "error",
+      approvals,
+      wasWorking.current,
+    );
+    wasWorking.current = busy;
+    report(sessionId, next);
+  }, [sessionId, status, approvals, report]);
+  useEffect(() => () => forget(sessionId), [sessionId, forget]);
 }
 
 function PlanModeStrip() {

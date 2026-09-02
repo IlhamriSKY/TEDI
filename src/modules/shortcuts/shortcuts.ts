@@ -34,6 +34,7 @@ export type ShortcutId =
   | "view.zoomIn"
   | "view.zoomOut"
   | "view.zoomReset"
+  | "view.cycleWorkspaceView"
   | "editor.toggleWordWrap"
   | "editor.formatDocument"
   | "editor.toggleComment"
@@ -308,6 +309,17 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Reset zoom",
     group: "View",
     defaultBindings: [{ [MOD_PROP]: true, key: "0" }],
+  },
+  {
+    // The workspace view is a one-click toggle in the toolbar, but it is the
+    // only major surface with no command - so it could not be reached from the
+    // palette or rebound, unlike the sidebar, the right slot and the splits.
+    // One cycling command rather than three jumps: `m` for mode is free, and
+    // three chords for a three-state toggle is three chords spent.
+    id: "view.cycleWorkspaceView",
+    label: "Cycle workspace view (tabs / kanban / canvas)",
+    group: "View",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "m" }],
   },
   {
     id: "editor.toggleWordWrap",

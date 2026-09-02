@@ -68,6 +68,13 @@ type Options = {
    * Undefined follows the global theme.
    */
   terminalThemeId?: string;
+  /**
+   * Per-pane content zoom from the workspace canvas, multiplied into the global
+   * `contentZoom` preference. Undefined = 1. Scaling goes through xterm's
+   * `fontSize`, never CSS `zoom`, which would leave the WebGL canvas at the old
+   * resolution and misplace the cursor.
+   */
+  paneZoom?: number;
   onSearchReady?: (addon: SearchAddon) => void;
   onExit?: (code: number) => void;
   onCwd?: (cwd: string) => void;
@@ -105,6 +112,7 @@ export function useTerminalSession({
   onSshStatus,
   onAiCliStatus,
   onPtyId,
+  paneZoom,
 }: Options) {
   const cbRef = useRef({
     onSearchReady,
@@ -254,7 +262,9 @@ export function useTerminalSession({
 
   const baseFontSize = usePreferencesStore((p) => p.terminalFontSize);
   const contentZoom = usePreferencesStore((p) => p.contentZoom);
-  const fontSize = effectiveTerminalFontSize(baseFontSize, contentZoom);
+  // The canvas window's own zoom multiplies the global one, so a pane shrunk to
+  // fit a corner still honours the user's app-wide zoom preference.
+  const fontSize = effectiveTerminalFontSize(baseFontSize, contentZoom * (paneZoom ?? 1));
   useEffect(() => {
     const s = sessions.get(leafId);
     if (!s) return;

@@ -1,6 +1,8 @@
 import { type RefObject } from "react";
 import { readClipboardText } from "@/lib/clipboard";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
+import { useWorkspacesStore } from "@/modules/workspaces";
+import type { WorkspaceView } from "@/modules/workspaces/store";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   setContentZoom,
@@ -170,6 +172,15 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       if (usePreferencesStore.getState().contentZoom !== CONTENT_ZOOM_DEFAULT) {
         void setContentZoom(CONTENT_ZOOM_DEFAULT);
       }
+    },
+    "view.cycleWorkspaceView": () => {
+      // Reads the store directly, like the zoom handlers above: the value lives
+      // in one place and this needs no dependency threaded through App.
+      const { workspaces, activeId, setWorkspaceView } = useWorkspacesStore.getState();
+      if (!activeId) return;
+      const order: WorkspaceView[] = ["tabs", "kanban", "canvas"];
+      const current = workspaces.find((w) => w.id === activeId)?.view ?? "tabs";
+      setWorkspaceView(activeId, order[(order.indexOf(current) + 1) % order.length]);
     },
     "editor.toggleWordWrap": () => {
       void setLineWrap(!usePreferencesStore.getState().lineWrap);

@@ -1,5 +1,11 @@
 import { basename } from "@/lib/path";
-import { findLeaf, hasLeaf, type PaneLeaf, type PaneNode } from "@/modules/terminal/lib/panes";
+import {
+  findLeaf,
+  hasLeaf,
+  leaves,
+  type PaneLeaf,
+  type PaneNode,
+} from "@/modules/terminal/lib/panes";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { type PaneTab, type Tab } from "./tabTypes";
 
@@ -49,6 +55,7 @@ export function leafRenameSeed(
   leaf: PaneLeaf,
   sshHosts?: Map<string, SshConnection>,
   fallbackCwd?: string,
+  aiTitles?: ReadonlyMap<string, string>,
 ): string {
   if (leaf.customTitle) return leaf.customTitle;
   if (leaf.leafKind === "extension-panel") {
@@ -59,7 +66,7 @@ export function leafRenameSeed(
     return i >= 0 ? t.slice(i + EXT_TITLE_SEP.length).trim() : "";
   }
   const tag = leafKindTag(leaf);
-  const label = leafLabel(leaf, sshHosts, fallbackCwd);
+  const label = leafLabel(leaf, sshHosts, fallbackCwd, aiTitles);
   if (!tag) return label;
   // A leaf whose connection was deleted reads as a bare "ssh": that is all tag
   // and no name, so seed it empty rather than handing back the tag to be
@@ -84,6 +91,8 @@ export function leafLabel(
   leaf: PaneLeaf,
   sshHosts?: Map<string, SshConnection>,
   fallbackCwd?: string,
+  /** Chat titles by session id, for `ai` leaves. See `useAiSessionTitles`. */
+  aiTitles?: ReadonlyMap<string, string>,
 ): string {
   // A user-set name wins over every derived one. Renaming exists precisely
   // because "the folder this opened in" is often not what the tab should say,
@@ -97,6 +106,14 @@ export function leafLabel(
   if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
   if (leaf.leafKind === "board") return "Board";
+  if (leaf.leafKind === "scm") return "Source Control";
+  // Resolved from `aiTitles`, exactly as an SSH leaf resolves its host name: the
+  // chat's title is auto-derived from its first message, so stamping it on the
+  // leaf would leave a pane opened on a fresh chat saying "New chat" forever.
+  // The map is passed IN rather than read from the chat store here, because
+  // this module is imported by the node-run verify scripts and must not drag
+  // the AI stack (and xterm behind it) into them.
+  if (leaf.leafKind === "ai") return aiTitles?.get(leaf.sessionId)?.trim() || "AI";
   // SSH leaves: show "ssh:<name>" when the saved connection has a name, else
   // fall back to the host/IP. Bare "ssh" if the connection was deleted.
   if (leaf.sshConnectionId) {
@@ -109,6 +126,27 @@ export function leafLabel(
     if (b) return b;
   }
   return "shell";
+}
+
+/**
+ * Where a chat is already open, or null. THE rule behind "a chat may appear in
+ * exactly one pane": two `useChat` views over one Chat are the same
+ * conversation rendered twice sharing one composer, not two chats.
+ *
+ * Pure and here rather than inline in `openAiPane` so it is testable, and so
+ * the canvas menu can ask the same question it enforces.
+ */
+export function findAiPane(
+  tabs: Tab[],
+  sessionId: string,
+): { tabId: number; leafId: number } | null {
+  for (const t of tabs) {
+    if (t.kind !== "pane") continue;
+    for (const l of leaves(t.paneTree)) {
+      if (l.leafKind === "ai" && l.sessionId === sessionId) return { tabId: t.id, leafId: l.id };
+    }
+  }
+  return null;
 }
 
 /** Recompute the top-level mirrors from the active leaf. */
@@ -171,10 +209,12 @@ export function activeLeaf(tab: Tab): PaneLeaf | null {
 export function activeLeafKind(tab: Tab): "terminal" | "editor" | "browser" | null {
   const leaf = activeLeaf(tab);
   if (!leaf) return null;
-  // Extension-panel and board leaves aren't one of the terminal/editor/browser
-  // kinds the chrome derivations branch on; report null so callers fall to
-  // their defaults instead of every one having to special-case them.
-  return leaf.leafKind === "extension-panel" || leaf.leafKind === "board" ? null : leaf.leafKind;
+  // Extension-panel, board and scm leaves aren't one of the
+  // terminal/editor/browser kinds the chrome derivations branch on; report null
+  // so callers fall to their defaults instead of every one special-casing them.
+  return leaf.leafKind === "terminal" || leaf.leafKind === "editor" || leaf.leafKind === "browser"
+    ? leaf.leafKind
+    : null;
 }
 
 export function isTerminalLikeTab(tab: Tab): boolean {

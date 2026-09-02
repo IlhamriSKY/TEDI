@@ -62,9 +62,10 @@ import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/us
 import { statusLabelClass, type SshConnectionBinding, type SshStatus } from "@/modules/ssh/status";
 import { extensionStateLabelClass, type PaneEntry } from "@/modules/tabs/lib/entries";
 import type { Tab } from "@/modules/tabs";
+import type { OpenDiffInput } from "@/modules/scm/types";
 import { leafLabel } from "@/modules/tabs/lib/tabHelpers";
 import type { SshConnection } from "@/modules/ssh/connections";
-import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { type AiCliState, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
 import { closeFloat, floatPane, pushBoardCards } from "./floatHost";
 import { useFloatStore } from "./floatStore";
@@ -87,6 +88,19 @@ import {
 // tab is a terminal, so this keeps the editor bundle off first paint. The
 // separate float.html entry (FloatApp) still imports EditorPane directly.
 const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default: m.EditorPane })));
+
+// Same deal for the SCM stack (git graph + diff machinery): only fetched when a
+// source-control LEAF actually renders. Shares the chunk with the sidebar /
+// right-slot copies, which import the same specifier.
+const SourceControlPanel = lazy(() =>
+  import("@/modules/scm/SourceControlPanel").then((m) => ({ default: m.SourceControlPanel })),
+);
+
+// Same again for the AI stack: only fetched once an AI pane actually renders.
+// Shares its chunk with the right-slot panel, which imports the same specifier.
+const AiPanePanel = lazy(() =>
+  import("@/modules/ai/components/AiMiniWindow").then((m) => ({ default: m.AiPanePanel })),
+);
 
 /** Leaf kinds that can be floated into their own window. Terminals mirror live
  *  over Tauri events (the primary "watch an agent while working" case); an SSH
@@ -196,20 +210,11 @@ type Props = {
   onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
-  /** Saved SSH connections, keyed by id. Resolves a leaf's `ssh:<host>` label. */
-  sshHosts?: Map<string, SshConnection>;
-  /** Live SSH status per terminal leaf id. Colors the SSH header label. */
-  sshStatuses?: Map<number, SshStatus>;
-  /** Live AI CLI status per terminal leaf id. Tints the header icon (idle/working/blocking). */
-  aiCliStatuses?: Map<number, AiCliStatus>;
-  /** Live session per saved SSH connection, for remote editor leaves. */
-  sshBindingByConnection?: Map<string, SshConnectionBinding>;
-  /** Open an SSH session for a saved connection (remote editor reconnect). */
-  onReconnectSsh?: (connectionId: string, title: string) => void;
-  /** Every tab in the workspace, for a board leaf. */
-  boardTabs?: Tab[];
-  /** Focus any leaf in any tab, for a board leaf's cards. */
-  onFocusEntry?: (tabId: number, leafId: number) => void;
+  /** Workspace-wide values the leaf headers and bodies read (SSH hosts +
+   *  statuses, the board's tab list, the SCM root). One object rather than ten
+   *  props because `PaneStack` has to hand the identical set to `CanvasView`,
+   *  which renders `LeafBody` outside this provider. */
+  meta: PaneMetaValue;
 };
 
 type PaneDragState = {
@@ -255,7 +260,7 @@ function ThemeSwatch({ palette }: { palette: TerminalPalette }) {
   );
 }
 
-type PaneMetaValue = {
+export type PaneMetaValue = {
   sshHosts?: Map<string, SshConnection>;
   sshStatuses?: Map<number, SshStatus>;
   aiCliStatuses?: Map<number, AiCliStatus>;
@@ -268,11 +273,24 @@ type PaneMetaValue = {
   /** Focus any leaf in any tab. A board leaf's cards address panes outside
    *  their own tab, which the per-tab `onFocusLeaf` cannot express. */
   onFocusEntry?: (tabId: number, leafId: number) => void;
+  /** Live workspace repo root, for a source-control leaf. Workspace-wide (like
+   *  `boardTabs`), so it rides the context rather than a per-leaf bundle - and
+   *  the leaf itself stays stateless, exactly as the `scm` TAB is. */
+  scmRoot?: string | null;
+  /** Open a file diff in a tab, from the SCM leaf's commit detail. */
+  onOpenGitDiff?: (input: OpenDiffInput) => void;
+  /** A path the SCM leaf discarded/deleted, so open editors on it can close. */
+  onPathDeleted?: (path: string) => void;
+  /** Chat titles by session id, so an `ai` leaf's header names its
+   *  conversation. Workspace-wide, like `sshHosts`. */
+  aiTitles?: ReadonlyMap<string, string>;
+  /** Run state per chat session, for an `ai` leaf's icon tint. */
+  aiStates?: Record<string, AiCliState>;
 };
 
 // SSH host/status lives in its own context so status pushes re-render only the
 // leaf headers (not the memoized split tree or xterm/CodeMirror bodies).
-const PaneMetaContext = createContext<PaneMetaValue>({});
+export const PaneMetaContext = createContext<PaneMetaValue>({});
 
 /**
  * A board leaf's body. Its own component, and deliberately NOT part of the
@@ -297,6 +315,25 @@ function BoardLeafBody({ leafId }: { leafId: number }) {
       onFocusLeaf={onFocusEntry}
       mirrorToFloat={mirrorToFloat}
     />
+  );
+}
+
+/**
+ * A source-control leaf's body. Its own component for the same reason
+ * `BoardLeafBody` is: it needs `PaneMetaContext` (the live workspace root), and
+ * subscribing the memoized `LeafBody` to that context would re-render every
+ * xterm and CodeMirror in the workspace whenever any of it changed.
+ */
+function ScmLeafBody() {
+  const { scmRoot, onOpenGitDiff, onPathDeleted } = use(PaneMetaContext);
+  return (
+    <Suspense fallback={null}>
+      <SourceControlPanel
+        rootPath={scmRoot ?? null}
+        onOpenDiff={onOpenGitDiff}
+        onPathDeleted={onPathDeleted}
+      />
+    </Suspense>
   );
 }
 
@@ -326,7 +363,11 @@ function computeEdge(
 
 /** Build the shared {@link LeafIconInfo} for a pane leaf so the header and the
  *  drag overlay render the exact icon the tab strip shows for the same leaf. */
-function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>): LeafIconInfo {
+export function leafIconInfo(
+  node: PaneLeaf,
+  aiCliStatuses?: Map<number, AiCliStatus>,
+  aiStates?: Record<string, AiCliState>,
+): LeafIconInfo {
   return {
     leafKind: node.leafKind,
     isPrivate: node.private === true,
@@ -335,6 +376,7 @@ function leafIconInfo(node: PaneLeaf, aiCliStatuses?: Map<number, AiCliStatus>):
     editorRemote: isRemoteEditorLeaf(node),
     browserUrl: node.leafKind === "browser" ? node.url : undefined,
     aiCliStatus: node.leafKind === "terminal" ? (aiCliStatuses?.get(node.id) ?? null) : null,
+    agentState: node.leafKind === "ai" ? (aiStates?.[node.sessionId] ?? null) : null,
     extIcon: node.leafKind === "extension-panel" ? node.icon : undefined,
   };
 }
@@ -390,7 +432,7 @@ function RemoteEditorPending({
 }
 
 /** Heavy leaf content. Memoized so pointer-move re-renders during a drag don't churn xterm/CodeMirror. */
-const LeafBody = memo(function LeafBody({
+export const LeafBody = memo(function LeafBody({
   node,
   tabVisible,
   isFloating,
@@ -399,6 +441,8 @@ const LeafBody = memo(function LeafBody({
   b,
   mdPreview,
   remoteSession,
+  paneZoom,
+  flush,
 }: {
   node: PaneLeaf;
   tabVisible: boolean;
@@ -412,6 +456,24 @@ const LeafBody = memo(function LeafBody({
   /** Resolution of a remote editor leaf against the live SSH sessions.
    *  Undefined for local leaves. */
   remoteSession?: RemoteEditorBinding;
+  /**
+   * Per-pane content zoom, set only by the workspace CANVAS. Passed in rather
+   * than read off the leaf so a pane shown in a SPLIT is never silently scaled
+   * by a factor the user set on the canvas. Forwarded to the terminal alone -
+   * every other body takes CSS `zoom` from the canvas window frame, which a
+   * WebGL terminal canvas cannot.
+   */
+  paneZoom?: number;
+  /**
+   * Draw the terminal edge to edge instead of inset by `p-1.5`.
+   *
+   * A canvas window already IS a bordered, rounded frame with its own header,
+   * and every other leaf kind fills it - so the terminal's inset read as a
+   * second box drawn inside the first, which is what it looked like. In a SPLIT
+   * the inset is the only thing holding the text off the pane border, so it
+   * stays there.
+   */
+  flush?: boolean;
 }) {
   // Register the editor handle both with the parent bundle (find/replace etc.)
   // and the frame's own ref (save-before-float). Stable so EditorPane doesn't
@@ -433,7 +495,7 @@ const LeafBody = memo(function LeafBody({
   if (node.leafKind === "terminal") {
     return (
       <ErrorBoundary label="terminal pane" resetKeys={[node.id]}>
-        <div className="h-full w-full p-1.5">
+        <div className={cn("h-full w-full", !flush && "p-1.5")}>
           <TerminalPane
             leafId={node.id}
             visible={tabVisible}
@@ -443,6 +505,7 @@ const LeafBody = memo(function LeafBody({
             savedPtyId={node.savedPtyId}
             savedActiveTool={node.activeTool}
             terminalThemeId={node.terminalThemeId}
+            paneZoom={paneZoom}
             ref={b.setTerminalRef}
             onSearchReady={(_id, addon) => b.onSearchReady(addon)}
             onCwd={(_id, cwd) => b.onCwd(cwd)}
@@ -492,6 +555,22 @@ const LeafBody = memo(function LeafBody({
     return (
       <ErrorBoundary label="board pane" resetKeys={[node.id]}>
         <BoardLeafBody leafId={node.id} />
+      </ErrorBoundary>
+    );
+  }
+  if (node.leafKind === "scm") {
+    return (
+      <ErrorBoundary label="source control pane" resetKeys={[node.id]}>
+        <ScmLeafBody />
+      </ErrorBoundary>
+    );
+  }
+  if (node.leafKind === "ai") {
+    return (
+      <ErrorBoundary label="AI pane" resetKeys={[node.id, node.sessionId]}>
+        <Suspense fallback={null}>
+          <AiPanePanel sessionId={node.sessionId} />
+        </Suspense>
       </ErrorBoundary>
     );
   }
@@ -551,6 +630,33 @@ function DropIndicator({ edge }: { edge: PaneEdge }) {
   );
 }
 
+/**
+ * Resolve a remote editor leaf to a live session on every render, rather than
+ * stamping one onto the leaf: a saved profile outlives any session, so a
+ * reconnect (which mints a new session id) is followed automatically and a
+ * restored leaf simply waits until its host is up. Returns undefined for local
+ * leaves. Shared by the split-pane frame and the canvas window frame.
+ */
+export function useRemoteEditorBinding(node: PaneLeaf): RemoteEditorBinding | undefined {
+  const { sshHosts, sshBindingByConnection, onReconnectSsh } = use(PaneMetaContext);
+  return useMemo<RemoteEditorBinding | undefined>(() => {
+    if (node.leafKind !== "editor" || !isRemoteEditorLeaf(node)) return undefined;
+    const connId = node.sshConnectionId;
+    const conn = connId ? sshHosts?.get(connId) : undefined;
+    const hostLabel = conn?.name.trim() || node.sshHostLabel || "remote";
+    // Ad-hoc connection: no profile to re-resolve or reopen, so the session it
+    // was opened with is all this leaf will ever have.
+    if (!connId) return { sessionId: node.sshSessionId, connecting: false, hostLabel };
+    const binding = sshBindingByConnection?.get(connId);
+    return {
+      sessionId: binding?.sessionId,
+      connecting: binding?.connecting ?? false,
+      hostLabel,
+      onReconnect: onReconnectSsh ? () => onReconnectSsh(connId, hostLabel) : undefined,
+    };
+  }, [node, sshHosts, sshBindingByConnection, onReconnectSsh]);
+}
+
 function PaneLeafFrame({
   node,
   tabVisible,
@@ -578,14 +684,8 @@ function PaneLeafFrame({
     previewLeafId,
     onOpenPreview,
   } = use(PaneDndContext);
-  const {
-    sshHosts,
-    sshStatuses,
-    aiCliStatuses,
-    sshBindingByConnection,
-    onReconnectSsh,
-    onFocusEntry,
-  } = use(PaneMetaContext);
+  const { sshHosts, sshStatuses, aiCliStatuses, aiTitles, aiStates, onFocusEntry } =
+    use(PaneMetaContext);
   const draggable = leafCount > 1;
   const {
     listeners,
@@ -625,33 +725,14 @@ function PaneLeafFrame({
   const termTitle = useTerminalTitles((s) =>
     node.leafKind === "terminal" ? s.titles[node.id] : undefined,
   );
-  const baseLabel = leafLabel(node, sshHosts);
+  const baseLabel = leafLabel(node, sshHosts, undefined, aiTitles);
   const showTitle =
     node.leafKind === "terminal" &&
     !!termTitle &&
     termTitle !== baseLabel &&
     termTitle !== node.cwd;
 
-  // Resolve a remote editor leaf to a live session on every render, rather than
-  // stamping one onto the leaf: a saved profile outlives any session, so a
-  // reconnect (which mints a new session id) is followed automatically and a
-  // restored leaf simply waits until its host is up.
-  const remoteSession = useMemo<RemoteEditorBinding | undefined>(() => {
-    if (node.leafKind !== "editor" || !isRemoteEditorLeaf(node)) return undefined;
-    const connId = node.sshConnectionId;
-    const conn = connId ? sshHosts?.get(connId) : undefined;
-    const hostLabel = conn?.name.trim() || node.sshHostLabel || "remote";
-    // Ad-hoc connection: no profile to re-resolve or reopen, so the session it
-    // was opened with is all this leaf will ever have.
-    if (!connId) return { sessionId: node.sshSessionId, connecting: false, hostLabel };
-    const binding = sshBindingByConnection?.get(connId);
-    return {
-      sessionId: binding?.sessionId,
-      connecting: binding?.connecting ?? false,
-      hostLabel,
-      onReconnect: onReconnectSsh ? () => onReconnectSsh(connId, hostLabel) : undefined,
-    };
-  }, [node, sshHosts, sshBindingByConnection, onReconnectSsh]);
+  const remoteSession = useRemoteEditorBinding(node);
 
   // Float the pane into its own always-on-top window (terminals mirror live via
   // Tauri events; editors open the file; browsers move their webview; extension
@@ -750,7 +831,7 @@ function PaneLeafFrame({
             {/* Same glyph the tab strip + drag overlay show for this leaf. The
             muted default tint is overridden by the AI CLI status when active. */}
             <LeafIcon
-              info={leafIconInfo(node, aiCliStatuses)}
+              info={leafIconInfo(node, aiCliStatuses, aiStates)}
               size={13}
               className="text-muted-foreground/80"
             />
@@ -1140,13 +1221,7 @@ export function PaneTreeView({
   previewLeafId,
   onOpenPreview,
   onSplitSizes,
-  sshHosts,
-  sshStatuses,
-  aiCliStatuses,
-  sshBindingByConnection,
-  onReconnectSsh,
-  boardTabs,
-  onFocusEntry,
+  meta,
 }: Props) {
   const leafList = useMemo(() => leaves(node), [node]);
   const leafCount = leafList.length;
@@ -1241,27 +1316,6 @@ export function PaneTreeView({
       onOpenPreview,
     ],
   );
-  const metaValue = useMemo<PaneMetaValue>(
-    () => ({
-      sshHosts,
-      sshStatuses,
-      aiCliStatuses,
-      sshBindingByConnection,
-      onReconnectSsh,
-      boardTabs,
-      onFocusEntry,
-    }),
-    [
-      sshHosts,
-      sshStatuses,
-      aiCliStatuses,
-      sshBindingByConnection,
-      onReconnectSsh,
-      boardTabs,
-      onFocusEntry,
-    ],
-  );
-
   // Re-render the overlay once the file-icon set lands so a dragged editor leaf
   // shows its file-type glyph rather than the pencil fallback.
   useExplorerIconsReady();
@@ -1278,7 +1332,7 @@ export function PaneTreeView({
       onDragEnd={handleDragEnd}
       onDragCancel={reset}
     >
-      <PaneMetaContext.Provider value={metaValue}>
+      <PaneMetaContext.Provider value={meta}>
         <PaneDndContext.Provider value={ctxValue}>
           <PaneNodes
             node={node}
@@ -1299,7 +1353,7 @@ export function PaneTreeView({
           // icon-only square reads cleaner than an icon+label pill clipped to the
           // handle's width.
           <div className="bg-accent text-accent-foreground ring-border flex size-7 items-center justify-center shadow-lg ring-1">
-            <LeafIcon info={leafIconInfo(draggedLeaf, aiCliStatuses)} size={14} />
+            <LeafIcon info={leafIconInfo(draggedLeaf, meta.aiCliStatuses)} size={14} />
           </div>
         )}
       </DragOverlay>

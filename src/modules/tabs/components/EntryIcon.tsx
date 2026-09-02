@@ -2,6 +2,7 @@ import { cn } from "@/lib/utils";
 import { LeafIcon } from "@/components/LeafIcon";
 import { resolveExtIcon } from "@/lib/iconRegistry";
 import type { Entry } from "../lib/entries";
+import { useAiSessionStatus } from "@/modules/ai/lib/sessionStatus";
 import { Database, GitBranch, GitCompare } from "lucide-react";
 
 /**
@@ -41,6 +42,9 @@ function OrdinalBadge({
 }
 
 export function EntryIcon({ entry }: { entry: Entry }) {
+  // One subscription here covers the tab strip AND the Board cards, which both
+  // render through this component.
+  const aiStates = useAiSessionStatus((s) => s.states);
   if (entry.kind === "pane-leaf") {
     // The leaf glyph is shared with the pane header + drag overlay (see
     // `LeafIcon`) so a leaf reads identically in every surface. The tab strip
@@ -55,6 +59,7 @@ export function EntryIcon({ entry }: { entry: Entry }) {
           editorRemote: !!entry.remoteHost,
           browserUrl: entry.browserUrl,
           aiCliStatus: entry.aiCliStatus,
+          agentState: entry.sessionId ? aiStates[entry.sessionId] : null,
           extIcon: entry.extIcon,
         }}
         size={14}

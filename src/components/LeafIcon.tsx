@@ -2,14 +2,27 @@ import { cn } from "@/lib/utils";
 import { CliAgentIcon } from "./CliAgentIcon";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { BrowserFavicon } from "@/modules/browser/BrowserFavicon";
-import { aiCliIconClass, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import {
+  aiCliIconClass,
+  aiCliStateColorClass,
+  type AiCliState,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
-import { Database, Lock, Server, SquarePen, SquareTerminal } from "lucide-react";
+import {
+  Database,
+  GitBranch,
+  Lock,
+  Server,
+  Sparkles,
+  SquarePen,
+  SquareTerminal,
+} from "lucide-react";
 
 /** Normalized description of one pane leaf, enough to pick its icon. Built from
  *  a tab-strip `Entry` or a `PaneLeaf` so both feed the same renderer. */
 export type LeafIconInfo = {
-  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board";
+  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board" | "scm" | "ai";
   /** Private leaf (AI cannot read it): forces a lock glyph over kind/ssh. */
   isPrivate?: boolean;
   /** Terminal bound to a saved SSH host: cloud glyph instead of local terminal. */
@@ -22,6 +35,9 @@ export type LeafIconInfo = {
   browserUrl?: string;
   /** Terminal AI CLI status: tints the glyph idle/working/blocking. */
   aiCliStatus?: AiCliStatus | null;
+  /** Run state of an `ai` leaf's chat. Tints the sparkles with the same palette
+   *  a terminal's agent glyph uses, so one glance covers both kinds of agent. */
+  agentState?: AiCliState | null;
   /** Icon hint the extension passed to `openExtensionPane` (`lucide:<Name>`).
    *  Falls back to the generic database glyph when absent or unresolvable. */
   extIcon?: string;
@@ -94,6 +110,25 @@ export function LeafIcon({
 
   if (info.leafKind === "browser") {
     return <BrowserFavicon url={info.browserUrl ?? ""} size={size} className={className} />;
+  }
+
+  if (info.leafKind === "ai") {
+    return (
+      <Sparkles
+        size={size}
+        strokeWidth={2}
+        className={cn(
+          "shrink-0",
+          className,
+          info.agentState && info.agentState !== "idle" && aiCliStateColorClass(info.agentState),
+          info.agentState === "done" && "animate-pulse",
+        )}
+      />
+    );
+  }
+
+  if (info.leafKind === "scm") {
+    return <GitBranch size={size} strokeWidth={2} className={cn("shrink-0", className)} />;
   }
 
   if (info.leafKind === "extension-panel") {

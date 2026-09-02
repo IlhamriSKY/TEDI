@@ -49,7 +49,6 @@ import {
   ChevronRight,
   Folder,
   GitBranch,
-  Kanban,
   LayoutDashboard,
   PanelLeft,
   PanelRight,
@@ -103,10 +102,6 @@ type Props = {
    * unsaved-editor confirms rather than a second, weaker code path.
    */
   onCloseEntry?: (tabId: number, leafId: number | null) => void;
-  /** Open (or focus) the Board tab: this workspace's terminals in columns of
-   *  what their AI CLI is doing. Only offered on the ACTIVE workspace, since
-   *  the board is opened into and reads the live tab strip. */
-  onOpenBoard?: () => void;
   /** Currently focused leaf id; highlights its row like the file tree. */
   activeLeafId?: number | null;
   /** Live SSH status per leaf. Colors a connected host's label green here
@@ -208,7 +203,6 @@ function WorkspacesPanelInner({
   onFocusLeaf,
   onRenameLeaf,
   onCloseEntry,
-  onOpenBoard,
   activeLeafId,
   sshStatuses,
   dragHandle,
@@ -388,7 +382,6 @@ function WorkspacesPanelInner({
                   onFocusLeaf={onFocusLeaf}
                   onRenameLeaf={onRenameLeaf}
                   onCloseEntry={onCloseEntry}
-                  onOpenBoard={onOpenBoard}
                   renamingLeafId={renamingLeafId}
                   onSetRenamingLeaf={setRenamingLeafId}
                   activeLeafId={activeLeafId}
@@ -436,7 +429,6 @@ type RowProps = {
   onFocusLeaf?: (tabId: number, leafId: number) => void;
   onRenameLeaf?: (leafId: number, title: string | null) => void;
   onCloseEntry?: (tabId: number, leafId: number | null) => void;
-  onOpenBoard?: () => void;
   renamingLeafId: number | null;
   onSetRenamingLeaf: (leafId: number | null) => void;
   activeLeafId?: number | null;
@@ -470,7 +462,6 @@ function SortableWorkspaceRow({
   onFocusLeaf,
   onRenameLeaf,
   onCloseEntry,
-  onOpenBoard,
   renamingLeafId,
   onSetRenamingLeaf,
   activeLeafId,
@@ -486,16 +477,6 @@ function SortableWorkspaceRow({
   };
   const hasRows = rows.length > 0;
   const [confirmingClose, setConfirmingClose] = useState(false);
-  /**
-   * Whether to offer the board button. Gated on `isActive` because the board
-   * tab is opened INTO the live tab strip and reads it: on any other workspace
-   * the button would promise that workspace's terminals and show the current
-   * one's. No terminals = nothing to chart, so no button either.
-   */
-  const canOpenBoard =
-    !!onOpenBoard &&
-    isActive &&
-    rows.some((r) => r.live && r.entry.kind === "pane-leaf" && r.entry.leafKind === "terminal");
   // Listed tab/pane awaiting its own close confirmation, or null.
   const [confirmingEntry, setConfirmingEntry] = useState<Entry | null>(null);
   /**
@@ -607,20 +588,6 @@ function SortableWorkspaceRow({
               </TooltipContent>
             </Tooltip>
             <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
-              {canOpenBoard && (
-                <IconTooltip label="Board: terminals by AI status">
-                  <Button
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => onOpenBoard?.()}
-                    aria-label="Open workspace board"
-                    variant="ghost"
-                    size="icon-sm"
-                    className="text-muted-foreground size-5 rounded"
-                  >
-                    <Kanban size={11} strokeWidth={1.75} />
-                  </Button>
-                </IconTooltip>
-              )}
               <IconTooltip label={w.pinned ? "Unpin workspace" : "Pin workspace"}>
                 <Button
                   onPointerDown={(e) => e.stopPropagation()}

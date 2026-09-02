@@ -4,6 +4,7 @@ import { DragChip } from "@/components/DragChip";
 import { leafIds } from "@/modules/terminal/lib/panes";
 import { MAX_PANES_PER_TAB } from "./lib/useTabs";
 import { useSshHosts } from "@/modules/ssh/connections";
+import { useAiSessionTitles } from "@/modules/ai/lib/sessionTitles";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useIconsReady } from "@/lib/iconRegistry";
@@ -43,6 +44,8 @@ type Props = {
   onNewPreview: () => void;
   /** `+` -> Note: open a scratch note in the editor. */
   onNewNote: () => void;
+  /** `+` -> AI Chat: open one chat from history as a pane. */
+  onOpenAiChat: (sessionId: string) => void;
   /** `+` -> Agent...: open the agent picker dialog. */
   onOpenAgents: () => void;
   /** Flip the `private` flag on a single leaf (per-tab in the strip, not the whole split group). */
@@ -140,6 +143,7 @@ export function TabBar({
   onNewPrivateTerminal,
   onNewPreview,
   onNewNote,
+  onOpenAiChat,
   onOpenAgents,
   onTogglePrivate,
   onSetTabPinned,
@@ -171,10 +175,12 @@ export function TabBar({
   const [activeDragId, setActiveDragId] = useState<string | null>(null);
   // Resolves a leaf's `sshConnectionId` for the `ssh:<name>` label + tooltip.
   const sshHosts = useSshHosts();
+  // So several AI panes read as their conversations, not as a row of "AI".
+  const aiTitles = useAiSessionTitles();
 
   const entries = useMemo(
-    () => buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses),
-    [tabs, sshHosts, sshStatuses, aiCliStatuses],
+    () => buildEntries(tabs, sshHosts, sshStatuses, aiCliStatuses, aiTitles),
+    [tabs, sshHosts, sshStatuses, aiCliStatuses, aiTitles],
   );
 
   /** Snapshot of pane tabs for the Move to Group menu. Full tabs are listed but disabled so the menu stays stable. */
@@ -484,6 +490,7 @@ export function TabBar({
             onNewPrivateTerminal={onNewPrivateTerminal}
             onNewPreview={onNewPreview}
             onNewNote={onNewNote}
+            onOpenAiChat={onOpenAiChat}
             onOpenAgents={onOpenAgents}
             onSplit={onSplit}
             canSplit={canSplit}

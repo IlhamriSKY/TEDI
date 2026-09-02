@@ -63,6 +63,8 @@ type Props = {
    * Set from the pane header's right-click "Terminal theme" menu.
    */
   terminalThemeId?: string;
+  /** Per-pane content zoom (workspace canvas). Scales xterm's font size. */
+  paneZoom?: number;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -89,6 +91,7 @@ export function TerminalPane({
   savedPtyId,
   savedActiveTool,
   terminalThemeId,
+  paneZoom,
   onSearchReady,
   onExit,
   onCwd,
@@ -138,6 +141,7 @@ export function TerminalPane({
     savedPtyId,
     savedActiveTool,
     terminalThemeId,
+    paneZoom,
     onSearchReady: (a) => onSearchReady?.(leafId, a),
     onExit: (c) => onExit?.(leafId, c),
     onCwd: (c) => onCwd?.(leafId, c),

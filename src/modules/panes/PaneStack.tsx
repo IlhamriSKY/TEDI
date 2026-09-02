@@ -5,10 +5,15 @@ import type { TerminalPaneHandle } from "@/modules/terminal";
 import type { TediOpenInput, TediSpawnTabInput } from "@/modules/terminal/lib/useTerminalSession";
 import type { SshConnectionBinding, SshStatus } from "@/modules/ssh/status";
 import { useSshHosts } from "@/modules/ssh/connections";
+import { useAiSessionTitles } from "@/modules/ai/lib/sessionTitles";
+import { useAiSessionStatus } from "@/modules/ai/lib/sessionStatus";
 import type { AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useEffect, useMemo, useRef } from "react";
-import { PaneTreeView, type LeafBundle } from "./PaneTreeView";
+import { PaneTreeView, type LeafBundle, type PaneMetaValue } from "./PaneTreeView";
+import { CanvasView, type CanvasAdders } from "./CanvasView";
+import type { CanvasRect } from "@/modules/terminal/lib/panes";
+import type { OpenDiffInput } from "@/modules/scm/types";
 
 type Props = {
   tabs: Tab[];
@@ -76,6 +81,27 @@ type Props = {
   /** Open an SSH session for a saved connection, from a remote editor pane that
    *  has no live session to bind to. */
   onReconnectSsh?: (connectionId: string, title: string) => void;
+  /** Live workspace repo root, for a source-control leaf. */
+  scmRoot?: string | null;
+  /** Open a file diff in a tab, from a source-control leaf. */
+  onOpenGitDiff?: (input: OpenDiffInput) => void;
+  /** A path a source-control leaf discarded, so open editors on it can close. */
+  onPathDeleted?: (path: string) => void;
+  /**
+   * How this workspace presents its panes. `tabs` is the classic strip of tabs
+   * and splits; `canvas` floats every pane of the workspace on one surface.
+   * (`kanban` is drawn by `WorkspaceArea` over the top of this, which stays
+   * mounted so no PTY is torn down by a view switch.)
+   */
+  canvas?: boolean;
+  /** Canvas view: merge window geometry after a drag / resize / raise / tidy.
+   *  Field-by-field, so each caller sends only what it changed. */
+  onSetCanvasRects?: (patch: Record<number, Partial<CanvasRect>>) => void;
+  /** Canvas view: what the canvas `+` menu can open. */
+  canvasAdders?: CanvasAdders;
+  /** Focus a pane in ANY tab. A canvas spans tabs, so focusing a window has to
+   *  activate its owning tab too. */
+  onFocusEntry?: (tabId: number, leafId: number) => void;
 };
 
 export function PaneStack({
@@ -110,6 +136,13 @@ export function PaneStack({
   aiCliStatuses,
   sshBindingByConnection,
   onReconnectSsh,
+  scmRoot,
+  onOpenGitDiff,
+  onPathDeleted,
+  canvas,
+  onSetCanvasRects,
+  canvasAdders,
+  onFocusEntry,
 }: Props) {
   // Memoize the filter so the prune effect below sees a stable identity.
   const paneTabs = useMemo(() => tabs.filter((t): t is PaneTab => t.kind === "pane"), [tabs]);
@@ -125,6 +158,12 @@ export function PaneStack({
   // label. Read here (not per-leaf), from the same hook the tab strip and the
   // Workspaces panel use, so all three read identically.
   const sshHosts = useSshHosts();
+  // Names an `ai` leaf's header after its conversation, the same way `sshHosts`
+  // names an SSH leaf after its host.
+  const aiTitles = useAiSessionTitles();
+  // Run state per chat, so an `ai` pane header tints like a terminal running an
+  // agent does.
+  const aiStates = useAiSessionStatus((s) => s.states);
 
   // Stable refs for per-leaf callbacks. Re-creating bundles would tear down PTY/editor state.
   // Bundles are only invoked from post-commit PTY/editor/async callbacks, so a render-time ref
@@ -161,6 +200,43 @@ export function PaneStack({
     onCloseLeaf,
     onBrowserUrlChange,
   };
+
+  // The workspace-wide values both views hand to their leaves. Built once here
+  // rather than twice, since a canvas renders `LeafBody` outside
+  // `PaneTreeView`'s provider and needs the identical object.
+  const meta = useMemo<PaneMetaValue>(
+    () => ({
+      sshHosts,
+      sshStatuses,
+      aiCliStatuses,
+      sshBindingByConnection,
+      onReconnectSsh,
+      // A board leaf charts the WHOLE workspace, so it gets every tab, not just
+      // the one it happens to live in - and its cards focus a pane in ANOTHER
+      // tab, which the per-tab `onFocusLeaf` wrapper below cannot address.
+      boardTabs: tabs,
+      onFocusEntry,
+      scmRoot,
+      onOpenGitDiff,
+      onPathDeleted,
+      aiTitles,
+      aiStates,
+    }),
+    [
+      sshHosts,
+      sshStatuses,
+      aiCliStatuses,
+      sshBindingByConnection,
+      onReconnectSsh,
+      tabs,
+      onFocusEntry,
+      scmRoot,
+      onOpenGitDiff,
+      onPathDeleted,
+      aiTitles,
+      aiStates,
+    ],
+  );
 
   const bundles = useRef(new Map<number, LeafBundle>());
   const getBundle = (leafId: number): LeafBundle => {
@@ -203,6 +279,26 @@ export function PaneStack({
     }
   }, [paneTabs]);
 
+  // Canvas view: ONE surface holding every pane of the workspace, instead of one
+  // hidden wrapper per tab. The leaves are the same ones tabs view renders, so
+  // this is a re-layout, not a rebuild - `useSessionDisposal` reconciles against
+  // the pane TREE, which is untouched, so nothing respawns on a view switch.
+  if (canvas && onSetCanvasRects && canvasAdders && onFocusEntry) {
+    return (
+      <CanvasView
+        tabs={paneTabs}
+        activeTabId={activeId}
+        getBundle={getBundle}
+        mdPreviewLeafIds={mdPreviewLeafIds}
+        onFocusLeaf={onFocusEntry}
+        onCloseLeaf={onCloseLeafRequest}
+        onSetRects={onSetCanvasRects}
+        add={canvasAdders}
+        meta={meta}
+      />
+    );
+  }
+
   return (
     <div className="relative h-full w-full">
       {paneTabs.map((t) => {
@@ -243,18 +339,8 @@ export function PaneStack({
               previewUrl={previewUrl}
               previewLeafId={previewLeafId}
               onOpenPreview={onOpenPreview}
-              // A board leaf charts the WHOLE workspace, so it gets every tab,
-              // not just the one it happens to live in.
-              boardTabs={tabs}
-              // Already the two-arg form: a board card focuses a pane in ANOTHER
-              // tab, which the per-tab wrapper below cannot address.
-              onFocusEntry={onFocusLeaf}
               onSplitSizes={onSplitSizes}
-              sshHosts={sshHosts}
-              sshStatuses={sshStatuses}
-              aiCliStatuses={aiCliStatuses}
-              sshBindingByConnection={sshBindingByConnection}
-              onReconnectSsh={onReconnectSsh}
+              meta={meta}
             />
           </div>
         );

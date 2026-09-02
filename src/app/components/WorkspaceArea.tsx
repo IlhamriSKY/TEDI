@@ -10,6 +10,9 @@ import { Suspense } from "react";
 import { type TabsApi } from "../hooks/tabsApi";
 import { type usePaneHandles } from "../hooks/usePaneHandles";
 import { AiDiffStack, GitDiffStack, ScmStack } from "./lazyPanels";
+import { WorkspaceBoard } from "@/modules/workspaces/WorkspaceBoard";
+import type { CanvasAdders } from "@/modules/panes/CanvasView";
+import type { WorkspaceView } from "@/modules/workspaces/store";
 
 type PaneHandles = ReturnType<typeof usePaneHandles>;
 
@@ -50,6 +53,15 @@ type Props = {
   onPathDeleted: (path: string) => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes: (splitId: number, sizes: number[]) => void;
+  /** How the active WORKSPACE presents its panes. `kanban` and `canvas` both
+   *  show the whole workspace at once, so the tab strip is hidden for them
+   *  (see `Header`). */
+  view: WorkspaceView;
+  /** What the canvas `+` menu opens. Existing tab openers, so a pane added on
+   *  the canvas is an ordinary pane tab that survives a view switch. */
+  canvasAdders: CanvasAdders;
+  /** Focus a pane in any tab. Canvas windows and board cards both need it. */
+  onFocusEntry: (tabId: number, leafId: number) => void;
 } & Pick<
   TabsApi,
   | "setBrowserLeafUrl"
@@ -57,6 +69,7 @@ type Props = {
   | "moveExtTabToPane"
   | "openGitDiffTab"
   | "setLeafTerminalTheme"
+  | "setCanvasRects"
 >;
 
 /**
@@ -67,6 +80,24 @@ type Props = {
  * Lifted out of App verbatim; the per-leaf handlers arrive bundled as
  * `paneHandles`, with the chrome/ssh/tabs-api handlers threaded in alongside.
  */
+/**
+ * One absolutely-positioned overlay in the workspace stack. Hidden rather than
+ * unmounted, so a surface keeps its session and scroll position across a tab or
+ * view switch. Extracted because the wrapper was written out five times with
+ * the visibility rule duplicated between `className` and `aria-hidden` - two
+ * places per surface for the same fact to drift apart in.
+ */
+function Overlay({ hidden, children }: { hidden: boolean; children: React.ReactNode }) {
+  return (
+    <div
+      className={cn("absolute inset-0", hidden && "pointer-events-none invisible")}
+      aria-hidden={hidden ? "true" : "false"}
+    >
+      {children}
+    </div>
+  );
+}
+
 export function WorkspaceArea({
   tabs,
   activeId,
@@ -95,12 +126,19 @@ export function WorkspaceArea({
   respondToApproval,
   onPathDeleted,
   onSplitSizes,
+  view,
+  canvasAdders,
+  onFocusEntry,
   setBrowserLeafUrl,
   movePaneLeafToEdge,
   moveExtTabToPane,
   openGitDiffTab,
   setLeafTerminalTheme,
+  setCanvasRects,
 }: Props) {
+  // The four tab-kind surfaces only ever show in tabs view; kanban and canvas
+  // each present the whole workspace themselves.
+  const tabsView = view === "tabs";
   return (
     <ResizablePanel id="workspace" defaultSize="58%" minSize="25%">
       {/* Counter the body-level UI zoom so the panes (terminal,
@@ -114,10 +152,12 @@ export function WorkspaceArea({
             each pane is its own `bg-background` bordered card that floats on the
             tray, butting the uniform tray gutter like the sidebar / right cards. */}
         <div className="relative min-h-0 flex-1">
-          <div
-            className={cn("absolute inset-0", !activePaneTab && "pointer-events-none invisible")}
-            aria-hidden={activePaneTab ? "false" : "true"}
-          >
+          {/* Panes. Always mounted, in every view: `useSessionDisposal` keys off
+              the pane TREE, but unmounting the stack would still tear down every
+              xterm and CodeMirror, so kanban hides it rather than replacing it.
+              In canvas view the stack lays the same leaves out as free-floating
+              windows instead of per-tab split trees. */}
+          <Overlay hidden={view === "kanban" || (!activePaneTab && view === "tabs")}>
             <PaneStack
               tabs={tabs}
               activeId={activeId}
@@ -146,19 +186,39 @@ export function WorkspaceArea({
               onSplitWithExtTab={moveExtTabToPane}
               onSetTerminalTheme={setLeafTerminalTheme}
               onSplitSizes={onSplitSizes}
+              scmRoot={explorerRoot}
+              onOpenGitDiff={openGitDiffTab}
+              onPathDeleted={onPathDeleted}
+              onSetCanvasRects={setCanvasRects}
+              canvas={view === "canvas"}
+              canvasAdders={canvasAdders}
+              onFocusEntry={onFocusEntry}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
               sshBindingByConnection={sshBindingByConnection}
               onReconnectSsh={onReconnectSsh}
             />
-          </div>
-          <div
-            className={cn(
-              "absolute inset-0",
-              activeTab?.kind !== "ai-diff" && "pointer-events-none invisible",
-            )}
-            aria-hidden={activeTab?.kind === "ai-diff" ? "false" : "true"}
-          >
+          </Overlay>
+          {/* Kanban view of the workspace: the same board a `board` pane leaf
+              shows, given the whole area. An overlay rather than a swap, so the
+              pane stack underneath keeps every session alive. */}
+          <Overlay hidden={view !== "kanban"}>
+            {/* Mounted only while shown. The board holds no state of its own -
+                it is rebuilt from the live tab tree - so keeping it alive in the
+                background would just re-run `buildEntries` on every tab change
+                for a surface nobody is looking at. */}
+            {view === "kanban" ? (
+              <div className="border-border bg-background h-full overflow-hidden rounded-md border">
+                <WorkspaceBoard
+                  tabs={tabs}
+                  sshStatuses={sshStatuses}
+                  aiCliStatuses={aiCliStatuses}
+                  onFocusLeaf={onFocusEntry}
+                />
+              </div>
+            ) : null}
+          </Overlay>
+          <Overlay hidden={!tabsView || activeTab?.kind !== "ai-diff"}>
             {hasAiDiffTab ? (
               <Suspense fallback={null}>
                 <AiDiffStack
@@ -169,27 +229,15 @@ export function WorkspaceArea({
                 />
               </Suspense>
             ) : null}
-          </div>
-          <div
-            className={cn(
-              "absolute inset-0",
-              activeTab?.kind !== "git-diff" && "pointer-events-none invisible",
-            )}
-            aria-hidden={activeTab?.kind === "git-diff" ? "false" : "true"}
-          >
+          </Overlay>
+          <Overlay hidden={!tabsView || activeTab?.kind !== "git-diff"}>
             {hasGitDiffTab ? (
               <Suspense fallback={null}>
                 <GitDiffStack tabs={tabs} activeId={activeId} />
               </Suspense>
             ) : null}
-          </div>
-          <div
-            className={cn(
-              "absolute inset-0",
-              activeTab?.kind !== "scm" && "pointer-events-none invisible",
-            )}
-            aria-hidden={activeTab?.kind === "scm" ? "false" : "true"}
-          >
+          </Overlay>
+          <Overlay hidden={!tabsView || activeTab?.kind !== "scm"}>
             {hasScmTab ? (
               <Suspense fallback={null}>
                 <ScmStack
@@ -201,19 +249,13 @@ export function WorkspaceArea({
                 />
               </Suspense>
             ) : null}
-          </div>
+          </Overlay>
           {/* The Board is a pane LEAF, not an overlay surface: it renders
               inside PaneStack above, with the same header every other pane has. */}
           {hasExtensionTab ? (
-            <div
-              className={cn(
-                "absolute inset-0",
-                activeTab?.kind !== "ext" && "pointer-events-none invisible",
-              )}
-              aria-hidden={activeTab?.kind === "ext" ? "false" : "true"}
-            >
+            <Overlay hidden={!tabsView || activeTab?.kind !== "ext"}>
               <ExtensionTabStack tabs={tabs} activeId={activeId} />
-            </div>
+            </Overlay>
           ) : null}
         </div>
       </div>

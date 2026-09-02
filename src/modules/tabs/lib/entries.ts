@@ -3,7 +3,7 @@ import { type PaneLeaf, isRemoteEditorLeaf, leaves } from "@/modules/terminal/li
 import { type ExtensionTabState } from "./useTabs";
 import { type SshConnection } from "@/modules/ssh/connections";
 import { statusLabelClass, type SshStatus } from "@/modules/ssh/status";
-import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
+import { type AiCliState, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import type { Tab } from "./useTabs";
 import { leafLabel, leafRenameSeed } from "./tabHelpers";
 
@@ -36,7 +36,7 @@ type EntryBase = {
 export type PaneEntry = EntryBase & {
   kind: "pane-leaf";
   leafId: number;
-  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board";
+  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board" | "scm" | "ai";
   /** Current page URL for browser leaves. Drives the tab-strip favicon. */
   browserUrl?: string;
   /** 1-based FIFO badge number for terminal + browser leaves. For terminals
@@ -47,6 +47,8 @@ export type PaneEntry = EntryBase & {
   cwd?: string;
   /** Set on terminal leaves bound to a saved SSH host. */
   sshConnectionId?: string;
+  /** Chat session of an `ai` leaf. Keys its run state in `useAiSessionStatus`. */
+  sessionId?: string;
   /** Latest SSH session status. Drives the colored dot. */
   sshStatus?: SshStatus;
   /** Latest AI CLI status for terminal leaves. Null when no AI CLI is active. */
@@ -170,12 +172,15 @@ export function buildEntries(
   sshHosts: Map<string, SshConnection>,
   sshStatuses?: Map<number, SshStatus>,
   aiCliStatuses?: Map<number, AiCliStatus>,
+  /** Chat titles by session id, so an `ai` leaf's chip names its conversation
+   *  instead of all of them reading "AI". See `useAiSessionTitles`. */
+  aiTitles?: ReadonlyMap<string, string>,
 ): Entry[] {
   const out: Entry[] = [];
   for (const t of tabs) {
     if (t.kind === "pane") {
       for (const leaf of leaves(t.paneTree)) {
-        const label = leafLabel(leaf, sshHosts, t.cwd);
+        const label = leafLabel(leaf, sshHosts, t.cwd, aiTitles);
         const sshConnectionId = leaf.leafKind === "terminal" ? leaf.sshConnectionId : undefined;
         // FIFO ordinal assigned at leaf creation. Preserved through drag,
         // reorder, move-to-group, and workspace restarts. Terminals use the
@@ -207,6 +212,7 @@ export function buildEntries(
           dirty:
             leaf.leafKind === "editor" && (leaf as PaneLeaf & { dirty?: boolean }).dirty === true,
           sshConnectionId,
+          sessionId: leaf.leafKind === "ai" ? leaf.sessionId : undefined,
           sshStatus: sshConnectionId ? sshStatuses?.get(leaf.id) : undefined,
           // AI CLI status on SSH leaves too. Detector runs on the byte stream regardless of PTY locality.
           aiCliStatus: leaf.leafKind === "terminal" ? aiCliStatuses?.get(leaf.id) : undefined,
@@ -215,7 +221,7 @@ export function buildEntries(
           extState: leaf.leafKind === "extension-panel" ? leaf.state : undefined,
           extIcon: leaf.leafKind === "extension-panel" ? leaf.icon : undefined,
           renamed: leaf.customTitle !== undefined,
-          renameSeed: leafRenameSeed(leaf, sshHosts, t.cwd),
+          renameSeed: leafRenameSeed(leaf, sshHosts, t.cwd, aiTitles),
           pinned: t.pinned === true,
         });
       }
@@ -274,6 +280,19 @@ export function buildEntries(
  * badge counts this so it matches the strip exactly instead of treating a
  * multi-pane group as a single tab.
  */
+/**
+ * The agent state a pane is in, whichever kind of agent it runs: a terminal's
+ * AI CLI, or one of TEDI's own chats. One accessor so the Board groups both
+ * into the same four columns instead of growing a second set of rules.
+ */
+export function entryAgentState(
+  e: PaneEntry,
+  aiSessionStates: Record<string, AiCliState>,
+): AiCliState {
+  if (e.leafKind === "ai") return (e.sessionId && aiSessionStates[e.sessionId]) || "idle";
+  return e.aiCliStatus?.state ?? "idle";
+}
+
 export function countTabEntries(tabs: Tab[]): number {
   let n = 0;
   for (const t of tabs) n += t.kind === "pane" ? leaves(t.paneTree).length : 1;

@@ -36,7 +36,16 @@ export function countSavedTabEntries(tabs: SavedTab[]): number {
 
 // live -> saved
 
-function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
+/** Every saved leaf kind may carry a canvas rectangle, so it is appended once
+ *  here rather than repeated in all six branches of `leafKindToSaved`. */
+type SavedLeaf = Extract<SavedPaneNode, { kind: "leaf" }>;
+
+function leafToSaved(leaf: PaneLeaf): SavedLeaf {
+  const saved = leafKindToSaved(leaf);
+  return leaf.canvasRect ? { ...saved, canvasRect: leaf.canvasRect } : saved;
+}
+
+function leafKindToSaved(leaf: PaneLeaf): SavedLeaf {
   if (leaf.leafKind === "terminal") {
     // Capture the live program title (OSC 0/2) so an inactive workspace still
     // shows it next to the folder name. Read straight from the singleton title
@@ -79,9 +88,39 @@ function leafToSaved(leaf: PaneLeaf): SavedPaneNode {
     };
   }
   if (leaf.leafKind === "extension-panel") {
-    // Session-only: `tabToSaved` skips any pane tab containing an
-    // extension-panel leaf, so this is never reached. Guard for exhaustiveness.
-    throw new Error("extension-panel leaves are not serialized");
+    // Round-trips on its ids: `ExtensionPanelMount` waits for the renderer and
+    // paints once the extension activates. Dropping these used to take the
+    // whole pane tab with them, which a canvas holding a database or API
+    // window cannot afford.
+    return {
+      kind: "leaf",
+      leafKind: "extension-panel",
+      extensionId: leaf.extensionId,
+      panelId: leaf.panelId,
+      ...(leaf.reuseKey ? { reuseKey: leaf.reuseKey } : {}),
+      ...(leaf.title ? { title: leaf.title } : {}),
+      ...(leaf.icon ? { icon: leaf.icon } : {}),
+      ...(leaf.private ? { private: true } : {}),
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
+    };
+  }
+  if (leaf.leafKind === "ai") {
+    return {
+      kind: "leaf",
+      leafKind: "ai",
+      sessionId: leaf.sessionId,
+      ...(leaf.private ? { private: true } : {}),
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
+    };
+  }
+  if (leaf.leafKind === "scm") {
+    // Stateless like the board: the panel follows the live workspace root.
+    return {
+      kind: "leaf",
+      leafKind: "scm",
+      ...(leaf.private ? { private: true } : {}),
+      ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
+    };
   }
   if (leaf.leafKind === "board") {
     // Restorable from nothing but its own existence: the columns are rebuilt
@@ -168,13 +207,7 @@ function nodeToSaved(node: PaneNode): SavedPaneNode | null {
  */
 function isPersistedTab(tab: Tab): tab is PaneTab {
   if (tab.kind !== "pane") return false;
-  const all = leaves(tab.paneTree);
-  // Extension-panel leaves are session-only. If a pane tab contains one, skip
-  // persisting the whole tab so the serializer never hits a non-saveable leaf.
-  // (MVP: a terminal split next to an extension panel isn't restored either;
-  // acceptable until extension-panel leaves round-trip.)
-  if (all.some((l) => l.leafKind === "extension-panel")) return false;
-  return all.some((l) => !isUnrestorableEditorLeaf(l));
+  return leaves(tab.paneTree).some((l) => !isUnrestorableEditorLeaf(l));
 }
 
 function tabToSaved(tab: Tab): SavedTab | null {
@@ -230,6 +263,24 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
   if (node.kind === "leaf") {
     const id = allocId();
     outLeafIds.push(id);
+    const leaf = savedToLeaf(node, id);
+    // Appended once, like `leafToSaved` does going the other way.
+    return node.canvasRect ? { ...leaf, canvasRect: node.canvasRect } : leaf;
+  }
+  const children = node.children.map((c) => savedToNode(c, allocId, outLeafIds));
+  return {
+    kind: "split",
+    id: allocId(),
+    dir: node.dir,
+    children,
+    // Restore divider positions only when the saved sizes still line up with
+    // the child count; otherwise fall back to an equal split.
+    ...(node.sizes && node.sizes.length === children.length ? { sizes: node.sizes } : {}),
+  };
+}
+
+function savedToLeaf(node: SavedLeaf, id: number): PaneLeaf {
+  {
     if (node.leafKind === "terminal") {
       return {
         kind: "leaf",
@@ -276,6 +327,39 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
         ...(node.customTitle ? { customTitle: node.customTitle } : {}),
       };
     }
+    if (node.leafKind === "ai") {
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "ai",
+        sessionId: node.sessionId,
+        ...(node.private ? { private: true } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
+      };
+    }
+    if (node.leafKind === "scm") {
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "scm",
+        ...(node.private ? { private: true } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
+      };
+    }
+    if (node.leafKind === "extension-panel") {
+      return {
+        kind: "leaf",
+        id,
+        leafKind: "extension-panel",
+        extensionId: node.extensionId,
+        panelId: node.panelId,
+        ...(node.reuseKey ? { reuseKey: node.reuseKey } : {}),
+        ...(node.title ? { title: node.title } : {}),
+        ...(node.icon ? { icon: node.icon } : {}),
+        ...(node.private ? { private: true } : {}),
+        ...(node.customTitle ? { customTitle: node.customTitle } : {}),
+      };
+    }
     return {
       kind: "leaf",
       id,
@@ -286,16 +370,6 @@ function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: num
       ...(node.customTitle ? { customTitle: node.customTitle } : {}),
     };
   }
-  const children = node.children.map((c) => savedToNode(c, allocId, outLeafIds));
-  return {
-    kind: "split",
-    id: allocId(),
-    dir: node.dir,
-    children,
-    // Restore divider positions only when the saved sizes still line up with
-    // the child count; otherwise fall back to an equal split.
-    ...(node.sizes && node.sizes.length === children.length ? { sizes: node.sizes } : {}),
-  };
 }
 
 export function savedToTab(saved: SavedTab, allocId: () => number): Tab {

@@ -8,7 +8,12 @@
  * lands on whichever repo the panel resolved to.
  */
 import { dirname } from "@/lib/path";
-import { activeLeaf, type Tab } from "@/modules/tabs";
+// From the leaf modules, not the `@/modules/tabs` barrel: the barrel also
+// exports `TabBar`, so importing it here would drag the whole tab strip (and
+// xterm behind it) into a module that is pure logic and is loaded by the
+// node-run verify scripts.
+import { activeLeaf } from "@/modules/tabs/lib/tabHelpers";
+import type { Tab } from "@/modules/tabs/lib/tabTypes";
 // Deep import rather than the `@/modules/terminal` barrel: that barrel pulls in
 // xterm, which cannot load under plain node, and this file has to stay
 // runnable by scripts/ssh/ssh-context-verify.ts.

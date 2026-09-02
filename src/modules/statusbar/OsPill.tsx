@@ -68,14 +68,19 @@ export function OsPill({ sshSessionId, sshRoute, sshHostLabel }: Props) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
+        {/* Bare glyph, no pill: the bar's other leading marks (the breadcrumb's
+            folder, the branch, the remote server) are all unboxed 14px icons, so
+            a bordered circle here read as a control you could press. The fixed
+            box stays because the three brand marks differ in aspect and the row
+            would otherwise shift when the active pane changes host. */}
         <span
-          className="border-border bg-muted/40 inline-flex size-5 shrink-0 cursor-default items-center justify-center rounded-full border"
+          className="inline-flex size-4 shrink-0 cursor-default items-center justify-center"
           aria-label={host ? `${label} - ${host}` : label}
         >
           {os?.brand ? (
-            <BrandIcon brand={os.brand} size={11} className={cn("shrink-0", tint)} />
+            <BrandIcon brand={os.brand} size={14} className={cn("shrink-0", tint)} />
           ) : (
-            <Server size={11} strokeWidth={1.75} className={cn("shrink-0", tint)} />
+            <Server size={14} strokeWidth={1.75} className={cn("shrink-0", tint)} />
           )}
         </span>
       </TooltipTrigger>

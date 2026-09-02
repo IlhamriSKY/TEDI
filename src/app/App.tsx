@@ -72,6 +72,7 @@ import { setSshConnectionBridge } from "@/modules/extensions/sshBridge";
 import { setWorkspaceMgmtBridge } from "@/modules/extensions/workspaceMgmtBridge";
 import { setTabControlBridge } from "@/modules/extensions/tabControlBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
+import type { WorkspaceView } from "@/modules/workspaces/store";
 import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
@@ -131,6 +132,8 @@ export default function App() {
     openGitDiffTab,
     openScmTab,
     openBoardTab,
+    openScmPane,
+    openAiPane,
     closeTab,
     selectByIndex,
     setLeafCwd,
@@ -158,6 +161,7 @@ export default function App() {
     setTabPinned,
     renameLeaf,
     setLeafTerminalTheme,
+    setCanvasRects,
   } = useTabs();
 
   // Drop a file from the OS file manager onto a terminal pane to paste its
@@ -1043,6 +1047,60 @@ export default function App() {
     openFileTab,
   });
 
+  // How the ACTIVE workspace presents its panes, and the switch for it. Per
+  // workspace (persisted with it), so each project keeps the layout it was left
+  // in; `tabs` for anything saved before views existed.
+  const workspaceView = useMemo(
+    () => wsList.find((w) => w.id === wsActiveId)?.view ?? "tabs",
+    [wsList, wsActiveId],
+  );
+  /**
+   * How the workspace area actually presents itself right now.
+   *
+   * `kanban` and `canvas` are presentations of the workspace's PANES, so a tab
+   * that is not a pane - an AI diff, a git diff, Source Control, an extension
+   * tab - falls back to tabs: it needs the area to render into AND the strip to
+   * leave by. Without this an AI-proposed edit opened while in canvas view was
+   * invisible and unreachable, which is the worst kind of gap: silent.
+   *
+   * Derived, never stored, so the workspace keeps the view the user chose and
+   * closing the diff drops straight back onto the canvas.
+   */
+  const effectiveView: WorkspaceView =
+    activeTab && activeTab.kind !== "pane" ? "tabs" : workspaceView;
+  const setWorkspaceView = useWorkspacesStore((s) => s.setWorkspaceView);
+  const handleSetWorkspaceView = useCallback(
+    (view: WorkspaceView) => {
+      if (wsActiveId) setWorkspaceView(wsActiveId, view);
+    },
+    [wsActiveId, setWorkspaceView],
+  );
+
+  // What the canvas `+` opens. Every entry is an EXISTING tab opener, so a pane
+  // added on the canvas is an ordinary pane tab: it is still there in tabs view,
+  // and the canvas simply places it (`CanvasView` seeds the rectangle).
+  const canvasAdders = useMemo(
+    () => ({
+      terminal: () => void openNewTab(),
+      editor: handleHeaderNewNote,
+      browser: () => void openPreviewTab(""),
+      sourceControl: () => void openScmPane(),
+      board: () => void openBoardTab(),
+      aiChat: (sessionId: string) => void openAiPane(sessionId),
+      extensionPanel: (extensionId: string, panelId: string, title: string, icon?: string) =>
+        void openExtensionPane({ extensionId, panelId, title, icon }),
+    }),
+    [
+      openNewTab,
+      handleHeaderNewNote,
+      openPreviewTab,
+      openScmPane,
+      openBoardTab,
+      openAiPane,
+      openExtensionPane,
+    ],
+  );
+
   // Activate a tab and focus a specific leaf inside it. Backs the Workspaces
   // panel's terminal list (jump straight to a running terminal).
   const focusLeafInTab = useCallback(
@@ -1069,7 +1127,11 @@ export default function App() {
             onRenameLeaf={renameLeaf}
             onNewPreview={handleHeaderNewPreview}
             onNewNote={handleHeaderNewNote}
+            onOpenAiChat={openAiPane}
             onOpenAgents={() => setAgentDialogOpen(true)}
+            view={workspaceView}
+            showTabStrip={effectiveView === "tabs"}
+            onSetView={handleSetWorkspaceView}
             onPinLeaf={handleHeaderPinLeaf}
             onReorderTabs={reorderTabs}
             onReorderLeafInGroup={reorderLeafInGroup}
@@ -1128,7 +1190,6 @@ export default function App() {
                 onAddProviderKey={handleAddProviderKey}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
-                openBoardTab={openBoardTab}
               />
               <ResizableHandle withHandle />
               <WorkspaceArea
@@ -1164,6 +1225,10 @@ export default function App() {
                 openGitDiffTab={openGitDiffTab}
                 setLeafTerminalTheme={setLeafTerminalTheme}
                 onSplitSizes={setSplitSizes}
+                setCanvasRects={setCanvasRects}
+                view={effectiveView}
+                canvasAdders={canvasAdders}
+                onFocusEntry={focusLeafInTab}
               />
               <AppRightSlot
                 rightSlotRef={rightSlotRef}
@@ -1203,7 +1268,6 @@ export default function App() {
                 }}
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
-                openBoardTab={openBoardTab}
               />
             </ResizablePanelGroup>
           </main>
