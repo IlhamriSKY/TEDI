@@ -77,8 +77,16 @@ if (!helper) {
 // Every executing call site must consume the vetted result, never `command`
 // straight from the model, once it has one in hand.
 console.log("\n[call sites] the vetted string is what gets executed");
-for (const f of ["shell.ts", "terminal.ts", "schedule.ts"]) {
-  const src = await readFile(`${TOOLS_DIR}/${f}`, "utf8");
+// `lib/tediMcpServer.ts` is on this list because it OWNS the terminal now: the
+// `sh` MCP tool replaced `run_in_terminal`, and the bridge it writes through is
+// deliberately dumb, so this handler is the only thing standing between the
+// model's command and the user's shell.
+for (const f of [
+  `${TOOLS_DIR}/shell.ts`,
+  `${TOOLS_DIR}/schedule.ts`,
+  "src/modules/ai/lib/tediMcpServer.ts",
+]) {
+  const src = await readFile(f, "utf8");
   // `\b(?<!function )` would be neater, but the declaration in shell.ts is the
   // only non-call match and excluding it keeps the reported count honest.
   const uses = (src.match(/(?<!function )checkedShellCommand\(/g) ?? []).length;

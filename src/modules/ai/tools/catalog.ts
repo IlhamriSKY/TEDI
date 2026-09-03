@@ -7,11 +7,25 @@ import type { ToolSet } from "ai";
  * testable on their own: `scripts/ai/tool-picker-verify.ts`.
  */
 
+/**
+ * Where a tool sits at the TOP level of the picker.
+ *
+ * Two levels because one cannot carry both facts: the section says what KIND of
+ * thing serves the tool, the group says WHICH one. That keeps every provider
+ * switchable on its own - each MCP server and each extension gets its own row
+ * and its own checkbox - without filing an extension under MCP, which it is not.
+ */
+export type ToolSection = "Built-in" | "MCP" | "Extensions";
+
 /** One row in the picker. */
 export type ToolDescriptor = {
   /** Model-facing tool name. This is what `disabledTools` stores. */
   name: string;
   description: string;
+  /** Top-level heading. */
+  section: ToolSection;
+  /** Sub-heading within the section: a capability area for a built-in, a server
+   *  name for MCP, an extension for an extension tool. */
   group: string;
 };
 
@@ -22,15 +36,13 @@ const MCP_PREFIX = "mcp__";
  * Which group a BUILT-IN tool belongs to.
  *
  * Derived from the name, not a hand-kept list, so a new tool is grouped without
- * anyone remembering to register it. The browser rule exists because those tools
- * live in `terminal.ts` for historical reasons.
+ * anyone remembering to register it.
+ *
+ * Built-ins only. Panes, terminals and browsers come from TEDI's own in-process
+ * MCP server, and `describeTools` asks `mcpGroup` before this is reached.
  */
 export function builtinGroup(name: string): string {
-  if (name.includes("browser") || name === "navigate_and_read") return "Browser";
   if (name.startsWith("bash_")) return "Shell";
-  if (name.includes("terminal") || name === "suggest_command" || name === "group_tabs")
-    return "Terminal";
-  if (name === "rotate_pane" || name === "consolidate_terminals") return "Terminal";
   if (name.startsWith("run_subagent")) return "Sub-agents";
   if (name.includes("schedule")) return "Schedule";
   if (name === "fetch") return "Web";
@@ -55,11 +67,27 @@ export function mcpServerOf(name: string): string | null {
   return sep === -1 ? "" : rest.slice(0, sep);
 }
 
-/** Group label for an MCP tool: one group per server, named after the server. */
+/**
+ * Sub-group label for an MCP tool: the server name, bare. The section heading
+ * above it already says MCP, so the server name is the only part that tells one
+ * row from the next. Null for a non-MCP tool.
+ */
 export function mcpGroup(name: string): string | null {
   const server = mcpServerOf(name);
   if (server === null) return null;
-  return server ? `MCP: ${server}` : "MCP";
+  return server || "(unnamed)";
+}
+
+/**
+ * Sub-group label for an extension tool: the extension id minus the vendor
+ * prefix every first-party one carries (`tedi.sql-explorer` -> `sql-explorer`).
+ *
+ * The same shortening `toolRowLabel` applies to MCP keys, for the same reason:
+ * these labels sit in a narrow column, and rows that all start `tedi.` differ
+ * only after the sixth character.
+ */
+export function extensionGroup(extensionId: string): string {
+  return extensionId.replace(/^tedi\./, "") || extensionId;
 }
 
 /**
@@ -110,116 +138,98 @@ export function toolRowLabel(name: string): string {
   return name.slice(`${MCP_PREFIX}${server}__`.length) || name;
 }
 
-/** Build the picker rows for one assembled tool set. `extensionNames` marks the
- *  keys that came from installed extensions, which cannot be told apart by name
- *  (an extension picks its own). */
+/**
+ * Build the picker rows for one assembled tool set.
+ *
+ * `extensionOf` maps a tool KEY to the extension that contributed it. It has to
+ * be passed in: an extension names its own tools, so nothing about the key says
+ * where it came from, and this is the only place that knowledge exists.
+ */
 export function describeTools(
   tools: ToolSet,
-  extensionNames: ReadonlySet<string> = new Set(),
+  extensionOf: ReadonlyMap<string, string> = new Map(),
 ): ToolDescriptor[] {
   const rows: ToolDescriptor[] = [];
   for (const [name, t] of Object.entries(tools)) {
     const description = (t as { description?: string } | undefined)?.description ?? "";
-    const group = mcpGroup(name) ?? (extensionNames.has(name) ? "Extensions" : builtinGroup(name));
-    rows.push({ name, description, group });
+    const server = mcpGroup(name);
+    const ext = extensionOf.get(name);
+    const [section, group]: [ToolSection, string] =
+      server !== null
+        ? ["MCP", server]
+        : ext !== undefined
+          ? ["Extensions", extensionGroup(ext)]
+          : ["Built-in", builtinGroup(name)];
+    rows.push({ name, description, section, group });
   }
-  return rows.sort((a, b) => a.group.localeCompare(b.group) || a.name.localeCompare(b.name));
+  return rows.sort(
+    (a, b) =>
+      a.section.localeCompare(b.section) ||
+      a.group.localeCompare(b.group) ||
+      a.name.localeCompare(b.name),
+  );
 }
 
-/** Stable group order for the picker: the everyday ones first, then whatever
- *  the user installed, alphabetically so it does not jump around. */
-const GROUP_ORDER = [
-  "Files",
-  "Edit",
-  "Search",
-  "Shell",
-  "Terminal",
-  "Browser",
-  "Web",
-  "Sub-agents",
-  "Tasks",
-  "Schedule",
-  "Extensions",
-];
+/** Top-level order. Built-ins first because they are the everyday ones; MCP
+ *  before Extensions because TEDI's own control surface lives there. */
+const SECTION_ORDER: ToolSection[] = ["Built-in", "MCP", "Extensions"];
 
-export function groupTools(
-  rows: ToolDescriptor[],
-): Array<{ group: string; tools: ToolDescriptor[] }> {
-  const byGroup = new Map<string, ToolDescriptor[]>();
+/** Stable order for the built-in sub-groups. MCP servers and extensions are
+ *  sorted by name instead - there is no meaningful fixed order for what the
+ *  user happened to install. */
+const GROUP_ORDER = ["Files", "Edit", "Search", "Shell", "Web", "Sub-agents", "Tasks", "Schedule"];
+
+export type ToolGroup = { group: string; tools: ToolDescriptor[] };
+export type ToolSectionGroup = {
+  section: ToolSection;
+  /** Every tool in the section, flattened - the section header's own checkbox
+   *  and count act on this, not on one group at a time. */
+  tools: ToolDescriptor[];
+  groups: ToolGroup[];
+};
+
+/**
+ * Nest the rows: section -> group -> tools.
+ *
+ * Empty sections and groups never appear, because they are built from the rows
+ * rather than from a fixed skeleton. That matters while the search box is
+ * filtering: a heading with nothing under it reads as a hit the user cannot see.
+ */
+export function sectionTools(rows: ToolDescriptor[]): ToolSectionGroup[] {
+  const bySection = new Map<ToolSection, Map<string, ToolDescriptor[]>>();
   for (const r of rows) {
-    const list = byGroup.get(r.group);
+    let groups = bySection.get(r.section);
+    if (!groups) {
+      groups = new Map();
+      bySection.set(r.section, groups);
+    }
+    const list = groups.get(r.group);
     if (list) list.push(r);
-    else byGroup.set(r.group, [r]);
+    else groups.set(r.group, [r]);
   }
-  const rank = (g: string): number => {
+  const groupRank = (section: ToolSection, g: string): number => {
+    // TEDI's own server is the one MCP entry with a reason to lead: it is the
+    // app's control surface, not something the user installed.
+    if (section === "MCP") return g === "tedi" ? -1 : 0;
+    if (section !== "Built-in") return 0;
     const i = GROUP_ORDER.indexOf(g);
     return i === -1 ? GROUP_ORDER.length : i;
   };
-  return [...byGroup.entries()]
-    .map(([group, tools]) => ({ group, tools }))
-    .sort((a, b) => rank(a.group) - rank(b.group) || a.group.localeCompare(b.group));
+  return [...bySection.entries()]
+    .map(([section, groups]) => ({
+      section,
+      tools: [...groups.values()].flat(),
+      groups: [...groups.entries()]
+        .map(([group, tools]) => ({ group, tools }))
+        .sort(
+          (a, b) =>
+            groupRank(section, a.group) - groupRank(section, b.group) ||
+            a.group.localeCompare(b.group),
+        ),
+    }))
+    .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
 }
 
-/**
- * Browser tools that cannot be called until a browser pane exists.
- *
- * Every one of these takes a REQUIRED `leafId` naming an already-open pane, and
- * the only place that id comes from is the `<env>` block's `browsers:` list. With
- * no pane open there is no id to pass, so they are not merely unlikely to be
- * called - they are uncallable, and their definitions are ~11 600 characters of
- * a ~37 000-character tool payload billed on every request of every session,
- * including the overwhelming majority that never open a browser at all.
- *
- * `open_browser` is deliberately NOT here: it takes a url, needs no pane, and is
- * how a pane comes to exist. It also answers the one-shot lookup case on its own
- * (`read: true` returns the page text in the same call), which is exactly what
- * the prompt tells the model to do when nothing is open.
- *
- * These are switched off with `activeTools`, ONCE PER TURN, and are never removed
- * from the tool set: the picker still lists them, `disabledTools` still governs
- * them, and replayed history still resolves them. The turn after a pane exists
- * they are all back - which is also the turn `<env>` first names that pane, so
- * the model gains the tools and the leafId to use them together.
- *
- * Per turn rather than per step because adding or removing a tool definition
- * invalidates Anthropic's tools cache and everything cached behind it. Deciding
- * this per step rewrote the whole prefix mid-turn in exactly the flow it was
- * meant to help.
- */
-export const BROWSER_PANE_TOOL_NAMES = [
-  "control_browser",
-  "navigate_and_read",
-  "read_browser",
-  "read_browser_console",
-  "browser_click",
-  "browser_click_at",
-  "browser_hover",
-  "browser_press_key",
-  "browser_screenshot",
-  "browser_scroll",
-  "browser_type",
-] as const;
-
-/**
- * The tools worth sending THIS step, or `undefined` for "all of them".
- *
- * `undefined` is not a detail: `activeTools` is compared with `includes` on every
- * tool for every step, so returning a full list where nothing is filtered is
- * pure work, and it also pins the value where the SDK would otherwise skip the
- * filter entirely.
- */
-export function activeToolNames(
-  toolNames: Iterable<string>,
-  hasBrowserPane: boolean,
-): string[] | undefined {
-  if (hasBrowserPane) return undefined;
-  const off = new Set<string>(BROWSER_PANE_TOOL_NAMES);
-  const all = [...toolNames];
-  const kept = all.filter((n) => !off.has(n));
-  return kept.length === all.length ? undefined : kept;
-}
-
-/** The tools that spawn sub-agents. */
 export const SUBAGENT_TOOL_NAMES = ["run_subagent", "run_subagents"] as const;
 
 /**

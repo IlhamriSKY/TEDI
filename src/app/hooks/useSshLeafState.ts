@@ -1,5 +1,7 @@
+import { invoke } from "@tauri-apps/api/core";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
+import { registerBridge } from "@/modules/automation/bridge";
 import { resolveSshContext, type SshContext } from "./sshContext";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { type Tab } from "@/modules/tabs";
@@ -88,6 +90,45 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
     }
     return m;
   }, [tabs, sshStatuses]);
+
+  /**
+   * Run a command on the host behind an SSH pane and return its exact output.
+   *
+   * The remote counterpart to `bash_run`: a channel of its own, so nothing is
+   * typed into the pane and nothing is read back off the screen. Output that
+   * matters as DATA has to arrive this way, because the scrollback is a fixed
+   * ring of rendered rows and anything longer than it loses its beginning
+   * silently.
+   *
+   * REGISTERED HERE because this hook owns `sshStatuses`, the only table mapping
+   * a LEAF to a live session id. Tools address a pane by leafId; `ssh_exec`
+   * needs the session number.
+   *
+   * Answers a SENTENCE on failure rather than throwing, matching every other
+   * capability on the bridge: a transport reads a bare null as "this build has
+   * no such capability", which is a different answer from "that pane is not
+   * connected".
+   */
+  useEffect(() => {
+    registerBridge({
+      sshExec: async (leafId: number, command: string) => {
+        const st = sshStatuses.get(Number(leafId));
+        if (!st || st.kind !== "connected") {
+          return `Leaf ${leafId} is not a connected SSH pane.`;
+        }
+        try {
+          return await invoke<string>("ssh_exec", {
+            id: st.sessionId,
+            command: String(command),
+          });
+        } catch (e) {
+          // A non-zero exit arrives here carrying the remote's stderr, which is
+          // the useful half - pass it through rather than a generic failure.
+          return e instanceof Error ? e.message : String(e);
+        }
+      },
+    });
+  }, [sshStatuses]);
 
   const handleSshStatus = useCallback((leafId: number, status: SshStatus) => {
     setSshStatuses((prev) => {

@@ -18,7 +18,8 @@ import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
 import { compactUiMessages } from "./compact";
-import { getMcpServers } from "./mcpConfig";
+import { getMcpServers, TEDI_MCP_SERVER_NAME } from "./mcpConfig";
+import { connectedMcpServers } from "./mcpClient";
 import { saveMessages } from "./sessions";
 
 /**
@@ -214,24 +215,69 @@ function showListModal<T>(
   });
 }
 
-/** Modal listing configured MCP servers and their enabled state. */
+/**
+ * Modal listing the MCP servers, live state first.
+ *
+ * TWO SOURCES, and it needs both. The config file says what the user asked for;
+ * the live client table says what the agent actually has. They disagree in two
+ * ways that matter here:
+ *
+ *   - TEDI's OWN server (`tedi`) is in no config at all - it is synthesized per
+ *     turn by `buildMcpToolsAsync` - so config alone never mentions the one
+ *     server that is always present.
+ *   - A configured server that failed to spawn still reads `enabled: true`, so
+ *     config alone cannot tell a dead server from a working one.
+ */
 function showMcpList(): void {
-  void getMcpServers().then((servers) =>
+  void getMcpServers().then((servers) => {
+    const live = connectedMcpServers();
+    // The built-in is listed UNCONDITIONALLY, not just when a client happens to
+    // be up. It is synthesized fresh each turn and torn down when idle, so
+    // deriving its presence from the live table alone would hide it on exactly
+    // the occasion someone types `/mcp` to check whether it is there - before
+    // the session's first turn.
+    const rows = [
+      {
+        name: TEDI_MCP_SERVER_NAME,
+        enabled: true,
+        cmd: "built in - panes, terminals, browser, settings, SSH",
+      },
+      ...[...live.keys()]
+        .filter((n) => n !== TEDI_MCP_SERVER_NAME && !servers.some((s) => s.name === n))
+        .sort()
+        .map((name) => ({ name, enabled: true, cmd: "connected" })),
+      ...servers
+        .filter((s) => s.name !== TEDI_MCP_SERVER_NAME)
+        .map((s) => ({
+          name: s.name,
+          enabled: s.enabled,
+          cmd: `${s.command} ${s.args.join(" ")}`.trim(),
+        })),
+    ];
     showListModal(
       "slash-mcp",
       "MCP servers",
-      servers,
-      `${servers.filter((s) => s.enabled).length}/${servers.length} enabled. Manage in Settings → Agents → MCP Servers.`,
+      rows,
+      `${live.size} connected, ${rows.length} listed. Manage in Settings → Agents → MCP Servers.`,
       "None configured. Add one in Settings → Agents → MCP Servers.",
-      (s) => ({
-        label: s.name,
-        desc: `${s.command} ${s.args.join(" ")}`.trim(),
-        // Name turns green when the server is enabled/connected (no kbd, so the
-        // row renders as name (left) + command (right) - compact, no dot gutter).
-        tone: s.enabled ? "ok" : undefined,
-      }),
-    ),
-  );
+      (r) => {
+        const tools = live.get(r.name);
+        return {
+          label: r.name,
+          // The tool count is the honest proof of "connected": a server that
+          // handshook but listed nothing lends the agent nothing.
+          desc:
+            tools !== undefined
+              ? `${tools} tool${tools === 1 ? "" : "s"} · ${r.cmd}`
+              : r.enabled
+                ? `not connected yet · ${r.cmd}`
+                : `off · ${r.cmd}`,
+          // Green means CONNECTED now, not merely ticked in a config file.
+          tone: tools !== undefined ? "ok" : undefined,
+        };
+      },
+    );
+  });
 }
 
 function clearActiveChat(): SlashOutcome {

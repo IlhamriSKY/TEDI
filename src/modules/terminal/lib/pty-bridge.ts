@@ -57,39 +57,84 @@ function buildSession(result: PtyOpenResult): PtySession {
   };
 }
 
-export async function openPty(
+/**
+ * Every daemon session this GUI has opened or attached, and how many of those
+ * calls are still in flight.
+ *
+ * `useAdoptDaemonSessions` polls the daemon for sessions no leaf owns and pulls
+ * them into a new tab - that is how a terminal started from the browser (the
+ * remote-access agent) appears on the desktop. Ownership is read off the pane
+ * tree, which only learns a uuid once `pty_open` has RESOLVED and the resulting
+ * `onPtyId` has landed in React state. The daemon lists the session the moment
+ * it creates it, ~200ms earlier, so a poll landing in that window sees the
+ * terminal the user just opened as unowned and adopts it: two leaves on one
+ * shell. The daemon routes a uuid to exactly one channel, so the first pane goes
+ * blank, and closing either one kills the shell under both. These two close the
+ * window - the set for a session already learned, the counter for one still
+ * being opened.
+ */
+const localSessions = new Set<string>();
+let openInFlight = 0;
+
+/** True while a `pty_open`/`pty_attach` this GUI issued has not settled, so the
+ *  daemon may be listing a session whose uuid nothing here knows yet. */
+export function ptyOpenInFlight(): boolean {
+  return openInFlight > 0;
+}
+
+/** Whether this GUI opened or attached `sessionId` itself. */
+export function isLocalPtySession(sessionId: string): boolean {
+  return localSessions.has(sessionId);
+}
+
+async function claim(open: Promise<PtyOpenResult>): Promise<PtySession> {
+  openInFlight += 1;
+  try {
+    const result = await open;
+    // Recorded BEFORE the counter drops, so there is no instant where the
+    // session is neither in-flight nor known.
+    if (result.sessionId) localSessions.add(result.sessionId);
+    return buildSession(result);
+  } finally {
+    openInFlight -= 1;
+  }
+}
+
+export function openPty(
   cols: number,
   rows: number,
   handlers: PtyHandlers,
   cwd?: string,
 ): Promise<PtySession> {
   const channel = makeChannel(handlers);
-  const result = await invoke<PtyOpenResult>("pty_open", {
-    cols,
-    rows,
-    cwd: cwd ?? null,
-    onEvent: channel,
-  });
-  return buildSession(result);
+  return claim(
+    invoke<PtyOpenResult>("pty_open", {
+      cols,
+      rows,
+      cwd: cwd ?? null,
+      onEvent: channel,
+    }),
+  );
 }
 
 /** Attach to an existing daemon session by UUID. The daemon replays its
  *  scrollback buffer on the channel before live events resume; xterm
  *  reconstructs screen state from the ANSI sequences in that replay. */
-export async function reattachPty(
+export function reattachPty(
   sessionId: string,
   cols: number,
   rows: number,
   handlers: PtyHandlers,
 ): Promise<PtySession> {
   const channel = makeChannel(handlers);
-  const result = await invoke<PtyOpenResult>("pty_attach", {
-    sessionId,
-    cols,
-    rows,
-    onEvent: channel,
-  });
-  return buildSession(result);
+  return claim(
+    invoke<PtyOpenResult>("pty_attach", {
+      sessionId,
+      cols,
+      rows,
+      onEvent: channel,
+    }),
+  );
 }
 
 /** Daemon-side session metadata (mirrors Rust `SessionInfo`; note the wire

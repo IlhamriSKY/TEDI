@@ -97,18 +97,6 @@ export function buildLiveContext(deps: LiveContextDeps) {
       }
       return explorerRoot ?? home ?? null;
     },
-    getTerminalContext: (lines?: number) => {
-      const { tabs, activeId } = liveContextRef.current;
-      const t = tabs.find((x) => x.id === activeId);
-      if (!t || t.kind !== "pane") return null;
-      const leaf = activeLeaf(t);
-      if (!leaf || leaf.leafKind !== "terminal") return null;
-      // Private leaves deny scrollback reads entirely. The AI sees null,
-      // same as if the active leaf weren't a terminal.
-      if (leaf.private) return null;
-      const n = Math.max(1, Math.min(2000, lines ?? 300));
-      return terminalRefs.current.get(leaf.id)?.getBuffer(n) ?? null;
-    },
     injectIntoActivePty: (text: string) => {
       const { tabs, activeId } = liveContextRef.current;
       const t = tabs.find((x) => x.id === activeId);

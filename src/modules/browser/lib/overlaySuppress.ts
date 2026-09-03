@@ -145,6 +145,51 @@ export function anyOverlayIntersects(rect: DOMRect): boolean {
   return overlayRectsOver(rect).length > 0;
 }
 
+/**
+ * Where a pane sits in paint order: the nearest ancestor-or-self carrying a
+ * numeric `z-index`, plus that node so equal values can fall back to document
+ * order - which is what decides between two unpositioned siblings.
+ */
+function stackKey(el: Element): { z: number; node: Element } {
+  for (let p: Element | null = el; p; p = p.parentElement) {
+    const z = Number(getComputedStyle(p).zIndex);
+    if (Number.isFinite(z)) return { z, node: p };
+  }
+  return { z: 0, node: el };
+}
+
+/**
+ * Boxes of the panes that OVERLAP this one and paint above it.
+ *
+ * A native webview is composited over the whole DOM, so a browser pane lying
+ * behind another window still paints on top of it: the canvas raises the window
+ * the user clicked, its header and body come forward, and the page does not.
+ * These rectangles are cut out of the webview's region, the same way an open
+ * menu is.
+ *
+ * Returns nothing in the tab and split layouts, where panes tile and never
+ * overlap - the intersection test alone rules them out, so this costs a few
+ * rect reads and changes nothing outside the canvas.
+ */
+export function paneRectsOver(pane: Element, rect: DOMRect): DOMRect[] {
+  const mine = stackKey(pane);
+  const out: DOMRect[] = [];
+  for (const other of document.querySelectorAll("[data-pane-leaf]")) {
+    if (other === pane || other.contains(pane) || pane.contains(other)) continue;
+    const r = other.getBoundingClientRect();
+    if (r.width < 1 || r.height < 1) continue;
+    if (!(r.left < rect.right && r.right > rect.left && r.top < rect.bottom && r.bottom > rect.top))
+      continue;
+    const its = stackKey(other);
+    const above =
+      its.z !== mine.z
+        ? its.z > mine.z
+        : (mine.node.compareDocumentPosition(its.node) & Node.DOCUMENT_POSITION_FOLLOWING) !== 0;
+    if (above) out.push(r);
+  }
+  return out;
+}
+
 // Pane drag-and-drop: while a pane is being dragged, hide preview webviews. The
 // native webview sits above the DOM, so otherwise it would (a) cover the blue
 // drop-indicator box and (b) capture the pointer, starving dnd-kit of the

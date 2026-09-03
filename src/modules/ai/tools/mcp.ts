@@ -2,9 +2,11 @@ import { tool, jsonSchema, type Tool } from "ai";
 import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { toast } from "@/components/ui/toast";
 import { getMcpClient } from "../lib/mcpClient";
-import { getMcpServers, type McpServerConfig } from "../lib/mcpConfig";
-import { TEDI_MCP_SERVER_NAME, type TediMcpDeps } from "../lib/tediMcpServer";
+import { getMcpServers, TEDI_MCP_SERVER_NAME, type McpServerConfig } from "../lib/mcpConfig";
+import { TOOL_DEFS } from "@mcp/tools.mjs";
+import { type TediMcpDeps } from "../lib/tediMcpServer";
 import { getMcpSurface } from "@/modules/settings/store";
+import { isTrustedEgressHost } from "../lib/security";
 import type { ToolContext } from "./context";
 
 /** Image/audio payload carried out of an MCP tool result so toModelOutput can
@@ -74,6 +76,33 @@ export function clampToolKey(key: string, max = 64): string {
   return `${key.slice(0, max - 1 - hash.length)}_${hash}`;
 }
 
+/**
+ * The approval rule for one BUILTIN tool: `true` (always ask), or a predicate
+ * over the call's `action`.
+ *
+ * Only reached for `config.builtin`. `auto` is a field in this repo's own tool
+ * table, not an annotation, so it never crosses the protocol and no third-party
+ * server can set one - see the note on `ToolDef.auto`.
+ */
+function autoApprover(toolName: string): boolean | ((input: Record<string, unknown>) => boolean) {
+  const auto = TOOL_DEFS[toolName]?.auto;
+  if (!auto?.length) return true;
+  const free = new Set<string>(auto);
+  return (input) => {
+    const action = String(input?.action ?? "");
+    if (free.has(action)) return false;
+    // Reaching a NEW host asks; the same host then stays quiet for the rest of
+    // the session. This is not a second policy, it is the one `open_browser`
+    // ran on before it became an action, and dropping it would have turned a
+    // five-page research pass on one site into five identical cards. The host
+    // is recorded from inside the handler, which only runs after approval.
+    if ((action === "open" || action === "navigate") && typeof input?.url === "string") {
+      return !isTrustedEgressHost(input.url);
+    }
+    return true;
+  };
+}
+
 /** Convert an MCP tool definition to an AI SDK tool. */
 function mcpToolToAiTool(
   mcpTool: McpTool,
@@ -111,7 +140,18 @@ function mcpToolToAiTool(
     // and it used to raise a card the user had to clear before the agent could
     // see anything - while `read_file`, a strictly wider read, ran unattended
     // because it happens to be a native tool.
-    needsApproval: !(config.builtin && mcpTool.annotations?.readOnlyHint === true),
+    // A tool that folds a whole surface behind one `action` enum is read-only
+    // for some values and not others, so a per-tool flag cannot express it. For
+    // the builtin server only, `auto` in the shared table names the values that
+    // run unattended - which is how `read`, `scroll` and `console` keep the
+    // no-card behaviour the native browser tools had. Looked up by NAME in this
+    // repo's own table, never taken off the wire, so a third-party server cannot
+    // grant itself one.
+    needsApproval: config.builtin
+      ? mcpTool.annotations?.readOnlyHint === true
+        ? false
+        : autoApprover(mcpTool.name)
+      : true,
     execute: async (input: Record<string, unknown>) => {
       try {
         const client = await getMcpClient(config, ctx.getCwd() ?? undefined, builtinDeps);

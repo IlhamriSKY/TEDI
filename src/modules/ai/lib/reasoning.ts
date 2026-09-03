@@ -10,7 +10,7 @@ import { parseOpenAICompatibleModelId, type ProviderId } from "../config";
  * values differ between MODEL FAMILIES of one provider as often as they differ
  * between providers:
  *
- *   openai / chatgpt   reasoning: { effort }              none low medium high xhigh (+max on 5.6)
+ *   openai / chatgpt   reasoning: { effort }              low medium high xhigh (+max on 5.6)
  *   anthropic          output_config: { effort }          low medium high xhigh max (no xhigh on sonnet-4-6)
  *   google             generationConfig.thinkingConfig    thinkingLevel: minimal low medium high
  *   xai / groq /
@@ -66,23 +66,25 @@ const effort = (
 // `reasoning_effort` of chat completions.
 const OA = "reasoning.effort";
 const OPENAI_RULES: readonly Rule[] = [
-  // Codex FIRST: `gpt-5.3-codex` must not fall into the 5.3/5.4 rule, which would
-  // offer it `none` - the one value its family rejects.
+  // Codex FIRST, and the order is load-bearing: `gpt-5.6-codex` also matches the
+  // 5.6 rule below, which would offer it `max` - a value the codex family does
+  // not accept.
   { pattern: /^gpt-5\.\d+-codex/, control: effort(OA, ["low", "medium", "high", "xhigh"], null) },
   {
     pattern: /^gpt-5\.6(?:[-.:]|$)/,
-    control: effort(OA, ["none", "low", "medium", "high", "xhigh", "max"], "medium"),
+    control: effort(OA, ["low", "medium", "high", "xhigh", "max"], "medium"),
   },
   {
     pattern: /^gpt-5\.5(?:[-.:]|$)/,
-    control: effort(OA, ["none", "low", "medium", "high", "xhigh"], "medium"),
+    control: effort(OA, ["low", "medium", "high", "xhigh"], "medium"),
   },
   // gpt-5.4-mini and -nano default to `none`: no reasoning at all unless asked.
-  // That is documented provider behaviour, and showing the default is the only
+  // `none` is not offered as a CHOICE anywhere - Auto already reaches it on the
+  // models where it is the default - but naming it as the default is the only
   // way a user can see that these two models are not thinking.
   {
     pattern: /^gpt-5\.4(?:[-.:]|$)/,
-    control: effort(OA, ["none", "low", "medium", "high", "xhigh"], "none"),
+    control: effort(OA, ["low", "medium", "high", "xhigh"], "none"),
   },
 ];
 

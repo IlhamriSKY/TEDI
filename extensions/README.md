@@ -1180,7 +1180,7 @@ ctx.shell.registerCommandTransformer((command: string, kind: "bash" | "terminal"
 
 Rewrites shell commands before AI tools run them. `kind` is `"bash"` for hidden
 agent shells (`bash_run`/`bash_background`) and `"terminal"` for the visible PTY
-(`suggest_command`/`run_in_terminal`). One transformer per extension (a second
+(the `sh` MCP tool, `schedule_command`). One transformer per extension (a second
 call replaces it). Transformers chain in insertion order; each is wrapped in
 try/catch and **non-string returns are dropped** (the original command survives).
 Auto-disposed.

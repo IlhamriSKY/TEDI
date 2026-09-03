@@ -20,6 +20,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { IS_WINDOWS } from "@/lib/platform";
 import {
   anyOverlayIntersects,
+  paneRectsOver,
   overlayRectsOver,
   useAnyOverlayOpen,
   usePaneDragActive,
@@ -171,6 +172,33 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
   const syncBounds = useCallback(() => {
     const el = contentRef.current;
     const dpr = window.devicePixelRatio || 1;
+    // How much of the pane a clipping ancestor actually leaves on screen.
+    //
+    // A native webview is an OS surface, so no amount of `overflow: hidden` in
+    // CSS crops it: the DOM rect reports the pane's full box even when half of
+    // it sits outside the canvas viewport, and the page then paints over
+    // whatever is beside it. Everything the pane is nested in has to be taken
+    // into account, plus the window itself - a pane dragged past the edge must
+    // not paint over another application.
+    const visibleBox = (node: HTMLElement, rect: DOMRect) => {
+      let [l, t, right, bottom] = [rect.left, rect.top, rect.right, rect.bottom];
+      for (let p = node.parentElement; p; p = p.parentElement) {
+        const cs = getComputedStyle(p);
+        // `clip` is what matters, not the axis: a pane can be cut horizontally
+        // by a column that only scrolls vertically.
+        if (cs.overflowX === "visible" && cs.overflowY === "visible") continue;
+        const pr = p.getBoundingClientRect();
+        l = Math.max(l, pr.left);
+        t = Math.max(t, pr.top);
+        right = Math.min(right, pr.right);
+        bottom = Math.min(bottom, pr.bottom);
+      }
+      l = Math.max(l, 0);
+      t = Math.max(t, 0);
+      right = Math.min(right, window.innerWidth);
+      bottom = Math.min(bottom, window.innerHeight);
+      return { left: l, top: t, right, bottom, width: right - l, height: bottom - t };
+    };
     // Rectangles to cut out of the pane so a menu, dialog or tooltip drawn over
     // it is visible AND clickable while the page stays on screen. Only Windows
     // can do this (a window region on the pane's child HWND); everywhere else
@@ -192,22 +220,79 @@ export function BrowserPane({ id, url, visible, onUrlChange, ref }: Props) {
     let r: DOMRect | null = null;
     if (show && el) {
       r = el.getBoundingClientRect();
-      if (r.width < 1 || r.height < 1) {
+      const vis = visibleBox(el, r);
+      if (r.width < 1 || r.height < 1 || vis.width < 1 || vis.height < 1) {
+        // Nothing of it is on screen. Hiding also covers the pane sitting in a
+        // scrolled-away part of the canvas, where it would otherwise keep
+        // painting at its last bounds.
         show = false;
-      } else if (anyOverlayOpenRef.current) {
+      } else if (vis.width < r.width - 0.5 || vis.height < r.height - 0.5) {
+        // Partly clipped. CROP RATHER THAN RESIZE: shrinking `bounds` to the
+        // visible part would re-lay-out the page on every frame of a canvas
+        // pan, so the webview keeps its real size and the hidden strips are cut
+        // out of its region instead - the same mechanism that carves menus out.
+        if (IS_WINDOWS) {
+          const strip = (left: number, top: number, w: number, h: number) => ({
+            x: Math.floor((left - r!.left) * dpr) - 1,
+            y: Math.floor((top - r!.top) * dpr) - 1,
+            width: Math.ceil(w * dpr) + 2,
+            height: Math.ceil(h * dpr) + 2,
+          });
+          holes = [
+            strip(r.left, r.top, vis.left - r.left, r.height),
+            strip(vis.right, r.top, r.right - vis.right, r.height),
+            strip(r.left, r.top, r.width, vis.top - r.top),
+            strip(r.left, vis.bottom, r.width, r.bottom - vis.bottom),
+          ].filter((s) => s.width > 2 && s.height > 2);
+        } else {
+          // No window regions off Windows, so a partly-clipped pane yields the
+          // whole page - the same trade the overlay branch below makes.
+          show = false;
+        }
+      }
+      // Panes stacked above this one, which only happens on the canvas. Handled
+      // like the clip strips: cut out where a region is available, yield the page
+      // where one is not.
+      if (show) {
+        const paneEl = el.closest("[data-pane-leaf]") ?? el;
+        const covering = paneRectsOver(paneEl, r);
+        if (covering.length > 0) {
+          if (IS_WINDOWS) {
+            holes = [
+              ...holes,
+              ...covering.map((o) => ({
+                x: Math.floor((o.left - r!.left) * dpr) - 1,
+                y: Math.floor((o.top - r!.top) * dpr) - 1,
+                width: Math.ceil(o.width * dpr) + 2,
+                height: Math.ceil(o.height * dpr) + 2,
+              })),
+            ];
+          } else {
+            show = false;
+          }
+        }
+      }
+      if (show && anyOverlayOpenRef.current) {
         if (IS_WINDOWS) {
           // Cut each overlay out instead of yielding the whole page. Rounded
           // outward by a pixel so an antialiased edge cannot leave a sliver of
           // page showing through under the menu's own border. An overlay that
           // covers the pane entirely leaves an empty region, which is the same
           // result as hiding, so that case needs no branch of its own.
+          //
+          // APPENDED, never assigned: the clip strips above are holes too, and
+          // replacing the list would hand the page back the region outside the
+          // viewport the moment a menu opened over a half-scrolled pane.
           const pane = r;
-          holes = overlayRectsOver(pane).map((o) => ({
-            x: Math.floor((o.left - pane.left) * dpr) - 1,
-            y: Math.floor((o.top - pane.top) * dpr) - 1,
-            width: Math.ceil(o.width * dpr) + 2,
-            height: Math.ceil(o.height * dpr) + 2,
-          }));
+          holes = [
+            ...holes,
+            ...overlayRectsOver(pane).map((o) => ({
+              x: Math.floor((o.left - pane.left) * dpr) - 1,
+              y: Math.floor((o.top - pane.top) * dpr) - 1,
+              width: Math.ceil(o.width * dpr) + 2,
+              height: Math.ceil(o.height * dpr) + 2,
+            })),
+          ];
         } else if (anyOverlayIntersects(r)) {
           show = false;
         }

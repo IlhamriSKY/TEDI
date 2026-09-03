@@ -9,7 +9,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setDisabledTools } from "@/modules/settings/store";
-import { groupTools, toolRowLabel, type ToolDescriptor } from "../tools/catalog";
+import { sectionTools, toolRowLabel, type ToolDescriptor } from "../tools/catalog";
 import { listAvailableTools, listLocalTools } from "../tools/tools";
 import { getToolContext } from "../store/chatStore";
 import { ChevronRight, Wrench } from "lucide-react";
@@ -38,18 +38,29 @@ export function ToolsPicker() {
   const [open, setOpen] = useState(false);
   const [tools, setToolsState] = useState<ToolDescriptor[] | null>(() => lastToolList);
   const [query, setQuery] = useState("");
-  // Collapsed by default: a group header per server is the compact view, and
-  // the header already carries the on/off count.
+  // OPPOSITE DEFAULTS, on purpose. Sections start OPEN and groups start CLOSED,
+  // so the list opens on the same thing it always did: one screen of group
+  // headers, each with its own count, one click from the tools. Defaulting both
+  // levels closed would have put three headings and nothing else on screen and
+  // made every tool two clicks away - a nested list that hides more than the
+  // flat one it replaced is not an improvement.
+  //
+  // Two sets rather than one keyed map, because the two defaults are genuinely
+  // different: a name in `closedSections` means closed, a name in `openGroups`
+  // means open.
+  const [closedSections, setClosedSections] = useState<Set<string>>(new Set());
   const [openGroups, setOpenGroups] = useState<Set<string>>(new Set());
 
-  const toggleGroup = useCallback((group: string) => {
-    setOpenGroups((prev) => {
+  const flip = (set: (fn: (prev: Set<string>) => Set<string>) => void) => (key: string) => {
+    set((prev) => {
       const next = new Set(prev);
-      if (next.has(group)) next.delete(group);
-      else next.add(group);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
-  }, []);
+  };
+  const toggleSection = useCallback(flip(setClosedSections), []);
+  const toggleGroup = useCallback(flip(setOpenGroups), []);
 
   const setTools = useCallback((list: ToolDescriptor[]) => {
     lastToolList = list;
@@ -65,15 +76,21 @@ export function ToolsPicker() {
       if (open) setToolsState([]);
       return;
     }
-    if (!open) {
-      // Cheap seed so the trigger shows a count straight away. Built-ins +
-      // extension tools only: enumerating MCP here would spawn every enabled
-      // server's subprocess for a user who may never open the picker.
-      if (!lastToolList) setTools(listLocalTools(ctx));
-      return;
-    }
-    // Opened: the full list, MCP included. The connect is deduped with the one
-    // a turn makes, so it costs nothing extra.
+    // Seed synchronously so the trigger has a number on the very first paint:
+    // built-ins and extension tools, both of which are already in memory.
+    if (!lastToolList) setTools(listLocalTools(ctx));
+
+    // Then fold in MCP, WITHOUT waiting for the popover to be opened.
+    //
+    // The trigger's count claims to be what the model receives, so it has to
+    // include the MCP servers - leaving them until the popover opens would put a
+    // number on screen that the next turn contradicts, and one the on/off maths
+    // is computed against.
+    //
+    // Connecting here costs nothing extra in practice: this component exists only
+    // while the AI panel is mounted, and any turn from that panel connects the
+    // same servers. Nothing blocks on it either - the cheap list above is already
+    // painted, and this only corrects it.
     let cancelled = false;
     void listAvailableTools(ctx).then((list) => {
       if (!cancelled) setTools(list);
@@ -107,11 +124,14 @@ export function ToolsPicker() {
       (t) =>
         t.name.toLowerCase().includes(q) ||
         t.description.toLowerCase().includes(q) ||
-        t.group.toLowerCase().includes(q),
+        t.group.toLowerCase().includes(q) ||
+        // Section too, so "mcp" finds every server's tools and "extension"
+        // finds everything an installed extension lends the agent.
+        t.section.toLowerCase().includes(q),
     );
   }, [tools, query]);
 
-  const groups = useMemo(() => groupTools(filtered), [filtered]);
+  const sections = useMemo(() => sectionTools(filtered), [filtered]);
   const total = tools?.length ?? 0;
   const onCount = tools ? tools.filter((t) => !disabledSet.has(t.name)).length : 0;
 
@@ -217,84 +237,143 @@ export function ToolsPicker() {
               <Spinner className="size-3" />
               Loading tools…
             </div>
-          ) : groups.length === 0 ? (
+          ) : sections.length === 0 ? (
             <p className="text-muted-foreground px-2.5 py-2 text-[11px]">
               {total === 0
                 ? "No tools yet. Open a chat first, then reopen this."
                 : `No tool matches "${query}".`}
             </p>
           ) : (
-            groups.map(({ group, tools: rows }) => {
-              const offInGroup = rows.filter((t) => disabledSet.has(t.name)).length;
-              const groupState =
-                offInGroup === 0 ? true : offInGroup === rows.length ? false : "indeterminate";
-              // A filter force-opens every group: a hit you cannot see reads as no hit.
-              const isOpen = !!query || openGroups.has(group);
+            sections.map(({ section, tools: all, groups }) => {
+              const offInSection = all.filter((t) => disabledSet.has(t.name)).length;
+              const sectionState =
+                offInSection === 0 ? true : offInSection === all.length ? false : "indeterminate";
+              // A section with ONE group would be a header wrapping a header
+              // saying nearly the same thing, so it collapses to just the
+              // group rows. Common in practice: MCP with only `tedi` connected.
+              const flat = groups.length === 1;
+              const sectionOpen = !!query || !closedSections.has(section);
               return (
-                <Collapsible key={group} open={isOpen} onOpenChange={() => toggleGroup(group)}>
-                  {/* The group checkbox sits beside the trigger, not inside it:
-                      a checkbox nested in a trigger button is button-in-button. */}
-                  <div className="bg-popover hover:bg-accent/40 sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1">
-                    <Checkbox
-                      checked={groupState}
-                      onCheckedChange={() =>
-                        setDisabled(
-                          rows.map((t) => t.name),
-                          groupState === true,
-                        )
-                      }
-                      aria-label={`Toggle all ${group} tools`}
-                    />
-                    <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left">
-                      <ChevronRight
-                        size={11}
-                        strokeWidth={2}
-                        className={cn(
-                          "text-muted-foreground/70 shrink-0 transition-transform",
-                          isOpen && "rotate-90",
-                        )}
+                <div key={section}>
+                  <Collapsible open={sectionOpen} onOpenChange={() => toggleSection(section)}>
+                    <div className="bg-popover hover:bg-accent/40 sticky top-0 z-20 flex items-center gap-1.5 px-2 py-1">
+                      <Checkbox
+                        checked={sectionState}
+                        onCheckedChange={() =>
+                          setDisabled(
+                            all.map((t) => t.name),
+                            sectionState === true,
+                          )
+                        }
+                        aria-label={`Toggle all ${section} tools`}
                       />
-                      <span className="text-muted-foreground truncate text-[10px] font-medium tracking-wide uppercase">
-                        {group}
-                      </span>
-                      <span className="text-muted-foreground/60 ml-auto text-[10px] tabular-nums">
-                        {rows.length - offInGroup}/{rows.length}
-                      </span>
-                    </CollapsibleTrigger>
-                  </div>
-                  <CollapsibleContent className="pb-0.5">
-                    {rows.map((t) => (
-                      // One line per tool: name then dimmed description. They are
-                      // SEPARATE truncating spans - as one run under a single
-                      // `truncate`, a long name (every MCP tool) consumed the
-                      // whole row and the description never rendered. The name is
-                      // also capped so it can never do that again, and the full
-                      // text stays in the app's own tooltip (a native `title` was
-                      // the odd one out here: OS styling, second-long delay).
-                      <IconTooltip
-                        key={t.name}
-                        label={t.description ? `${t.name} - ${t.description}` : t.name}
-                        side="left"
-                      >
-                        <label className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-2 pl-7">
-                          <Checkbox
-                            checked={!disabledSet.has(t.name)}
-                            onCheckedChange={(v) => setDisabled([t.name], v !== true)}
-                            aria-label={t.name}
-                          />
-                          <span className="max-w-[55%] shrink-0 truncate font-mono text-[11px] leading-4">
-                            {toolRowLabel(t.name)}
-                          </span>
-                          {t.description ? (
-                            <span className="text-muted-foreground/60 min-w-0 flex-1 truncate text-[10.5px] leading-4">
-                              {t.description}
-                            </span>
-                          ) : null}
-                        </label>
-                      </IconTooltip>
-                    ))}
-                  </CollapsibleContent>
-                </Collapsible>
+                      <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left">
+                        <ChevronRight
+                          size={11}
+                          strokeWidth={2}
+                          className={cn(
+                            "text-muted-foreground/70 shrink-0 transition-transform",
+                            sectionOpen && "rotate-90",
+                          )}
+                        />
+                        <span className="truncate text-[10px] font-semibold tracking-wide uppercase">
+                          {section}
+                        </span>
+                        <span className="text-muted-foreground/60 ml-auto text-[10px] tabular-nums">
+                          {all.length - offInSection}/{all.length}
+                        </span>
+                      </CollapsibleTrigger>
+                    </div>
+                    <CollapsibleContent>
+                      {groups.map(({ group, tools: rows }) => {
+                        const offInGroup = rows.filter((t) => disabledSet.has(t.name)).length;
+                        const groupState =
+                          offInGroup === 0
+                            ? true
+                            : offInGroup === rows.length
+                              ? false
+                              : "indeterminate";
+                        const key = `${section}/${group}`;
+                        // A filter force-opens everything: a hit you cannot see
+                        // reads as no hit.
+                        const isOpen = !!query || flat || openGroups.has(key);
+                        return (
+                          <Collapsible
+                            key={key}
+                            open={isOpen}
+                            onOpenChange={() => toggleGroup(key)}
+                          >
+                            {/* The group checkbox sits beside the trigger, not
+                                inside it: a checkbox nested in a trigger button
+                                is button-in-button. */}
+                            {flat ? null : (
+                              <div className="bg-popover hover:bg-accent/40 flex items-center gap-1.5 py-1 pr-2 pl-5">
+                                <Checkbox
+                                  checked={groupState}
+                                  onCheckedChange={() =>
+                                    setDisabled(
+                                      rows.map((t) => t.name),
+                                      groupState === true,
+                                    )
+                                  }
+                                  aria-label={`Toggle all ${group} tools`}
+                                />
+                                <CollapsibleTrigger className="flex min-w-0 flex-1 cursor-pointer items-center gap-1.5 text-left">
+                                  <ChevronRight
+                                    size={11}
+                                    strokeWidth={2}
+                                    className={cn(
+                                      "text-muted-foreground/70 shrink-0 transition-transform",
+                                      isOpen && "rotate-90",
+                                    )}
+                                  />
+                                  <span className="text-muted-foreground truncate text-[10px] font-medium tracking-wide">
+                                    {group}
+                                  </span>
+                                  <span className="text-muted-foreground/60 ml-auto text-[10px] tabular-nums">
+                                    {rows.length - offInGroup}/{rows.length}
+                                  </span>
+                                </CollapsibleTrigger>
+                              </div>
+                            )}
+                            <CollapsibleContent className="pb-0.5">
+                              {rows.map((t) => (
+                                // One line per tool: name then dimmed description. They are
+                                // SEPARATE truncating spans - as one run under a single
+                                // `truncate`, a long name (every MCP tool) consumed the
+                                // whole row and the description never rendered. The name is
+                                // also capped so it can never do that again, and the full
+                                // text stays in the app's own tooltip (a native `title` was
+                                // the odd one out here: OS styling, second-long delay).
+                                <IconTooltip
+                                  key={t.name}
+                                  label={t.description ? `${t.name} - ${t.description}` : t.name}
+                                  side="left"
+                                >
+                                  <label className="hover:bg-accent/40 flex cursor-pointer items-center gap-1.5 py-1 pr-2 pl-7">
+                                    <Checkbox
+                                      checked={!disabledSet.has(t.name)}
+                                      onCheckedChange={(v) => setDisabled([t.name], v !== true)}
+                                      aria-label={t.name}
+                                    />
+                                    <span className="max-w-[55%] shrink-0 truncate font-mono text-[11px] leading-4">
+                                      {toolRowLabel(t.name)}
+                                    </span>
+                                    {t.description ? (
+                                      <span className="text-muted-foreground/60 min-w-0 flex-1 truncate text-[10.5px] leading-4">
+                                        {t.description}
+                                      </span>
+                                    ) : null}
+                                  </label>
+                                </IconTooltip>
+                              ))}
+                            </CollapsibleContent>
+                          </Collapsible>
+                        );
+                      })}
+                    </CollapsibleContent>
+                  </Collapsible>
+                </div>
               );
             })
           )}

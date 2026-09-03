@@ -257,7 +257,7 @@ async fn open_settings_window(app: tauri::AppHandle, tab: Option<String>) -> Res
 /// monitors instead of landing on the primary display). No-op if either
 /// window's geometry can't be read. Shared by the Settings and Debug windows.
 fn recenter_over_main(app: &tauri::AppHandle, window: &tauri::WebviewWindow) {
-    if let Some(main) = app.get_webview_window("main") {
+    if let Some(main) = app.get_window("main") {
         if let (Ok(main_pos), Ok(main_size), Ok(win_size)) = (
             main.outer_position(),
             main.outer_size(),
@@ -388,6 +388,11 @@ fn open_or_reveal_child(
     // pinning it above other apps (#33). On Windows the OS auto-hides owned
     // windows when the owner minimizes, so the child follows main into the
     // taskbar instead of floating on the desktop.
+    // `get_webview_window` here, unlike everywhere else, because `parent` takes
+    // nothing wider. That wrapper only matches a window holding ONE webview, so
+    // the lookup misses while a browser pane is open (`preview::embed` attaches
+    // its webview to this same window). The float then opens unparented, which
+    // costs the owned-window behaviour above and nothing else.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
@@ -565,7 +570,7 @@ pub fn run() {
         // Read before `parse` takes ownership of argv.
         let command = cli::command_requested_in(argv.iter().map(|s| s.as_str()));
         let target = cli::parse(argv, &cwd_path);
-        if let Some(window) = app.get_webview_window("main") {
+        if let Some(window) = app.get_window("main") {
             let _ = window.unminimize();
             let _ = window.show();
             let _ = window.set_focus();
@@ -796,6 +801,7 @@ pub fn run() {
             ssh::ssh_list_sessions,
             ssh::ssh_attach,
             ssh::ssh_git_status,
+            ssh::ssh_exec,
             ssh::ssh_git,
             ssh::sftp::ssh_sftp_home,
             ssh::sftp::ssh_sftp_read_dir,
@@ -841,7 +847,7 @@ pub fn run() {
                 // On Windows, minimize arrives as a Resized event (Tauri 2 has
                 // no Minimized variant). Sample the state and mirror it.
                 tauri::WindowEvent::Resized(_) => {
-                    let Some(main) = app.get_webview_window("main") else {
+                    let Some(main) = app.get_window("main") else {
                         return;
                     };
                     let minimized = main.is_minimized().unwrap_or(false);

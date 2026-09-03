@@ -26,6 +26,39 @@ import { useChatStore } from "../store/chatStore";
  * folklore. Nothing here normalises across providers: `xhigh` on GPT-5.6 and
  * `max` on Claude are different words for different APIs and are shown as such.
  */
+
+/**
+ * Colour per level, cool to warm, so depth reads at a glance on the trigger
+ * without opening anything.
+ *
+ * Theme TOKENS, never a fixed hue: these have to stay legible across every
+ * preset, light and dark, and only the tokens are tuned for that. `max` is the
+ * one exception and does not appear here - it steps off the hue ramp into foil,
+ * which no theme can supply (`.tedi-effort-max` in `styles/globals.css`).
+ *
+ * A level with no entry falls back to the menu's own colour rather than picking
+ * one, so a value a provider adds later is uncoloured, not miscoloured.
+ */
+const LEVEL_COLOR: Record<string, string> = {
+  minimal: "text-muted-foreground",
+  low: "text-info",
+  medium: "text-diff-added",
+  high: "text-icon-working",
+  xhigh: "text-destructive",
+};
+
+/**
+ * The classes for one level, per element.
+ *
+ * They differ only at `max`, and only because of how the foil is drawn: it is a
+ * gradient painted into the TEXT, which needs `color: transparent`. An icon
+ * draws with `currentColor`, so that would erase it - it takes a solid hue from
+ * the same palette instead.
+ */
+function levelClass(level: string, target: "label" | "icon"): string {
+  if (level !== "max") return LEVEL_COLOR[level] ?? "text-foreground";
+  return target === "label" ? "tedi-effort-max font-medium" : "tedi-effort-max-icon";
+}
 export function ReasoningDropdown() {
   const modelId = useChatStore((s) => s.selectedModelId);
   const provider = useChatStore((s) => s.selectedProvider);
@@ -66,13 +99,29 @@ export function ReasoningDropdown() {
               variant="ghost"
               size="sm"
               aria-label={`Reasoning effort: ${label}`}
-              className={cn(
-                "text-muted-foreground my-1 h-5.5 min-w-0 shrink-0 gap-1 rounded-md px-1.5 text-xs",
-                current !== REASONING_AUTO && "text-foreground",
-              )}
+              className="text-muted-foreground my-1 h-5.5 min-w-0 shrink-0 gap-1 rounded-md px-1.5 text-xs"
             >
-              <Brain size={11} strokeWidth={1.75} className="shrink-0 opacity-70" />
-              <span className="truncate">{label}</span>
+              {/* Icon and label are coloured SEPARATELY rather than by tinting
+                  the button, because `max` makes the label's own `color`
+                  transparent and an icon inheriting that would disappear. Full
+                  opacity once a level is picked: the dimming is what marks Auto
+                  as unset, and it would mute the colour the level just chose. */}
+              <Brain
+                size={11}
+                strokeWidth={1.75}
+                className={cn(
+                  "shrink-0",
+                  current === REASONING_AUTO ? "opacity-70" : levelClass(current, "icon"),
+                )}
+              />
+              <span
+                className={cn(
+                  "truncate",
+                  current !== REASONING_AUTO && levelClass(current, "label"),
+                )}
+              >
+                {label}
+              </span>
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
@@ -93,7 +142,7 @@ export function ReasoningDropdown() {
               size={12}
               className={cn("shrink-0", current === v ? "opacity-100" : "opacity-0")}
             />
-            <span className="min-w-0 truncate">{v}</span>
+            <span className={cn("min-w-0 truncate", levelClass(v, "label"))}>{v}</span>
           </DropdownMenuItem>
         ))}
         {/* Names the real parameter, so "what does this actually send" has an

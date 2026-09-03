@@ -102,6 +102,8 @@ type Props = {
   /** Focus a pane in ANY tab. A canvas spans tabs, so focusing a window has to
    *  activate its owning tab too. */
   onFocusEntry?: (tabId: number, leafId: number) => void;
+  /** Rename a leaf. Same setter the tab strip's Rename uses. */
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
 };
 
 export function PaneStack({
@@ -143,6 +145,7 @@ export function PaneStack({
   onSetCanvasRects,
   canvasAdders,
   onFocusEntry,
+  onRenameLeaf,
 }: Props) {
   // Memoize the filter so the prune effect below sees a stable identity.
   const paneTabs = useMemo(() => tabs.filter((t): t is PaneTab => t.kind === "pane"), [tabs]);
@@ -221,6 +224,7 @@ export function PaneStack({
       onPathDeleted,
       aiTitles,
       aiStates,
+      onRenameLeaf,
     }),
     [
       sshHosts,
@@ -235,6 +239,7 @@ export function PaneStack({
       onPathDeleted,
       aiTitles,
       aiStates,
+      onRenameLeaf,
     ],
   );
 

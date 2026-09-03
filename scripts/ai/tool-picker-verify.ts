@@ -19,8 +19,9 @@ import {
   applyToolFilter,
   builtinGroup,
   describeTools,
-  groupTools,
+  extensionGroup,
   mcpGroup,
+  sectionTools,
   SUBAGENT_TOOL_NAMES,
   subagentsAvailable,
   withSubagentsDisabled,
@@ -38,34 +39,10 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 
 console.log("[grouping] real built-in tool names land in the right group");
 
+// NO Browser or Terminal group. Panes, terminals and browsers moved to TEDI's
+// own in-process MCP server, so they group under `MCP: tedi` (checked below)
+// and `builtinGroup` never sees them.
 const EXPECTED: Record<string, string[]> = {
-  Browser: [
-    "open_browser",
-    "control_browser",
-    "read_browser",
-    "read_browser_console",
-    "navigate_and_read",
-    "browser_click",
-    "browser_click_at",
-    "browser_type",
-    "browser_scroll",
-    "browser_hover",
-    "browser_press_key",
-    "browser_screenshot",
-  ],
-  Terminal: [
-    "open_terminal",
-    "close_terminal",
-    "list_terminals",
-    "read_terminal",
-    "send_to_terminal",
-    "run_in_terminal",
-    "run_in_terminal_by_id",
-    "suggest_command",
-    "consolidate_terminals",
-    "group_tabs",
-    "rotate_pane",
-  ],
   Shell: ["bash_run", "bash_background", "bash_logs", "bash_kill", "bash_list"],
   Files: [
     "read_file",
@@ -91,25 +68,27 @@ for (const [group, names] of Object.entries(EXPECTED)) {
 }
 
 console.log("\n[grouping] the ordered rules that break silently");
-check(
-  "read_browser_console is Browser, not Terminal",
-  builtinGroup("read_browser_console") === "Browser",
-);
-check("run_in_terminal is Terminal, not Browser", builtinGroup("run_in_terminal") === "Terminal");
 check("an unknown tool falls back to Files", builtinGroup("some_new_tool") === "Files");
+// `describeTools` asks `mcpGroup` FIRST, so a tool whose name happens to contain
+// "browser" or "terminal" is grouped by the server that serves it, not by its
+// spelling. Reversing that order would silently regroup half the surface.
+check(
+  "an MCP tool is grouped by its server even when its name looks built-in",
+  mcpGroup("mcp__tedi__browser") === "tedi",
+);
 
 console.log("\n[grouping] MCP tools group per server");
 check(
-  "mcp__chrome-devtools-mcp__click -> MCP: chrome-devtools-mcp",
-  mcpGroup("mcp__chrome-devtools-mcp__click") === "MCP: chrome-devtools-mcp",
+  "mcp__chrome-devtools-mcp__click -> chrome-devtools-mcp",
+  mcpGroup("mcp__chrome-devtools-mcp__click") === "chrome-devtools-mcp",
 );
 check("a built-in name is not an MCP tool", mcpGroup("read_file") === null);
-check("a malformed mcp key still groups", mcpGroup("mcp__weird") === "MCP");
+check("a malformed mcp key still groups", mcpGroup("mcp__weird") === "(unnamed)");
 
 // TEDI's own control surface is an in-process MCP server (ai/lib/tediMcpServer.ts),
 // so it groups like any other server rather than as a bespoke "TEDI" category.
 // Re-adding a `tedi_*` built-in would split it across two groups again.
-check("tedi control tools group as an MCP server", mcpGroup("mcp__tedi__inspect") === "MCP: tedi");
+check("tedi control tools group as an MCP server", mcpGroup("mcp__tedi__inspect") === "tedi");
 check(
   "no built-in claims a TEDI group",
   ["tedi_settings", "tedi_command", "tedi_extensions", "tedi_ssh"].every(
@@ -117,36 +96,88 @@ check(
   ),
 );
 
+console.log("\n[grouping] each extension is its own group, not one 'Extensions' bucket");
+// THE regression this replaces. API Client's eleven tools, SQL Explorer's six
+// and RTK Bridge's one shared a single row: one checkbox, one count, three
+// unrelated capabilities that could only be taken or left together, while every
+// MCP server got a row of its own.
+check("the vendor prefix is dropped", extensionGroup("tedi.sql-explorer") === "sql-explorer");
+check("a third-party id is left alone", extensionGroup("acme.thing") === "acme.thing");
+check("an id that is only the prefix survives", extensionGroup("tedi.") === "tedi.");
+
 console.log("\n[describe] sources are labelled, not guessed");
 const tools: ToolSet = {
   read_file: { description: "read" } as never,
   mcp__srv__do: { description: "mcp" } as never,
-  my_ext_tool: { description: "ext" } as never,
+  sql_query: { description: "ext" } as never,
+  http_request: { description: "ext" } as never,
 };
-const rows = describeTools(tools, new Set(["my_ext_tool"]));
-const groupOf = (n: string) => rows.find((r) => r.name === n)?.group;
-check("built-in labelled by name", groupOf("read_file") === "Files");
-check("MCP labelled by prefix", groupOf("mcp__srv__do") === "MCP: srv");
-check("extension labelled from the caller's set", groupOf("my_ext_tool") === "Extensions");
+const rows = describeTools(
+  tools,
+  new Map([
+    ["sql_query", "tedi.sql-explorer"],
+    ["http_request", "tedi.api-client"],
+  ]),
+);
+const at = (n: string) => rows.find((r) => r.name === n);
+check("built-in labelled by name", at("read_file")?.group === "Files");
+check("built-in section", at("read_file")?.section === "Built-in");
+check("MCP labelled by prefix", at("mcp__srv__do")?.group === "srv");
+check("MCP section", at("mcp__srv__do")?.section === "MCP");
+// The point of the Map: two extension tools, two DIFFERENT groups.
+check("extension labelled per extension", at("sql_query")?.group === "sql-explorer");
+check("a second extension is a second group", at("http_request")?.group === "api-client");
+check("extension section", at("sql_query")?.section === "Extensions");
 check(
   "descriptions are carried through",
   rows.every((r) => r.description.length > 0),
 );
 
-console.log("\n[order] groups come out in a stable, sensible order");
-const ordered = groupTools(
-  describeTools({
-    browser_click: { description: "" } as never,
-    read_file: { description: "" } as never,
-    mcp__srv__do: { description: "" } as never,
-    bash_run: { description: "" } as never,
-  } as ToolSet),
-).map((g) => g.group);
-check(
-  "Files before Shell before Browser, MCP last",
-  JSON.stringify(ordered) === JSON.stringify(["Files", "Shell", "Browser", "MCP: srv"]),
-  ordered,
+console.log("\n[order] sections and groups come out in a stable, sensible order");
+const nested = sectionTools(
+  describeTools(
+    {
+      grep: { description: "" } as never,
+      read_file: { description: "" } as never,
+      mcp__srv__do: { description: "" } as never,
+      mcp__tedi__sh: { description: "" } as never,
+      bash_run: { description: "" } as never,
+      sql_query: { description: "" } as never,
+    } as ToolSet,
+    new Map([["sql_query", "tedi.sql-explorer"]]),
+  ),
 );
+check(
+  "Built-in, then MCP, then Extensions",
+  JSON.stringify(nested.map((s) => s.section)) ===
+    JSON.stringify(["Built-in", "MCP", "Extensions"]),
+  nested.map((s) => s.section),
+);
+check(
+  "built-in groups keep their fixed order",
+  JSON.stringify(nested[0].groups.map((g) => g.group)) ===
+    JSON.stringify(["Files", "Search", "Shell"]),
+  nested[0].groups.map((g) => g.group),
+);
+// `tedi` leads the MCP section: it is the app's own control surface, not
+// something the user installed, and alphabetically it would fall after `srv`.
+check(
+  "tedi leads its section, the rest are alphabetical",
+  JSON.stringify(nested[1].groups.map((g) => g.group)) === JSON.stringify(["tedi", "srv"]),
+  nested[1].groups.map((g) => g.group),
+);
+check(
+  "the section carries every one of its tools for the header checkbox",
+  nested[0].tools.length === 3 && nested[1].tools.length === 2 && nested[2].tools.length === 1,
+  {
+    builtin: nested[0].tools.length,
+    mcp: nested[1].tools.length,
+    ext: nested[2].tools.length,
+  },
+);
+// An empty heading is a hit the user cannot see. Sections are built FROM the
+// rows, so filtering to nothing must leave nothing behind, not three headers.
+check("filtering to nothing leaves no headings", sectionTools([]).length === 0);
 
 console.log("\n[filter] what is unticked must not reach the model");
 const full: ToolSet = {

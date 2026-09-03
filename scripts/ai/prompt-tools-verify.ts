@@ -25,6 +25,7 @@ import {
   SYSTEM_PROMPT_LITE,
 } from "../../src/modules/ai/config";
 import { mcpSummaryFor } from "../../src/modules/ai/tools/catalog";
+import { readFileSync } from "node:fs";
 
 let failed = 0;
 function check(name: string, ok: boolean, detail?: unknown): void {
@@ -36,8 +37,35 @@ function check(name: string, ok: boolean, detail?: unknown): void {
   failed++;
 }
 
+/**
+ * The `mcp__tedi__*` keys TEDI's own agent really receives, read from the
+ * handler table in `lib/tediMcpServer.ts`.
+ *
+ * READ, NOT LISTED, and not taken from `@mcp/tools.mjs` either. That table also
+ * holds the stdio-only tools (`keys`, `eval_js`, `drag`, ...) which the built-in
+ * agent never gets, so tagging a prompt section with one of those IS an orphan
+ * and this check has to keep saying so. The handler table is the only place that
+ * knows which half is served in-process.
+ */
+function tediMcpTools(): string[] {
+  const src = readFileSync(
+    new URL("../../src/modules/ai/lib/tediMcpServer.ts", import.meta.url),
+    "utf8",
+  );
+  const from = src.indexOf("const HANDLERS");
+  const table = src.slice(from, src.indexOf("\n};", from));
+  const names = [...table.matchAll(/^ {2}([a-z_]+): async/gm)].map((m) => `mcp__tedi__${m[1]}`);
+  if (names.length < 5) {
+    throw new Error(
+      `Could not read the handler table in tediMcpServer.ts (found ${names.length}). ` +
+        "If its shape changed, fix this reader - silently finding none would turn every MCP tag into a false pass.",
+    );
+  }
+  return names;
+}
+
 /** The real built-in tool set, same source as `scripts/ai/tool-picker-verify.ts`
- *  (a live request capture). */
+ *  (a live request capture), plus the in-process MCP surface above. */
 const REAL_TOOLS = [
   "read_file",
   "list_directory",
@@ -57,29 +85,6 @@ const REAL_TOOLS = [
   "bash_logs",
   "bash_kill",
   "bash_list",
-  "open_terminal",
-  "close_terminal",
-  "list_terminals",
-  "read_terminal",
-  "send_to_terminal",
-  "run_in_terminal",
-  "run_in_terminal_by_id",
-  "suggest_command",
-  "consolidate_terminals",
-  "group_tabs",
-  "rotate_pane",
-  "open_browser",
-  "control_browser",
-  "read_browser",
-  "read_browser_console",
-  "navigate_and_read",
-  "browser_click",
-  "browser_click_at",
-  "browser_type",
-  "browser_scroll",
-  "browser_hover",
-  "browser_press_key",
-  "browser_screenshot",
   "run_subagent",
   "run_subagents",
   "skill",
@@ -87,6 +92,7 @@ const REAL_TOOLS = [
   "schedule_command",
   "cancel_schedule",
   "list_schedules",
+  ...tediMcpTools(),
 ];
 
 console.log("[tags] every `needs` tag names a real tool");
@@ -105,7 +111,10 @@ const MENTION: Record<string, RegExp> = {
   fetch: /`Fetch`|Fetch call/,
   bash_background: /`bash_background`|Bash Background/,
 };
-const mentionOf = (t: string): RegExp => MENTION[t] ?? new RegExp("`" + t + "`");
+/** An MCP tool is written in prose by its own name, not by the `mcp__server__`
+ *  key the model calls - that prefix is plumbing and belongs nowhere in prose. */
+const mentionOf = (t: string): RegExp =>
+  MENTION[t] ?? new RegExp("`" + t.replace(/^mcp__[^_]+__/, "") + "`");
 
 /** The tools a prompt still names. */
 function named(prompt: string): string[] {

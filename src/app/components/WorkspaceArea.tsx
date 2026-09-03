@@ -62,6 +62,8 @@ type Props = {
   canvasAdders: CanvasAdders;
   /** Focus a pane in any tab. Canvas windows and board cards both need it. */
   onFocusEntry: (tabId: number, leafId: number) => void;
+  /** Rename a leaf, for the canvas window header's right-click menu. */
+  onRenameLeaf: (leafId: number, title: string | null) => void;
 } & Pick<
   TabsApi,
   | "setBrowserLeafUrl"
@@ -129,6 +131,7 @@ export function WorkspaceArea({
   view,
   canvasAdders,
   onFocusEntry,
+  onRenameLeaf,
   setBrowserLeafUrl,
   movePaneLeafToEdge,
   moveExtTabToPane,
@@ -193,6 +196,7 @@ export function WorkspaceArea({
               canvas={view === "canvas"}
               canvasAdders={canvasAdders}
               onFocusEntry={onFocusEntry}
+              onRenameLeaf={onRenameLeaf}
               sshStatuses={sshStatuses}
               aiCliStatuses={aiCliStatuses}
               sshBindingByConnection={sshBindingByConnection}

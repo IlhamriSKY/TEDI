@@ -83,6 +83,25 @@ export const BRIDGED = {
   browserNav: "browserNav",
   browserRead: "browserRead",
   browserList: "browserList",
+  // The rest of the browser surface. `browserAct` is a DOM interaction, but it
+  // happens INSIDE a native preview webview that CDP cannot reach anyway (a
+  // preview pane is a separate webview, not part of the page), so it is an
+  // in-realm call like the others and belongs here.
+  browserAct: "browserAct",
+  browserConsole: "browserConsole",
+  browserShot: "browserShot",
+  browserDispatch: "browserDispatch",
+  // Panes and terminals. Anything absent from this map falls through to CDP,
+  // and CDP is Windows-only, so an omission here is not a slower path - it is a
+  // tool that does not exist on macOS or Linux, and one that still passes every
+  // test run on Windows. `driver-verify` checks the map in both directions.
+  paneOpen: "paneOpen",
+  paneClose: "paneClose",
+  paneGroup: "paneGroup",
+  paneRotate: "paneRotate",
+  paneConsolidate: "paneConsolidate",
+  termList: "termList",
+  sshExec: "sshExec",
 };
 
 /**

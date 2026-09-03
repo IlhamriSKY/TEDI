@@ -3,7 +3,6 @@ import { z } from "zod";
 import { scheduler } from "@/modules/scheduler";
 import type { TerminalTarget } from "@/modules/scheduler/types";
 
-import type { ToolContext } from "./context";
 import { checkedShellCommand } from "./shell";
 
 /**
@@ -175,98 +174,8 @@ function normalizeTarget(input: unknown): TerminalTarget {
   return out;
 }
 
-export function buildScheduleTools(ctx: ToolContext) {
+export function buildScheduleTools() {
   return {
-    list_terminals: tool({
-      description:
-        "List open terminals (ordinal, tab_id, leaf_id, title, cwd). Use when the env block is stale or you need fresh detail. Auto.",
-      inputSchema: z.object({}),
-      execute: async () => {
-        const terms = ctx.listTerminals();
-        if (terms.length === 0) return { terminals: [] };
-        return { terminals: terms };
-      },
-    }),
-
-    send_to_terminal: tool({
-      description:
-        "Type text into a specific terminal at the prompt (no Enter). Use for pre-filling so the user can edit before running.",
-      inputSchema: z.object({
-        text: z.string().describe("Text to type. No trailing newline."),
-        target: targetSchema,
-      }),
-      execute: async ({ text, target }) => {
-        const trimmed = text.replace(/[\r\n]+$/, "");
-        // Raw PTY write with no bracketed-paste wrapper: an embedded newline
-        // would auto-run the following lines with no approval. Type-only text
-        // never needs one; use run_in_terminal_by_id (approval-gated) to run.
-        if (/[\r\n]/.test(trimmed)) {
-          return {
-            error:
-              "Refused: text contains an embedded newline. send_to_terminal only types without running. Use run_in_terminal_by_id (which requires approval) to execute.",
-          };
-        }
-        // Route through the shell-transformer chain (e.g. RTK) like every other
-        // CLI tool, then re-guard newlines: a transformer that injects one would
-        // auto-run lines via the raw (no-bracketed-paste) PTY write. The
-        // denylist is applied to the transformed text too - see
-        // `checkedShellCommand`.
-        const vetted = checkedShellCommand(trimmed, "terminal");
-        if (!vetted.ok) return { error: vetted.error };
-        const effective = vetted.command;
-        if (/[\r\n]/.test(effective)) {
-          return {
-            error:
-              "Refused: a shell transformer introduced a newline. send_to_terminal only types a single line without running it.",
-          };
-        }
-        const t = normalizeTarget(target);
-        // Same guard as run_in_terminal_by_id: a raw PTY write into a running
-        // command or a full-screen TUI lands in THAT program's input buffer,
-        // appended to whatever the user was already typing, instead of
-        // pre-filling a shell prompt.
-        if (ctx.isTerminalBusy(t)) {
-          return {
-            error:
-              "target terminal is busy (a command is running or a full-screen TUI is open); typing into it would corrupt that program's input. Wait for it to finish or target another terminal.",
-            text: trimmed,
-          };
-        }
-        const ok = ctx.injectIntoTerminal(t, effective);
-        if (!ok) return { error: "target terminal not found", text: trimmed };
-        return { text: trimmed, injected: true, target: t };
-      },
-    }),
-
-    run_in_terminal_by_id: tool({
-      description:
-        "Submit a command (Enter appended) into a specific terminal. Output stays in that user-visible terminal. Needs approval.",
-      inputSchema: z.object({
-        command: z.string().describe("Command. No trailing newline."),
-        target: targetSchema,
-      }),
-      needsApproval: true,
-      execute: async ({ command, target }) => {
-        const trimmed = command.replace(/[\r\n]+$/, "");
-        const vetted = checkedShellCommand(trimmed, "terminal");
-        if (!vetted.ok) return { error: vetted.error };
-        const t = normalizeTarget(target);
-        // Don't write into a terminal mid-command / mid-TUI: it would corrupt the
-        // running program's input instead of submitting a fresh command.
-        if (ctx.isTerminalBusy(t)) {
-          return {
-            error:
-              "target terminal is busy (a command is running or a full-screen TUI is open); wait for it to finish or target another terminal.",
-            command: trimmed,
-          };
-        }
-        const effective = vetted.command;
-        const ok = ctx.runInTerminal(t, effective);
-        if (!ok) return { error: "target terminal not found", command: trimmed };
-        return { command: trimmed, submitted: true, target: t };
-      },
-    }),
-
     schedule_command: tool({
       description:
         'Queue a future command. Parse time (any language) → delay_seconds OR fire_at_iso. action="submit" runs (default), "inject" only types. Approval.',
@@ -378,7 +287,3 @@ export function buildScheduleTools(ctx: ToolContext) {
     }),
   } as const;
 }
-
-/** Exposed so other tool files reuse the same coercion. */
-export const SHARED_TARGET_SCHEMA = targetSchema;
-export const normalizeTargetExternal = normalizeTarget;

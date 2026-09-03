@@ -1229,6 +1229,7 @@ export default function App() {
                 view={effectiveView}
                 canvasAdders={canvasAdders}
                 onFocusEntry={focusLeafInTab}
+                onRenameLeaf={renameLeaf}
               />
               <AppRightSlot
                 rightSlotRef={rightSlotRef}

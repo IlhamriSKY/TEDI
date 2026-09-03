@@ -286,6 +286,10 @@ export type PaneMetaValue = {
   aiTitles?: ReadonlyMap<string, string>;
   /** Run state per chat session, for an `ai` leaf's icon tint. */
   aiStates?: Record<string, AiCliState>;
+  /** Set a leaf's name, or `null` to fall back to the derived one. Backs the
+   *  canvas window header's right-click Rename; the tab strip's Rename writes
+   *  the same `customTitle` through the same setter, so the two agree. */
+  onRenameLeaf?: (leafId: number, title: string | null) => void;
 };
 
 // SSH host/status lives in its own context so status pushes re-render only the
@@ -442,7 +446,6 @@ export const LeafBody = memo(function LeafBody({
   mdPreview,
   remoteSession,
   paneZoom,
-  flush,
 }: {
   node: PaneLeaf;
   tabVisible: boolean;
@@ -464,16 +467,6 @@ export const LeafBody = memo(function LeafBody({
    * WebGL terminal canvas cannot.
    */
   paneZoom?: number;
-  /**
-   * Draw the terminal edge to edge instead of inset by `p-1.5`.
-   *
-   * A canvas window already IS a bordered, rounded frame with its own header,
-   * and every other leaf kind fills it - so the terminal's inset read as a
-   * second box drawn inside the first, which is what it looked like. In a SPLIT
-   * the inset is the only thing holding the text off the pane border, so it
-   * stays there.
-   */
-  flush?: boolean;
 }) {
   // Register the editor handle both with the parent bundle (find/replace etc.)
   // and the frame's own ref (save-before-float). Stable so EditorPane doesn't
@@ -495,7 +488,11 @@ export const LeafBody = memo(function LeafBody({
   if (node.leafKind === "terminal") {
     return (
       <ErrorBoundary label="terminal pane" resetKeys={[node.id]}>
-        <div className={cn("h-full w-full", !flush && "p-1.5")}>
+        {/* Same inset in every view. The canvas used to draw its terminals edge
+            to edge (the window frame already being a border), but that put the
+            text hard against the left edge while a split pane held it off by
+            6px - two different-looking terminals in one app. */}
+        <div className="h-full w-full p-1.5">
           <TerminalPane
             leafId={node.id}
             visible={tabVisible}

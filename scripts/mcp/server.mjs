@@ -252,6 +252,26 @@ const HANDLERS = {
   },
 
   sh: async (d, a) => {
+    if (a.capture === true) {
+      // Its own SSH channel: exact bytes, nothing rendered, and it does not
+      // touch the pane - so a busy one is no reason to refuse. Reading the
+      // scrollback instead loses the head of any long output, silently.
+      const leaf = a.leafId ?? (await d.focusedLeaf());
+      return String(await d.sshExec(leaf, String(a.command)));
+    }
+    if (a.submit === false) {
+      // Types and stops. A raw PTY write with no trailing CR, so an embedded
+      // newline would run the following lines with nobody asking.
+      const text = String(a.command).replace(/[\r\n]+$/, "");
+      if (/[\r\n]/.test(text)) {
+        throw new Error(
+          "Typing without running cannot contain a newline - it would auto-run the following lines. Drop `submit: false` to execute it.",
+        );
+      }
+      const leaf = a.leafId ?? (await d.focusedLeaf());
+      if (!(await d.termWrite(leaf, text))) throw new Error(`Leaf ${leaf} is not a terminal.`);
+      return `typed into leaf ${leaf} without running it`;
+    }
     const out = await d.sh(a.command, {
       leafId: a.leafId ?? null,
       timeout: a.timeout ?? 20000,
@@ -325,27 +345,50 @@ const HANDLERS = {
     if (a.action !== "connect")
       throw new Error(`Unknown action: ${a.action}. Have: list, connect.`);
     if (!a.id) throw new Error("connect needs `id` (from `ssh list`).");
+    // Snapshot first, so the new pane can be told from the ones already open.
+    const before = new Set((await d.termList()).map((t) => t.leafId));
     const r = await d.sshConnect(a.id, a.private === true);
     if (r !== true) throw new Error(String(r));
-    return `opened SSH connection ${a.id}`;
+    // Opening the tab is not the job - working in it is. Without the leafId the
+    // caller has a live session it cannot address, and `state` on this same turn
+    // races the mount. A private pane is absent from every listing by design, so
+    // it stays unresolved and says so.
+    if (a.private === true) {
+      return `opened SSH connection ${a.id} as a private pane (no tool can see or address it)`;
+    }
+    for (let i = 0; i < 20; i++) {
+      await d.wait(100);
+      const fresh = (await d.termList()).find((t) => !before.has(t.leafId));
+      if (fresh)
+        return `opened SSH connection ${a.id} as leaf ${fresh.leafId} - run commands on it with sh({ command, leafId: ${fresh.leafId} })`;
+    }
+    return `opened SSH connection ${a.id}, but its pane did not appear in time - call \`state\` for its leafId`;
   },
 
   browser: async (d, a) => {
     // History and the address bar are ordinary registered commands and act on
     // the FOCUSED pane; the rest are Rust calls that need the leaf.
-    const byCommand = {
-      back: "browser.back",
-      forward: "browser.forward",
-      reload: "browser.reload",
-      address: "browser.focusAddressBar",
-    };
-    if (byCommand[a.action]) {
-      await d.cmd(byCommand[a.action]);
-      return `ran ${byCommand[a.action]}`;
+    // `address` focuses the URL bar of whichever pane has focus, which is what
+    // that affordance means; there is no per-leaf equivalent. Every other verb
+    // takes a leafId and is handled once the pane is resolved below.
+    if (a.action === "address") {
+      await d.cmd("browser.focusAddressBar");
+      return "focused the address bar";
     }
     if (a.action === "list") return json(await d.browserList());
     if (a.action === "open") {
       if (!a.url) throw new Error("open needs `url`.");
+      // Reuse ONE open pane by default rather than spawning a tab per page.
+      // Only when exactly one is open: with two or more, one of them may be the
+      // user's own, and hijacking it is worse than an extra tab.
+      if (a.newTab !== true) {
+        const open = await d.browserList();
+        if (open.length === 1 && (await d.browserNav(open[0].leafId, a.url)) === true) {
+          return a.read === true
+            ? String((await d.browserRead(open[0].leafId, false)) ?? "")
+            : `navigated leaf ${open[0].leafId} to ${a.url} (reused)`;
+        }
+      }
       const tab = await d.browserOpen(a.url);
       // A string means it could not: the helper answers with the reason
       // rather than null, which the driver would read as a missing surface.
@@ -385,6 +428,16 @@ const HANDLERS = {
       );
     }
     switch (a.action) {
+      case "back":
+      case "forward":
+      case "reload": {
+        // Driven per LEAF, not by running the matching command id. A command acts
+        // on whichever pane holds focus, so a reload aimed at a named browser
+        // could land on another pane entirely - and report success either way.
+        const r = await d.browserDispatch(leaf, a.action);
+        if (r !== true) throw new Error(String(r));
+        return `${a.action} on leaf ${leaf}`;
+      }
       case "navigate":
         if (!a.url) throw new Error("navigate needs `url`.");
         {
@@ -392,16 +445,137 @@ const HANDLERS = {
           if (r !== true) throw new Error(String(r));
           return `navigated leaf ${leaf} to ${a.url}`;
         }
-      case "url":
-        return String((await d.invoke("preview_embed_url", { tabId: leaf })) ?? "(none)");
+      case "url": {
+        // Read from the same privacy-filtered snapshot that authorized `leaf`
+        // above. Going back to Rust by id would both skip that filter and pin
+        // this action to CDP, which exists only on Windows.
+        const hit = (await d.browserList()).find((b) => b.leafId === leaf);
+        return String(hit?.url ?? "(none)");
+      }
       case "read":
         return String(
-          (await d.browserRead(leaf, false)) ?? "(nothing to read - has this pane loaded a page?)",
+          (await d.browserRead(leaf, a.fields === true)) ??
+            "(nothing to read - has this pane loaded a page?)",
         );
       case "console":
-        return json(await d.invoke("preview_embed_console", { tabId: leaf }));
+        // The bridged capability, not a raw Rust call: it honours the pane
+        // privacy filter and works on every platform, where CDP is Windows-only.
+        return json(await d.browserConsole(leaf));
+      case "screenshot": {
+        // Returned as a PATH, not base64, exactly like the `screenshot` tool:
+        // this transport only ever emits text blocks (see `reply`), so an inline
+        // image would be a megabyte of base64 in the conversation.
+        const shot = await d.browserShot(leaf);
+        // Not a length test. The in-realm helper answers a SENTENCE, not null,
+        // when the AI panel has never mounted, and that sentence is over 100
+        // characters - so `length` alone would write the apology out as a JPEG.
+        if (typeof shot !== "string" || !/^[A-Za-z0-9+/=]{100,}$/.test(shot)) {
+          throw new Error(String(shot));
+        }
+        const file = path.join(mkdtempSync(path.join(tmpdir(), "tedi-shot-")), "browser.jpg");
+        writeFileSync(file, Buffer.from(shot, "base64"));
+        return file;
+      }
+      default: {
+        // The act verbs all land on one in-realm call; only the argument
+        // mapping differs. `index` is the `[N]` from a `read` with `fields`.
+        const act = {
+          click: "click",
+          hover: "hover",
+          type: "type",
+          key: "key",
+          scroll: "scroll",
+          click_at: "clickxy",
+        }[a.action];
+        if (!act) throw new Error(`Unknown action: ${a.action}`);
+        const text =
+          a.action === "scroll"
+            ? String(a.to ?? "down")
+            : a.action === "click_at"
+              ? `${a.x},${a.y}`
+              : String(a.text ?? "");
+        const needsIndex = a.action === "click" || a.action === "hover" || a.action === "type";
+        if (needsIndex && a.index === undefined) {
+          throw new Error(
+            `${a.action} needs \`index\` - call read with \`fields\` first to get the [N] list.`,
+          );
+        }
+        const r = await d.browserAct(leaf, a.index ?? 0, act, text, a.submit === true);
+        if (r !== "ok") {
+          throw new Error(
+            r === "not-found"
+              ? `No control [${a.index}] on leaf ${leaf} - read with \`fields\` again, the indices reset on every navigation.`
+              : String(r),
+          );
+        }
+        return `${a.action} ok on leaf ${leaf}`;
+      }
+    }
+  },
+
+  pane: async (d, a) => {
+    switch (a.action) {
+      case "open": {
+        const count = Math.min(Math.max(Number(a.count ?? 1), 1), 6);
+        const out = [];
+        let tabId = a.tabId ?? null;
+        for (let i = 0; i < count; i++) {
+          // count>1 keeps the rest in the tab the first one landed in, so a
+          // batch is one group rather than N loose tabs.
+          const r = await d.paneOpen({
+            cwd: a.cwd ?? null,
+            mode: a.split === true || i > 0 ? "split" : "tab",
+            splitDir: a.dir ?? "row",
+            targetTabId: tabId,
+          });
+          if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+          tabId = r.tabId;
+          out.push(r);
+        }
+        return json(out);
+      }
+      case "close": {
+        if (a.all === true) {
+          const terms = await d.termList();
+          let closed = 0;
+          // Last to first: closing a leaf renumbers nothing, but the app refuses
+          // the final tab, so the survivor should be the first one.
+          for (const t of terms.slice(1).reverse()) {
+            const r = await d.paneClose(t.leafId);
+            if (r?.ok === true) closed++;
+          }
+          return `closed ${closed} of ${terms.length} terminals`;
+        }
+        if (a.leafId === undefined) throw new Error("close needs `leafId`, or `all`.");
+        const r = await d.paneClose(a.leafId);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return `closed leaf ${a.leafId}${r.closedTab ? " (and its tab)" : ""}`;
+      }
+      case "group": {
+        if (!Array.isArray(a.leafIds) || a.leafIds.length < 2) {
+          throw new Error("group needs `leafIds` with two or more panes (see `state`).");
+        }
+        const r = await d.paneGroup(a.leafIds, a.tabId);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return json(r);
+      }
+      case "rotate": {
+        if (a.leafId === undefined) throw new Error("rotate needs `leafId`.");
+        const r = await d.paneRotate(a.leafId, a.dir);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return `leaf ${a.leafId} is now ${r.orientation}${r.changed ? "" : " (already)"}`;
+      }
+      case "consolidate": {
+        const terms = await d.termList();
+        if (terms.length < 2) throw new Error("Fewer than two terminals are open.");
+        const r = await d.paneConsolidate(a.tabId ?? terms[0].tabId);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return json(r);
+      }
       default:
-        throw new Error(`Unknown action: ${a.action}`);
+        throw new Error(
+          `Unknown action: ${a.action}. Have: open, close, group, rotate, consolidate.`,
+        );
     }
   },
 

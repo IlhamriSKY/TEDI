@@ -613,33 +613,19 @@ const PATH_TOOLS = [
   "create_directory",
 ] as const;
 const SHELL_TOOLS = ["bash_run", "bash_background", "bash_logs", "bash_kill", "bash_list"] as const;
+// Terminal, pane and browser control are MCP tools served by TEDI's own
+// in-process server (`lib/tediMcpServer.ts`), so the tags carry the key the
+// model actually sees: `mcp__<server>__<tool>`. They are still ordinary entries
+// in the assembled tool set, so `has()` and the picker's off-list govern them
+// exactly as they did the native tools these replaced.
+const TERMINAL_READ = "mcp__tedi__read";
 const TERMINAL_TOOLS = [
-  "open_terminal",
-  "close_terminal",
-  "list_terminals",
-  "read_terminal",
-  "send_to_terminal",
-  "run_in_terminal",
-  "run_in_terminal_by_id",
-  "suggest_command",
-  "consolidate_terminals",
-  "group_tabs",
-  "rotate_pane",
+  "mcp__tedi__sh",
+  "mcp__tedi__pane",
+  "mcp__tedi__wait_for_terminal",
+  "mcp__tedi__focus_pane",
 ] as const;
-const BROWSER_TOOLS = [
-  "open_browser",
-  "control_browser",
-  "read_browser",
-  "read_browser_console",
-  "navigate_and_read",
-  "browser_click",
-  "browser_click_at",
-  "browser_type",
-  "browser_scroll",
-  "browser_hover",
-  "browser_press_key",
-  "browser_screenshot",
-] as const;
+const BROWSER_TOOLS = ["mcp__tedi__browser"] as const;
 const SUBAGENT_TOOLS = ["run_subagent", "run_subagents"] as const;
 
 const CORE_BLOCKS: readonly PromptBlock[] = [
@@ -657,8 +643,8 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
       {
         text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there), and a \`browsers:\` list (open in-app browser panes with URL; \`*\` = focused). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one.`,
       },
-      { needs: ["read_terminal"], text: `Use \`read_terminal\` for scrollback.` },
-      { needs: ["open_browser"], text: `Use \`open_browser\` to open or reuse a browser.` },
+      { needs: [TERMINAL_READ], text: `Use \`read\` for scrollback, open editors and DOM text.` },
+      { needs: BROWSER_TOOLS, text: `Use \`browser\` to open or reuse a browser pane.` },
     ],
   },
   {
@@ -725,11 +711,19 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     ],
   },
   {
-    heading: "# Terminal",
+    heading: "# Terminal and panes",
     sections: [
       {
         needs: TERMINAL_TOOLS,
-        text: `- \`run_in_terminal\` uses the live active tab and may refuse if busy. Target terminal actions by ordinal, \`tab_id\`, \`leaf_id\`, or title. \`suggest_command\` types without Enter. \`group_tabs\` joins panes; \`rotate_pane\` sets row or col splits.`,
+        text: `- \`sh\` runs a command in the USER'S visible terminal and waits for the prompt; it refuses a busy pane, so pass another \`leafId\` or open one. \`bash_run\` stays the tool for your own work - \`sh\` is for the user's shell, cwd, env and SSH session. \`wait_for_terminal\` instead of polling: no \`text\` waits for the prompt, \`text\` waits for a string, which is the only signal for something that never returns.`,
+      },
+      {
+        needs: ["mcp__tedi__pane"],
+        text: `- \`pane\` opens, closes, groups, rotates and consolidates panes. It is how you "join tabs" and how you change a split between row (beside) and col (stacked); TEDI has no tab-group menu and no drag shortcut, so never tell the user to use one.`,
+      },
+      {
+        needs: ["mcp__tedi__state"],
+        text: `- \`state\` names the \`leafId\` every pane tool takes, for EVERY tab rather than just the active one. \`<env>\` already lists the terminals and browsers of the current tab, so call \`state\` when you need a pane it does not mention.`,
       },
       { needs: ["schedule_command"], text: `- \`schedule_command\` defers work.` },
     ],
@@ -739,41 +733,15 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     sections: [
       {
         needs: BROWSER_TOOLS,
-        text: `- \`<env>\` browsers are real pages, not iframes. Use browser tools for JS-heavy pages.`,
+        text: `- \`browser\` drives real pages, not iframes, so use it instead of curl/fetch for JS-heavy sites. Fact lookup is ONE call: \`browser({ action: "open", url, read: true })\` opens (reusing your research pane) and returns the text together. Search by opening a search URL; never open URLs through terminal commands, and do not curl the same page afterwards. Re-read only if it was still loading.`,
       },
       {
-        needs: ["open_browser", "navigate_and_read"],
-        text: `- Fact lookup: exactly ONE browser call, then answer. Reuse an open pane with \`navigate_and_read\`; otherwise use \`open_browser({ url, read: true })\`. Do not open duplicates or curl the same page. Re-read only if the page was still loading.`,
+        needs: BROWSER_TOOLS,
+        text: `- To act on a page: \`read\` with \`fields: true\` for the \`[N]\` list, then \`click\` / \`type\` by index. Indices RESET after any navigation, so read again. For complex UI: \`scroll\` -> read -> \`hover\` -> \`key\`. \`click_at\` is only for visual-only targets and \`screenshot\` is the last resort. Passwords only when the user gave them for that login.`,
       },
       {
-        needs: ["navigate_and_read"],
-        text: `- Prefer \`navigate_and_read\` when you need both navigation and content. Reuse one research tab by default; \`new_tab:true\` only when the user asks or a separate tab is required.`,
-      },
-      {
-        needs: ["read_browser"],
-        text: `- \`read_browser\` returns rendered DOM text, so do not curl or fetch JS-heavy sites for content. If an open pane already shows the answer, read that pane instead of another source.`,
-      },
-      {
-        needs: ["browser_type", "browser_click"],
-        text: `- For forms or clicks: \`read_browser({ fields: true })\` then \`browser_type\` / \`browser_click\`. Re-read after navigation because indices reset. Use passwords only when the user explicitly gave them for that login.`,
-      },
-      {
-        needs: ["read_browser_console"],
-        text: `- Debugging your own app: after opening or reloading a dev-server page, call \`read_browser_console\` to get the real JS errors instead of inferring them. It captures from page load and drains, so call it right after the action you want to check. A blank or half-rendered page is a console question, not a screenshot question.`,
-      },
-      {
-        needs: [
-          "browser_scroll",
-          "browser_hover",
-          "browser_press_key",
-          "browser_click_at",
-          "browser_screenshot",
-        ],
-        text: `- For complex UI: scroll → read again → hover → press key. Use \`browser_click_at\` only for visual-only targets. \`browser_screenshot\` is the last resort.`,
-      },
-      {
-        needs: ["open_browser", "navigate_and_read"],
-        text: `- Search by opening a search URL. Never open URLs via terminal commands.`,
+        needs: BROWSER_TOOLS,
+        text: `- Debugging your own app: after opening or reloading a dev-server page, use \`action: "console"\` for the real JS errors rather than inferring them. It captures from page load and drains, so call it right after the action you want to check. A blank or half-rendered page is a console question, not a screenshot question.`,
       },
     ],
   },
@@ -825,11 +793,11 @@ const CORE_BLOCKS_LITE: readonly PromptBlock[] = [
       },
       {
         needs: BROWSER_TOOLS,
-        text: `- Browser: use browser tools for JS-heavy pages; one lookup call, then answer. Reuse one research tab. For forms: \`read_browser({ fields: true })\` then type/click, re-reading after navigation. To debug your own page, use \`read_browser_console\` for the real JS errors.`,
+        text: `- \`browser\` for JS-heavy pages: \`open\` with \`read:true\` is one lookup call. \`read\` with \`fields:true\` then \`click\`/\`type\` by [N]; indices reset after navigation. \`console\` for real JS errors.`,
       },
       {
         needs: TERMINAL_TOOLS,
-        text: `- \`run_in_terminal\` uses the live tab; target by ordinal. \`suggest_command\` types without Enter.`,
+        text: `- \`sh\` runs in the user's visible terminal (\`bash_run\` is your own). \`pane\` opens and arranges panes; \`wait_for_terminal\` instead of polling.`,
       },
       {
         needs: SUBAGENT_TOOLS,

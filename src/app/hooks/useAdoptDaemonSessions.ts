@@ -2,7 +2,11 @@ import { useEffect, useRef } from "react";
 
 import { leaves } from "@/modules/terminal";
 import type { Tab } from "@/modules/tabs";
-import { listDaemonSessions } from "@/modules/terminal/lib/pty-bridge";
+import {
+  isLocalPtySession,
+  listDaemonSessions,
+  ptyOpenInFlight,
+} from "@/modules/terminal/lib/pty-bridge";
 
 const POLL_INTERVAL_MS = 2000;
 
@@ -99,6 +103,12 @@ export function useAdoptDaemonSessions({
       try {
         const sessions = await listDaemonSessions();
         if (cancelled) return;
+        // A local spawn that has not settled may already be in `sessions` under
+        // a uuid nothing here knows yet - the leaf only learns it when
+        // `pty_open` resolves. Adopting it forks the terminal the user just
+        // opened into a second leaf on the same shell. Wait for the next tick;
+        // by then the uuid is either owned by its leaf or in `isLocalPtySession`.
+        if (ptyOpenInFlight()) return;
         const owned = ownedPtyIds();
         for (const id of owned) everOwned.add(id);
         const liveIds = new Set(sessions.map((s) => s.id));
@@ -107,6 +117,7 @@ export function useAdoptDaemonSessions({
         }
         for (const s of sessions) {
           if (!s.alive) continue; // dead/retained shell: ignore
+          if (isLocalPtySession(s.id)) continue; // this GUI opened it itself
           if (s.created_at_ms <= watermark) continue; // pre-existing / other-run session
           if (owned.has(s.id)) continue; // already have a leaf (any workspace)
           if (everOwned.has(s.id)) continue; // previously owned -> closed by user

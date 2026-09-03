@@ -21,6 +21,20 @@ export type McpServerConfig = {
   builtin?: boolean;
 };
 
+/**
+ * Name of TEDI's own in-process server. Becomes the `MCP: tedi` group and the
+ * `mcp__tedi__*` key prefix, so changing it renames every tool the model sees.
+ *
+ * IT LIVES HERE, not beside the server it names, and that is load-bearing. The
+ * name is needed by UI as light as the `/mcp` list; taking it from
+ * `tediMcpServer` would pull that module's whole dependency tree - the extension
+ * store, the shell tools, the command registry - into the importer's graph, and
+ * through the composer that closes a cycle. A cycle there does not warn: a
+ * context object reads as undefined and the AI panel renders its error boundary.
+ * This file is config with a single dependency, so nothing can cycle back.
+ */
+export const TEDI_MCP_SERVER_NAME = "tedi";
+
 /** Persisted MCP server configs. Stored in its own LazyStore. */
 const STORE_PATH = "tedi-mcp-servers.json";
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });

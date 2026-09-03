@@ -42,7 +42,7 @@ import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
-import { activeToolNames, applyToolFilter, mcpSummaryFor } from "../tools/catalog";
+import { applyToolFilter, mcpSummaryFor } from "../tools/catalog";
 import type { Tool } from "ai";
 import {
   applyCacheBreakpoints,
@@ -83,8 +83,21 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   bash_logs: () => `Reading logs`,
   bash_list: () => `Listing background processes`,
   bash_kill: () => `Stopping background process`,
-  suggest_command: (i) => `Suggesting ${ellipsize(String(i.command ?? ""), 60)}`,
-  read_browser_console: () => `Reading browser console`,
+  // Panes, terminals and the browser are served by TEDI's own in-process MCP
+  // server, so their labels are keyed on the `mcp__<server>__<tool>` key the SDK
+  // reports. Without these the step line reads "Calling mcp__tedi__sh" instead
+  // of naming the command, which is the whole point of this map.
+  mcp__tedi__sh: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
+  mcp__tedi__read: (i) => `Reading ${String(i.source ?? "terminal")}`,
+  mcp__tedi__state: () => `Reading the window`,
+  mcp__tedi__wait_for_terminal: (i) =>
+    i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
+  mcp__tedi__pane: (i) => `Pane ${String(i.action ?? "")}`,
+  mcp__tedi__focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
+  mcp__tedi__browser: (i) =>
+    i.action === "open" || i.action === "navigate"
+      ? `Opening ${ellipsize(String(i.url ?? ""), 60)}`
+      : `Browser ${String(i.action ?? "")}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
@@ -619,21 +632,14 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       );
   const allToolNames = new Set(Object.keys(tools ?? {}));
 
-  // The browser tools that need an open pane are withheld while there is none.
+  // Every assembled tool is sent. Nothing is withheld per turn: browser control
+  // is one tool that opens its own pane, so there is no pane-bound definition to
+  // hold back and no gate that has to stay stable across a turn to keep the
+  // provider's tools cache warm.
   //
-  // DECIDED ONCE PER TURN, not per step. Adding or removing a tool definition
-  // invalidates Anthropic's tools cache AND the system and message caches behind
-  // it, so recomputing this per step meant the ordinary browser flow - open a
-  // pane at step 0, use it at step 1 - rewrote the whole ~13k-token prefix
-  // mid-turn, at the 1h write price. Per turn, the set is stable for the whole
-  // tool loop and can only change between prompts - which is also when the
-  // `<env>` block first lists the new pane and gives the model a leafId to
-  // address it by.
-  const activeTools = activeToolNames(allToolNames, opts.toolContext.listBrowsers().length > 0);
-  // THE PROMPT MUST DESCRIBE THE SAME SET. `PromptSection.needs` exists precisely
-  // so the prompt never instructs a tool the turn does not send; computing the
-  // tool gate separately would have reintroduced that bug by another route.
-  const toolNames = activeTools ? new Set(activeTools) : allToolNames;
+  // THE PROMPT DESCRIBES THIS SAME SET. `PromptSection.needs` exists precisely
+  // so the prompt never instructs a tool the turn does not send.
+  const toolNames = allToolNames;
 
   const systemText = buildSystemPrompt({
     modelId: modelInfo.id,
@@ -809,8 +815,6 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       reasoningChoice,
     ),
     tools,
-    // Turn-stable;  can still override it for step 0.
-    ...(activeTools ? { activeTools } : {}),
     // SDK infers a specific ToolSet from `tools` and refuses our generic
     // `StopCondition<ToolSet>[]`. Predicates only touch common fields, so
     // a structural cast is safe.

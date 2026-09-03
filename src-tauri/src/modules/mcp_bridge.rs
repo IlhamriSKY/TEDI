@@ -322,7 +322,14 @@ async fn serve(
 
 /// Ask the webview to run one capability and wait for its answer.
 async fn call_webview(app: &AppHandle, name: &str, args: Vec<serde_json::Value>) -> BridgeReply {
-    let Some(window) = app.get_webview_window("main") else {
+    // `get_webview`, NOT `get_webview_window`. A `WebviewWindow` is the
+    // one-window-one-webview wrapper, so the lookup stops matching as soon as the
+    // main window holds a second webview - and a browser pane is exactly that
+    // (`preview::embed` attaches it with `Window::add_child`). Asking for the
+    // WEBVIEW keeps working however many panes are open, which matters because
+    // every bridged capability, and therefore the whole MCP surface an outside
+    // CLI drives, goes through this one lookup.
+    let Some(window) = app.get_webview("main") else {
         return BridgeReply {
             ok: false,
             result: None,

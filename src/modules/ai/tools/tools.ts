@@ -5,7 +5,6 @@ import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
 import { buildShellTools } from "./shell";
 import { buildSubagentTools } from "./subagent";
-import { buildTerminalTools } from "./terminal";
 import { buildTodoTools } from "./todo";
 import { buildMcpToolsAsync } from "./mcp";
 import { buildExtensionTools } from "./extensions";
@@ -31,9 +30,8 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildSearchTools(ctx),
     ...buildShellTools(ctx),
     ...buildSubagentTools(ctx),
-    ...buildTerminalTools(ctx),
     ...buildTodoTools(ctx),
-    ...buildScheduleTools(ctx),
+    ...buildScheduleTools(),
   } as const;
 }
 
@@ -53,16 +51,17 @@ const toolsCache = new WeakMap<ToolContext, ChatTools>();
  * turn's, so opening the picker costs nothing extra.
  */
 export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescriptor[]> {
-  const extension = buildExtensionTools(ctx);
+  const extensionOf = new Map<string, string>();
+  const extension = buildExtensionTools(ctx, extensionOf);
   const mcp = await buildMcpToolsAsync(ctx);
   const builtin = buildTools(ctx);
   const all = { ...extension, ...mcp, ...builtin };
   // A built-in or MCP key wins the merge, so only the extension keys that
   // actually survived may be labelled as coming from an extension.
-  const fromExtension = new Set(
-    Object.keys(extension).filter((k) => !(k in builtin) && !(k in mcp)),
-  );
-  return describeTools(all, fromExtension);
+  for (const k of extensionOf.keys()) {
+    if (k in builtin || k in mcp) extensionOf.delete(k);
+  }
+  return describeTools(all, extensionOf);
 }
 
 /**
@@ -73,10 +72,13 @@ export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescript
  * folds MCP in via `listAvailableTools` once the popover opens.
  */
 export function listLocalTools(ctx: ToolContext): ToolDescriptor[] {
-  const extension = buildExtensionTools(ctx);
+  const extensionOf = new Map<string, string>();
+  const extension = buildExtensionTools(ctx, extensionOf);
   const builtin = buildTools(ctx);
-  const fromExtension = new Set(Object.keys(extension).filter((k) => !(k in builtin)));
-  return describeTools({ ...extension, ...builtin }, fromExtension);
+  for (const k of extensionOf.keys()) {
+    if (k in builtin) extensionOf.delete(k);
+  }
+  return describeTools({ ...extension, ...builtin }, extensionOf);
 }
 
 export function buildTools(ctx: ToolContext): ChatTools {

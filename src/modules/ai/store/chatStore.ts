@@ -58,7 +58,6 @@ const OVERFLOW_RECOVERY_KEEP_TAIL = 12;
 
 type Live = {
   getCwd: () => string | null;
-  getTerminalContext: (lines?: number) => string | null;
   injectIntoActivePty: (text: string) => boolean;
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
@@ -278,7 +277,6 @@ type StoreState = {
 
 const NOOP_LIVE: Live = {
   getCwd: () => null,
-  getTerminalContext: () => null,
   injectIntoActivePty: () => false,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
@@ -462,7 +460,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       pinnedCwd = cwd;
       pinnedWorkspaceRoot = workspaceRoot;
     },
-    getTerminalContext: (lines) => useChatStore.getState().live.getTerminalContext(lines),
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openPreview: (url) => useChatStore.getState().live.openPreview(url),
     openSshTab: (id, name, isPrivate) =>
@@ -1160,6 +1157,87 @@ registerBridge({
     return (await c.readBrowser(Number(leafId), Boolean(fields))) ?? "";
   },
   browserList: () => getToolContext()?.listBrowsers() ?? [],
+  browserDispatch: (leafId: number, action: "back" | "forward" | "reload" | "stop") => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return c.dispatchBrowser(Number(leafId), action) || `leaf ${leafId} is not a browser pane`;
+  },
+  browserAct: async (
+    leafId: number,
+    index: number,
+    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
+    text = "",
+    submit = false,
+  ) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return (
+      (await c.actBrowser(Number(leafId), Number(index), action, String(text), Boolean(submit))) ??
+      `leaf ${leafId} is not a browser pane`
+    );
+  },
+  browserConsole: async (leafId: number) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return (await c.consoleBrowser(Number(leafId))) ?? `leaf ${leafId} is not a browser pane`;
+  },
+  browserShot: async (leafId: number) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    return (await c.screenshotBrowser(Number(leafId))) ?? `leaf ${leafId} is not a browser pane`;
+  },
+
+  /**
+   * Pane and terminal control, for the `pane` and `sh` MCP tools.
+   *
+   * These borrow the live ToolContext exactly as the browser helpers above do,
+   * and for the same reason: they are the ONE place the app's pane mutators are
+   * reachable without importing React. Everything here is an App-level closure
+   * that behaves identically whichever chat session is active - the only
+   * session-specific parts of a ToolContext are `getCwd`, `readCache` and
+   * `getSessionId`, and nothing below reads them.
+   *
+   * DELIBERATELY DUMB. No shell denylist, no transformer chain: `termRun` is the
+   * bridge, and the guard belongs to the caller that has a policy. The stdio
+   * server writes raw (an outside CLI has its own approval model); the
+   * in-process `sh` handler runs `checkedShellCommand` first, which is what
+   * ai-native's `run_in_terminal` did. Putting the check here would silently
+   * change the stdio contract as a side effect.
+   */
+  paneOpen: (opts: {
+    cwd?: string | null;
+    mode?: "tab" | "split";
+    splitDir?: "row" | "col";
+    targetTabId?: number | null;
+  }) => getToolContext()?.openTerminalAdvanced(opts ?? {}) ?? NO_CONTEXT,
+  paneClose: (leafId: number) => getToolContext()?.closeTerminalLeaf(Number(leafId)) ?? NO_CONTEXT,
+  paneGroup: (leafIds: number[], tabId?: number) =>
+    getToolContext()?.groupLeavesIntoTab(leafIds.map(Number), tabId) ?? NO_CONTEXT,
+  paneRotate: (leafId: number, dir?: "row" | "col") =>
+    getToolContext()?.rotatePaneSplit(Number(leafId), dir) ?? NO_CONTEXT,
+  paneConsolidate: (tabId: number) =>
+    getToolContext()?.consolidateTerminalsIntoGroup(Number(tabId)) ?? NO_CONTEXT,
+  termList: () => getToolContext()?.listTerminals() ?? [],
+  termBusy: (leafId?: number) =>
+    getToolContext()?.isTerminalBusy(leafId === undefined ? undefined : { leafId }) ?? true,
+  termRun: (leafId: number | undefined, command: string) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    const ok =
+      leafId === undefined
+        ? c.runInActiveTerminal(String(command))
+        : c.runInTerminal({ leafId: Number(leafId) }, String(command));
+    return ok || "target terminal not found";
+  },
+  termInject: (leafId: number | undefined, text: string) => {
+    const c = getToolContext();
+    if (!c) return NO_CONTEXT;
+    const ok =
+      leafId === undefined
+        ? c.injectIntoActivePty(String(text))
+        : c.injectIntoTerminal({ leafId: Number(leafId) }, String(text));
+    return ok || "target terminal not found";
+  },
 
   /** Queue a prompt for the agent, exactly as the composer would. */
   aiSend: (text: string) => {

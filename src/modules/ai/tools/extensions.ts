@@ -17,7 +17,19 @@ type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unkn
  * handler degrades to a clean error. agent.ts spreads built-ins AFTER these, so
  * an extension can never shadow one; within this set first registration wins.
  */
-export function buildExtensionTools(ctx: import("./context").ToolContext): ToolSet {
+export function buildExtensionTools(
+  ctx: import("./context").ToolContext,
+  /**
+   * Optional out-parameter: tool KEY -> contributing extension id, for the
+   * picker, which gives each extension its own group.
+   *
+   * Filled here rather than derived by a second pass, because the key is not the
+   * declared name - it is sanitized, clamped, and skipped on collision. A caller
+   * recomputing that would be one refactor away from disagreeing with the set it
+   * is labelling, and would label it wrong in silence.
+   */
+  extensionOf?: Map<string, string>,
+): ToolSet {
   const out: ToolSet = {};
   for (const { extensionId, item } of aiToolsRegistry.list()) {
     const name = item.name;
@@ -27,6 +39,7 @@ export function buildExtensionTools(ctx: import("./context").ToolContext): ToolS
     // model-facing KEY is sanitized; dispatch still uses the original `name`.
     const toolName = clampToolKey(sanitizeToolName(name));
     if (!toolName || out[toolName]) continue;
+    extensionOf?.set(toolName, extensionId);
     const schema =
       item.parameters && typeof item.parameters === "object"
         ? item.parameters

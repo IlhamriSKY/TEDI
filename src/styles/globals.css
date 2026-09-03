@@ -107,6 +107,175 @@
   }
 }
 
+/* The `max` reasoning level (src/modules/ai/components/ReasoningDropdown.tsx).
+ *
+ * Every level up to `xhigh` takes one theme token on a cool-to-warm ramp, which
+ * leaves the top of the scale nowhere further to go on hue alone. `max` steps
+ * off the ramp entirely and reads as holographic foil.
+ *
+ * THREE STACKED LAYERS, and none is decorative. Underneath, prismatic hues
+ * (cyan, violet, pink) cycling tightly - the diffraction colour of a holographic
+ * sticker. Over them, narrow bright-white ridges: the gloss off the laminate,
+ * repeating six times per hue cycle, and that frequency gap is what reads as a
+ * glossy surface rather than as a tint. On top, a small specular pool that
+ * travels across the word.
+ *
+ * FIXED HUES here, unlike every other level, because iridescence is not a colour
+ * a theme can supply. The gloss is white at partial alpha so it brightens the
+ * hue underneath instead of erasing it.
+ *
+ * ALWAYS MOVING, and slowly. Foil only reads as foil while the light travels
+ * across it - held still it is just a pastel gradient - so the motion is not a
+ * hover flourish, it is the effect itself. Slow is what makes a permanent
+ * animation liveable: fourteen seconds one way, twenty-eight there and back.
+ *
+ * LIQUID, NOT A SLIDE. Three things together, and dropping any one of them
+ * returns it to a conveyor belt:
+ *
+ *   - THE LAYERS DISAGREE ON ANGLE. The gloss ridges run at 100deg and the
+ *     prismatic film at 74deg, so they cross rather than travel together. The
+ *     interference between two near-but-unequal angles is what warps the bands
+ *     into something organic instead of a ruled grid.
+ *   - THEY DISAGREE ON DIRECTION. The film drifts left while the gloss drifts
+ *     right, so the pattern kneads itself rather than translating.
+ *   - THE MOTION EASES AND REVERSES. `alternate` with `ease-in-out` slows to a
+ *     stop at each end and accelerates through the middle, which is how light
+ *     behaves on a surface being tilted - a constant-velocity pan reads as
+ *     mechanical no matter how slow it is.
+ *
+ * The POOL drifts diagonally across all of it: the bright patch that gathers and
+ * slides on a laminated sticker, and the strongest single cue that the surface is
+ * wet-looking rather than printed. It has to stay SMALLER than the word to be a
+ * patch at all - see its `background-size` below.
+ *
+ * `alternate` also makes the loop seamless for free, which is what allows the
+ * crossed angles above: a one-way loop would have to land every layer on an
+ * exact pixel period for its last frame to match its first, and that is only
+ * possible while each gradient runs at 90deg.
+ *
+ * Applied to the LABEL, never to a container: `color: transparent` is what makes
+ * the gradient visible, and an icon sibling drawing with `currentColor` would
+ * vanish along with it - hence the companion rule below.
+ *
+ * PERIODS ARE SIZED TO THE WORD, not to the pane. The label is a few characters
+ * of 11px text - about 25px wide - so a gradient cycling over 200px would show a
+ * single flat colour and none of the effect. A 27px hue cycle puts a full
+ * prismatic run across "max", and 5px gloss ridges put several highlights on
+ * every glyph, which is what reads as holographic rather than as a tint. */
+@keyframes tedi-effort-max-foil {
+  to {
+    background-position:
+      64px 70%,
+      42px center,
+      -34px center;
+  }
+}
+
+/* TWO PALETTES, and they are not a nicety. A holographic film is bright because
+ * it reflects; on a white page the same bright stops have almost no contrast and
+ * the word turns pastel and unreadable, and a white gloss on white makes it
+ * worse. So the light ground gets deeper stops and a restrained gloss, the dark
+ * ground the bright film. Same geometry, different ink. */
+.tedi-effort-max {
+  background-image:
+    radial-gradient(
+      55% 130% at 24% 34%,
+      rgb(255 255 255 / 0.3),
+      rgb(255 255 255 / 0.08) 45%,
+      rgb(255 255 255 / 0) 72%
+    ),
+    repeating-linear-gradient(
+      100deg,
+      rgb(255 255 255 / 0) 0 1px,
+      rgb(255 255 255 / 0.3) 2px,
+      rgb(255 255 255 / 0) 5px
+    ),
+    repeating-linear-gradient(74deg, #0891b2 0, #7c3aed 9px, #db2777 18px, #0891b2 27px);
+  /* THE POOL IS SIZED IN PIXELS, like the layers under it. A percentage size is
+   * measured against the element, so on a label a few characters wide the pool
+   * grows to cover the whole word - and a full-width white veil does not read as
+   * a highlight, it just washes the hues out to near-grey and takes the motion
+   * with them. 70x26 keeps it smaller than the word, so it stays a glint that
+   * travels across the glyphs. The repeating layers tile on their own and must
+   * keep their own pixel periods, so they stay `auto`. */
+  background-size:
+    70px 26px,
+    auto,
+    auto;
+  background-position:
+    -18px 30%,
+    0 center,
+    0 center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* prefers-reduced-motion is handled by the global reset at the top of this
+   * file, which pins any animation to a single 0.01ms pass - the foil then
+   * stands still and stays perfectly legible. */
+  animation: tedi-effort-max-foil 14s ease-in-out infinite alternate;
+}
+
+.dark .tedi-effort-max {
+  background-image:
+    radial-gradient(
+      55% 130% at 24% 34%,
+      rgb(255 255 255 / 0.45),
+      rgb(255 255 255 / 0.12) 45%,
+      rgb(255 255 255 / 0) 72%
+    ),
+    repeating-linear-gradient(
+      100deg,
+      rgb(255 255 255 / 0) 0 1px,
+      rgb(255 255 255 / 0.7) 2px,
+      rgb(255 255 255 / 0) 5px
+    ),
+    repeating-linear-gradient(74deg, #22d3ee 0, #a855f7 9px, #f472b6 18px, #22d3ee 27px);
+}
+
+/* The brain icon beside a foil label.
+ *
+ * An SVG stroke draws with `currentColor`, so it cannot hold a gradient the way
+ * the label does - a stroke has no area for one to sit in. What it can hold is
+ * the same palette over TIME: the colour drifts through the identical stops on
+ * the identical 14s alternating cycle, so icon and label move together and read
+ * as one control rather than as a coloured glyph next to a foil word.
+ *
+ * Its own keyframes per ground, because the two palettes differ (see above) and
+ * a keyframe cannot read a variable that is redefined further down. */
+@keyframes tedi-effort-max-icon-light {
+  0% {
+    color: #0891b2;
+  }
+  50% {
+    color: #7c3aed;
+  }
+  100% {
+    color: #db2777;
+  }
+}
+
+@keyframes tedi-effort-max-icon-dark {
+  0% {
+    color: #22d3ee;
+  }
+  50% {
+    color: #a855f7;
+  }
+  100% {
+    color: #f472b6;
+  }
+}
+
+.tedi-effort-max-icon {
+  color: #7c3aed;
+  animation: tedi-effort-max-icon-light 14s ease-in-out infinite alternate;
+}
+
+.dark .tedi-effort-max-icon {
+  color: #a855f7;
+  animation-name: tedi-effort-max-icon-dark;
+}
+
 /* The hop being dialled in the SSH connect overlay
  * (src/modules/ssh/SshConnectOverlay.tsx): a half-width gradient sweeping the
  * segment between two hosts. Transform-only so it composites off the main

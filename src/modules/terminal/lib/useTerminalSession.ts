@@ -367,6 +367,28 @@ export function useTerminalSession({
     sessions.get(leafId)?.term.focus();
   }, [leafId]);
 
+  /**
+   * The scrollback as LOGICAL lines, rejoining xterm's wrapped rows.
+   *
+   * `maxLines` still counts ROWS, because rows are what the buffer is indexed
+   * by; the result is usually fewer lines than that.
+   *
+   * WHY THE REJOIN. `buffer.active` holds one entry per SCREEN ROW, so a line
+   * wider than the pane is stored as several. Joining them all with "\n" would
+   * put a break wherever the pane happens to end - not a cosmetic difference but
+   * a silent wrong answer, since the text still looks well-formed:
+   *
+   *   ls -la /var/www          <- one command, split mid-path
+   *   /html
+   *
+   * It also breaks searching, because a needle can be cut in half by the wrap
+   * and then never matches a string that is plainly on screen.
+   *
+   * `isWrapped` marks a row as the CONTINUATION of the one above it, which is
+   * exactly the join. A row whose successor continues it was filled to the pane
+   * width, so it is taken untrimmed: trimming there would eat the column that
+   * separates its last word from the first word of the next row.
+   */
   const getBuffer = useCallback(
     (maxLines = 200): string | null => {
       const s = sessions.get(leafId);
@@ -376,7 +398,18 @@ export function useTerminalSession({
       const lines: string[] = [];
       const start = Math.max(0, total - maxLines);
       for (let i = start; i < total; i++) {
-        lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+        const line = buf.getLine(i);
+        if (!line) {
+          lines.push("");
+          continue;
+        }
+        const continues = buf.getLine(i + 1)?.isWrapped === true;
+        const text = line.translateToString(!continues);
+        // `lines.length` guard: when the window starts mid-wrap the head row is
+        // outside it, so the continuation has nothing to attach to and stands
+        // as its own line rather than being dropped.
+        if (line.isWrapped && lines.length) lines[lines.length - 1] += text;
+        else lines.push(text);
       }
       while (lines.length && lines[lines.length - 1] === "") lines.pop();
       return lines.join("\n");

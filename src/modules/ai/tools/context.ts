@@ -18,7 +18,6 @@ export type ToolContext = {
   pinTurnCwd?: (cwd: string | null, workspaceRoot: string | null) => void;
   /** Last N lines (default 300) of the active terminal buffer, or null if the
    *  active tab isn't a terminal. */
-  getTerminalContext: (lines?: number) => string | null;
   /** Type text into the active terminal without executing. Returns false when
    *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;

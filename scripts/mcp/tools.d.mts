@@ -46,6 +46,21 @@ export type ToolDef = {
   description: string;
   schema: ToolSchema;
   annotations?: ToolAnnotations;
+  /**
+   * `action` values TEDI's OWN agent may run without an approval card.
+   *
+   * Not an annotation, and deliberately not sent to anyone. `readOnlyHint` is a
+   * per-TOOL claim, but the tools that fold a whole surface behind one `action`
+   * enum - `browser`, `pane` - are read-only for some values and not others, so
+   * the honest annotation for them is "not read-only" and every call would then
+   * raise a card, including reading a page the agent just opened.
+   *
+   * This is client policy about TEDI's own in-process server, which is why it is
+   * only ever read for `config.builtin` (`tools/mcp.ts`). A third-party server
+   * cannot set it: the field never crosses the protocol, it is looked up in this
+   * table by name.
+   */
+  auto?: readonly string[];
 };
 
 export declare const TOOL_DEFS: Record<string, ToolDef>;

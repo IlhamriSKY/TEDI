@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.39.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.41.
 
 |                  |                                                                             |
 | ---------------- | --------------------------------------------------------------------------- |
@@ -312,21 +312,35 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 **Tools** (`tools/`, the real capability surface; keep in sync with the
 `needsApproval` flags):
 
-| File                       | Tools                                                                                                                                                                                                                                                                                                                                                                                                                                 | Approval |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
-| `fs.ts`                    | `read_file` (text or image), `list_directory` (auto); `write_file`, `create_directory`, `move_file`, `copy_file`, `delete_file`, `replace_in_files` (approval)                                                                                                                                                                                                                                                                        | mixed    |
-| `edit.ts`                  | `edit`, `multi_edit` (need a prior `read_file`; serialized per path)                                                                                                                                                                                                                                                                                                                                                                  | approval |
-| `search.ts`                | `grep`, `glob`                                                                                                                                                                                                                                                                                                                                                                                                                        | auto     |
-| `fetch.ts`                 | `fetch` (GET auto, POST approval; no JS execution)                                                                                                                                                                                                                                                                                                                                                                                    | mixed    |
-| `shell.ts`                 | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto)                                                                                                                                                                                                                                                                                                                                                | mixed    |
-| `terminal.ts`              | terminal: `suggest_command`, `read_terminal` (auto); `open_terminal`, `run_in_terminal`, `consolidate_terminals`, `group_tabs`, `rotate_pane`, `close_terminal` (mixed). browser: `open_browser`, `control_browser`, `navigate_and_read`, `read_browser`, `read_browser_console`, `browser_scroll`, `browser_hover`, `browser_screenshot` (auto); `browser_type`, `browser_click`, `browser_click_at`, `browser_press_key` (approval) | mixed    |
-| `schedule.ts`              | terminal/schedule listing + send (auto); `run_in_terminal_by_id`, `schedule_command` (approval)                                                                                                                                                                                                                                                                                                                                       | mixed    |
-| `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                                                                                                                                                                                                                                                                                            | auto     |
-| `todo.ts`                  | `todo_write`                                                                                                                                                                                                                                                                                                                                                                                                                          | auto     |
-| `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                                                                                                                                                                                                                                                                                                  | approval |
+| File                       | Tools                                                                                                                                                          | Approval |
+| -------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| `fs.ts`                    | `read_file` (text or image), `list_directory` (auto); `write_file`, `create_directory`, `move_file`, `copy_file`, `delete_file`, `replace_in_files` (approval) | mixed    |
+| `edit.ts`                  | `edit`, `multi_edit` (need a prior `read_file`; serialized per path)                                                                                           | approval |
+| `search.ts`                | `grep`, `glob`                                                                                                                                                 | auto     |
+| `fetch.ts`                 | `fetch` (GET auto, POST approval; no JS execution)                                                                                                             | mixed    |
+| `shell.ts`                 | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto)                                                                         | mixed    |
+| `schedule.ts`              | `list_schedules`, `cancel_schedule` (auto); `schedule_command` (approval)                                                                                      | mixed    |
+| `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                     | auto     |
+| `todo.ts`                  | `todo_write`                                                                                                                                                   | auto     |
+| `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                           | approval |
+
+**Panes, terminals and the browser are NOT in this table.** They are MCP tools on
+TEDI's own in-process server (`lib/tediMcpServer.ts`), served from the shared
+table in `scripts/mcp/tools.mjs` and reaching the app through the capability
+bridge (`modules/automation/bridge.ts`) - the same functions the stdio server
+drives from outside. The agent calls them as `mcp__tedi__*`: `sh` (run in the
+user's visible terminal; `submit:false` types without running), `read`
+(terminal scrollback / open editors / DOM text), `state`, `wait_for_terminal`,
+`focus_pane`, `pane` (open, close, group, rotate, consolidate) and `browser`
+(open, read, console, click, type, scroll, screenshot, history). What stays
+native is file IO and the agent's own hidden shell: `bash_*` because sub-agents
+get it and get no MCP tools at all.
 
 Approval-gated tools pause and render an in-UI card; AI-proposed edits open in a
-side-by-side `ai-diff` tab accepted/rejected per hunk before any write.
+side-by-side `ai-diff` tab accepted/rejected per hunk before any write. An MCP
+call always raises a card except a `readOnlyHint` tool or an `action` the shared
+table marks `auto` (`ToolDef.auto`), which is what keeps reading a page as
+unattended as `read_file` while clicking one is not.
 
 **Sub-agents** (`agents/registry.ts`, single on/off in Settings -> Agents): ten
 named agents in four categories. Exploration (`comet`, `nebula`) and advisor

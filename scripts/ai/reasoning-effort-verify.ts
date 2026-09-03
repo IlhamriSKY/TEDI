@@ -172,12 +172,24 @@ console.log("\n[merge] reasoning never clobbers a mandatory provider option");
 console.log("\n[per-family] the accepted sets really differ, and the traps hold");
 {
   const has = (p: ProviderId, id: string, v: string): boolean => isValidReasoningChoice(p, id, v);
-  // The one OpenAI family that rejects `none`.
-  check("gpt-5.3-codex refuses none", !has("openai", "gpt-5.3-codex", "none"));
-  check("gpt-5.4-mini accepts none", has("openai", "gpt-5.4-mini", "none"));
+  // `none` is not a choice on any family. Auto already reaches it on the models
+  // where the provider defaults to it, and an explicit "do not think" level is
+  // one the picker does not offer.
+  for (const id of ["gpt-5.3-codex", "gpt-5.4-mini", "gpt-5.6-sol", "gpt-5.5"]) {
+    check(`${id} does not offer none`, !has("openai", id, "none"));
+  }
+  // Still named as the provider DEFAULT, which is how the Auto row can say that
+  // these two models do no reasoning unless asked.
+  check(
+    "gpt-5.4-mini still reports none as its provider default",
+    reasoningControlFor("openai", "gpt-5.4-mini")?.providerDefault === "none",
+  );
   // `max` is gpt-5.6 only.
   check("gpt-5.6-sol accepts max", has("openai", "gpt-5.6-sol", "max"));
   check("gpt-5.5 refuses max", !has("openai", "gpt-5.5", "max"));
+  // The codex ordering trap: `gpt-5.6-codex` matches the 5.6 rule too, and only
+  // the rule order keeps it from being offered a `max` its family rejects.
+  check("gpt-5.6-codex refuses max", !has("openai", "gpt-5.6-codex", "max"));
   // `minimal` belongs to the original gpt-5 family, which TEDI does not ship.
   check(
     "no OpenAI model offers minimal",

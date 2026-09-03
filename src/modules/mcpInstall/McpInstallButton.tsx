@@ -26,7 +26,7 @@ import {
   setMcpSurface,
 } from "@/modules/settings/store";
 import { listExtensions } from "@/modules/extensions/store";
-import { disabledToolsFor, MCP_EXTENSION_ALLOWLIST, MCP_PACKS, PACK_TOKENS } from "./packs";
+import { disabledToolsFor, MCP_EXTENSION_ALLOWLIST, MCP_PACKS } from "./packs";
 import {
   Dialog,
   DialogContent,
@@ -138,18 +138,18 @@ export function McpInstallButton() {
     void refresh().catch(() => setRows([]));
   }, [refresh, open]);
 
-  /** Standing cost of the current selection, to one decimal in thousands. It is
-   *  an estimate and says so; the point is that turning a pack off visibly moves
-   *  it, so the trade is legible while it is being made. Extension tools are
-   *  ~150 tokens apiece, measured against API Client's eleven. */
-  const estTokens = (
-    (MCP_PACKS.filter((p) => p.always || !offPacks.includes(p.id)).reduce(
-      (n, p) => n + (PACK_TOKENS[p.id] ?? 0),
-      0,
-    ) +
-      exts.filter((e) => onExts.includes(e.id)).reduce((n, e) => n + e.tools * 150, 0)) /
-    1000
-  ).toFixed(1);
+  /**
+   * How much of the surface is switched on, as a plain count of packs.
+   *
+   * A count, not a token estimate: what this dialog chooses is which
+   * capabilities to expose, and a figure that looks precise but is a guess
+   * invites a decision it cannot support. The measured per-request cost is
+   * printed by `scripts/ai/tool-budget-verify.ts`, which serializes the real
+   * schemas.
+   */
+  const onPacks = MCP_PACKS.filter((p) => p.always || !offPacks.includes(p.id));
+  const onCount = onPacks.length + exts.filter((e) => onExts.includes(e.id)).length;
+  const totalCount = MCP_PACKS.length + exts.length;
 
   const installed = (rows ?? []).some((r) => r.installed);
   const live = channelLive();
@@ -314,7 +314,7 @@ export function McpInstallButton() {
               <summary className="hover:bg-accent/40 cursor-pointer px-3 py-2 text-sm">
                 What the MCP exposes
                 <span className="text-muted-foreground ml-1.5 text-xs tabular-nums">
-                  ~{estTokens}k tokens per request
+                  {onCount} of {totalCount} on
                 </span>
               </summary>
               <div className="border-border/60 flex flex-col gap-0.5 border-t px-1 py-1">

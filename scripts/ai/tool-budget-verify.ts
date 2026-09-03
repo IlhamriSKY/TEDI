@@ -15,11 +15,8 @@
  */
 import { z } from "zod";
 import type { ToolSet } from "ai";
-import {
-  activeToolNames,
-  BROWSER_PANE_TOOL_NAMES,
-  builtinGroup,
-} from "../../src/modules/ai/tools/catalog";
+import { builtinGroup } from "../../src/modules/ai/tools/catalog";
+import { TOOL_DEFS } from "../mcp/tools.mjs";
 import {
   buildCorePrompt,
   ORCHESTRATION_PROMPT_BODY,
@@ -66,13 +63,12 @@ const ctx = new Proxy(
 // the bundler. Eight of the nine builders is every tool whose cost this check
 // governs; the sub-agent pair is measured by `subagent-*` checks instead, and
 // the totals below say so.
-const [fsT, editT, fetchT, searchT, shellT, terminalT, todoT, scheduleT] = await Promise.all([
+const [fsT, editT, fetchT, searchT, shellT, todoT, scheduleT] = await Promise.all([
   import("../../src/modules/ai/tools/fs"),
   import("../../src/modules/ai/tools/edit"),
   import("../../src/modules/ai/tools/fetch"),
   import("../../src/modules/ai/tools/search"),
   import("../../src/modules/ai/tools/shell"),
-  import("../../src/modules/ai/tools/terminal"),
   import("../../src/modules/ai/tools/todo"),
   import("../../src/modules/ai/tools/schedule"),
 ]);
@@ -82,9 +78,8 @@ const tools = {
   ...fetchT.buildFetchTools(),
   ...searchT.buildSearchTools(ctx),
   ...shellT.buildShellTools(ctx),
-  ...terminalT.buildTerminalTools(ctx),
   ...todoT.buildTodoTools(ctx),
-  ...scheduleT.buildScheduleTools(ctx),
+  ...scheduleT.buildScheduleTools(),
 } as unknown as ToolSet;
 const names = Object.keys(tools);
 
@@ -150,34 +145,53 @@ console.log(
 // ---------------------------------------------------------------------------
 // Invariants.
 // ---------------------------------------------------------------------------
-console.log("[lazy browser tools] a pane-bound tool is not sent while no pane is open");
-
-const noPane = activeToolNames(names, false);
-check("with no browser pane, the set is narrowed", noPane !== undefined);
-check("with a browser pane, nothing is filtered", activeToolNames(names, true) === undefined);
-for (const n of BROWSER_PANE_TOOL_NAMES) {
-  check(`${n} is a real tool`, names.includes(n));
-  check(`${n} is dropped with no pane`, !(noPane ?? []).includes(n));
+// ---------------------------------------------------------------------------
+// The OTHER half of the bill: TEDI's own MCP server.
+//
+// Panes, terminals, the browser and app control are served by the in-process MCP
+// server, so they are absent from the built-in payload above and would go
+// unmeasured. Their definitions come from `scripts/mcp/tools.mjs`, a data-only
+// table with zero imports, so the cost can be read straight out of it.
+// ---------------------------------------------------------------------------
+const IN_PROCESS = [
+  "state",
+  "inspect",
+  "read",
+  "run_command",
+  "set_setting",
+  "extension",
+  "wait_for_terminal",
+  "sh",
+  "focus_pane",
+  "pane",
+  "ssh",
+  "browser",
+];
+let mcpChars = 0;
+for (const n of IN_PROCESS) {
+  const def = TOOL_DEFS[n];
+  check(`${n} is in the shared tool table`, def !== undefined);
+  if (def) mcpChars += n.length + def.description.length + JSON.stringify(def.schema).length;
 }
-check(
-  "open_browser survives - it is how a pane comes to exist",
-  (noPane ?? []).includes("open_browser"),
+console.log("[report] TEDI's own MCP surface, as served in-process");
+console.log(
+  `  tools: ${IN_PROCESS.length}\n  TOTAL: ${mcpChars} chars ~ ${tok(mcpChars)} tokens, on top of the built-ins above`,
+);
+console.log(
+  `  built-ins + MCP: ${totalChars + mcpChars} chars ~ ${tok(totalChars + mcpChars)} tokens`,
 );
 
-const savedChars = rows
-  .filter((r) => (BROWSER_PANE_TOOL_NAMES as readonly string[]).includes(r.name))
-  .reduce((a, r) => a + r.total, 0);
-console.log(
-  `  saved while no browser is open: ${savedChars} chars ~ ${tok(savedChars)} tokens/request (${((savedChars / totalChars) * 100).toFixed(1)}% of the tool surface)`,
-);
-check(
-  "the saving is worth the mechanism (>15% of the tool surface)",
-  savedChars / totalChars > 0.15,
-  {
-    savedChars,
-    totalChars,
-  },
-);
+console.log("[one surface] no capability is offered twice");
+// THE regression this whole consolidation exists to prevent. A built-in named
+// after a pane, a terminal or a browser means someone re-added a second way to
+// do what the MCP server already does - which is where this started: `sh` and
+// `run_in_terminal` doing the same thing, billed twice on every request.
+const duplicated = names.filter((n) => /terminal|browser|pane/.test(n));
+check("no built-in tool drives a terminal, browser or pane", duplicated.length === 0, duplicated);
+// `bash_*` is the deliberate exception and must NOT be swept up: it is the
+// agent's own hidden shell, not the user's terminal, and sub-agents get it
+// while getting no MCP tools at all.
+check("the agent's own shell is still built in", names.includes("bash_run"));
 
 console.log("[schema hygiene] no unbounded-integer boilerplate in the payload");
 // zod renders a bare `.int()` as the full safe-integer range: 55 characters of

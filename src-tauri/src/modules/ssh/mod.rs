@@ -461,6 +461,38 @@ pub async fn ssh_git_status(
     })
 }
 
+/// Run one command on the remote host and return its output EXACTLY, without
+/// touching the visible terminal.
+///
+/// The remote counterpart to a hidden local shell: its own channel, exact bytes,
+/// nothing rendered. Typing into the SSH pane and reading the scrollback cannot
+/// return a file, because the scrollback is a fixed-size ring of RENDERED rows -
+/// output longer than the ring loses its beginning, and nothing reports that.
+///
+/// `exec_capture` bounds it (4 MiB stdout, 4 KiB stderr, 15 s), so a pathological
+/// remote can neither exhaust memory nor hang the caller, and a non-zero exit
+/// comes back as `Err` carrying the remote's stderr.
+///
+/// The command reaches a real shell and is NOT quoted here: the caller is the
+/// agent, every call is approval-gated in the UI with the command shown, and the
+/// denylist plus the extension transformer chain run caller-side
+/// (`checkedShellCommand`), the same as for the visible-terminal path.
+#[tauri::command]
+pub async fn ssh_exec(
+    state: tauri::State<'_, SshState>,
+    id: u32,
+    command: String,
+) -> Result<String, String> {
+    let session = state
+        .sessions
+        .read()
+        .await
+        .get(&id)
+        .cloned()
+        .ok_or_else(|| "no session".to_string())?;
+    session.exec_capture(&command).await
+}
+
 /// Run one whitelisted git subcommand in `cwd` on the remote and return its
 /// stdout; a non-zero exit is an `Err` carrying the remote's stderr.
 ///

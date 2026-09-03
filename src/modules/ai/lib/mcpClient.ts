@@ -198,6 +198,14 @@ export class McpClient {
     return this._serverInfo;
   }
 
+  /** The CONFIGURED name, which is what every tool key is built from
+   *  (`mcp__<name>__*`) and therefore the only name a caller can match on. Not
+   *  `serverInfo.name`: that is whatever the server calls itself, and the two
+   *  are free to differ. */
+  get serverName(): string {
+    return this.config.name;
+  }
+
   /**
    * Call a tool on the MCP server.
    *
@@ -251,6 +259,24 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 // a cached one still advertising the tools the user just turned off.
 const clientKey = (name: string, cwd?: string, variant?: string): string =>
   `${name}\x1f${cwd ?? ""}\x1f${variant ?? ""}`;
+
+/**
+ * What is CONNECTED right now: server name -> how many tools it gave.
+ *
+ * The live client table, not the persisted config. The two differ in both
+ * directions and a UI that shows only the config gets both wrong: TEDI's own
+ * in-process server is synthesized per turn and appears in no config file, while
+ * a configured server that failed to spawn still reads `enabled: true`. The tool
+ * count is the honest proof - a server that handshook but listed nothing lends
+ * the agent nothing.
+ */
+export function connectedMcpServers(): Map<string, number> {
+  const out = new Map<string, number>();
+  for (const { client } of activeClients.values()) {
+    if (client.connected) out.set(client.serverName, client.tools.length);
+  }
+  return out;
+}
 
 /** Disconnect + drop every idle, not-busy client. Skips a client with a tool
  *  call in flight so a long-running call isn't killed mid-flight. */

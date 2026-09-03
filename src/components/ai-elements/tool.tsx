@@ -1,10 +1,8 @@
 import {
   Bot,
   Calendar,
-  Camera,
   ChevronRight,
   CircleAlert,
-  Compass,
   Copy,
   Download,
   Eye,
@@ -15,25 +13,17 @@ import {
   FolderOpen,
   FolderPlus,
   Globe,
-  Keyboard,
   Layers,
   List,
   ListChecks,
   Move,
-  MousePointer2,
-  MousePointerClick,
-  MoveVertical,
   Replace,
-  RotateCw,
   Search,
-  Send,
   Sparkles,
   SquareCheckBig,
-  SquareMousePointer,
   SquarePen,
   SquarePlay,
   SquarePlus,
-  SquareX,
   Terminal,
   Trash2,
   Wrench,
@@ -81,28 +71,22 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   bash_kill: { label: "Kill", icon: Terminal },
   // Data / web
   fetch: { label: "Fetch", icon: Download },
-  open_browser: { label: "Browser", icon: Globe },
-  control_browser: { label: "Browser", icon: Compass },
-  navigate_and_read: { label: "Navigate", icon: Compass },
-  read_browser: { label: "Read page", icon: Eye },
-  browser_type: { label: "Type", icon: Keyboard },
-  browser_click: { label: "Click", icon: MousePointerClick },
-  browser_click_at: { label: "Click at", icon: MousePointer2 },
-  browser_hover: { label: "Hover", icon: SquareMousePointer },
-  browser_press_key: { label: "Press key", icon: Keyboard },
-  browser_scroll: { label: "Scroll", icon: MoveVertical },
-  browser_screenshot: { label: "Screenshot", icon: Camera },
-  // Terminal control
-  suggest_command: { label: "Suggest", icon: Sparkles },
-  open_terminal: { label: "Open terminal", icon: SquarePlus },
-  close_terminal: { label: "Close terminal", icon: SquareX },
-  consolidate_terminals: { label: "Consolidate", icon: Layers },
-  group_tabs: { label: "Group tabs", icon: Layers },
-  rotate_pane: { label: "Rotate pane", icon: RotateCw },
-  run_in_terminal: { label: "Run in terminal", icon: SquarePlay },
-  run_in_terminal_by_id: { label: "Run in terminal", icon: SquarePlay },
-  send_to_terminal: { label: "Send to terminal", icon: Send },
-  list_terminals: { label: "List terminals", icon: List },
+  // Panes, terminals, browser and app control - TEDI's own in-process MCP
+  // server (`ai/lib/tediMcpServer.ts`). Keyed on the `mcp__<server>__` name the
+  // model calls, and the label keeps that prefix: an MCP call and a native one
+  // are different things to approve, and this header is where that shows.
+  mcp__tedi__sh: { label: "MCP TEDI SH", icon: SquarePlay },
+  mcp__tedi__read: { label: "MCP TEDI READ", icon: Eye },
+  mcp__tedi__state: { label: "MCP TEDI STATE", icon: List },
+  mcp__tedi__wait_for_terminal: { label: "MCP TEDI WAIT", icon: Terminal },
+  mcp__tedi__focus_pane: { label: "MCP TEDI FOCUS", icon: SquarePlus },
+  mcp__tedi__pane: { label: "MCP TEDI PANE", icon: Layers },
+  mcp__tedi__browser: { label: "MCP TEDI BROWSER", icon: Globe },
+  mcp__tedi__ssh: { label: "MCP TEDI SSH", icon: Terminal },
+  mcp__tedi__inspect: { label: "MCP TEDI INSPECT", icon: Search },
+  mcp__tedi__run_command: { label: "MCP TEDI COMMAND", icon: Sparkles },
+  mcp__tedi__set_setting: { label: "MCP TEDI SETTING", icon: FilePen },
+  mcp__tedi__extension: { label: "MCP TEDI EXTENSION", icon: SquarePlus },
   // Scheduling
   schedule_command: { label: "Schedule", icon: Calendar },
   list_schedules: { label: "Schedules", icon: Calendar },
@@ -179,10 +163,29 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       const rep = str("replacement");
       return rep == null ? pat : `${pat} → ${rep}`;
     }
-    case "suggest_command":
-      return str("intent") ?? str("description");
-    case "open_browser":
-      return str("path") ?? str("url");
+    // TEDI's own MCP surface. Each names the one argument worth seeing in a
+    // collapsed header - the command, the url, the verb - the same way the
+    // native tools above do.
+    case "mcp__tedi__sh":
+      return str("command");
+    case "mcp__tedi__read":
+      return str("selector") ?? str("source");
+    case "mcp__tedi__pane":
+    case "mcp__tedi__extension":
+      return str("action");
+    case "mcp__tedi__browser":
+      // The url is the useful half when there is one; otherwise the verb.
+      return str("url") ?? str("action");
+    case "mcp__tedi__ssh":
+      return str("id") ?? str("action");
+    case "mcp__tedi__run_command":
+      return str("id");
+    case "mcp__tedi__set_setting":
+      return str("key");
+    case "mcp__tedi__inspect":
+      return str("what");
+    case "mcp__tedi__wait_for_terminal":
+      return str("text");
     case "run_subagent": {
       const desc = str("description");
       const type = str("type");
@@ -1371,12 +1374,36 @@ function baseName(p: string): string {
 
 // Fallback label for tools missing from TOOL_META: turn a raw `snake_case`
 // tool name into "Title Case" so the UI never shows bare identifiers.
+/**
+ * Header label for a tool with no entry in `TOOL_META`.
+ *
+ * AN MCP KEY IS NOT A SENTENCE. `mcp__<server>__<tool>` is an addressing scheme,
+ * so splitting it on underscores and title-casing every piece spells the
+ * protocol and the server wrong ("Mcp Tedi Ssh"). Those two halves are rendered
+ * as the names they are; only the tool half is prose.
+ */
 function toTitleCase(name: string): string {
-  return name
-    .split(/[_\s]+/)
-    .filter(Boolean)
-    .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
-    .join(" ");
+  // A very short segment is usually an acronym, not a word: `ssh` title-cased is
+  // "Ssh", the wrong spelling of a thing everyone can read. Length is the rule
+  // rather than a list of acronyms, because a list of every acronym a
+  // third-party server might use is one nobody can finish - but the handful of
+  // short English words that DO appear in tool names have to be exempt, or
+  // `wait_for_terminal` comes out "Wait FOR Terminal".
+  const CONNECTORS = new Set(["for", "and", "the", "of", "to", "in", "on", "at", "by", "or", "a"]);
+  const word = (w: string) =>
+    w.length <= 3 && !CONNECTORS.has(w.toLowerCase())
+      ? w.toUpperCase()
+      : w.charAt(0).toUpperCase() + w.slice(1);
+  const words = (s: string) =>
+    s
+      .split(/[_\s]+/)
+      .filter(Boolean)
+      .map(word)
+      .join(" ");
+
+  const m = /^mcp__([^_]+(?:_[^_]+)*?)__(.+)$/.exec(name);
+  if (m) return `MCP ${m[1].toUpperCase()} ${words(m[2])}`;
+  return words(name);
 }
 
 function formatBytes(n: number): string {

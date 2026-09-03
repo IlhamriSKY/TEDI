@@ -443,7 +443,7 @@ export type SidebarSection = {
 // ---------------------------------------------------------------------------
 
 /** `bash` = hidden agent shells (`bash_run` / `bash_background`);
- *  `terminal` = visible PTY injections (`suggest_command` / `run_in_terminal`). */
+ *  `terminal` = the visible PTY (the `sh` MCP tool, `schedule_command`). */
 export type ShellCommandKind = "bash" | "terminal";
 
 /**
@@ -1002,9 +1002,9 @@ export type ExtensionContext = {
   };
 
   shell: {
-    /** Rewrite commands before `bash_run`, `bash_background`,
-     *  `run_in_terminal` and `suggest_command` execute. Transformers compose
-     *  in insertion order. Requires `shell:transform`. */
+    /** Rewrite commands before `bash_run`, `bash_background`, the `sh` MCP tool
+     *  and `schedule_command` execute. Transformers compose in insertion order.
+     *  Requires `shell:transform`. */
     registerCommandTransformer(transformer: ShellCommandTransformer): Disposer;
   };
 

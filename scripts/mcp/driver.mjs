@@ -616,6 +616,59 @@ export class Driver {
   browserList() {
     return this.#tedi("browserList");
   }
+  browserAct(leafId, index, action, text = "", submit = false) {
+    return this.#tedi(
+      "browserAct",
+      Number(leafId),
+      Number(index),
+      String(action),
+      String(text),
+      Boolean(submit),
+    );
+  }
+  browserConsole(leafId) {
+    return this.#tedi("browserConsole", Number(leafId));
+  }
+  browserShot(leafId) {
+    return this.#tedi("browserShot", Number(leafId));
+  }
+  browserDispatch(leafId, action) {
+    return this.#tedi("browserDispatch", Number(leafId), String(action));
+  }
+
+  /**
+   * Pane layout, through the app's own live context.
+   *
+   * These are the mutators the Command Palette cannot reach: `runCommand(id)`
+   * takes no arguments (it fires a synthetic KeyboardEvent), so "split into tab
+   * 3", "close leaf 7" and "group 4 and 9" have no command id and never could.
+   * The alternative for those is `drag` against a splitter's nth, which is both
+   * fragile and blind to which pane it lands on.
+   */
+  paneOpen(opts = {}) {
+    return this.#tedi("paneOpen", opts);
+  }
+  paneClose(leafId) {
+    return this.#tedi("paneClose", Number(leafId));
+  }
+  paneGroup(leafIds, tabId) {
+    return this.#tedi("paneGroup", leafIds.map(Number), tabId);
+  }
+  paneRotate(leafId, dir) {
+    return this.#tedi("paneRotate", Number(leafId), dir);
+  }
+  paneConsolidate(tabId) {
+    return this.#tedi("paneConsolidate", Number(tabId));
+  }
+  termList() {
+    return this.#tedi("termList");
+  }
+
+  /** Run a command on the host behind an SSH pane, off-screen. The remote twin
+   *  of a hidden shell: exact bytes, no scrollback, no wrapping. */
+  sshExec(leafId, command) {
+    return this.#tedi("sshExec", Number(leafId), String(command));
+  }
 
   /** Saved SSH connections. Never their keys or passphrases: those stay in the
    *  keyring, and nothing here reads them. */

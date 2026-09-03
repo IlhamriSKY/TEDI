@@ -39,6 +39,20 @@ applyFontFastPath();
 // was in the AI prompt (or a terminal). Put it back where the user left it.
 installFocusRestore();
 
+// TEDI is an app shell, not a browser: a right-click nothing in the app claimed
+// would otherwise open WebView2's own "Refresh / Save as / Print / Inspect"
+// menu, which does not belong to anything the user can see. Bubble phase, so
+// every in-app handler (a Radix ContextMenu, the terminal's copy/paste, the
+// canvas menu) has already run and cancelled the event when it owns the click.
+// Text fields keep the native menu - it is the only copy/paste UI they have.
+// The in-app browser pane is a separate webview and is not affected.
+document.addEventListener("contextmenu", (e) => {
+  if (e.defaultPrevented) return;
+  const el = e.target as HTMLElement | null;
+  if (el?.isContentEditable || el?.closest("input, textarea")) return;
+  e.preventDefault();
+});
+
 ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
   <ErrorBoundary
     fallback={(error, reset) => (

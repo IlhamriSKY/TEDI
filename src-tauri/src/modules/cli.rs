@@ -352,7 +352,7 @@ pub fn handle_opened_urls(app: &tauri::AppHandle, urls: &[url::Url]) {
         return;
     }
 
-    let Some(window) = app.get_webview_window("main") else {
+    let Some(window) = app.get_window("main") else {
         return;
     };
     // Finder does not raise the app for us when it is already running.

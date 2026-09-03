@@ -129,13 +129,3 @@ export function disabledToolsFor(disabledPackIds: readonly string[]): string[] {
   const off = new Set(disabledPackIds);
   return MCP_PACKS.filter((p) => !p.always && off.has(p.id)).flatMap((p) => p.tools);
 }
-
-/** Rough token cost of a pack, for the dialog. Descriptions dominate, and this
- *  only has to be good enough to make a choice with. */
-export const PACK_TOKENS: Record<string, number> = {
-  tedi: 1620,
-  settings: 260,
-  browser: 210,
-  ai: 300,
-  misc: 620,
-};

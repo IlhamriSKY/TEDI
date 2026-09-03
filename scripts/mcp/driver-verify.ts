@@ -74,9 +74,26 @@ const fakeCdp = {
           e,
         )
           ? true
-          : /__tedi\?\.(terminals|editors|panes|extensions|listCommands)/.test(e)
-            ? []
-            : {};
+          : // The pane mutators answer `{ok}` or a reason, and every handler
+            // branches on `ok === true`. A bare `{}` would send them all down
+            // the failure path, so the check would prove only that they throw.
+            /__tedi\?\.(paneOpen|paneClose|paneGroup|paneRotate|paneConsolidate)/.test(e)
+            ? { ok: true, tabId: 1, leafId: 2, orientation: "row", changed: true, moved: 2 }
+            : // `browserAct` answers a status string; "ok" is the success one.
+              /__tedi\?\.browserAct/.test(e)
+              ? "ok"
+              : // Two terminals, so `consolidate` reaches the mutator instead of
+                // stopping at "fewer than two are open".
+                /__tedi\?\.termList/.test(e)
+                ? [
+                    { leafId: 1, tabId: 1 },
+                    { leafId: 2, tabId: 1 },
+                  ]
+                : /__tedi\?\.(terminals|editors|panes|extensions|listCommands|browserConsole)/.test(
+                      e,
+                    )
+                  ? []
+                  : {};
       // A `#tedi` call is wrapped as `{ v }` so a legitimate null can be told
       // apart from a missing capability; a bare `eval` (box, metrics) is not.
       return Promise.resolve({ result: { value: isTediCall(e) ? { v: value } : value } });
@@ -290,7 +307,31 @@ const args: Record<string, Record<string, unknown>[]> = {
   extension: [{ action: "disable", id: "tedi.sql-explorer" }],
   ai: [{ action: "status" }, { action: "read" }, { action: "send", text: "hi" }],
   ssh: [{ action: "list" }, { action: "connect", id: "c-abc" }],
-  browser: [{ action: "reload" }, { action: "url" }],
+  // `screenshot` is left out for the same reason the `screenshot` TOOL is
+  // skipped below: it writes a file and wants real image bytes back.
+  browser: [
+    { action: "reload" },
+    { action: "url" },
+    { action: "list" },
+    { action: "read", fields: true },
+    { action: "console" },
+    { action: "navigate", url: "https://example.com" },
+    { action: "click", index: 0 },
+    { action: "type", index: 0, text: "hi" },
+    { action: "hover", index: 0 },
+    { action: "key", text: "Escape" },
+    { action: "scroll", to: "down" },
+    { action: "click_at", x: 10, y: 20 },
+  ],
+  pane: [
+    { action: "open" },
+    { action: "open", split: true, dir: "col", count: 2 },
+    { action: "close", leafId: 2 },
+    { action: "close", all: true },
+    { action: "group", leafIds: [1, 2] },
+    { action: "rotate", leafId: 1, dir: "col" },
+    { action: "consolidate" },
+  ],
   // Every branch, not just one. A consolidated verb hides a dead mode: the tool
   // still exists, its schema still lists the enum value, and only the arm behind
   // it is broken.
@@ -964,7 +1005,13 @@ console.log("\n[bridge] every bridged method is a real, in-realm-only Driver met
     // `return this.#tedi("<capability>", ...)`.
     const at = driverSrc.indexOf(`\n  ${method}(`);
     if (at < 0) continue; // defined with a different signature style; skip
-    const body = driverSrc.slice(at, driverSrc.indexOf("\n  }", at));
+    // WHITESPACE-INSENSITIVE, and that is not fussiness. Prettier wraps a call
+    // with enough arguments across lines, which turns `#tedi("browserAct"` into
+    // `#tedi(\n  "browserAct",` - so a literal match reported a correctly
+    // bridged method as broken, and the only "fix" that satisfied it was to
+    // keep the source on one line until the next format run undid it. Match the
+    // call, not its layout.
+    const body = driverSrc.slice(at, driverSrc.indexOf("\n  }", at)).replace(/\s+/g, "");
     if (!body.includes("#tedi(")) {
       fail(
         `BRIDGED routes "${method}" to the socket, but it does not go through #tedi() - it reads the DOM or dispatches input, which the socket cannot do`,
@@ -979,6 +1026,32 @@ console.log("\n[bridge] every bridged method is a real, in-realm-only Driver met
     console.log(
       `  ok: all ${Object.keys(BRIDGED as object).length} bridged methods are pure in-realm calls`,
     );
+  }
+
+  // The other direction. The checks above ask "is everything in the map real";
+  // this one asks "is everything real in the map". A pure `#tedi` method that
+  // nobody adds to BRIDGED falls through to CDP, which is WINDOWS-ONLY - so the
+  // tool does not exist on macOS or Linux while passing every test run on
+  // Windows.
+  const inRealmOnly = [...driverSrc.matchAll(/\n {2}(?:async )?([a-zA-Z][\w]*)\(/g)]
+    .map((m) => m[1])
+    .filter((name) => {
+      if (name in (BRIDGED as Record<string, string>)) return false;
+      const at = driverSrc.indexOf(`\n  ${name}(`);
+      if (at < 0) return false;
+      // Whitespace-stripped for the same reason as above: prettier's wrapping
+      // must not change the answer.
+      const body = driverSrc.slice(at, driverSrc.indexOf("\n  }", at)).replace(/\s+/g, "");
+      // A method whose ENTIRE body is one `#tedi` call needs no DOM, no input
+      // and no compositor, so there is no reason for it to be on CDP.
+      return body.includes("returnthis.#tedi(") && body.split("#tedi(").length === 2;
+    });
+  if (inRealmOnly.length) {
+    fail(
+      `these Driver methods are pure #tedi calls but are NOT in BRIDGED, so they fall back to CDP and do not work off Windows: ${inRealmOnly.join(", ")}`,
+    );
+  } else {
+    console.log("  ok: every pure in-realm method is routed through the socket");
   }
 }
 

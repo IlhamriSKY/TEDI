@@ -249,6 +249,13 @@ export type CanvasRect = {
    * DOM, which no CSS can touch, so it keeps its own zoom buttons instead.
    */
   zoom?: number;
+  /**
+   * Keep this window above every unpinned one, whichever was clicked last.
+   * Rides `z` rather than replacing it (the renderer adds a large constant),
+   * so pinned windows still stack among THEMSELVES by the same click-to-front
+   * rule as everything else.
+   */
+  pin?: boolean;
 };
 
 /** `canvasRect` sits here rather than on each `LeafState` member: it applies to

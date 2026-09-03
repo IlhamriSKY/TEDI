@@ -24,6 +24,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuTrigger,
+} from "@/components/ui/context-menu";
+import { InlineInput } from "@/modules/explorer/InlineInput";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon } from "@/components/LeafIcon";
@@ -34,7 +41,7 @@ import { panelsRegistry, useRegistry } from "@/modules/extensions";
 import { AiChatMenuItems } from "@/modules/ai/components/AiChatMenuItems";
 import { statusLabelClass } from "@/modules/ssh/status";
 import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
-import { leafLabel } from "@/modules/tabs/lib/tabHelpers";
+import { leafLabel, leafRenameSeed } from "@/modules/tabs/lib/tabHelpers";
 import type { PaneTab } from "@/modules/tabs";
 import { leaves, type CanvasRect, type PaneLeaf } from "@/modules/terminal/lib/panes";
 import {
@@ -53,6 +60,7 @@ import {
   Globe,
   LayoutDashboard,
   Minus,
+  Pin,
   Plus,
   SquareTerminal,
   X,
@@ -103,15 +111,43 @@ const MAP_ASPECT = 160 / 96;
 /** Gutter between windows after Tidy, in percent of the canvas. */
 const TIDY_GAP = 1.2;
 
+/** Base `zIndex` a pinned window is lifted by. Far above any `z` a session of
+ *  clicking could reach, so "pinned" always wins without capping the counter. */
+const PINNED_Z = 1_000_000;
+
 /**
  * Canvas viewport bounds. Zooming OUT below 1 is the point of it: the window
  * layer is box-sized, so at 0.4 the whole 0..100 coordinate space occupies less
  * than half the screen and a dozen panes fit at once; above 1 you work close in
  * and pan around.
  */
-const VIEW_MIN = 0.25;
+const VIEW_MIN = 0.15;
 const VIEW_MAX = 2;
 const VIEW_STEP = 0.15;
+
+/**
+ * How far the canvas actually goes, in the same 0..100 units a window rect uses.
+ *
+ * The space used to be unbounded while the ZOOM was not, and those two together
+ * lose panes: zoomed out, a drag covers `1/zoom` times as much canvas per pixel,
+ * so a short flick at 25% throws a window hundreds of units away - somewhere no
+ * amount of further zooming out can bring back into view. Bounding the canvas to
+ * exactly one fully-zoomed-out viewport (`100 / VIEW_MIN`) makes "zoom all the
+ * way out" always show everything, which is what makes a window impossible to
+ * lose. The base 0..100 area sits in the middle of it.
+ *
+ * Tied to the zoom floor rather than picked, so making the canvas bigger is one
+ * edit: drop `VIEW_MIN` and the room grows with it, still fully framed by Fit.
+ * At 0.15 that is ~6.7 screens each way - 44 screenfuls of area.
+ */
+const EXTENT = 100 / VIEW_MIN;
+const CANVAS_MIN = (100 - EXTENT) / 2;
+const CANVAS_MAX = CANVAS_MIN + EXTENT;
+
+/** Auto-pan while a window is dragged against the viewport edge: how deep the
+ *  trigger band is (device px) and how fast it pans (box-percent per frame). */
+const EDGE_BAND_PX = 56;
+const EDGE_PAN_STEP = 1.1;
 
 /** Per-pane zoom bounds and step. Same 0.1 step the app-wide content zoom uses,
  *  so a canvas pane and the status-bar control move in the same increments. */
@@ -120,18 +156,47 @@ const ZOOM_MAX = 2;
 const ZOOM_STEP = 0.1;
 
 /**
- * Geometry for a window that has none yet, cascaded from the top left so a run
- * of fresh windows is reachable rather than one stack. Seeded on first render,
- * which is what lets a pane arrive from ANY path - the canvas `+`, a split, a
- * tab opened while in tabs view, a workspace saved before canvas existed -
- * without a single opener having to know about geometry.
+ * Geometry for a window that has none yet. Seeded on first render, which is
+ * what lets a pane arrive from ANY path - the canvas `+`, a split, a tab opened
+ * while in tabs view, a workspace saved before canvas existed - without a
+ * single opener having to know about geometry.
+ *
+ * Placed against the VIEWPORT, not the canvas: the canvas is now many screens
+ * across, so a fixed spot in its coordinate space is usually somewhere the user
+ * is not looking, and a new pane simply never appeared. Centred on what is on
+ * screen, at the same share OF THE SCREEN whatever the zoom (so one opened
+ * while zoomed out is not a postage stamp), then cascaded a little per window
+ * so a run of them is reachable rather than one stack.
  */
-function defaultCanvasRect(index: number, z: number): CanvasRect {
+function defaultCanvasRect(index: number, z: number, view: Viewport): CanvasRect {
+  const v = viewportBox(view);
+  const w = v.w * 0.46;
+  const h = v.h * 0.48;
   const step = index % 6;
-  return { x: 3 + step * 5, y: 4 + step * 6, w: 46, h: 48, z };
+  return insideCanvas({
+    x: v.x + (v.w - w) / 2 + step * v.w * 0.03,
+    y: v.y + (v.h - h) / 2 + step * v.h * 0.03,
+    w,
+    h,
+    z,
+  });
 }
 
 const clamp = (v: number, lo: number, hi: number) => Math.min(Math.max(v, lo), hi);
+
+/** Hold a window inside the canvas (see `EXTENT`). One place, so a move and an
+ *  edge-resize cannot disagree about where the canvas ends. */
+function insideCanvas(r: CanvasRect): CanvasRect {
+  const w = Math.min(r.w, EXTENT);
+  const h = Math.min(r.h, EXTENT);
+  return {
+    ...r,
+    w,
+    h,
+    x: clamp(r.x, CANVAS_MIN, CANVAS_MAX - w),
+    y: clamp(r.y, CANVAS_MIN, CANVAS_MAX - h),
+  };
+}
 
 /** `MIN_EDGE_PX` as a percentage of `boxPx`, floored and capped so a very small
  *  or very large canvas still leaves room for more than one window. */
@@ -198,6 +263,23 @@ export function CanvasView({
   // registry so the menu follows install / enable / disable with no core list.
   const extPanels = useRegistry(panelsRegistry).filter((p) => p.item.surface === "tab");
 
+  /**
+   * The canvas viewport: `translate(pan%) scale(zoom)` with a top-left origin on
+   * a box-sized layer, so a point at layer-coordinate `p` sits at box-percentage
+   * `pan + p * zoom`. Keeping pan in PERCENT OF THE BOX (not pixels) means the
+   * whole thing survives a window resize with no recomputation, exactly like the
+   * window rectangles it contains.
+   *
+   * Local state, not persisted: it is where you are LOOKING, not what the
+   * workspace contains, and it resets to a full view when you come back.
+   */
+  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
+  // Live mirror of the view, so the seeding effect and the auto-pan loop can
+  // read where we are looking without listing it as a dependency (a pan would
+  // otherwise re-run them on every frame).
+  const viewRef = useRef(view);
+  viewRef.current = view;
+
   const maxZ = useMemo(
     () => list.reduce((m, { leaf }) => Math.max(m, leaf.canvasRect?.z ?? 0), 0),
     [list],
@@ -213,7 +295,7 @@ export function CanvasView({
     let z = maxZ;
     const patch: Record<number, CanvasRect> = {};
     missing.forEach(({ leaf }, i) => {
-      patch[leaf.id] = defaultCanvasRect(seeded + i, ++z);
+      patch[leaf.id] = defaultCanvasRect(seeded + i, ++z, viewRef.current);
     });
     onSetRects(patch);
   }, [list, maxZ, onSetRects]);
@@ -249,24 +331,38 @@ export function CanvasView({
     onSetRects(patch);
   };
 
-  /**
-   * The canvas viewport: `translate(pan%) scale(zoom)` with a top-left origin on
-   * a box-sized layer, so a point at layer-coordinate `p` sits at box-percentage
-   * `pan + p * zoom`. Keeping pan in PERCENT OF THE BOX (not pixels) means the
-   * whole thing survives a window resize with no recomputation, exactly like the
-   * window rectangles it contains.
-   *
-   * Local state, not persisted: it is where you are LOOKING, not what the
-   * workspace contains, and it resets to a full view when you come back.
-   */
-  const [view, setView] = useState({ zoom: 1, x: 0, y: 0 });
-
-  /** Everything placed. On an UNBOUNDED canvas this is the only frame there is,
-   *  so it answers "how far can I pan" and "what does Fit mean". */
+  /** Everything placed. What "how far can I pan" and "what does Fit mean"
+   *  answer to, alongside the canvas edge itself. */
   const bounds = useMemo(
     () => contentBounds(list.flatMap(({ leaf }) => (leaf.canvasRect ? [leaf.canvasRect] : []))),
     [list],
   );
+  // Mirrored for the same reason as `viewRef`: the auto-pan loop reads it every
+  // frame and must not be rebuilt (nor its rAF restarted) when it changes.
+  const boundsRef = useRef(bounds);
+  boundsRef.current = bounds;
+
+  /**
+   * Pan by one auto-pan step, and answer with how far the canvas moved UNDER a
+   * fixed screen point, in canvas units. A window being dragged adds that to its
+   * own position so it stays under the pointer while the canvas slides past.
+   *
+   * Reads and writes `viewRef` as well as state so a burst of frames composes:
+   * `setView` has not re-rendered yet when the next frame asks.
+   */
+  const autoPanBy = useCallback((gx: number, gy: number): { dx: number; dy: number } => {
+    const v = viewRef.current;
+    const next = clampPan(
+      v.x - gx * EDGE_PAN_STEP,
+      v.y - gy * EDGE_PAN_STEP,
+      v.zoom,
+      boundsRef.current,
+    );
+    if (next.x === v.x && next.y === v.y) return { dx: 0, dy: 0 };
+    viewRef.current = { ...v, ...next };
+    setView((prev) => ({ ...prev, ...next }));
+    return { dx: -(next.x - v.x) / v.zoom, dy: -(next.y - v.y) / v.zoom };
+  }, []);
 
   /** Frame everything, with a margin. The "where did my panes go" of a canvas
    *  with no edges; on an untouched one it lands back at 100%. */
@@ -306,7 +402,20 @@ export function CanvasView({
    *  could mean, so it needs no modifier. */
   const startPan = (e: React.PointerEvent) => {
     const box = boxRef.current;
-    if (!box || e.button !== 0 || e.target !== e.currentTarget) return;
+    if (!box) return;
+    // Left button pans from empty canvas - over a window a left drag is that
+    // window's (the header moves it, the body selects text). The MIDDLE button
+    // pans from anywhere, including straight over a window, for a canvas whose
+    // windows leave no gap to grab.
+    //
+    // "Empty" is "not inside a window", NOT "the event target IS the layer".
+    // The layer is box-sized and transformed, so the moment you pan or zoom at
+    // all its own box slides off screen and most of what you see is the box
+    // behind it - the identity test then failed everywhere and dragging the
+    // background silently stopped working, which is what "the canvas does not
+    // move" was. The minimap stops propagation, so it keeps its own drag.
+    const onWindow = (e.target as Element | null)?.closest?.("[data-pane-leaf]") != null;
+    if (e.button !== 1 && !(e.button === 0 && !onWindow)) return;
     e.preventDefault();
     const r = box.getBoundingClientRect();
     const sx = e.clientX;
@@ -396,10 +505,17 @@ export function CanvasView({
     </DropdownMenuContent>
   );
 
-  /** Where a right-click asked for the menu, in box pixels, or null. Radix
-   *  needs an anchor in the DOM, so an empty span is parked there and the
-   *  menu is opened against it. */
-  const [menuAt, setMenuAt] = useState<{ x: number; y: number } | null>(null);
+  /**
+   * Where the last right-click asked for the menu, in box pixels, and whether
+   * it is showing. Radix needs an anchor in the DOM, so a 1px span is parked
+   * there and the menu opens against it.
+   *
+   * The point OUTLIVES the close on purpose. The popper tracks the anchor now
+   * (see the span), so clearing the position on close dragged the menu to the
+   * canvas corner while it was still fading - a blink out of the top left on
+   * every dismiss. Only `open` changes; the span stays where it was.
+   */
+  const [menu, setMenu] = useState({ x: 0, y: 0, open: false });
 
   return (
     <PaneMetaContext.Provider value={meta}>
@@ -456,12 +572,31 @@ export function CanvasView({
           ref={boxRef}
           data-canvas
           onWheel={onBackgroundWheel}
-          // Faint dot grid, the usual "this is a canvas you arrange things on"
-          // cue. One CSS gradient, no image and no element: `--border` is the
-          // theme's own hairline colour, so it follows every preset and both
-          // light and dark without a second token. The dots stay put while the
-          // layer inside moves, which is what reads as a fixed surface.
-          className="bg-sidebar/40 border-border/60 relative min-h-0 flex-1 overflow-hidden rounded-md border bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-[length:16px_16px]"
+          // Right-click anywhere on the canvas gets the canvas menu, at the
+          // pointer. On the BOX rather than the window layer, and gated on
+          // `defaultPrevented` rather than on the target being the background:
+          // anything with a menu of its own (a terminal's copy/paste, an
+          // editor, any Radix menu) has already cancelled the event by the time
+          // it bubbles here, and everything that has none - a window header,
+          // the minimap, an extension panel - used to fall through to
+          // WebView2's own "Refresh / Save as / Print" menu.
+          onContextMenu={(e) => {
+            if (e.defaultPrevented) return;
+            const r = boxRef.current?.getBoundingClientRect();
+            if (!r) return;
+            e.preventDefault();
+            setMenu({ x: e.clientX - r.left, y: e.clientY - r.top, open: true });
+          }}
+          // Middle-drag pans from anywhere, so this has to catch the pointer
+          // over a window too. Left-drag is filtered back to the bare layer
+          // inside `startPan`.
+          onPointerDown={startPan}
+          // Chromium opens its middle-click autoscroll widget on mousedown,
+          // which a pointerdown preventDefault does not stop.
+          onMouseDown={(e) => {
+            if (e.button === 1) e.preventDefault();
+          }}
+          className="bg-sidebar/40 border-border/60 relative min-h-0 flex-1 cursor-grab overflow-hidden rounded-md border"
         >
           {/* The window layer. Box-sized and transformed as a whole, so window
               rectangles stay in one 0..100 space no matter where the viewport
@@ -471,25 +606,34 @@ export function CanvasView({
               placed): xterm measures its own layout, which a transform leaves
               alone, unlike CSS `zoom`. */}
           <div
-            onPointerDown={startPan}
-            // Only the background: a right-click ON a window is that window's
-            // business, and the same test `startPan` uses keeps the two gestures
-            // agreeing about what "empty canvas" means.
-            onContextMenu={(e) => {
-              if (e.target !== e.currentTarget) return;
-              const r = boxRef.current?.getBoundingClientRect();
-              if (!r) return;
-              e.preventDefault();
-              setMenuAt({ x: e.clientX - r.left, y: e.clientY - r.top });
-            }}
-            className={cn(
-              "absolute inset-0 origin-top-left",
-              view.zoom !== 1 || view.x !== 0 || view.y !== 0 ? "cursor-grab" : null,
-            )}
+            className="absolute inset-0 origin-top-left"
             style={{ transform: `translate(${view.x}%, ${view.y}%) scale(${view.zoom})` }}
           >
+            {/* The canvas itself: where it ends, and the dot grid that makes a
+                pan or a zoom VISIBLE. Both live INSIDE the transformed layer and
+                span the whole extent, so they move and scale with the content -
+                a grid pinned to the viewport made dragging the background look
+                like nothing had happened at all, which is what "the canvas does
+                not move" was. `pointer-events-none` keeps it out of the
+                background/window hit test `startPan` relies on. */}
+            <div
+              aria-hidden
+              className="border-border/70 pointer-events-none absolute rounded-md border-dashed bg-[radial-gradient(circle,var(--border)_1px,transparent_1px)] bg-[length:16px_16px]"
+              style={{
+                left: `${CANVAS_MIN}%`,
+                top: `${CANVAS_MIN}%`,
+                width: `${EXTENT}%`,
+                height: `${EXTENT}%`,
+                // Divided by the zoom so the edge is the SAME 2px on screen at
+                // every scale. It lives inside the scaled layer (which is what
+                // makes it move with the canvas), and a plain `border-2` there
+                // renders 0.3px at the 15% floor - an edge you cannot see is
+                // not an edge.
+                borderWidth: `${2 / view.zoom}px`,
+              }}
+            />
             {list.map(({ leaf, tabId }, i) => {
-              const rect = leaf.canvasRect ?? defaultCanvasRect(i, i + 1);
+              const rect = leaf.canvasRect ?? defaultCanvasRect(i, i + 1, view);
               return (
                 <CanvasWindow
                   key={leaf.id}
@@ -507,6 +651,7 @@ export function CanvasView({
                   onClose={onCloseLeaf ? () => onCloseLeaf(leaf.id) : undefined}
                   onCommit={(patch) => onSetRects({ [leaf.id]: patch })}
                   viewZoom={view.zoom}
+                  autoPanBy={autoPanBy}
                 />
               );
             })}
@@ -514,17 +659,30 @@ export function CanvasView({
           {/* Anchored to the pointer. The span lives in the BOX, not the
               transformed layer, so the menu opens where the cursor actually is
               rather than where the layer's scaled coordinates would put it. */}
+          {/* Not modal, which is what lets a SECOND right-click land somewhere
+              new while this one is still open. A modal menu puts
+              `pointer-events: none` on the body, so the next right-click never
+              reaches the canvas at all: it only dismissed the menu, and the
+              user had to right-click a third time to get one where they were
+              actually pointing. Non-modal, the dismiss and the re-open both
+              fire and the menu appears under the new pointer. */}
           <DropdownMenu
-            open={menuAt !== null}
+            modal={false}
+            open={menu.open}
             onOpenChange={(open) => {
-              if (!open) setMenuAt(null);
+              if (!open) setMenu((m) => ({ ...m, open: false }));
             }}
           >
             <DropdownMenuTrigger asChild>
+              {/* 1px, not `size-0`: floating-ui only watches a reference for
+                  movement if it HAS a box (`observeMove` returns early on a
+                  zero width or height), so a zero-size anchor pins the open
+                  menu to wherever it first appeared - the second right-click
+                  moved this span and the menu stayed put. */}
               <span
                 aria-hidden
-                className="pointer-events-none absolute size-0"
-                style={{ left: menuAt?.x ?? 0, top: menuAt?.y ?? 0 }}
+                className="pointer-events-none absolute size-px"
+                style={{ left: menu.x, top: menu.y }}
               />
             </DropdownMenuTrigger>
             {addMenu}
@@ -532,7 +690,7 @@ export function CanvasView({
           <Minimap
             windows={list.map(({ leaf }, i) => ({
               id: leaf.id,
-              rect: leaf.canvasRect ?? defaultCanvasRect(i, i + 1),
+              rect: leaf.canvasRect ?? defaultCanvasRect(i, i + 1, view),
               focused: leaf.id === focusedLeafId,
             }))}
             view={view}
@@ -720,6 +878,7 @@ function CanvasWindow({
   onClose,
   onCommit,
   viewZoom,
+  autoPanBy,
 }: {
   node: PaneLeaf;
   rect: CanvasRect;
@@ -733,6 +892,10 @@ function CanvasWindow({
   /** Near enough the viewport to stay live. One that is not keeps its session
    *  but stops painting, which is what frees its WebGL context. */
   onScreen: boolean;
+  /** Pan the canvas one step while this window is dragged against the edge.
+   *  Answers with how far the canvas moved under the pointer, so the drag can
+   *  keep the window there. */
+  autoPanBy: (gx: number, gy: number) => { dx: number; dy: number };
   /** Canvas viewport scale. A pointer crossing N px of a layer scaled by `z`
    *  covers N/z of that layer's own coordinate space, so every drag and resize
    *  delta divides by it - without this, moving a window while zoomed out
@@ -743,12 +906,16 @@ function CanvasWindow({
   // LeafBody registers the editor handle here; only the float path reads it,
   // and a canvas window does not float, so it is write-only.
   const editorHandleRef = useRef<Parameters<LeafBundle["setEditorRef"]>[0]>(null);
-  const { sshHosts, sshStatuses, aiCliStatuses, aiTitles, aiStates } = use(PaneMetaContext);
+  const { sshHosts, sshStatuses, aiCliStatuses, aiTitles, aiStates, onRenameLeaf } =
+    use(PaneMetaContext);
   const remoteSession = useRemoteEditorBinding(node);
   // Live geometry while a gesture is running, so the frame follows the pointer
   // without a state write per frame (which would re-fit every xterm on the
   // canvas 60 times a second). Committed once on pointerup.
   const [dragging, setDragging] = useState(false);
+  // Header title swapped for an edit field. Local: nothing outside this window
+  // cares that it is being renamed, and the name itself lives on the leaf.
+  const [renaming, setRenaming] = useState(false);
 
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const label = leafLabel(node, sshHosts, undefined, aiTitles);
@@ -821,14 +988,20 @@ function CanvasWindow({
     setPaneDragActive(true);
     setDragging(true);
 
-    const onMove = (ev: globalThis.PointerEvent) => {
-      const dx = ((ev.clientX - startX) / (b0.width * viewZoom)) * 100;
-      const dy = ((ev.clientY - startY) / (b0.height * viewZoom)) * 100;
+    // Latest pointer, plus how far the auto-pan below has slid the canvas under
+    // it (canvas units). `place` is split out of `onMove` because the auto-pan
+    // loop has to re-place the window on frames where the pointer never moved.
+    let px = startX;
+    let py = startY;
+    let panDx = 0;
+    let panDy = 0;
+
+    const place = () => {
+      const dx = ((px - startX) / (b0.width * viewZoom)) * 100 + panDx;
+      const dy = ((py - startY) / (b0.height * viewZoom)) * 100 + panDy;
       if (dx !== 0 || dy !== 0) moved = true;
       if (handle === "move") {
-        // No clamp: the canvas is unbounded, so a window may be dragged past
-        // any edge and the viewport follows it.
-        latest = { ...rect, x: rect.x + dx, y: rect.y + dy };
+        latest = insideCanvas({ ...rect, x: rect.x + dx, y: rect.y + dy });
       } else {
         // A west/north drag moves the origin AND changes the size, so the
         // opposite edge stays put; the only limit left is the minimum size,
@@ -844,17 +1017,56 @@ function CanvasWindow({
           next.h = rect.y + rect.h - next.y;
         }
         if (south) next.h = Math.max(rect.h + dy, minH);
-        latest = next;
+        latest = insideCanvas(next);
       }
       el.style.left = `${latest.x}%`;
       el.style.top = `${latest.y}%`;
       el.style.width = `${latest.w}%`;
       el.style.height = `${latest.h}%`;
     };
+
+    const onMove = (ev: globalThis.PointerEvent) => {
+      px = ev.clientX;
+      py = ev.clientY;
+      place();
+    };
+
+    /**
+     * Carry a window off the edge of the screen: while the pointer sits in the
+     * band along any edge, the canvas pans that way and the window rides along,
+     * staying under the pointer. Without it, putting a pane somewhere far away
+     * was drop, pan, pick up, drop again.
+     *
+     * A rAF loop, not a pointermove handler: holding the pointer still against
+     * the edge must keep panning, and that fires no events. Moving only - a
+     * resize has a fixed opposite edge, so panning under it would fight the
+     * gesture.
+     */
+    const push = (pos: number, lo: number, hi: number) => {
+      if (pos < lo + EDGE_BAND_PX) return -Math.min(1, (lo + EDGE_BAND_PX - pos) / EDGE_BAND_PX);
+      if (pos > hi - EDGE_BAND_PX) return Math.min(1, (pos - (hi - EDGE_BAND_PX)) / EDGE_BAND_PX);
+      return 0;
+    };
+    let raf = 0;
+    const edgePan = () => {
+      raf = requestAnimationFrame(edgePan);
+      const gx = push(px, b0.left, b0.right);
+      const gy = push(py, b0.top, b0.bottom);
+      if (gx === 0 && gy === 0) return;
+      const d = autoPanBy(gx, gy);
+      if (d.dx === 0 && d.dy === 0) return;
+      panDx += d.dx;
+      panDy += d.dy;
+      moved = true;
+      place();
+    };
+    if (handle === "move") raf = requestAnimationFrame(edgePan);
+
     const end = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
+      if (raf) cancelAnimationFrame(raf);
       setPaneDragActive(false);
       setDragging(false);
       // A plain click on the header is a focus, not a move: committing it would
@@ -884,82 +1096,137 @@ function CanvasWindow({
         top: `${rect.y}%`,
         width: `${rect.w}%`,
         height: `${rect.h}%`,
-        zIndex: rect.z,
+        // Pinned windows share the ordinary `z` sequence, just lifted above
+        // every unpinned one, so they still stack among themselves by the same
+        // click-to-front rule. The layer above has a `transform`, so this whole
+        // range is confined to its stacking context and can never climb over
+        // the toolbar or the minimap.
+        zIndex: (rect.pin ? PINNED_Z : 0) + rect.z,
       }}
       onMouseDownCapture={onFocus}
       onWheelCapture={onZoomWheel}
       className={cn(
-        "bg-background absolute flex flex-col overflow-hidden rounded-md border shadow-lg",
+        "bg-background absolute flex cursor-auto flex-col overflow-hidden rounded-md border shadow-lg",
         focused ? "border-primary/60 ring-primary/30 ring-1" : "border-border",
       )}
     >
-      <div
-        onPointerDown={(e) => startGesture(e, "move")}
-        className="border-border/60 bg-card group/head flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2 select-none active:cursor-grabbing"
-      >
-        <LeafIcon
-          info={leafIconInfo(node, aiCliStatuses, aiStates)}
-          size={13}
-          className="text-muted-foreground/80"
-        />
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-xs",
-            "text-muted-foreground",
-            node.leafKind === "editor" && node.preview && "italic",
-            isSsh && statusLabelClass(sshStatuses?.get(node.id)),
-            node.leafKind === "extension-panel" && extensionStateLabelClass(node.state),
-            node.private === true && "text-destructive",
-          )}
-        >
-          {label}
-        </span>
-        {node.leafKind === "editor" && node.dirty ? (
-          <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
-        ) : null}
-        {zoomable ? (
-          <span
-            className={cn(
-              "flex shrink-0 items-center transition-opacity",
-              // At 100% the cluster is hover-only, so a tidy canvas shows nothing
-              // but names. Once zoomed it stays put: the percentage is state the
-              // user needs to see without hunting for it.
-              zoom === 1 && "opacity-0 group-hover/head:opacity-100",
-            )}
+      <ContextMenu modal={false}>
+        <ContextMenuTrigger asChild>
+          <div
+            onPointerDown={(e) => startGesture(e, "move")}
+            className="border-border/60 bg-card group/head flex h-7 shrink-0 cursor-grab items-center gap-1.5 border-b px-2 select-none active:cursor-grabbing"
           >
-            <ZoomBtn label="Zoom out" disabled={zoom <= ZOOM_MIN} onClick={() => stepZoom(-1)}>
-              <Minus size={11} strokeWidth={2.25} />
-            </ZoomBtn>
-            <IconTooltip label="Reset zoom (Ctrl + wheel)" side="bottom">
-              <button
-                type="button"
-                aria-label={`Pane zoom ${Math.round(zoom * 100)}%, click to reset`}
-                onClick={() => onCommit({ zoom: 1 })}
+            {rect.pin ? (
+              <Pin
+                aria-label="Pinned on top"
+                strokeWidth={2.25}
+                className="text-muted-foreground/70 size-3 shrink-0"
+              />
+            ) : null}
+            <LeafIcon
+              info={leafIconInfo(node, aiCliStatuses, aiStates)}
+              size={13}
+              className="text-muted-foreground/80"
+            />
+            {renaming ? (
+              // `stopPropagation` on pointerdown so a drag inside the field
+              // cannot start the header's move gesture, and `select-text` to
+              // undo the header's `select-none` (which would otherwise stop the
+              // caret selecting anything). Same `InlineInput` the tab strip and
+              // the explorer rename with, so all three commit identically.
+              <span
+                className="flex min-w-0 flex-1 select-text"
                 onPointerDown={(e) => e.stopPropagation()}
-                className="text-muted-foreground hover:text-foreground w-8 shrink-0 text-center font-mono text-[10px] leading-4 tabular-nums"
               >
-                {Math.round(zoom * 100)}%
-              </button>
-            </IconTooltip>
-            <ZoomBtn label="Zoom in" disabled={zoom >= ZOOM_MAX} onClick={() => stepZoom(1)}>
-              <Plus size={11} strokeWidth={2.25} />
-            </ZoomBtn>
-          </span>
-        ) : null}
-        {onClose ? (
-          <IconTooltip label="Close" side="bottom">
-            <button
-              type="button"
-              aria-label="Close window"
-              onClick={onClose}
-              onPointerDown={(e) => e.stopPropagation()}
-              className="text-muted-foreground/70 hover:bg-destructive/15 hover:text-destructive flex size-5 shrink-0 items-center justify-center rounded"
-            >
-              <X size={13} strokeWidth={2} />
-            </button>
-          </IconTooltip>
-        ) : null}
-      </div>
+                <InlineInput
+                  initial={leafRenameSeed(node, sshHosts, undefined, aiTitles)}
+                  placeholder="Pane name"
+                  onCommit={(value) => {
+                    setRenaming(false);
+                    // Blank means "back to the derived name", not a nameless pane.
+                    onRenameLeaf?.(node.id, value.trim() ? value : null);
+                  }}
+                  onCancel={() => setRenaming(false)}
+                />
+              </span>
+            ) : (
+              <span
+                className={cn(
+                  "min-w-0 flex-1 truncate text-xs",
+                  "text-muted-foreground",
+                  node.leafKind === "editor" && node.preview && "italic",
+                  isSsh && statusLabelClass(sshStatuses?.get(node.id)),
+                  node.leafKind === "extension-panel" && extensionStateLabelClass(node.state),
+                  node.private === true && "text-destructive",
+                )}
+              >
+                {label}
+              </span>
+            )}
+            {node.leafKind === "editor" && node.dirty ? (
+              <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" />
+            ) : null}
+            {zoomable ? (
+              <span
+                className={cn(
+                  "flex shrink-0 items-center transition-opacity",
+                  // At 100% the cluster is hover-only, so a tidy canvas shows nothing
+                  // but names. Once zoomed it stays put: the percentage is state the
+                  // user needs to see without hunting for it.
+                  zoom === 1 && "opacity-0 group-hover/head:opacity-100",
+                )}
+              >
+                <ZoomBtn label="Zoom out" disabled={zoom <= ZOOM_MIN} onClick={() => stepZoom(-1)}>
+                  <Minus size={11} strokeWidth={2.25} />
+                </ZoomBtn>
+                <IconTooltip label="Reset zoom (Ctrl + wheel)" side="bottom">
+                  <button
+                    type="button"
+                    aria-label={`Pane zoom ${Math.round(zoom * 100)}%, click to reset`}
+                    onClick={() => onCommit({ zoom: 1 })}
+                    onPointerDown={(e) => e.stopPropagation()}
+                    className="text-muted-foreground hover:text-foreground w-8 shrink-0 text-center font-mono text-[10px] leading-4 tabular-nums"
+                  >
+                    {Math.round(zoom * 100)}%
+                  </button>
+                </IconTooltip>
+                <ZoomBtn label="Zoom in" disabled={zoom >= ZOOM_MAX} onClick={() => stepZoom(1)}>
+                  <Plus size={11} strokeWidth={2.25} />
+                </ZoomBtn>
+              </span>
+            ) : null}
+            {onClose ? (
+              <IconTooltip label="Close" side="bottom">
+                <button
+                  type="button"
+                  aria-label="Close window"
+                  onClick={onClose}
+                  onPointerDown={(e) => e.stopPropagation()}
+                  className="text-muted-foreground/70 hover:bg-destructive/15 hover:text-destructive flex size-5 shrink-0 items-center justify-center rounded"
+                >
+                  <X size={13} strokeWidth={2} />
+                </button>
+              </IconTooltip>
+            ) : null}
+          </div>
+        </ContextMenuTrigger>
+        {/* Same order and wording as the tab strip's own right-click menu
+            (`renderEntryBody`), so a pane offers the same actions in the same
+            places whichever view you are in. */}
+        <ContextMenuContent className="min-w-44">
+          <ContextMenuItem onSelect={() => setRenaming(true)}>Rename</ContextMenuItem>
+          {/* Only once there is a name to drop, on the same condition the tab
+              strip uses (`renamed`), so the two menus offer the same items. */}
+          {node.customTitle !== undefined && (
+            <ContextMenuItem onSelect={() => onRenameLeaf?.(node.id, null)}>
+              Reset Name
+            </ContextMenuItem>
+          )}
+          <ContextMenuItem onSelect={() => onCommit({ pin: !rect.pin })}>
+            {rect.pin ? "Unpin" : "Pin on Top"}
+          </ContextMenuItem>
+        </ContextMenuContent>
+      </ContextMenu>
 
       <div
         className="relative min-h-0 flex-1"
@@ -978,7 +1245,6 @@ function CanvasWindow({
             mdPreview={mdPreview}
             remoteSession={remoteSession}
             paneZoom={node.leafKind === "terminal" ? zoom : undefined}
-            flush
           />
         </ErrorBoundary>
         {/* Swallow pointer events over the body while resizing so the gesture
