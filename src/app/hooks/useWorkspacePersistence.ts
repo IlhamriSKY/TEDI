@@ -1,7 +1,7 @@
 import { type Tab } from "@/modules/tabs";
 import {
   savedActiveTabIndex,
-  savedToTab,
+  restoreTabs,
   serializeTabs,
   useWorkspacesStore,
 } from "@/modules/workspaces";
@@ -78,7 +78,14 @@ export function useWorkspacePersistence({
       hydratedWorkspaceRef.current = true;
       return;
     }
-    const liveTabs: Tab[] = active.tabs.map((s) => savedToTab(s, allocId));
+    const liveTabs: Tab[] = restoreTabs(active.tabs, allocId);
+    // Restoring can come up empty even though the workspace had saved tabs -
+    // see `restoreTabs`. Leave the session alone rather than replacing it with
+    // nothing.
+    if (liveTabs.length === 0) {
+      hydratedWorkspaceRef.current = true;
+      return;
+    }
     const target = liveTabs[Math.min(active.activeTabIndex, liveTabs.length - 1)];
     replaceAllTabs(liveTabs, target?.id ?? null);
     hydratedWorkspaceRef.current = true;

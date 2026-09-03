@@ -91,7 +91,7 @@ export default async function sweep(d) {
       await wait(900);
     }
     // "Close pane", not `terminal.close`: the latter only closes a TERMINAL, so
-    // a browser or editor leaf survives it and the loop spins forever. Keep
+    // an editor or extension leaf survives it and the loop spins forever. Keep
     // going while a non-terminal is the survivor too, because the checks below
     // type shell commands, and closing the last pane hands back a fresh
     // terminal tab.
@@ -494,31 +494,6 @@ export default async function sweep(d) {
       for (let i = 0; i < 4 && (await leaves()) > base.leaves; i++) {
         await d.cmd("terminal.close");
         await wait(900);
-      }
-    },
-  );
-
-  // --- browser pane -------------------------------------------------------
-  await check(
-    "pane.splitBrowser opens a browser pane with an address bar",
-    async () => {
-      await d.cmd("pane.splitBrowser");
-      await wait(3000);
-      const after = await leaves();
-      const bar = await n('input[placeholder="Search or enter address"]');
-      if (after <= base.leaves || !bar)
-        throw new Error(`leaves ${base.leaves} -> ${after}, address bars ${bar}`);
-      await d.cmd("browser.focusAddressBar");
-      await wait(900);
-      const focused = await d.eval(
-        "document.activeElement?.placeholder ?? document.activeElement?.tagName",
-      );
-      return `leaves ${base.leaves} -> ${after}, focus "${focused}"`;
-    },
-    async () => {
-      for (let i = 0; i < 4 && (await leaves()) > base.leaves; i++) {
-        await d.cmd("terminal.close");
-        await wait(1000);
       }
     },
   );

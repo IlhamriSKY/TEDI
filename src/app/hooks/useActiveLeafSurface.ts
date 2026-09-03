@@ -1,9 +1,7 @@
 import { type EditorPaneHandle } from "@/modules/editor";
-import { BROWSER_NAV_EVENT, type BrowserNavEvent } from "@/modules/browser";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import { useLiveUrl } from "./useProjectUrl";
-import { listen } from "@tauri-apps/api/event";
 import type { SearchAddon } from "@xterm/addon-search";
 import {
   useCallback,
@@ -15,17 +13,6 @@ import {
   type RefObject,
   type SetStateAction,
 } from "react";
-import { type TabsApi } from "./tabsApi";
-
-function sameOrigin(a: string, b: string): boolean {
-  try {
-    const ua = new URL(a);
-    const ub = new URL(b);
-    return ua.host === ub.host && ua.protocol === ub.protocol;
-  } catch {
-    return a === b;
-  }
-}
 
 type Params = {
   searchAddons: RefObject<Map<number, SearchAddon>>;
@@ -33,21 +20,20 @@ type Params = {
   detectedUrls: RefObject<Map<number, string>>;
   activeId: number;
   activeLeafIdInTab: number | null;
-  activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
+  activeLeafKindCurrent: "terminal" | "editor" | null;
   tabs: Tab[];
   setActiveSearchAddon: Dispatch<SetStateAction<SearchAddon | null>>;
   setActiveEditorHandle: Dispatch<SetStateAction<EditorPaneHandle | null>>;
   /** Preference: open the project's url by itself once it is found running. */
   autoOpenProjectUrl: boolean;
-  openPreviewTab: (url: string, activate?: boolean) => number | null;
-} & Pick<TabsApi, "setBrowserLeafTitle">;
+  openPreviewTab: (url: string) => void;
+};
 
 /**
  * Surfaces the active leaf's runtime handles to the chrome: on active leaf/tab
  * change it publishes the focused terminal's search addon + detected URL and
- * the focused editor's handle. Also owns the detected-URL state (consumed only
- * by `detectedBrowserUrl`) and keeps browser-pane titles in sync via
- * BROWSER_NAV_EVENT.
+ * the focused editor's handle. Also owns the detected-URL state that
+ * `detectedBrowserUrl` reduces to the one live address worth offering.
  *
  * `activeSearchAddon` / `activeEditorHandle` stay in App (read by the chrome
  * derivations and the editor bridge, and `activeEditorHandle` is also set by
@@ -64,7 +50,6 @@ export function useActiveLeafSurface({
   tabs,
   setActiveSearchAddon,
   setActiveEditorHandle,
-  setBrowserLeafTitle,
   autoOpenProjectUrl,
   openPreviewTab,
 }: Params): {
@@ -133,18 +118,12 @@ export function useActiveLeafSurface({
       )
         ? lastDetected.url
         : null;
-    // Per-candidate, not a whole-result null: opening a preview for one url must
-    // not silence a second dev server that has no tab yet. When every candidate
-    // is already open the list empties, which is correct - there is nothing left
-    // to offer.
-    const isOpen = (url: string) =>
-      tabs.some(
-        (t) =>
-          t.kind === "pane" &&
-          leaves(t.paneTree).some((l) => l.leafKind === "browser" && sameOrigin(l.url, url)),
-      );
+    // Not filtered against what is already open: the pages live in the browser
+    // extension's own tabs, which core cannot see. Offering a url the user
+    // already has open costs one redundant click; suppressing a url whose tab
+    // core merely failed to notice would cost them the feature.
     const ordered = [activeDetectedUrl, fromAnyLeaf, projectUrl].filter((u): u is string => !!u);
-    return [...new Set(ordered)].filter((u) => !isOpen(u));
+    return [...new Set(ordered)];
   }, [activeDetectedUrl, lastDetected, projectUrl, tabs]);
 
   // Only ever the url of a port that is actually answering, so the pill stops
@@ -178,11 +157,10 @@ export function useActiveLeafSurface({
   // printed, so `php artisan serve` / `npm run dev` opens the browser the same
   // way an already-running server does.
   //
-  // The ref is what makes the tab closable. `detectedBrowserUrl` goes null once
-  // a browser leaf holds that origin, so it looks like a sufficient guard - but
-  // closing that tab flips it back to non-null and the effect would reopen it
-  // instantly. Remembering what has been opened means each url auto-opens at
-  // most once per session, and a closed tab stays closed.
+  // The ref is what stops the effect from reopening a page the user closed:
+  // the detected url stays non-null for as long as the server answers, so
+  // without it every close would be undone on the next render. Remembering what
+  // has been opened means each url opens at most once per session.
   const autoOpened = useRef<Set<string>>(undefined!);
   if (!autoOpened.current) autoOpened.current = new Set();
   useEffect(() => {
@@ -191,29 +169,8 @@ export function useActiveLeafSurface({
     autoOpened.current.add(detectedBrowserUrl);
     // Not activated: loaded and waiting, without yanking focus off the terminal
     // mid-command.
-    openPreviewTab(detectedBrowserUrl, false);
+    openPreviewTab(detectedBrowserUrl);
   }, [autoOpenProjectUrl, detectedBrowserUrl, openPreviewTab]);
-
-  // Browser panes report their live document.title via BROWSER_NAV_EVENT,
-  // keyed by the browser leaf id. Apply it to the leaf so the tab/pane label
-  // follows the page. (The URL side is handled inside BrowserPane via reconcile,
-  // which must not re-navigate - so it's deliberately not touched here.)
-  useEffect(() => {
-    let alive = true;
-    let unlisten: (() => void) | undefined;
-    void listen<BrowserNavEvent>(BROWSER_NAV_EVENT, (e) => {
-      const p = e.payload;
-      if (!p || p.kind !== "title" || typeof p.title !== "string") return;
-      setBrowserLeafTitle(p.tabId, p.title);
-    }).then((fn) => {
-      if (alive) unlisten = fn;
-      else fn();
-    });
-    return () => {
-      alive = false;
-      unlisten?.();
-    };
-  }, [setBrowserLeafTitle]);
 
   const handleSearchReady = useCallback(
     (leafId: number, addon: SearchAddon) => {

@@ -794,7 +794,8 @@ large state that does not belong in app settings.
 ### `ctx.app`: none (workspace methods need `workspaces:manage`)
 
 - `getContext(): AppContextSnapshot`: the current app state snapshot (7 fields,
-  see the type above). `activeTabKind` is `"browser"` for the browser/preview tab.
+  see the type above). `activeTabKind` never reports `"browser"` any more: the
+  browser is an extension, so its pane reports `"ext"` like any other.
   **Disclosure:** `terminals[]` is the widest ungated read in this API. It
   includes each terminal's captured OSC 0/2 title, which for an AI CLI is the
   task the user is running, plus the detected idle/working/blocking state, for

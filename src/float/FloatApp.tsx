@@ -2,7 +2,6 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
 import { Streamdown } from "streamdown";
-import { BrowserPane, previewEmbedReparent } from "@/modules/browser";
 import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
 import { decodeFloatParams, floatEv, type FloatCards } from "@/modules/panes/floatProtocol";
 import { BoardColumns } from "@/modules/workspaces/WorkspaceBoard";
@@ -39,18 +38,6 @@ export function FloatApp() {
         /* best-effort: don't block the close on a save failure */
       }
     }
-    // A browser leaf's webview LIVES in this window while floated, and closing a
-    // window destroys the webviews inside it - so hand it back to the main window
-    // first or the page is gone. This is awaited, not fired and forgotten. A raw
-    // OS Alt+F4 still bypasses it, and then the main pane simply recreates the
-    // webview from the tab's url on dock-back (a reload, not a broken pane).
-    if (params?.kind === "browser" && leafId !== undefined) {
-      try {
-        await previewEmbedReparent(leafId, "main");
-      } catch {
-        /* best-effort: closing anyway beats a window that refuses to close */
-      }
-    }
     void getCurrentWindow().close();
   }, [params?.kind, leafId]);
 
@@ -76,8 +63,6 @@ export function FloatApp() {
               <FloatTableView markdown={params.markdown} />
             ) : params?.kind === "editor" && params.path ? (
               <EditorPane ref={editorRef} path={params.path} aiDisabled={params.privateLeaf} />
-            ) : params?.kind === "browser" ? (
-              <FloatBrowser leafId={params.leafId} url={params.url ?? ""} />
             ) : params?.kind === "board" ? (
               <FloatBoard leafId={params.leafId} />
             ) : params?.kind === "extension-panel" && params.extensionId && params.panelId ? (
@@ -98,36 +83,6 @@ export function FloatApp() {
           editor's "Format failed" would fire into nothing. */}
       <Toaster />
     </div>
-  );
-}
-
-/**
- * A browser pane popped out into a float window.
- *
- * The pane is a real native webview docked over a rectangle, not DOM, so it is
- * MOVED here rather than re-created: the page keeps its scroll position, its
- * session and anything it was playing. Nothing has to move it explicitly -
- * `preview_embed_update` adopts the webview into whichever window is pushing
- * bounds - so `BrowserPane` behaves exactly as it does in the main window,
- * because every operation it performs is keyed by leaf id and goes through Rust.
- * It never knew which window it was in.
- */
-function FloatBrowser({ leafId, url }: { leafId: number; url: string }) {
-  const [current, setCurrent] = useState(url);
-  return (
-    <BrowserPane
-      id={leafId}
-      url={current}
-      visible
-      onUrlChange={(u) => {
-        setCurrent(u);
-        // Report back so the leaf in the main window keeps the real address: its
-        // tab title reads from it, and so does the browser list the AI sees in
-        // `<env>`. Without this, browsing inside a floated pane would leave both
-        // showing whatever page it was popped out on.
-        void emit(floatEv.url(leafId), u);
-      }}
-    />
   );
 }
 

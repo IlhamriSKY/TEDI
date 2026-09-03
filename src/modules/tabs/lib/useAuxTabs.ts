@@ -2,8 +2,6 @@ import { useCallback, type Dispatch, type RefObject, type SetStateAction } from 
 import { basename } from "@/lib/path";
 import {
   leaves,
-  updateBrowserLeaf as updateBrowserLeafInTree,
-  updateBrowserLeafTitle as updateBrowserLeafTitleInTree,
   updateExtensionPanelLeaf as updateExtensionPanelLeafInTree,
   type PaneLeaf,
 } from "@/modules/terminal/lib/panes";
@@ -15,7 +13,7 @@ import {
   type ScmTab,
   type Tab,
 } from "./tabTypes";
-import { findAiPane, syncPaneMirror, titleFromUrl, updateLeafTree } from "./tabHelpers";
+import { findAiPane, syncPaneMirror } from "./tabHelpers";
 
 /**
  * Shared mutable handles `useTabs` threads into the aux-tab sub-hook. These
@@ -27,8 +25,6 @@ type AuxTabsDeps = {
   setActiveId: Dispatch<SetStateAction<number>>;
   nextIdRef: RefObject<number>;
   tabsRef: RefObject<Tab[]>;
-  /** Monotonic FIFO counter for the browser chip number, owned by `useTabs`. */
-  nextBrowserOrdinalRef: RefObject<number>;
 };
 
 /**
@@ -36,13 +32,7 @@ type AuxTabsDeps = {
  * `useTabs` unchanged. Bodies and dependency arrays are identical to the
  * originals; `useTabs` spreads the returned callbacks into its return object.
  */
-export function useAuxTabs({
-  setTabs,
-  setActiveId,
-  nextIdRef,
-  tabsRef,
-  nextBrowserOrdinalRef,
-}: AuxTabsDeps) {
+export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabsDeps) {
   const openAiDiffTab = useCallback(
     (input: {
       path: string;
@@ -247,49 +237,6 @@ export function useAuxTabs({
     return tabId;
   }, []);
 
-  const newBrowserTab = useCallback((url: string, activate = true) => {
-    // A browser is a pane leaf like terminal/editor, so a "browser tab" is just
-    // a pane tab whose tree is a single browser leaf - splittable and joinable.
-    const tabId = nextIdRef.current++;
-    const leafId = nextIdRef.current++;
-    setTabs((t) => {
-      // FIFO browser ordinal ("Browser 3"), monotonic via the ref so a closed
-      // browser's number is never reused mid-session. Mirrors terminal ordinals.
-      let max = nextBrowserOrdinalRef.current - 1;
-      for (const tab of t) {
-        if (tab.kind !== "pane") continue;
-        for (const l of leaves(tab.paneTree)) {
-          if (
-            l.leafKind === "browser" &&
-            typeof l.browserOrdinal === "number" &&
-            l.browserOrdinal > max
-          ) {
-            max = l.browserOrdinal;
-          }
-        }
-      }
-      const browserOrdinal = max + 1;
-      nextBrowserOrdinalRef.current = browserOrdinal + 1;
-      const leaf: PaneLeaf = { kind: "leaf", id: leafId, leafKind: "browser", url, browserOrdinal };
-      return [
-        ...t,
-        syncPaneMirror({
-          id: tabId,
-          kind: "pane",
-          title: titleFromUrl(url),
-          paneTree: leaf,
-          activeLeafId: leafId,
-        }),
-      ];
-    });
-    // Background opens (e.g. the AI opening a browser to read) pass activate:false
-    // so the user's current tab keeps focus. The pane still mounts and its native
-    // webview is created OFF-SCREEN (see preview_embed_update's background-create
-    // branch), so the page loads and reads work headless without focusing the tab.
-    if (activate) setActiveId(tabId);
-    return tabId;
-  }, []);
-
   /**
    * Open (or focus) an extension-owned tab. Caller passes a `reuseKey` to
    * dedupe; if a tab with the same `(extensionId, panelId, reuseKey)`
@@ -383,8 +330,8 @@ export function useAuxTabs({
 
   /**
    * Open (or focus) an extension panel as a NATIVE pane leaf — same frame as a
-   * terminal/editor/browser, splittable and joinable — instead of a standalone
-   * `kind:"ext"` tab. Mirrors `newBrowserTab` (a pane tab whose tree is a single
+   * terminal or editor, splittable and joinable — instead of a standalone
+   * `kind:"ext"` tab. Built like any other pane tab (a tree that is a single
    * leaf). If the panel is already live as a pane leaf anywhere, that pane is
    * focused instead of mounting a duplicate (the panel keeps module singletons).
    */
@@ -476,22 +423,6 @@ export function useAuxTabs({
     [],
   );
 
-  /** Update a preview (browser) leaf's URL by id. Mirrors the title when the
-   *  leaf is active. Driven by the browser pane reporting in-page navigation. */
-  const setBrowserLeafUrl = useCallback((leafId: number, url: string) => {
-    setTabs((curr) =>
-      updateLeafTree(curr, leafId, (tree) => updateBrowserLeafInTree(tree, leafId, url)),
-    );
-  }, []);
-
-  /** Update a preview leaf's page title by id (from the webview's
-   *  document.title). Re-syncs the tab/pane label. */
-  const setBrowserLeafTitle = useCallback((leafId: number, title: string) => {
-    setTabs((curr) =>
-      updateLeafTree(curr, leafId, (tree) => updateBrowserLeafTitleInTree(tree, leafId, title)),
-    );
-  }, []);
-
   return {
     openAiDiffTab,
     setAiDiffStatus,
@@ -500,11 +431,8 @@ export function useAuxTabs({
     openBoardTab,
     openScmPane,
     openAiPane,
-    newBrowserTab,
     openExtensionTab,
     openExtensionPane,
     setExtensionTabState,
-    setBrowserLeafUrl,
-    setBrowserLeafTitle,
   };
 }

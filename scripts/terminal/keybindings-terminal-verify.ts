@@ -70,7 +70,7 @@ expect("Ctrl+Tab (next tab)", { code: "Tab", ctrlKey: true }, false);
 expect("Ctrl+1 (jump to tab)", { code: "Digit1", ctrlKey: true }, false);
 expect("Ctrl+= (zoom in)", { code: "Equal", ctrlKey: true }, false);
 expect("Ctrl+, (settings)", { code: "Comma", ctrlKey: true }, false);
-expect("Ctrl+Alt+P (new browser tab)", { code: "KeyP", ctrlKey: true, altKey: true }, false);
+expect("Ctrl+Alt+P (extension chord)", { code: "KeyP", ctrlKey: true, altKey: true }, false);
 expect("Shift+Alt+F (format doc)", { code: "KeyF", shiftKey: true, altKey: true }, false);
 expect("Cmd+D on macOS (meta, not ctrl)", { code: "KeyD", metaKey: true }, false);
 expect("plain D (no modifier)", { code: "KeyD" }, false);

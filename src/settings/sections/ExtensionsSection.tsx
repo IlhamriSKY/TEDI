@@ -16,7 +16,6 @@ import { Label } from "../components/Label";
 import { SectionHeader } from "../components/SectionHeader";
 import { SettingsCard } from "../components/SettingsCard";
 import { UploadButton } from "../components/UploadButton";
-import { BrowserExtensionsCard } from "./components/BrowserExtensionsCard";
 import { ExtensionCard } from "./components/ExtensionCard";
 import { checkSingleUpdate, updateOne } from "./components/extensionUpdate";
 import {
@@ -529,12 +528,6 @@ export function ExtensionsSection() {
           ))
         )}
       </div>
-
-      {/* Chrome/Edge extensions for the browser pane. A different subsystem to
-          everything above (those are TEDI extensions), but this is where someone
-          looking for "extensions" will go, so it lives here rather than behind a
-          section of its own. */}
-      <BrowserExtensionsCard />
 
       <InstallReviewDialog
         pending={pending}

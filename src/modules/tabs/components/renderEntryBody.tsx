@@ -175,8 +175,8 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
           // No `truncate` here; its `overflow:hidden` would clip the ordinal
           // badge. `min-w-0` keeps flex-shrink so the inner label can ellipsize.
           "flex min-w-0 items-center gap-1.5",
-          // Cap tab width so long page titles (browser panes) don't make tabs
-          // huge; the inner label truncates with an ellipsis past this. A
+          // Cap tab width so a long title does not make tabs huge; the inner
+          // label truncates with an ellipsis past this. A
           // pinned tab has no label to cap.
           compact ? "max-w-32" : "max-w-44",
         )}

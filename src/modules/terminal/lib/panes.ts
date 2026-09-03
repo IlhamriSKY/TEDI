@@ -109,27 +109,6 @@ export type EditorLeafState = {
   customTitle?: string;
 };
 
-export type BrowserLeafState = {
-  leafKind: "browser";
-  /** Current page URL of the embedded browser. Empty = show the address bar. */
-  url: string;
-  /** Live `document.title` of the page, reported by the webview. Drives the
-   *  tab/pane label; falls back to the URL host when empty. */
-  title?: string;
-  /**
-   * FIFO creation index for browser leaves, 1-based. Shown on the tab chip
-   * exactly like `terminalOrdinal` on terminals, with its own counter (so
-   * browsers number "Browser 1, 2, 3" independently of terminals). Set at
-   * creation, preserved across split/drag/move/restart. Optional for
-   * back-compat with older saved state.
-   */
-  browserOrdinal?: number;
-  /** Privacy flag, kept for uniformity with the other leaf kinds. */
-  private?: boolean;
-  /** User-chosen tab name; see {@link TerminalLeafState.customTitle}. */
-  customTitle?: string;
-};
-
 export type ExtensionPanelLeafState = {
   leafKind: "extension-panel";
   /** Owning extension id + the panel id registered via
@@ -209,7 +188,6 @@ export type AiLeafState = {
 export type LeafState =
   | TerminalLeafState
   | EditorLeafState
-  | BrowserLeafState
   | ExtensionPanelLeafState
   | BoardLeafState
   | ScmLeafState
@@ -244,9 +222,8 @@ export type CanvasRect = {
    *
    * Applied per leaf kind, through the arm that works there: a terminal scales
    * xterm's `fontSize` (CSS `zoom` on a WebGL canvas breaks cursor and glyph
-   * positioning - see `effectiveTerminalFontSize`), and every DOM-bodied pane
-   * takes CSS `zoom`. A browser pane is a NATIVE webview composited over the
-   * DOM, which no CSS can touch, so it keeps its own zoom buttons instead.
+   * positioning - see `effectiveTerminalFontSize`), and every other pane takes
+   * CSS `zoom`.
    */
   zoom?: number;
   /**
@@ -509,23 +486,6 @@ export function setLeafCanvasRect(n: PaneNode, id: PaneId, patch: Partial<Canvas
  *  normally seeds a cascaded one first; this only keeps the type total. */
 const DEFAULT_CANVAS_RECT: CanvasRect = { x: 4, y: 5, w: 46, h: 48, z: 1 };
 
-export function updateBrowserLeaf(n: PaneNode, id: PaneId, url: string): PaneNode {
-  if (isLeaf(n)) {
-    if (n.id !== id || n.leafKind !== "browser" || n.url === url) return n;
-    return { ...n, url };
-  }
-  return { ...n, children: n.children.map((c) => updateBrowserLeaf(c, id, url)) };
-}
-
-/** Update a preview leaf's page title. No-op for other leaves or mismatched ids. */
-export function updateBrowserLeafTitle(n: PaneNode, id: PaneId, title: string): PaneNode {
-  if (isLeaf(n)) {
-    if (n.id !== id || n.leafKind !== "browser" || n.title === title) return n;
-    return { ...n, title };
-  }
-  return { ...n, children: n.children.map((c) => updateBrowserLeafTitle(c, id, title)) };
-}
-
 /** Patch an extension-panel leaf's `title` and/or lifecycle `state` by id.
  *  `state: null` clears the tone. Returns the same tree by reference when
  *  nothing changed so callers can bail. No-op for other leaves / mismatched
@@ -574,7 +534,7 @@ export function updateEditorLeaf(
 
 /**
  * Clone a leaf's state (without its id) for a live move/extract, so the leaf's
- * attached PTY / editor session / browser webview travels with it. Drops the
+ * attached PTY or editor session travels with it. Drops the
  * serialization-only `ptyId`/`savedPtyId` (the live session re-stamps them).
  */
 export function cloneLeafState(leaf: PaneLeaf): LeafState {
@@ -630,13 +590,11 @@ export function cloneLeafState(leaf: PaneLeaf): LeafState {
       ...(leaf.private ? { private: true } : {}),
     };
   }
-  return {
-    leafKind: "browser",
-    url: leaf.url,
-    ...(leaf.title ? { title: leaf.title } : {}),
-    ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
-    ...(leaf.private ? { private: true } : {}),
-  };
+  // Exhaustive by construction. Assigning to `never` is what turns a newly
+  // added leaf kind into a compile error here instead of a silent clone that
+  // drops half its state on the first drag.
+  const unhandled: never = leaf;
+  return unhandled;
 }
 
 /**

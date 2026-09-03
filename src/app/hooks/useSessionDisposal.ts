@@ -1,6 +1,4 @@
 import { type EditorPaneHandle } from "@/modules/editor";
-import { browserEmbedClose, browserEmbedHide } from "@/modules/browser";
-import { useFloatStore } from "@/modules/panes";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -42,78 +40,27 @@ export function useSessionDisposal({
   setSshStatuses,
   setAiCliStatuses,
 }: Params): void {
-  // Subscribed, not read once: a browser leaf that docks back from a float window
-  // while its workspace is still inactive has to be re-evaluated for hiding, and
-  // that only happens if a change here re-runs the effect below.
-  const floating = useFloatStore((s) => s.floating);
   const liveLeavesRef = useRef<Set<number>>(new Set());
-  const liveBrowserRef = useRef<Set<number>>(new Set());
-  // Inactive-workspace preview leaves whose always-on-top webview we've already
-  // hidden, so the hide fires once per switch-away instead of on every `tabs`
-  // change. Cleared when the leaf returns to the active workspace or closes.
-  const hiddenInactiveBrowserRef = useRef<Set<number>>(new Set());
   useEffect(() => {
     const liveTerm = new Set<number>();
     const liveEditor = new Set<number>();
-    const liveBrowser = new Set<number>();
-    // Browser leaves whose `BrowserPane` is actually MOUNTED right now: only the
-    // active workspace's tabs render. A browser leaf that's in `liveBrowser`
-    // (kept alive across workspaces) but NOT here has an unmounted pane, so
-    // nothing drives its webview's hide.
-    const activeBrowser = new Set<number>();
-    const collect = (t: Tab, mounted: boolean) => {
+    const collect = (t: Tab) => {
       if (t.kind !== "pane") return;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind === "terminal") liveTerm.add(l.id);
-        else if (l.leafKind === "browser") {
-          liveBrowser.add(l.id);
-          if (mounted) activeBrowser.add(l.id);
-        } else if (l.leafKind === "editor") liveEditor.add(l.id);
+        else if (l.leafKind === "editor") liveEditor.add(l.id);
         // extension-panel leaves own their lifecycle via the React mount +
         // the extension's cleanup callback; nothing to dispose here.
       }
     };
-    for (const t of tabs) collect(t, true);
+    for (const t of tabs) collect(t);
     for (const cached of liveTabsByWorkspace.current.values()) {
-      for (const t of cached.tabs) collect(t, false);
+      for (const t of cached.tabs) collect(t);
     }
     for (const id of liveLeavesRef.current) {
       if (!liveTerm.has(id)) disposeSession(id);
     }
     liveLeavesRef.current = liveTerm;
-    // Close a preview's native webview only when its leaf is gone from ALL
-    // workspaces (truly closed), mirroring terminal session disposal. Keying off
-    // the cross-workspace union avoids destroying a preview just because its
-    // workspace became inactive (which would then blank on return).
-    for (const id of liveBrowserRef.current) {
-      if (!liveBrowser.has(id)) {
-        void browserEmbedClose(id).catch(() => {});
-        hiddenInactiveBrowserRef.current.delete(id);
-      }
-    }
-    liveBrowserRef.current = liveBrowser;
-    // A preview alive in an INACTIVE workspace has an unmounted `BrowserPane`,
-    // so its rAF hide loop is gone while the native webview (which composites
-    // ABOVE the DOM) stays shown - floating over the now-active workspace. Hide
-    // it (without destroying, so switching back doesn't reload). Switching back
-    // remounts the pane, which re-shows + repositions via its rAF loop. The
-    // latch makes this fire once per switch-away, not on every `tabs` change.
-    for (const id of liveBrowser) {
-      if (!activeBrowser.has(id)) {
-        // A FLOATED pane's webview was moved into its float window, so it is not
-        // compositing over this one and hiding it would simply blank the float.
-        // Skipped without latching, so the hide still happens if it docks back
-        // while its workspace or tab is still the inactive one - which is why
-        // `floating` is an effect dependency rather than a one-shot read.
-        if (floating.has(id)) continue;
-        if (!hiddenInactiveBrowserRef.current.has(id)) {
-          hiddenInactiveBrowserRef.current.add(id);
-          void browserEmbedHide(id).catch(() => {});
-        }
-      } else {
-        hiddenInactiveBrowserRef.current.delete(id);
-      }
-    }
     for (const k of [...terminalRefs.current.keys()])
       if (!liveTerm.has(k)) terminalRefs.current.delete(k);
     for (const k of [...searchAddons.current.keys()])
@@ -144,5 +91,5 @@ export function useSessionDisposal({
       }
       return mutated ? next : prev;
     });
-  }, [tabs, floating]);
+  }, [tabs]);
 }

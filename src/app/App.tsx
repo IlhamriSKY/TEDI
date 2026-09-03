@@ -26,6 +26,8 @@
  *
  * See ARCHITECTURE.md for the two-process model and TEDI.md for full detail.
  */
+import { useBrowserExtensionReady } from "@/modules/extensions/browserBridge";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { pathToFileUrl } from "@/lib/path";
 import { ResizableHandle, ResizablePanelGroup } from "@/components/ui/resizable";
 import { Toaster } from "@/components/ui/toast";
@@ -123,7 +125,6 @@ export default function App() {
     newSshTab,
     openFileTab,
     pinTab,
-    newBrowserTab,
     openExtensionTab,
     openExtensionPane,
     setExtensionTabState,
@@ -137,8 +138,6 @@ export default function App() {
     closeTab,
     selectByIndex,
     setLeafCwd,
-    setBrowserLeafUrl,
-    setBrowserLeafTitle,
     setLeafPtyId,
     setLeafActiveTool,
     setSplitSizes,
@@ -351,6 +350,10 @@ export default function App() {
   // editor / preview keep native resolution and their own `--content-zoom`.
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
   const autoOpenProjectUrl = usePreferencesStore((s) => s.autoOpenProjectUrl);
+  // The preview pill and the auto-open both hand their url to the browser
+  // extension, so both stay hidden until one is installed - a globe that
+  // opens nothing is worse than no globe.
+  const browserReady = useBrowserExtensionReady();
   // Apply --content-zoom (CSS var) and body.zoom from the prefs values.
   useApplyZoom(contentZoom, uiZoom);
 
@@ -752,7 +755,6 @@ export default function App() {
     setActiveId,
     newTab,
     newPaneGroupTab,
-    newBrowserTab,
     setLeafCwd,
     splitActivePane,
     moveLeafToTab,
@@ -760,7 +762,7 @@ export default function App() {
   });
 
   // On active leaf/tab change, surface the focused leaf's search addon,
-  // editor handle, and detected URL to the chrome; track browser-pane titles.
+  // editor handle, and detected URL to the chrome.
   const {
     handleSearchReady,
     handleDetectedLocalUrl,
@@ -777,7 +779,6 @@ export default function App() {
     tabs,
     setActiveSearchAddon,
     setActiveEditorHandle,
-    setBrowserLeafTitle,
     autoOpenProjectUrl,
     openPreviewTab,
   });
@@ -820,15 +821,13 @@ export default function App() {
   // beside the other drop listeners because it needs `handleOpenFile`.
   useEditorFileDrop({ openFile: handleOpenFile, newTerminalTab: newTab });
 
-  // Explorer "Preview in Browser" (HTML files): open the local file in a new
-  // in-app browser preview tab via its file:// URL.
-  const handlePreviewFileInBrowser = useCallback(
-    (path: string) => {
-      const url = pathToFileUrl(path);
-      if (url) openPreviewTab(url, true);
-    },
-    [openPreviewTab],
-  );
+  // Explorer "Preview in Browser" (HTML files): hand the local file to the
+  // user's own browser by its file:// URL. The system browser renders HTML and
+  // PDF natively, and it is the surface a "preview this file" click means.
+  const handlePreviewFileInBrowser = useCallback((path: string) => {
+    const url = pathToFileUrl(path);
+    if (url) void openUrl(url).catch(console.error);
+  }, []);
 
   const { searchTarget, activeCwd, activeFilePath } = useChromeDerivations({
     isTerminalLike,
@@ -851,7 +850,6 @@ export default function App() {
       buildShortcutHandlers({
         openNewTab,
         openNewPrivateTab,
-        openPreviewTab,
         handleCloseTabOrPane,
         cycleTab,
         selectByIndex,
@@ -896,16 +894,10 @@ export default function App() {
     ],
   );
 
-  // Gate the browser.* shortcuts to a focused browser pane so they fall through
-  // to the shell/editor everywhere else - the terminal keeps Ctrl+Shift+R,
-  // Alt+Left/Right, etc. on Windows, Linux, and macOS. pane.splitBrowser is
-  // intentionally not gated: like the other splits it acts on whatever pane is
-  // focused. The options object is read fresh each keydown (see useGlobalShortcuts),
-  // so closing over activeLeafKindCurrent without a dep array is fine.
+  // The options object is read fresh each keydown (see useGlobalShortcuts), so
+  // closing over activeLeafKindCurrent without a dep array is fine.
   useGlobalShortcuts(shortcutHandlers, {
     isDisabled: (id: ShortcutId, e) => {
-      if (id.startsWith("browser.")) return activeLeafKindCurrent !== "browser";
-
       // Copy/paste is decided here in full, off REAL keyboard focus rather than
       // the active leaf - see `focusedTerminalLeafId`. Both carry a bare chord
       // (Ctrl+C / Ctrl+V, the pair Termius and Windows Terminal bind, and what
@@ -1009,7 +1001,6 @@ export default function App() {
     explorerRoot,
     home,
     openPreviewTab,
-    setBrowserLeafUrl,
     newTab,
     newSshTab,
     inheritedCwdForNewTab,
@@ -1193,7 +1184,7 @@ export default function App() {
               />
               <ResizableHandle withHandle />
               <WorkspaceArea
-                previewUrl={detectedBrowserUrl}
+                previewUrl={browserReady ? detectedBrowserUrl : null}
                 previewLeafId={previewLeafId}
                 onOpenPreview={handleOpenDetectedPreview}
                 tabs={tabs}
@@ -1219,7 +1210,6 @@ export default function App() {
                 hasExtensionTab={hasExtensionTab}
                 respondToApproval={respondToApproval}
                 onPathDeleted={handlePathDeleted}
-                setBrowserLeafUrl={setBrowserLeafUrl}
                 movePaneLeafToEdge={movePaneLeafToEdge}
                 moveExtTabToPane={moveExtTabToPane}
                 openGitDiffTab={openGitDiffTab}

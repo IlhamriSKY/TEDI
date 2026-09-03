@@ -39,7 +39,6 @@ type Props = {
   onDirtyChange: (leafId: number, dirty: boolean) => void;
   onCloseLeaf: (leafId: number) => void;
   // Preview (browser) leaf callbacks
-  onBrowserUrlChange: (leafId: number, url: string) => void;
   /** Editor leaf ids rendered as markdown preview instead of source. */
   mdPreviewLeafIds: ReadonlySet<number>;
   // Shared
@@ -67,7 +66,7 @@ type Props = {
   /** Pane that carries the globe: the leaf that printed the url, so it does not
    *  hop between headers as panes take focus. */
   previewLeafId?: number | null;
-  /** Opens `previewUrl` as a preview tab. */
+  /** Opens `previewUrl` in the browser. */
   onOpenPreview?: () => void;
   /** Persist a split node's per-child size percentages after a divider drag. */
   onSplitSizes?: (splitId: number, sizes: number[]) => void;
@@ -122,7 +121,6 @@ export function PaneStack({
   registerEditorHandle,
   onDirtyChange,
   onCloseLeaf,
-  onBrowserUrlChange,
   mdPreviewLeafIds,
   onFocusLeaf,
   onMovePaneLeaf,
@@ -185,7 +183,6 @@ export function PaneStack({
     registerEditorHandle,
     onDirtyChange,
     onCloseLeaf,
-    onBrowserUrlChange,
   });
   cbRef.current = {
     registerTerminalHandle,
@@ -201,7 +198,6 @@ export function PaneStack({
     registerEditorHandle,
     onDirtyChange,
     onCloseLeaf,
-    onBrowserUrlChange,
   };
 
   // The workspace-wide values both views hand to their leaves. Built once here
@@ -261,7 +257,6 @@ export function PaneStack({
         setEditorRef: (h) => cbRef.current.registerEditorHandle(leafId, h),
         onDirtyChange: (dirty) => cbRef.current.onDirtyChange(leafId, dirty),
         onCloseLeaf: () => cbRef.current.onCloseLeaf(leafId),
-        onBrowserUrlChange: (url) => cbRef.current.onBrowserUrlChange(leafId, url),
       };
       bundles.current.set(leafId, b);
     }
@@ -269,9 +264,9 @@ export function PaneStack({
   };
 
   // Prune per-leaf bundles whose leaf has disappeared from the active
-  // workspace's tabs. The native browser webview close decision lives in
-  // useSessionDisposal instead, which reconciles against ALL workspaces so a
-  // preview leaf isn't destroyed merely because its workspace went inactive.
+  // workspace's tabs. Session disposal itself lives in `useSessionDisposal`,
+  // which reconciles against ALL workspaces so a leaf is not torn down merely
+  // because its workspace went inactive.
   useEffect(() => {
     const live = new Set<number>();
     for (const t of paneTabs) {

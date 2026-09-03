@@ -1,6 +1,6 @@
 import type { UIMessage } from "@ai-sdk/react";
 import { findLastIndex } from "@/lib/utils";
-import type { BrowserInfo, TerminalInfo } from "@/modules/scheduler/types";
+import type { TerminalInfo } from "@/modules/scheduler/types";
 
 /**
  * The per-turn `<env>` block and where it goes in the message list.
@@ -17,9 +17,6 @@ export type LiveSnapshot = {
   /** Every terminal in tab order. Surfaced in the per-turn <env> so the AI
    *  can address terminals by ordinal/title without `list_terminals`. */
   terminals: TerminalInfo[];
-  /** Every open in-app browser pane, so the AI can see what the user is
-   *  viewing (URL + tab/leaf ids) without a tool call. */
-  browsers: BrowserInfo[];
 };
 
 /** `<env>` blocks already SENT, keyed by user-message id. One per chat session;
@@ -102,15 +99,6 @@ export function formatEnvBlock(live: LiveSnapshot): string | null {
       lines.push(
         `  #${t.ordinal}${star} tab=${t.tabId} leaf=${t.leafId} ${t.title}${cwd ? "  " + cwd : ""}${agent}`,
       );
-    }
-  }
-  if (live.browsers.length > 0) {
-    // In-app browser panes the user is viewing. The asterisk marks the focused
-    // one. The agent can open/reuse a browser with `open_browser`.
-    lines.push("browsers:");
-    for (const b of live.browsers) {
-      const star = b.isActive ? "*" : " ";
-      lines.push(`  ${star} tab=${b.tabId} leaf=${b.leafId} ${b.url || "(blank)"}`);
     }
   }
   if (lines.length === 0) return null;

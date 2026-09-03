@@ -31,7 +31,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { makeTransport } from "./transport.mjs";
-import { TOOL_DEFS, TOOL_NAMES, validateArgs } from "./tools.mjs";
+import { TOOL_DEFS, TOOL_NAMES, validateArgs, extToolMedia } from "./tools.mjs";
 
 /**
  * True only when this file is the process entry point. `scripts/mcp/driver-verify.ts`
@@ -365,153 +365,6 @@ const HANDLERS = {
     return `opened SSH connection ${a.id}, but its pane did not appear in time - call \`state\` for its leafId`;
   },
 
-  browser: async (d, a) => {
-    // History and the address bar are ordinary registered commands and act on
-    // the FOCUSED pane; the rest are Rust calls that need the leaf.
-    // `address` focuses the URL bar of whichever pane has focus, which is what
-    // that affordance means; there is no per-leaf equivalent. Every other verb
-    // takes a leafId and is handled once the pane is resolved below.
-    if (a.action === "address") {
-      await d.cmd("browser.focusAddressBar");
-      return "focused the address bar";
-    }
-    if (a.action === "list") return json(await d.browserList());
-    if (a.action === "open") {
-      if (!a.url) throw new Error("open needs `url`.");
-      // Reuse ONE open pane by default rather than spawning a tab per page.
-      // Only when exactly one is open: with two or more, one of them may be the
-      // user's own, and hijacking it is worse than an extra tab.
-      if (a.newTab !== true) {
-        const open = await d.browserList();
-        if (open.length === 1 && (await d.browserNav(open[0].leafId, a.url)) === true) {
-          return a.read === true
-            ? String((await d.browserRead(open[0].leafId, false)) ?? "")
-            : `navigated leaf ${open[0].leafId} to ${a.url} (reused)`;
-        }
-      }
-      const tab = await d.browserOpen(a.url);
-      // A string means it could not: the helper answers with the reason
-      // rather than null, which the driver would read as a missing surface.
-      if (typeof tab === "number") return `opened ${a.url} (tab ${tab})`;
-      // Fall back to the two steps that are independently proven: the command
-      // registry makes a blank preview pane, then setting the LEAF's url is
-      // what BrowserPane actually watches. (Driving `preview_embed_navigate`
-      // instead would silently no-op - a blank pane has no native webview
-      // until the app has given it a url.)
-      const before = new Set((await d.browserList()).map((b) => b.leafId));
-      await d.cmd("tab.newPreview");
-      await d.wait(1500);
-      const fresh = (await d.browserList()).find((b) => !before.has(b.leafId));
-      if (!fresh) throw new Error(`${tab} (and opening a preview tab did not create one either)`);
-      const nav = await d.browserNav(fresh.leafId, a.url);
-      if (nav !== true) throw new Error(String(nav));
-      return `opened ${a.url} (leaf ${fresh.leafId})`;
-    }
-    // Resolve AND authorize against the same list, always.
-    //
-    // `browserList()` is privacy-filtered in the app (`buildLiveContext`), but
-    // an explicitly-passed `leafId` used to skip it entirely - and two actions
-    // below (`url`, `console`) then call `preview_embed_*` by raw tab id,
-    // which has no notion of privacy on the Rust side. That read a private
-    // browser pane's address and console output by id. `navigate` and `read`
-    // route through the filtered context and were already safe; checking here
-    // covers all four the same way, and keeps a future action from inheriting
-    // the hole by being written against `leaf` directly.
-    const visible = await d.browserList();
-    if (!visible.length) {
-      throw new Error('No browser pane is open. Use action "open" with a `url` first.');
-    }
-    const leaf = a.leafId ?? visible[0].leafId;
-    if (!visible.some((b) => b.leafId === leaf)) {
-      throw new Error(
-        `No browser pane with leafId ${leaf}. Open ones: ${visible.map((b) => b.leafId).join(", ")}.`,
-      );
-    }
-    switch (a.action) {
-      case "back":
-      case "forward":
-      case "reload": {
-        // Driven per LEAF, not by running the matching command id. A command acts
-        // on whichever pane holds focus, so a reload aimed at a named browser
-        // could land on another pane entirely - and report success either way.
-        const r = await d.browserDispatch(leaf, a.action);
-        if (r !== true) throw new Error(String(r));
-        return `${a.action} on leaf ${leaf}`;
-      }
-      case "navigate":
-        if (!a.url) throw new Error("navigate needs `url`.");
-        {
-          const r = await d.browserNav(leaf, a.url);
-          if (r !== true) throw new Error(String(r));
-          return `navigated leaf ${leaf} to ${a.url}`;
-        }
-      case "url": {
-        // Read from the same privacy-filtered snapshot that authorized `leaf`
-        // above. Going back to Rust by id would both skip that filter and pin
-        // this action to CDP, which exists only on Windows.
-        const hit = (await d.browserList()).find((b) => b.leafId === leaf);
-        return String(hit?.url ?? "(none)");
-      }
-      case "read":
-        return String(
-          (await d.browserRead(leaf, a.fields === true)) ??
-            "(nothing to read - has this pane loaded a page?)",
-        );
-      case "console":
-        // The bridged capability, not a raw Rust call: it honours the pane
-        // privacy filter and works on every platform, where CDP is Windows-only.
-        return json(await d.browserConsole(leaf));
-      case "screenshot": {
-        // Returned as a PATH, not base64, exactly like the `screenshot` tool:
-        // this transport only ever emits text blocks (see `reply`), so an inline
-        // image would be a megabyte of base64 in the conversation.
-        const shot = await d.browserShot(leaf);
-        // Not a length test. The in-realm helper answers a SENTENCE, not null,
-        // when the AI panel has never mounted, and that sentence is over 100
-        // characters - so `length` alone would write the apology out as a JPEG.
-        if (typeof shot !== "string" || !/^[A-Za-z0-9+/=]{100,}$/.test(shot)) {
-          throw new Error(String(shot));
-        }
-        const file = path.join(mkdtempSync(path.join(tmpdir(), "tedi-shot-")), "browser.jpg");
-        writeFileSync(file, Buffer.from(shot, "base64"));
-        return file;
-      }
-      default: {
-        // The act verbs all land on one in-realm call; only the argument
-        // mapping differs. `index` is the `[N]` from a `read` with `fields`.
-        const act = {
-          click: "click",
-          hover: "hover",
-          type: "type",
-          key: "key",
-          scroll: "scroll",
-          click_at: "clickxy",
-        }[a.action];
-        if (!act) throw new Error(`Unknown action: ${a.action}`);
-        const text =
-          a.action === "scroll"
-            ? String(a.to ?? "down")
-            : a.action === "click_at"
-              ? `${a.x},${a.y}`
-              : String(a.text ?? "");
-        const needsIndex = a.action === "click" || a.action === "hover" || a.action === "type";
-        if (needsIndex && a.index === undefined) {
-          throw new Error(
-            `${a.action} needs \`index\` - call read with \`fields\` first to get the [N] list.`,
-          );
-        }
-        const r = await d.browserAct(leaf, a.index ?? 0, act, text, a.submit === true);
-        if (r !== "ok") {
-          throw new Error(
-            r === "not-found"
-              ? `No control [${a.index}] on leaf ${leaf} - read with \`fields\` again, the indices reset on every navigation.`
-              : String(r),
-          );
-        }
-        return `${a.action} ok on leaf ${leaf}`;
-      }
-    }
-  },
 
   pane: async (d, a) => {
     switch (a.action) {
@@ -720,9 +573,20 @@ async function extensionTools() {
       (e.aiTools ?? []).map((t) => ({
         name: `ext_${t.name}`,
         description: `${t.description ?? ""} (from the ${e.name} extension)`.trim(),
-        // The extension owns the real schema; it is not on this side of the
-        // boundary, so take an open object and let the handler pass it through.
-        inputSchema: { type: "object", properties: {}, additionalProperties: true },
+        // The extension's OWN JSON Schema, so a tool with an `action` enum
+        // advertises that enum instead of an anonymous bag. This used to be a
+        // fixed open object because the schema did not cross the bridge; it does
+        // now (`listExtensions` in `modules/extensions/store.ts`).
+        //
+        // The open object stays as the fallback, and is not dead code: a
+        // disk-snapshot answer written by an older host carries no `parameters`,
+        // and an extension may legitimately declare none. An empty `properties`
+        // with `additionalProperties: false` would reject every argument, so the
+        // permissive shape is the only safe stand-in for "schema unknown".
+        inputSchema:
+          t.parameters && typeof t.parameters === "object"
+            ? t.parameters
+            : { type: "object", properties: {}, additionalProperties: true },
         _ext: { extensionId: e.id, tool: t.name },
       })),
     );
@@ -830,7 +694,18 @@ async function callTool(name, args) {
     const d = await tedi();
     const out = await d.extCommand(routed.extensionId, routed.tool, args ?? {});
     if (!out) throw new Error(`${routed.extensionId} no longer answers to "${routed.tool}".`);
-    return out.kind === "aiTool" ? json(out.result) : `ran ${routed.tool}`;
+    if (out.kind !== "aiTool") return `ran ${routed.tool}`;
+    // An image comes back as a real MCP image block rather than base64 buried in
+    // a JSON string, which is the difference between a client rendering it and a
+    // model being handed characters it cannot decode.
+    const media = extToolMedia(out.result);
+    if (!media) return json(out.result);
+    return {
+      content: [
+        ...(media.text ? [{ type: "text", text: media.text }] : []),
+        { type: "image", data: media.data, mimeType: media.mimeType },
+      ],
+    };
   }
   const tool = TOOLS[name];
   if (!tool) {
@@ -910,8 +785,14 @@ async function handle(msg) {
       return reply({ tools: await listTools() });
     case "tools/call":
       try {
-        const text = await callTool(msg.params?.name, msg.params?.arguments);
-        return reply({ content: [{ type: "text", text: String(text) }] });
+        const out = await callTool(msg.params?.name, msg.params?.arguments);
+        // A handler may answer with ready-made content blocks (an image) instead
+        // of a string; everything else is still wrapped as one text block.
+        return reply(
+          out && typeof out === "object" && Array.isArray(out.content)
+            ? out
+            : { content: [{ type: "text", text: String(out) }] },
+        );
       } catch (err) {
         // `isError`, not a JSON-RPC error: a tool failing is something the agent
         // should read and act on (start TEDI, dismiss the toast, pick a real

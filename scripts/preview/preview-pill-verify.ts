@@ -167,8 +167,15 @@ console.log("3. the globe sits on the pane that PRINTED the url, not the focused
   // The chain App -> WorkspaceArea -> PaneStack -> PaneTreeView must be whole,
   // or the globe silently never appears.
   assert(
-    /previewUrl=\{detectedBrowserUrl\}/.test(read("src/app/App.tsx")),
+    /previewUrl=\{browserReady \? detectedBrowserUrl : null\}/.test(read("src/app/App.tsx")),
     "App feeds it the live url",
+  );
+  // Gated, not merely passed. The pill hands its url to the browser extension,
+  // so without one installed the globe would open nothing at all - and an
+  // affordance that does nothing is worse than an absent one.
+  assert(
+    /const browserReady = useBrowserExtensionReady\(\)/.test(read("src/app/App.tsx")),
+    "and hides it entirely when no browser extension is installed",
   );
   assert(
     /previewLeafId=\{previewLeafId\}/.test(read("src/app/App.tsx")),

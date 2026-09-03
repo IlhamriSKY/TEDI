@@ -74,7 +74,7 @@ export async function callBridge(name: string, args: unknown[] = []): Promise<un
  *
  * Gated on `__TEDI_AUTOMATION__` (set by a Tauri init script when an automation
  * port is configured) because anything on `window` is readable by every script
- * in the page, including a previewed third-party page in a browser pane.
+ * running in the page.
  */
 function syncWindow(): void {
   if (typeof window === "undefined") return;

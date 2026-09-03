@@ -39,7 +39,7 @@ type Props = {
   onOpenFile: (path: string, pin?: boolean) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
-  /** Open an HTML file in the in-app browser preview. */
+  /** Open an HTML file in the browser. */
   onPreviewInBrowser?: (path: string) => void;
   selectedPath: string | null;
   onSelectPath: (path: string) => void;

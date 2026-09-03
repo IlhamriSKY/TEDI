@@ -44,7 +44,6 @@ const HANDLED = new Set<string>([
   "commandPalette.open",
   "tab.new",
   "tab.newPrivate",
-  "tab.newPreview",
   "tab.newEditor",
   "tab.newAgent",
   "tab.close",
@@ -55,11 +54,6 @@ const HANDLED = new Set<string>([
   "pane.splitDown",
   "pane.focusNext",
   "pane.focusPrev",
-  "pane.splitBrowser",
-  "browser.reload",
-  "browser.back",
-  "browser.forward",
-  "browser.focusAddressBar",
   "search.focus",
   "editor.findReplace",
   "ai.toggle",
@@ -150,8 +144,6 @@ function terminalAction(ev: KeyboardEvent): string | null {
     if (!match) continue;
     // App.tsx isDisabled: terminal focused + control/meta chord -> fall through.
     if (isTerminalControlChord(ev) || isTerminalMetaChord(ev)) return null;
-    // browser.* is gated off outside a browser pane -> fall through.
-    if (s.id.startsWith("browser.")) return null;
     // No global handler -> early return without preventDefault -> fall through.
     if (!HANDLED.has(s.id)) return null;
     return s.id; // captured: this app action fires, shell never sees the key

@@ -52,9 +52,9 @@ There are two webviews: the main window and a separate **Settings window**
 `tauri-plugin-store`, not through React, so any store the main window reads must
 be hydrated in both. This is why two similarly named folders exist:
 
-| Folder                  | Role                                                                |
-| ----------------------- | ------------------------------------------------------------------- |
-| `src/settings/`         | The Settings UI (a separate webview).                               |
+| Folder                  | Role                                                                  |
+| ----------------------- | --------------------------------------------------------------------- |
+| `src/settings/`         | The Settings UI (a separate webview).                                 |
 | `src/modules/settings/` | The settings state layer (store + preferences), read by both windows. |
 
 ## 2. Design principles
@@ -90,26 +90,26 @@ These invariants shape the whole codebase. Violating one is almost always a bug.
 is a thin shim. Logic is split into `modules/` (folders for multi-file
 subsystems, flat files for single-purpose ones).
 
-| Module          | Responsibility                                                                                   |
-| --------------- | ------------------------------------------------------------------------------------------------ |
-| `pty/`          | Interactive PTYs (xterm <-> `portable-pty`), shell integration scripts, Windows Job Objects.     |
-| `pty_daemon/`   | Sidecar process that owns PTYs across GUI restarts (see Section 6). Same binary, `--pty-daemon`. |
-| `fs/`           | Explorer and editor IO, fuzzy finder, content search (`ignore` + `grep-*` crates).               |
-| `shell/`        | One-shot exec for AI tools, a persistent agent shell, and bounded-log background processes.      |
-| `git/`          | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs. |
-| `ssh/`          | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                    |
-| `extensions/`   | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).     |
-| `cli_ext/`      | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring. |
-| `preview/`      | Native-webview dev-server preview backend (`embed`, `proxy`, `util`, `browser_ext`).               |
-| `format.rs`     | Direct-spawn external formatter executor (`fmt_run_external`).                                    |
-| `secrets.rs`    | OS keychain bridge (`keyring` crate; Linux file-store fallback).                                  |
-| `net.rs`        | Minimal HTTP probe (dev-server detection).                                                        |
-| `mcp.rs`        | Model Context Protocol support for the AI subsystem.                                              |
-| `backup.rs`     | Encrypted (AES-256-GCM) SSH connection export/import blobs.                                       |
-| `clipboard.rs`  | Host-process clipboard read (`clipboard_read_text`), works around a Linux WebKitGTK paste gap.     |
-| `cli.rs`        | `tedi` CLI entry, single-instance forwarding, PATH shim install.                                  |
-| `cli_theme.rs` / `cli_update.rs` | Headless `tedi theme` and `tedi --update` handlers.                              |
-| `cli_paint.rs`, `events.rs`, `ids.rs`, `lockext.rs` | CLI color output, event-name constants, id helpers, lock extensions. |
+| Module                                              | Responsibility                                                                                                                                                    |
+| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`                                              | Interactive PTYs (xterm <-> `portable-pty`), shell integration scripts, Windows Job Objects.                                                                      |
+| `pty_daemon/`                                       | Sidecar process that owns PTYs across GUI restarts (see Section 6). Same binary, `--pty-daemon`.                                                                  |
+| `fs/`                                               | Explorer and editor IO, fuzzy finder, content search (`ignore` + `grep-*` crates).                                                                                |
+| `shell/`                                            | One-shot exec for AI tools, a persistent agent shell, and bounded-log background processes.                                                                       |
+| `git/`                                              | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs. |
+| `ssh/`                                              | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                                                                                    |
+| `extensions/`                                       | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).                                                                      |
+| `cli_ext/`                                          | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring.                             |
+| `preview/`                                          | The `tedi-frame://` proxy scheme (`proxy`, `util`).                                                                                                               |
+| `format.rs`                                         | Direct-spawn external formatter executor (`fmt_run_external`).                                                                                                    |
+| `secrets.rs`                                        | OS keychain bridge (`keyring` crate; Linux file-store fallback).                                                                                                  |
+| `net.rs`                                            | Minimal HTTP probe (dev-server detection).                                                                                                                        |
+| `mcp.rs`                                            | Model Context Protocol support for the AI subsystem.                                                                                                              |
+| `backup.rs`                                         | Encrypted (AES-256-GCM) SSH connection export/import blobs.                                                                                                       |
+| `clipboard.rs`                                      | Host-process clipboard read (`clipboard_read_text`), works around a Linux WebKitGTK paste gap.                                                                    |
+| `cli.rs`                                            | `tedi` CLI entry, single-instance forwarding, PATH shim install.                                                                                                  |
+| `cli_theme.rs` / `cli_update.rs`                    | Headless `tedi theme` and `tedi --update` handlers.                                                                                                               |
+| `cli_paint.rs`, `events.rs`, `ids.rs`, `lockext.rs` | CLI color output, event-name constants, id helpers, lock extensions.                                                                                              |
 
 ## 4. Frontend (React, `src/`)
 
@@ -117,27 +117,26 @@ Single-window React app (plus the Settings webview), path alias `@/*` -> `src/*`
 `app/App.tsx` is the ~1200-line coordinator described in Section 2. Feature code
 lives in 19 self-contained modules.
 
-| Module        | Responsibility                                                                        |
-| ------------- | ------------------------------------------------------------------------------------- |
-| `terminal/`   | xterm.js sessions, PTY bridge, OSC 7/133 shell-integration handlers, terminal themes. |
-| `editor/`     | CodeMirror 6 stack, language modes, format-on-save, AI inline autocomplete, vim mode. |
-| `explorer/`   | File tree, Material/Catppuccin icons, fuzzy search, keyboard nav, inline rename.       |
-| `browser/`    | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane. |
-| `panes/`      | Split-pane orchestration (horizontal/vertical) via `react-resizable-panels`.          |
-| `tabs/`       | The tab model (source of truth): `useTabs`, workspace-cwd derivation, serialization.  |
-| `workspaces/` | Workspace persistence and switching (tab layout + cwd).                               |
-| `header/`     | Top bar, inline search, custom window controls (Linux/Windows).                       |
-| `statusbar/`  | Bottom bar, cwd breadcrumb, AI tools indicator.                                        |
-| `shortcuts/`  | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).       |
-| `commandPalette/` | Ctrl+Shift+P palette over the shared command registry.                            |
-| `settings/`   | Shared settings store and preferences (state layer read by both windows).             |
-| `theme/`      | `next-themes` provider.                                                                |
-| `ai/`         | The AI agent subsystem (Section 5), the largest module.                               |
-| `scm/`        | Source-control panel, diffs, and the pull-request / stacked-PR view (frontend for the Rust `git_*` and `gh_run` commands). |
-| `ssh/`        | SSH connection manager and remote SFTP explorer.                                       |
-| `scheduler/`  | In-conversation task/timer surface used by the AI agent.                              |
-| `updater/`    | In-app updater UI on top of `tauri-plugin-updater`.                                    |
-| `extensions/` | The extension host: install UI, permission-gated `ctx` API, contribution registries.  |
+| Module            | Responsibility                                                                                                             |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
+| `terminal/`       | xterm.js sessions, PTY bridge, OSC 7/133 shell-integration handlers, terminal themes.                                      |
+| `editor/`         | CodeMirror 6 stack, language modes, format-on-save, AI inline autocomplete, vim mode.                                      |
+| `explorer/`       | File tree, Material/Catppuccin icons, fuzzy search, keyboard nav, inline rename.                                           |
+| `panes/`          | Split-pane orchestration (horizontal/vertical) via `react-resizable-panels`.                                               |
+| `tabs/`           | The tab model (source of truth): `useTabs`, workspace-cwd derivation, serialization.                                       |
+| `workspaces/`     | Workspace persistence and switching (tab layout + cwd).                                                                    |
+| `header/`         | Top bar, inline search, custom window controls (Linux/Windows).                                                            |
+| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                            |
+| `shortcuts/`      | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).                                            |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared command registry.                                                                     |
+| `settings/`       | Shared settings store and preferences (state layer read by both windows).                                                  |
+| `theme/`          | `next-themes` provider.                                                                                                    |
+| `ai/`             | The AI agent subsystem (Section 5), the largest module.                                                                    |
+| `scm/`            | Source-control panel, diffs, and the pull-request / stacked-PR view (frontend for the Rust `git_*` and `gh_run` commands). |
+| `ssh/`            | SSH connection manager and remote SFTP explorer.                                                                           |
+| `scheduler/`      | In-conversation task/timer surface used by the AI agent.                                                                   |
+| `updater/`        | In-app updater UI on top of `tauri-plugin-updater`.                                                                        |
+| `extensions/`     | The extension host: install UI, permission-gated `ctx` API, contribution registries.                                       |
 
 ### Tab model
 
@@ -148,7 +147,7 @@ Tab = PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab
 ```
 
 `PaneTab` (`kind: "pane"`) holds a split-pane tree whose leaves are one of
-`terminal`, `editor`, `browser`, `ssh`, or `extension-panel`. The other kinds
+`terminal`, `editor`, `ssh`, `board`, `scm`, `ai`, or `extension-panel`. The other kinds
 (`ai-diff`, `git-diff`, `ext`, `scm`) are whole-tab surfaces. Tabs are never
 unmounted on switch.
 
@@ -170,8 +169,7 @@ explicit "add a key" error. The layering:
   history `compact.ts` / `checkpoint.ts`, prompt `cache.ts`,
   `mcpClient.ts`, `prompts.ts` (every built-in prompt is user-overridable), and
   `security.ts` (the symlink-resolved secret deny-list, on both read and write).
-- **`tools/`**: the agent's tool definitions, including a full browser-automation
-  set over the native preview webview. Read-only tools auto-run; mutating tools are
+- **`tools/`**: the agent's tool definitions. Read-only tools auto-run; mutating tools are
   approval-gated and route AI-proposed edits through a side-by-side `ai-diff` tab
   that the user accepts or rejects per hunk before any write. Extension- and
   MCP-contributed tools merge in ahead of the built-ins, so neither can shadow one.
@@ -189,7 +187,7 @@ Whichever tripped is reported to the user.
 
 App.tsx wires a **live-context bridge** (`setLive({ getCwd, getTerminalContext,
 openTerminal, ... })`) so tools read the active terminal's cwd and scrollback and
-can spawn or drive terminals and browser panes, lazily and without pre-snapshotting.
+can spawn or drive terminals, lazily and without pre-snapshotting.
 
 ## 6. Data flow and lifecycles
 
@@ -224,13 +222,13 @@ PTYs outlive a GUI window close so dev servers resume on next launch. Surviving 
 PC restart or daemon crash is out of scope by design (both clear sessions and the
 GUI falls back to a fresh spawn).
 
-| Event                     | Daemon                                            | Sessions                        |
-| ------------------------- | ------------------------------------------------- | ------------------------------- |
-| First GUI launch          | Spawned detached, 5 s connect budget              | none                            |
-| Window close              | Survives (detached process group / DETACHED_PROCESS) | Kept alive                   |
-| GUI reopens               | Reconnects, `pty_attach(uuid)` per saved leaf     | Restored with replayed scrollback |
-| PC restart / daemon crash | Process dies, no autostart                        | Lost (intended), GUI respawns   |
-| Idle 24 h, no clients     | Self-shuts down (`TEDI_PTYD_IDLE_SECS` overrides) | Discarded                       |
+| Event                     | Daemon                                               | Sessions                          |
+| ------------------------- | ---------------------------------------------------- | --------------------------------- |
+| First GUI launch          | Spawned detached, 5 s connect budget                 | none                              |
+| Window close              | Survives (detached process group / DETACHED_PROCESS) | Kept alive                        |
+| GUI reopens               | Reconnects, `pty_attach(uuid)` per saved leaf        | Restored with replayed scrollback |
+| PC restart / daemon crash | Process dies, no autostart                           | Lost (intended), GUI respawns     |
+| Idle 24 h, no clients     | Self-shuts down (`TEDI_PTYD_IDLE_SECS` overrides)    | Discarded                         |
 
 If the daemon cannot spawn or connect, `pty/mod.rs` falls back to an in-process
 backend and the frontend skips persistence (same behavior as pre-daemon releases).
@@ -276,27 +274,27 @@ teardown point. A new extension needs zero core changes.
 `host.ts` builds the `ExtensionContext` passed to `activate(ctx)`. Every gated
 method checks its declared permission before acting. The surface:
 
-| Group                                           | Permission                    |
-| ----------------------------------------------- | ----------------------------- |
-| `ctx.storage.*`, `ctx.os`, `ctx.logger`         | none                          |
-| `ctx.app.getContext/onContextChange/setSidebarVisible` | none                   |
-| `ctx.app.createWorkspace/setActiveWorkspace`    | `workspaces:manage`           |
-| `ctx.settings.get` / `.set`                     | `settings:read` / `settings:write` |
-| `ctx.invoke` / `ctx.invokeChannel`              | `invoke:<cmd>` (globs allowed) |
-| `ctx.secrets.get` / `.set` / `.delete`          | `secrets:read` / `secrets:write` |
-| `ctx.events.emit` / `.on`                       | `events:emit` / `events:listen` |
-| `ctx.ui.toast`                                  | `ui:toast`                    |
-| `ctx.ui.mountFolderTree` / `.icon` / `.codeEditor` | none                       |
-| `ctx.statusBar` / `.headerBar` / `.sidebar` set | `statusbar:write` / `headerbar:write` / `sidebar:write` |
-| `ctx.editor.getActive` / `.setActiveContent`    | `editor:read` / `editor:write` |
-| `ctx.tabs.openExtensionTab` / `.openExtensionPane` | `tabs:open`                |
-| `ctx.ssh.*`                                     | `ssh:connections`             |
-| `ctx.shell.registerCommandTransformer`          | `shell:transform`             |
+| Group                                                                       | Permission                                                                       |
+| --------------------------------------------------------------------------- | -------------------------------------------------------------------------------- |
+| `ctx.storage.*`, `ctx.os`, `ctx.logger`                                     | none                                                                             |
+| `ctx.app.getContext/onContextChange/setSidebarVisible`                      | none                                                                             |
+| `ctx.app.createWorkspace/setActiveWorkspace`                                | `workspaces:manage`                                                              |
+| `ctx.settings.get` / `.set`                                                 | `settings:read` / `settings:write`                                               |
+| `ctx.invoke` / `ctx.invokeChannel`                                          | `invoke:<cmd>` (globs allowed)                                                   |
+| `ctx.secrets.get` / `.set` / `.delete`                                      | `secrets:read` / `secrets:write`                                                 |
+| `ctx.events.emit` / `.on`                                                   | `events:emit` / `events:listen`                                                  |
+| `ctx.ui.toast`                                                              | `ui:toast`                                                                       |
+| `ctx.ui.mountFolderTree` / `.icon` / `.codeEditor`                          | none                                                                             |
+| `ctx.statusBar` / `.headerBar` / `.sidebar` set                             | `statusbar:write` / `headerbar:write` / `sidebar:write`                          |
+| `ctx.editor.getActive` / `.setActiveContent`                                | `editor:read` / `editor:write`                                                   |
+| `ctx.tabs.openExtensionTab` / `.openExtensionPane`                          | `tabs:open`                                                                      |
+| `ctx.ssh.*`                                                                 | `ssh:connections`                                                                |
+| `ctx.shell.registerCommandTransformer`                                      | `shell:transform`                                                                |
 | `ctx.panel.*`, `ctx.registerPanelRenderer`, runtime `ctx.contribute.panels` | `panels:register` (a manifest `contributes.panels[]` entry is seeded without it) |
-| `ctx.paths.home` | none |
-| `ctx.ai.getState` / `.onStateChange` / `.stop` | none |
-| `ctx.ai.setModel` / `.setSubagentsEnabled` | `ai:configure` |
-| `ctx.ai.sendPrompt` | `ai:prompt` |
+| `ctx.paths.home`                                                            | none                                                                             |
+| `ctx.ai.getState` / `.onStateChange` / `.stop`                              | none                                                                             |
+| `ctx.ai.setModel` / `.setSubagentsEnabled`                                  | `ai:configure`                                                                   |
+| `ctx.ai.sendPrompt`                                                         | `ai:prompt`                                                                      |
 
 Namespacing is uniform per extension id: settings `ext:<id>:<key>`, events
 `ext://<id>/<name>`, storage `tedi-ext-<id>.json`, keychain `tedi-ext:<id>`.
@@ -327,17 +325,17 @@ never silently widen a grant.
 
 ## 8. Key architectural decisions
 
-| Decision                                          | Rationale                                                                                         |
-| ------------------------------------------------- | ------------------------------------------------------------------------------------------------- |
-| Two-process (Tauri) instead of Electron/Node      | Rust owns OS resources with no Node runtime in the trusted process; smaller, safer, faster.       |
-| Single `invoke_handler` command index             | One audit surface and one place to discover the entire backend API.                               |
-| PTY daemon sidecar                                 | Dev servers and long jobs survive a window close without surviving a crash or reboot (bounded).   |
-| Injected bridges over direct coupling             | The extension host and cross-module wiring stay decoupled from React and feature internals.       |
-| Install-time trust, no sandbox                    | Full-privilege JS matches the VS Code model; a real sandbox would block the integrations authors need. A consent gate keeps the review dialog authoritative. |
-| Native webview for preview, not an iframe          | YouTube, logged-in apps, DRM video, WebSockets, and HMR dev servers all work; no XFO/CSP fights.  |
-| BYOK keys in the OS keychain only                 | Keys never touch disk or web storage; a compromised renderer cannot read the plaintext at rest.   |
-| Fresh Blob-URL module per activation              | Enable/disable/update is fully live with clean per-activation isolation and no recompile.         |
-| Tabs never unmount                                | Background PTYs and dev servers keep streaming; switching is instant.                             |
+| Decision                                     | Rationale                                                                                                                                                    |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Two-process (Tauri) instead of Electron/Node | Rust owns OS resources with no Node runtime in the trusted process; smaller, safer, faster.                                                                  |
+| Single `invoke_handler` command index        | One audit surface and one place to discover the entire backend API.                                                                                          |
+| PTY daemon sidecar                           | Dev servers and long jobs survive a window close without surviving a crash or reboot (bounded).                                                              |
+| Injected bridges over direct coupling        | The extension host and cross-module wiring stay decoupled from React and feature internals.                                                                  |
+| Install-time trust, no sandbox               | Full-privilege JS matches the VS Code model; a real sandbox would block the integrations authors need. A consent gate keeps the review dialog authoritative. |
+| A browser is an extension, not core          | The core download carries no browser engine; a real Chromium over CDP is installed only by users who want one, and reuses the one already on the machine.    |
+| BYOK keys in the OS keychain only            | Keys never touch disk or web storage; a compromised renderer cannot read the plaintext at rest.                                                              |
+| Fresh Blob-URL module per activation         | Enable/disable/update is fully live with clean per-activation isolation and no recompile.                                                                    |
+| Tabs never unmount                           | Background PTYs and dev servers keep streaming; switching is instant.                                                                                        |
 
 ## 9. Conventions
 

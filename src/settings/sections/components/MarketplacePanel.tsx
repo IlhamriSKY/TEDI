@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { buildProxyUrl } from "@/modules/browser/lib/proxy";
+import { buildProxyUrl } from "@/lib/proxy";
 
 export type MarketplaceItem = {
   /** Catalog id, e.g. `discord-rich-presence`. Not the installed manifest id

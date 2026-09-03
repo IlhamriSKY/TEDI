@@ -1,3 +1,4 @@
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { registerBridge } from "@/modules/automation/bridge";
 import { isPdfPath, pathToFileUrl } from "@/lib/path";
 import { setExtensionWorkspaceBridge } from "@/modules/extensions/workspaceBridge";
@@ -14,9 +15,9 @@ type Params = {
    *  opened from the remote tree record which PROFILE it came from, not just the
    *  session number, so the tab can be restored after a restart. */
   sshBindingByConnection: Map<string, SshConnectionBinding>;
-  /** Opens a URL in a browser pane. Used for file types the editor cannot
-   *  render but the native webview can - see `isPdfPath`. */
-  openPreviewTab: (url: string, activate?: boolean) => number | null;
+  /** Opens a url in the browser. Used for file types the editor cannot render
+   *  but a browser can - see `isPdfPath`. */
+  openPreviewTab: (url: string) => void;
 } & Pick<TabsApi, "openFileTab" | "setEditorLeafPath">;
 
 /**
@@ -44,13 +45,13 @@ export function useFileActions({
 } {
   const handleOpenFile = useCallback(
     (path: string, pin?: boolean) => {
-      // PDF goes to a browser pane; everything else to an editor tab. Images
-      // need no branch here - `fs_read_file` returns them as a data URL and
-      // `EditorPane` renders it. A non-absolute path yields a null URL and
-      // falls through rather than opening a blank browser tab.
+      // A PDF goes to the system browser, which has a viewer for it; every
+      // other file goes to an editor tab. Images need no branch here -
+      // `fs_read_file` returns them as a data URL and `EditorPane` renders it.
+      // A non-absolute path yields a null URL and falls through to the editor.
       const url = isPdfPath(path) ? pathToFileUrl(path) : null;
       if (url) {
-        openPreviewTab(url, true);
+        void openUrl(url).catch(console.error);
         return;
       }
       openFileTab(path, pin ?? false);
@@ -73,8 +74,7 @@ export function useFileActions({
   // file by path is the one editor entry point a driver otherwise cannot reach:
   // clicking the tree only works for a path already expanded into view, so any
   // deep file was unopenable. Routed through `handleOpenFile` rather than
-  // `openFileTab` so a driver-opened PDF lands in a browser pane exactly like a
-  // clicked one. Gated on `TEDI_DEBUG_PORT` like the rest of `window.__tedi`
+  // `openFileTab` so a driver-opened PDF is handled exactly like a clicked one. Gated on `TEDI_DEBUG_PORT` like the rest of `window.__tedi`
   // (see `shortcuts/lib/commandRegistry.ts`), and merged into it, since three
   // files contribute to that one object and none may clobber the others.
   useEffect(() => {

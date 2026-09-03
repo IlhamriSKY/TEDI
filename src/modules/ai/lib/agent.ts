@@ -94,10 +94,6 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
     i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
   mcp__tedi__pane: (i) => `Pane ${String(i.action ?? "")}`,
   mcp__tedi__focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
-  mcp__tedi__browser: (i) =>
-    i.action === "open" || i.action === "navigate"
-      ? `Opening ${ellipsize(String(i.url ?? ""), 60)}`
-      : `Browser ${String(i.action ?? "")}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {

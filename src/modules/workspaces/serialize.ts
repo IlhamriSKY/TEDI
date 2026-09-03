@@ -134,14 +134,11 @@ function leafKindToSaved(leaf: PaneLeaf): SavedLeaf {
       ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
     };
   }
-  return {
-    kind: "leaf",
-    leafKind: "browser",
-    url: leaf.url,
-    ...(leaf.browserOrdinal != null ? { browserOrdinal: leaf.browserOrdinal } : {}),
-    ...(leaf.private ? { private: true } : {}),
-    ...(leaf.customTitle ? { customTitle: leaf.customTitle } : {}),
-  };
+  // Exhaustive: `LeafState` has no member left after `ai`. Assigning to `never`
+  // makes a newly added leaf kind a compile error here rather than a leaf that
+  // silently fails to persist.
+  const unhandled: never = leaf;
+  return unhandled;
 }
 
 /**
@@ -259,27 +256,52 @@ export function serializeTabs(tabs: Tab[]): SavedTab[] {
 
 // saved -> live
 
-function savedToNode(node: SavedPaneNode, allocId: () => number, outLeafIds: number[]): PaneNode {
+/**
+ * Rebuild a pane subtree, pruning leaves that no longer restore.
+ *
+ * The mirror of `nodeToSaved`, and it prunes for the same reason, one direction
+ * over: a saved browser leaf has no live kind to become. `outLeafIds` collects
+ * only the leaves that SURVIVED, which is what keeps `activeLeafIndex` pointing
+ * at the leaf it named - counting dropped ones would shift the focus onto a
+ * neighbour on every restore.
+ *
+ * Returns null when nothing in this subtree survives.
+ */
+function savedToNode(
+  node: SavedPaneNode,
+  allocId: () => number,
+  outLeafIds: number[],
+): PaneNode | null {
   if (node.kind === "leaf") {
     const id = allocId();
-    outLeafIds.push(id);
     const leaf = savedToLeaf(node, id);
+    if (leaf === null) return null;
+    outLeafIds.push(id);
     // Appended once, like `leafToSaved` does going the other way.
     return node.canvasRect ? { ...leaf, canvasRect: node.canvasRect } : leaf;
   }
-  const children = node.children.map((c) => savedToNode(c, allocId, outLeafIds));
+  const children: PaneNode[] = [];
+  for (const c of node.children) {
+    const restored = savedToNode(c, allocId, outLeafIds);
+    if (restored !== null) children.push(restored);
+  }
+  if (children.length === 0) return null;
+  // A lone survivor collapses into its parent, exactly as on the save side: a
+  // one-child split is not a valid pane tree.
+  if (children.length === 1) return children[0];
   return {
     kind: "split",
     id: allocId(),
     dir: node.dir,
     children,
     // Restore divider positions only when the saved sizes still line up with
-    // the child count; otherwise fall back to an equal split.
+    // the child count; otherwise fall back to an equal split. Pruning is one
+    // more way they can stop lining up.
     ...(node.sizes && node.sizes.length === children.length ? { sizes: node.sizes } : {}),
   };
 }
 
-function savedToLeaf(node: SavedLeaf, id: number): PaneLeaf {
+function savedToLeaf(node: SavedLeaf, id: number): PaneLeaf | null {
   {
     if (node.leafKind === "terminal") {
       return {
@@ -360,36 +382,33 @@ function savedToLeaf(node: SavedLeaf, id: number): PaneLeaf {
         ...(node.customTitle ? { customTitle: node.customTitle } : {}),
       };
     }
-    return {
-      kind: "leaf",
-      id,
-      leafKind: "browser",
-      url: node.url,
-      ...(node.browserOrdinal != null ? { browserOrdinal: node.browserOrdinal } : {}),
-      ...(node.private ? { private: true } : {}),
-      ...(node.customTitle ? { customTitle: node.customTitle } : {}),
-    };
+    // A saved `browser` leaf restores as NOTHING: there is no such live leaf
+    // kind, and inventing one - a blank terminal, an empty board - would put a
+    // surface the user never asked for in its place. The saved TYPE still has
+    // the member because workspace files in the wild contain it; this is where
+    // those stop.
+    return null;
   }
 }
 
-export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
-  if (saved.kind === "preview") {
-    // Legacy standalone browser ("preview") tab -> migrate to a pane tab whose
-    // tree is a single browser leaf, matching the unified model.
-    const tabId = allocId();
-    const leafId = allocId();
-    const leaf: PaneNode = { kind: "leaf", id: leafId, leafKind: "browser", url: saved.url };
-    return {
-      id: tabId,
-      kind: "pane",
-      title: saved.title ?? saved.url,
-      paneTree: leaf,
-      activeLeafId: leafId,
-    };
-  }
+/**
+ * Rebuild one saved tab, or null when nothing in it survives.
+ *
+ * Nullable because a restore can legitimately come up empty: a tab that held
+ * only browser leaves has nothing left now that the browser is an extension.
+ * The alternative - returning a tab with a fabricated leaf - would put a shell
+ * or an empty board where the user left a page. Callers drop the nulls;
+ * `restoreTabs` does it for them.
+ */
+export function savedToTab(saved: SavedTab, allocId: () => number): Tab | null {
+  // The legacy standalone browser ("preview") tab was a browser and nothing
+  // else, so there is no longer anything to migrate it INTO. It is dropped
+  // whole rather than restored as an empty pane.
+  if (saved.kind === "preview") return null;
   const id = allocId();
   const leafIds: number[] = [];
   const paneTree = savedToNode(saved.paneTree, allocId, leafIds);
+  if (paneTree === null) return null;
   const activeLeafId =
     leafIds[Math.min(Math.max(0, saved.activeLeafIndex), leafIds.length - 1)] ?? leafIds[0];
   const tab: Tab = {
@@ -401,6 +420,18 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab {
     ...(saved.pinned ? { pinned: true } : {}),
   };
   return tab;
+}
+
+/** Restore a workspace's tabs, dropping the ones that no longer come back.
+ *  Every caller wanted the same `map` + filter; having it once means a new
+ *  droppable kind cannot be handled in three places and missed in a fourth. */
+export function restoreTabs(saved: SavedTab[], allocId: () => number): Tab[] {
+  const out: Tab[] = [];
+  for (const s of saved) {
+    const tab = savedToTab(s, allocId);
+    if (tab !== null) out.push(tab);
+  }
+  return out;
 }
 
 /** Default pane tab with one terminal leaf. `terminalOrdinal` is omitted; `useTabs.replaceAllTabs` backfills it. */

@@ -79,15 +79,22 @@ export type SavedEditorLeaf = {
   customTitle?: string;
 };
 
+/**
+ * LEGACY, and read-only: a `browser` leaf some workspace files in the wild
+ * carry. Kept so those files still PARSE.
+ *
+ * Nothing writes one - there is no live browser leaf to serialise - and nothing
+ * restores one: `savedToLeaf` returns null for this kind, and the surrounding
+ * split (or the whole tab) is pruned around it. Deleting the type would not
+ * delete it from anyone's workspace file; it would only stop the restore path
+ * from recognising what it has to drop.
+ */
 export type SavedBrowserLeaf = {
   kind: "leaf";
   leafKind: "browser";
-  /** Last URL the embedded browser showed. Reopened on restore. */
   url: string;
-  /** FIFO chip number ("Browser 3"). Persisted so it stays stable after restart. */
   browserOrdinal?: number;
   private?: boolean;
-  /** User-chosen tab name from the tab's right-click "Rename". */
   customTitle?: string;
 };
 
@@ -210,9 +217,9 @@ export type SavedPaneTab = {
 };
 
 /**
- * Legacy standalone browser ("preview") tab format from before browsers became
- * pane leaves. The on-disk discriminator stays `"preview"` for back-compat;
- * `savedToTab` migrates it into a pane tab with a single browser leaf.
+ * LEGACY, like {@link SavedBrowserLeaf}: a standalone `"preview"` tab an older
+ * build could write. Kept so such a file still PARSES; `savedToTab` restores
+ * nothing from it.
  */
 export type SavedPreviewTab = {
   kind: "preview";

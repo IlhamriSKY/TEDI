@@ -331,7 +331,7 @@ export function GeneralSection() {
         </SettingRow>
         <SettingRow
           title="Open a dev server's URL automatically"
-          description="Load it in a background preview tab as soon as it is detected, either from the project's own config (.env APP_URL, a vite port, a package.json dev script) when the port already answers, or printed by a terminal running npm run dev / php artisan serve. Off, the same URL just lights the globe button in the toolbar. Only this machine's addresses are ever opened."
+          description="Open it in the browser as soon as it is detected, either from the project's own config (.env APP_URL, a vite port, a package.json dev script) when the port already answers, or printed by a terminal running npm run dev / php artisan serve. Off, the same URL just lights the globe button in the toolbar. Only this machine's addresses are ever opened, and both need the Browser extension installed."
         >
           <Switch
             checked={autoOpenProjectUrl}

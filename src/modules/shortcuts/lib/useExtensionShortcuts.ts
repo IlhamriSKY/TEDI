@@ -24,10 +24,7 @@
 import { useEffect, useRef } from "react";
 
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import {
-  commandsRegistry,
-  keybindingsRegistry,
-} from "@/modules/extensions/registries";
+import { commandsRegistry, keybindingsRegistry } from "@/modules/extensions/registries";
 import { focusedTerminalLeafId } from "@/modules/terminal";
 
 import {
@@ -97,10 +94,7 @@ export function useExtensionShortcuts(): void {
         try {
           (handler as (...args: unknown[]) => unknown)();
         } catch (err) {
-          console.error(
-            `[extensions] command handler "${extensionId}:${commandId}" threw`,
-            err,
-          );
+          console.error(`[extensions] command handler "${extensionId}:${commandId}" threw`, err);
         }
         return;
       }

@@ -26,9 +26,7 @@ export function setOpenExtensionTab(fn: OpenExtensionTabFn | null): void {
 
 export function openExtensionTab(opts: OpenExtensionTabOpts): number | null {
   if (!opener) {
-    console.warn(
-      "[extensions] openExtensionTab called before App wired the bridge; ignoring",
-    );
+    console.warn("[extensions] openExtensionTab called before App wired the bridge; ignoring");
     return null;
   }
   return opener(opts);
@@ -48,9 +46,7 @@ export function setOpenExtensionPane(fn: OpenExtensionTabFn | null): void {
 
 export function openExtensionPane(opts: OpenExtensionTabOpts): number | null {
   if (!paneOpener) {
-    console.warn(
-      "[extensions] openExtensionPane called before App wired the bridge; ignoring",
-    );
+    console.warn("[extensions] openExtensionPane called before App wired the bridge; ignoring");
     return null;
   }
   return paneOpener(opts);
@@ -82,9 +78,7 @@ export function setSetExtensionTabState(fn: SetExtensionTabStateFn | null): void
 
 export function setExtensionTabState(opts: SetExtensionTabStateOpts): void {
   if (!tabStateSetter) {
-    console.warn(
-      "[extensions] setExtensionTabState called before App wired the bridge; ignoring",
-    );
+    console.warn("[extensions] setExtensionTabState called before App wired the bridge; ignoring");
     return;
   }
   tabStateSetter(opts);
@@ -107,9 +101,7 @@ export function setSidebarSetter(fn: SetSidebarVisibleFn | null): void {
 
 export function setSidebarVisible(visible: boolean, ownerExtensionId?: string): void {
   if (!sidebarSetter) {
-    console.warn(
-      "[extensions] setSidebarVisible called before App wired the bridge; ignoring",
-    );
+    console.warn("[extensions] setSidebarVisible called before App wired the bridge; ignoring");
     return;
   }
   sidebarSetter(visible, ownerExtensionId);

@@ -1,14 +1,4 @@
 import { type RefObject } from "react";
-import {
-  previewEmbedAct,
-  previewEmbedDispatch,
-  previewEmbedNavigate,
-  previewEmbedRead,
-  previewEmbedConsole,
-  previewEmbedScreenshot,
-  type BrowserDiag,
-} from "@/modules/browser";
-import { useFloatStore } from "@/modules/panes";
 import { activeLeaf, MAX_PANES_PER_TAB, useTabs, type Tab } from "@/modules/tabs";
 import {
   findLeaf,
@@ -19,7 +9,7 @@ import {
   leaves,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
-import type { BrowserInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { TerminalTarget } from "@/modules/scheduler/types";
 import { isLeafPrivate, resolveTerminalLeaf, snapshotTerminals } from "./terminalSnapshot";
 
 type TabsApi = ReturnType<typeof useTabs>;
@@ -35,8 +25,7 @@ export interface LiveContext {
   activeId: number;
   explorerRoot: string | null;
   home: string | null;
-  openPreviewTab: (url: string, activate?: boolean) => number | null;
-  setBrowserLeafUrl: TabsApi["setBrowserLeafUrl"];
+  openPreviewTab: (url: string) => void;
   newTab: TabsApi["newTab"];
   newSshTab: TabsApi["newSshTab"];
   inheritedCwdForNewTab: () => string | undefined;
@@ -59,15 +48,6 @@ export interface LiveContext {
 export interface LiveContextDeps {
   liveContextRef: RefObject<LiveContext>;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
-}
-
-/** A browser pane the AI is allowed to see: exists as a public (non-private) browser leaf. */
-function isPublicBrowserLeaf(ctx: LiveContext, leafId: number): boolean {
-  return (
-    ctx.tabs.some(
-      (t) => t.kind === "pane" && findLeaf(t.paneTree, leafId)?.leafKind === "browser",
-    ) && !isLeafPrivate(ctx, leafId)
-  );
 }
 
 export function buildLiveContext(deps: LiveContextDeps) {
@@ -139,93 +119,6 @@ export function buildLiveContext(deps: LiveContextDeps) {
         isPrivate ? { private: true } : undefined,
       );
       return true;
-    },
-    openPreview: (url: string) => {
-      // activate:false - the agent opens browsers in the background so it can
-      // read them without stealing focus from whatever the user is doing. The
-      // inactive pane still creates its native webview OFF-SCREEN (see
-      // preview_embed_update's background-create branch), so the page loads and
-      // read_browser works headless even while the user never focuses the tab.
-      return liveContextRef.current.openPreviewTab(url, false);
-    },
-    // Drive an existing browser pane (by leaf id from listBrowsers). navigate
-    // just sets the leaf url - BrowserPane navigates the live webview and syncs
-    // the address bar, and a not-yet-shown pane loads the new url when opened.
-    navigateBrowser: (leafId: number, url: string): boolean => {
-      const { setBrowserLeafUrl } = liveContextRef.current;
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
-      setBrowserLeafUrl(leafId, url);
-      // A FLOATED pane's component lives in its float window and no longer
-      // follows this leaf's url, so setting the leaf alone would report success
-      // and navigate nothing at all. Drive the webview directly in that case;
-      // the float's address bar catches up from the navigation event. Only in
-      // that case, so the ordinary path keeps its single navigation.
-      if (useFloatStore.getState().floating.has(leafId)) {
-        void previewEmbedNavigate(leafId, url).catch(() => {});
-      }
-      return true;
-    },
-    dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload" | "stop"): boolean => {
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return false;
-      void previewEmbedDispatch(leafId, action).catch(() => {});
-      return true;
-    },
-    readBrowser: async (leafId: number, fields = false): Promise<string | null> => {
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
-      try {
-        return await previewEmbedRead(leafId, fields);
-      } catch {
-        return null;
-      }
-    },
-    actBrowser: async (
-      leafId: number,
-      index: number,
-      action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
-      text: string,
-      submit: boolean,
-    ): Promise<string | null> => {
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
-      try {
-        return await previewEmbedAct(leafId, index, action, text, submit);
-      } catch (e) {
-        return `error: ${e instanceof Error ? e.message : String(e)}`;
-      }
-    },
-    consoleBrowser: async (leafId: number): Promise<BrowserDiag[] | null> => {
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
-      try {
-        return await previewEmbedConsole(leafId);
-      } catch {
-        return null;
-      }
-    },
-    screenshotBrowser: async (leafId: number): Promise<string | null> => {
-      if (!isPublicBrowserLeaf(liveContextRef.current, leafId)) return null;
-      try {
-        return await previewEmbedScreenshot(leafId);
-      } catch {
-        return null;
-      }
-    },
-    listBrowsers: (): BrowserInfo[] => {
-      const { tabs, activeId } = liveContextRef.current;
-      const out: BrowserInfo[] = [];
-      for (const t of tabs) {
-        if (t.kind !== "pane") continue;
-        for (const l of leaves(t.paneTree)) {
-          // Skip private browser panes so they stay invisible to the AI.
-          if (l.leafKind === "browser" && !l.private) {
-            out.push({
-              tabId: t.id,
-              leafId: l.id,
-              url: l.url,
-              isActive: t.id === activeId && t.activeLeafId === l.id,
-            });
-          }
-        }
-      }
-      return out;
     },
     openTerminal: (cwd?: string | null) => {
       const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;

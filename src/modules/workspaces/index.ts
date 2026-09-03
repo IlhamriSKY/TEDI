@@ -6,5 +6,6 @@ export {
   defaultTabForEmptyWorkspace,
   savedActiveTabIndex,
   savedToTab,
+  restoreTabs,
   serializeTabs,
 } from "./serialize";

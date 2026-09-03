@@ -43,7 +43,7 @@ import {
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
-import { countSavedTabEntries, savedToTab } from "./serialize";
+import { countSavedTabEntries, restoreTabs } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
   ChevronRight,
@@ -160,10 +160,7 @@ function liveRows(
 function savedRows(tabs: SavedTab[], sshHosts: Map<string, SshConnection>): EntryRow[] {
   let next = -1;
   const allocId = () => next--;
-  const entries = buildEntries(
-    tabs.map((t) => savedToTab(t, allocId)),
-    sshHosts,
-  );
+  const entries = buildEntries(restoreTabs(tabs, allocId), sshHosts);
   const titles = savedTitles(tabs);
   return entries.map((entry, i) => ({ entry, title: titles[i], live: false }));
 }
@@ -184,8 +181,8 @@ function savedTitles(tabs: SavedTab[]): (string | undefined)[] {
     out.push(node.leafKind === "terminal" ? node.title : undefined);
   };
   for (const t of tabs) {
-    // A legacy "preview" tab rehydrates as a single browser leaf, so it still
-    // contributes exactly one slot and the two lists stay aligned.
+    // A non-pane tab (including the legacy "preview" kind, which restores as
+    // nothing) still contributes exactly one slot, so the two lists stay aligned.
     if (t.kind === "pane") walk(t.paneTree);
     else out.push(undefined);
   }

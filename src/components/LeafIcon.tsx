@@ -1,7 +1,6 @@
 import { cn } from "@/lib/utils";
 import { CliAgentIcon } from "./CliAgentIcon";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { BrowserFavicon } from "@/modules/browser/BrowserFavicon";
 import {
   aiCliIconClass,
   aiCliStateColorClass,
@@ -22,7 +21,7 @@ import {
 /** Normalized description of one pane leaf, enough to pick its icon. Built from
  *  a tab-strip `Entry` or a `PaneLeaf` so both feed the same renderer. */
 export type LeafIconInfo = {
-  leafKind: "terminal" | "editor" | "browser" | "extension-panel" | "board" | "scm" | "ai";
+  leafKind: "terminal" | "editor" | "extension-panel" | "board" | "scm" | "ai";
   /** Private leaf (AI cannot read it): forces a lock glyph over kind/ssh. */
   isPrivate?: boolean;
   /** Terminal bound to a saved SSH host: cloud glyph instead of local terminal. */
@@ -32,7 +31,6 @@ export type LeafIconInfo = {
   /** Editor backed by SFTP: recolor the file icon (remote variant). */
   editorRemote?: boolean;
   /** Browser page URL. Drives the site favicon. */
-  browserUrl?: string;
   /** Terminal AI CLI status: tints the glyph idle/working/blocking. */
   aiCliStatus?: AiCliStatus | null;
   /** Run state of an `ai` leaf's chat. Tints the sparkles with the same palette
@@ -106,10 +104,6 @@ export function LeafIcon({
         className={cn("shrink-0", className)}
       />
     );
-  }
-
-  if (info.leafKind === "browser") {
-    return <BrowserFavicon url={info.browserUrl ?? ""} size={size} className={className} />;
   }
 
   if (info.leafKind === "ai") {

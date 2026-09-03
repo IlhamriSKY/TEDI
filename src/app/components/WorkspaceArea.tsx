@@ -43,7 +43,7 @@ type Props = {
   /** Pane that carries the globe: the leaf that printed the url, so it does not
    *  hop between headers as panes take focus. */
   previewLeafId?: number | null;
-  /** Opens `previewUrl` as a preview tab. */
+  /** Opens `previewUrl` in the browser. */
   onOpenPreview?: () => void;
   hasAiDiffTab: boolean;
   hasGitDiffTab: boolean;
@@ -66,7 +66,6 @@ type Props = {
   onRenameLeaf: (leafId: number, title: string | null) => void;
 } & Pick<
   TabsApi,
-  | "setBrowserLeafUrl"
   | "movePaneLeafToEdge"
   | "moveExtTabToPane"
   | "openGitDiffTab"
@@ -132,7 +131,6 @@ export function WorkspaceArea({
   canvasAdders,
   onFocusEntry,
   onRenameLeaf,
-  setBrowserLeafUrl,
   movePaneLeafToEdge,
   moveExtTabToPane,
   openGitDiffTab,
@@ -177,7 +175,6 @@ export function WorkspaceArea({
               registerEditorHandle={paneHandles.registerEditorHandle}
               onDirtyChange={paneHandles.handleEditorDirty}
               onCloseLeaf={paneHandles.handleEditorCloseLeaf}
-              onBrowserUrlChange={setBrowserLeafUrl}
               mdPreviewLeafIds={mdPreviewLeafIds}
               onToggleMdPreview={onToggleMdPreview}
               previewUrl={previewUrl}

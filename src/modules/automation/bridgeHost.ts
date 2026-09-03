@@ -8,8 +8,8 @@
  *   socket --(tedi://bridge-call)--> this --(mcp_bridge_reply)--> socket
  *
  * EVERY call answers, including the ones that throw. A capability that raises is
- * an ordinary outcome an agent should read and act on - "no browser pane with
- * that leafId", "that command has no handler" - and dropping the reply would
+ * an ordinary outcome an agent should read and act on - "no pane with that
+ * leafId", "that command has no handler" - and dropping the reply would
  * instead park the client until Rust's timeout fired, turning a useful sentence
  * into a two-minute silence. That was the CDP path's failure mode and it is not
  * worth reproducing.

@@ -77,13 +77,8 @@ console.log("\nleaf labels");
 
   const editor = { kind: "leaf", id: id(), leafKind: "editor", path: "/a/b/main.rs" } as PaneLeaf;
   check("an editor reads its file name", leafLabel(editor) === "main.rs");
-  const browser = {
-    kind: "leaf",
-    id: id(),
-    leafKind: "browser",
-    url: "https://x.dev/p",
-  } as PaneLeaf;
-  check("a browser falls back to the url host", leafLabel(browser) === "x.dev");
+  const board = { kind: "leaf", id: id(), leafKind: "board" } as PaneLeaf;
+  check("a board reads its kind", leafLabel(board) === "Board");
 }
 
 const extLeaf = (title: string | undefined, customTitle?: string): PaneLeaf =>
@@ -102,10 +97,10 @@ console.log("\na user-set name outranks every derived one");
   const named = [
     term("/srv/app", { customTitle: "build" }),
     { kind: "leaf", id: id(), leafKind: "editor", path: "/a/main.rs", customTitle: "build" },
-    { kind: "leaf", id: id(), leafKind: "browser", url: "https://x.dev", customTitle: "build" },
+    { kind: "leaf", id: id(), leafKind: "board", customTitle: "build" },
   ] as PaneLeaf[];
   check(
-    "on terminal, editor and browser leaves",
+    "on terminal, editor and board leaves",
     named.every((l) => leafLabel(l, hosts) === "build"),
   );
 }

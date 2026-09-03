@@ -404,9 +404,8 @@ export class Driver {
    *
    * `__TAURI_INTERNALS__` is injected into every TEDI webview, so every Rust
    * command is one hop away without registering anything new on `window.__tedi`.
-   * That is what lets the browser category exist at all: the native preview
-   * panes are driven by `preview_embed_*` on the Rust side, and there was never
-   * a frontend function to expose.
+   * That is what reaches capabilities with no frontend function to expose: a
+   * Rust command that nothing on `window.__tedi` wraps is still one hop away.
    *
    * Arguments go through `JSON.stringify`, so a URL with quotes or a Windows
    * path full of backslashes cannot end the injected string early.
@@ -594,46 +593,6 @@ export class Driver {
    *  Does NOT bypass approval - what the agent then does still raises cards. */
   aiSend(text) {
     return this.#tedi("aiSend", String(text));
-  }
-
-  /**
-   * The native browser panes, through the app's own live context - the same one
-   * TEDI's built-in browser tools use.
-   *
-   * NOT `preview_embed_*` directly: a preview pane has no native webview until
-   * the app has given it a URL, so navigating a blank one silently does nothing
-   * and every read afterwards answers "no open browser pane with that id".
-   */
-  browserOpen(url) {
-    return this.#tedi("browserOpen", String(url));
-  }
-  browserNav(leafId, url) {
-    return this.#tedi("browserNav", Number(leafId), String(url));
-  }
-  browserRead(leafId, fields = false) {
-    return this.#tedi("browserRead", Number(leafId), Boolean(fields));
-  }
-  browserList() {
-    return this.#tedi("browserList");
-  }
-  browserAct(leafId, index, action, text = "", submit = false) {
-    return this.#tedi(
-      "browserAct",
-      Number(leafId),
-      Number(index),
-      String(action),
-      String(text),
-      Boolean(submit),
-    );
-  }
-  browserConsole(leafId) {
-    return this.#tedi("browserConsole", Number(leafId));
-  }
-  browserShot(leafId) {
-    return this.#tedi("browserShot", Number(leafId));
-  }
-  browserDispatch(leafId, action) {
-    return this.#tedi("browserDispatch", Number(leafId), String(action));
   }
 
   /**
@@ -846,7 +805,7 @@ export class Driver {
     const list = await this.#tedi("termProbe", null);
     if (!list.length) throw new Error("No terminal pane is open. Run `cmd tab.new` first.");
     // Which pane, decided explicitly. The focused leaf is often NOT a terminal -
-    // `data-pane-leaf` is on every leaf, so an editor or browser pane answers
+    // `data-pane-leaf` is on every leaf, so an editor or extension pane answers
     // here too - and the earlier version then fell back to "the last terminal in
     // mount order", which is a background pane in some other tab, possibly an
     // SSH session on another host, silently. One terminal open is unambiguous;
@@ -903,7 +862,7 @@ export class Driver {
 
   /**
    * Open a file in the editor by absolute path, the way the explorer does (a PDF
-   * still lands in a browser pane). The one editor entry point a driver could
+   * still goes to the system browser). The one editor entry point a driver could
    * otherwise not reach: clicking the tree needs the path already expanded into
    * view, which for anything deep it is not.
    */

@@ -207,36 +207,6 @@ export function resetTrustedEgressHosts(): void {
   trustedEgressHosts.clear();
 }
 
-/**
- * Reject a URL the in-app browser must never open. Error string, or null when
- * safe.
- *
- * Approval is not the guard here. `file://` would read local files through a
- * surface whose whole job is to hand the page text back to the model, and the
- * cloud-metadata endpoints hand out instance credentials to anything that can
- * make a plain GET - both are exfiltration with one extra step, and neither is
- * something an approval card describes well enough for a human to catch.
- *
- * Lives beside the egress-trust set rather than inside one tool, so every
- * caller that can point the webview somewhere passes the same check.
- */
-export function unsafeBrowserUrl(url: string): string | null {
-  let u: URL;
-  try {
-    u = new URL(url);
-  } catch {
-    return "invalid url";
-  }
-  if (u.protocol !== "http:" && u.protocol !== "https:") {
-    return `refused: only http(s) URLs can be opened in the browser (got "${u.protocol}")`;
-  }
-  const host = u.hostname.toLowerCase();
-  if (host === "metadata.google.internal" || host === "metadata" || host.startsWith("169.254.")) {
-    return "refused: cloud-metadata / link-local address is not allowed";
-  }
-  return null;
-}
-
 // ─── Symlink-resolved guards ───────────────────────────────────────────
 
 /**

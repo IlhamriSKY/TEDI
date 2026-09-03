@@ -1,7 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { escapeRegex } from "@/lib/utils";
-import type { BrowserDiag } from "@/modules/browser";
-import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import type { ProviderKeys } from "../lib/keyring";
 import type { DynamicModelId, ProviderId } from "../config";
 
@@ -21,41 +20,10 @@ export type ToolContext = {
   /** Type text into the active terminal without executing. Returns false when
    *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;
-  /** Open an in-app preview tab at `url`. Returns the new pane's TAB id (resolve
-   *  the leaf id the browser tools take via `listBrowsers`), or null on failure. */
-  openPreview: (url: string) => number | null;
   /** Open a SAVED ssh connection as a new terminal tab. Saved connections have
    *  no command id, so this is the only in-realm route to one. Keys and
    *  passphrases stay in the keyring; nothing here can read them. */
   openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
-  /** Snapshot every open in-app browser pane (tabId/leafId/url/isActive). Lets a
-   *  tool resolve the leaf id of a pane it just opened with `openPreview`. */
-  listBrowsers: () => BrowserInfo[];
-  /** Navigate an existing browser pane (leaf id from `listBrowsers`) to a URL.
-   *  False if that leaf isn't a browser. */
-  navigateBrowser: (leafId: number, url: string) => boolean;
-  /** Drive an existing browser pane's history: back / forward / reload. */
-  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload" | "stop") => boolean;
-  /** Read an existing browser pane's rendered text (title + visible body).
-   *  With `fields` also lists tagged interactive controls as `[N]`. Null if
-   *  that leaf isn't a browser. */
-  readBrowser: (leafId: number, fields?: boolean) => Promise<string | null>;
-  /** Type into / click an interactive control (by its `[N]` index from a
-   *  `readBrowser(_, true)`) of a browser pane. Returns the raw result string
-   *  ("ok" / "not-found" / ...), or null if that leaf isn't a browser. */
-  actBrowser: (
-    leafId: number,
-    index: number,
-    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
-    text: string,
-    submit: boolean,
-  ) => Promise<string | null>;
-  /** Drain a browser pane's captured console errors, warnings, uncaught
-   *  exceptions, and unhandled rejections. Null if that leaf isn't a browser. */
-  consoleBrowser: (leafId: number) => Promise<BrowserDiag[] | null>;
-  /** Capture a browser pane as a base64 JPEG (last-resort visual). Null if that
-   *  leaf isn't a browser. */
-  screenshotBrowser: (leafId: number) => Promise<string | null>;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd. */
   openTerminal: (cwd?: string | null) => boolean;
   /** Advanced terminal-open: tab vs split, target tab, split direction. */

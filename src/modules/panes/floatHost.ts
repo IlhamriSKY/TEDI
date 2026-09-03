@@ -7,7 +7,6 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { emit, listen, type UnlistenFn } from "@tauri-apps/api/event";
-import { browserEmbedHide } from "@/modules/browser";
 import { useFloatStore } from "./floatStore";
 import {
   serializeTerminal,
@@ -113,7 +112,7 @@ function startTerminalHost(leafId: number): void {
  *  just flips the floating flag on so the main pane unmounts its now-handed-off
  *  view, and registers the teardown that `ensureDestroyedListener` runs when the
  *  window closes so the main pane comes back. No output/input bridge. */
-function startPassiveHost(leafId: number, onUrl?: (url: string) => void): void {
+function startPassiveHost(leafId: number): void {
   if (hosts.has(leafId)) return;
   let torn = false;
   const unlisteners: UnlistenFn[] = [];
@@ -124,17 +123,6 @@ function startPassiveHost(leafId: number, onUrl?: (url: string) => void): void {
     hosts.delete(leafId);
     useFloatStore.getState().setFloating(leafId, false);
   };
-  // Browser leaves report navigation back: the leaf's url drives its tab title
-  // and the browser list the AI reads, and the float owns the page while it is
-  // popped out, so without this both go stale the moment the user clicks a link.
-  if (onUrl) {
-    void listen<string>(floatEv.url(leafId), (e) => {
-      if (!torn && e.payload) onUrl(e.payload);
-    }).then((u) => {
-      if (torn) u();
-      else unlisteners.push(u);
-    });
-  }
   hosts.set(leafId, teardown);
   useFloatStore.getState().setFloating(leafId, true);
 }
@@ -194,10 +182,6 @@ function startBoardHost(leafId: number, onFocus?: (tabId: number, leafId: number
 export async function floatPane(
   params: FloatLeafParams,
   size: { w: number; h: number },
-  /** Browser leaves only: applied when the float reports the page navigated, so
-   *  the leaf's url (its tab title, and the browser list the AI reads) tracks the
-   *  page while it is popped out. */
-  onBrowserUrl?: (url: string) => void,
   /** Board leaves only: a card clicked in the float focuses that pane here. */
   onBoardFocus?: (tabId: number, leafId: number) => void,
 ): Promise<void> {
@@ -212,29 +196,13 @@ export async function floatPane(
   } else if (params.kind === "board") {
     if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
     startBoardHost(params.leafId, onBoardFocus);
-  } else if (
-    params.kind === "editor" ||
-    params.kind === "browser" ||
-    params.kind === "extension-panel"
-  ) {
-    // These hand off rather than mirror, so they need no output bridge. A browser
-    // hands off by MOVING its native webview into the float window (see
-    // FloatBrowser), which is why the page survives the trip without reloading.
-    // An extension panel hands off by re-running its renderer in the float's own
+  } else if (params.kind === "editor" || params.kind === "extension-panel") {
+    // These hand off rather than mirror, so they need no output bridge. An
+    // extension panel hands off by re-running its renderer in the float's own
     // webview, so the main pane must unmount its copy - which is what registering
     // a host (and the floating flag it sets) does.
-    const alreadyFloating = useFloatStore.getState().floating.has(params.leafId);
-    if (!alreadyFloating) hosts.get(params.leafId)?.();
-    // A browser pane's webview composites ABOVE the DOM and nothing hides it
-    // between the main pane unmounting and the float window taking ownership, so
-    // it would sit over the "this pane is floating" placeholder for as long as the
-    // window takes to open. Hide it for that gap; the float's own bounds loop
-    // shows it again the moment it owns it. Skipped when this is a "focus the
-    // existing window" click, which must not blink the page.
-    if (params.kind === "browser" && !alreadyFloating) {
-      await browserEmbedHide(params.leafId).catch(() => {});
-    }
-    startPassiveHost(params.leafId, params.kind === "browser" ? onBrowserUrl : undefined);
+    if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
+    startPassiveHost(params.leafId);
   }
   await invoke("open_float_window", {
     leafId: params.leafId,

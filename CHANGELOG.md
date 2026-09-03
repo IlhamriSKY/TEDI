@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.42] - 03-09-2026
+
+### Added
+
+- **A browser is an extension now, and it is a real Chromium.** TEDI renders its own UI in the webview the OS provides, which is Chromium only on Windows - so a browser built on that webview could offer the DevTools Protocol and Chrome extensions on one platform out of three, and nowhere else. [tedi.browser](https://github.com/IlhamriSKY/tedi.browser) drives a real Chromium instead: it reuses the Chrome, Edge, Brave or Chromium already installed and fetches Chrome for Testing only when the machine has none, so the TEDI download is unchanged and nobody who never opens a browser pane pays for one. The pane draws a `Page.startScreencast` stream into a canvas with the emulated viewport pinned to the pane, so coordinates map one to one and input goes back as TRUSTED events. Frames stop being encoded when the pane is hidden, and the process stops entirely after an idle timeout.
+- **Chrome Web Store extensions work, on all three platforms.** The profile is a real Chromium profile, so an ad blocker persists in it. An unpacked folder dropped in `~/.tedi/browser/extensions/` is passed as `--load-extension` and is honoured headless, which is the route that needs no window and no clicks.
+- **An extension's AI tools now carry their real schema to an outside CLI.** `listExtensions()` published only a tool's name and description, so the out-of-process MCP server had nothing to advertise and fell back to an open object: a tool with an `action` enum was listed, callable, and unusable, because a model could not know which values were legal. The schema travels now, and [ext-tool-surface-verify.ts](scripts/ext/ext-tool-surface-verify.ts) guards both hops. See [store.ts](src/modules/extensions/store.ts), [server.mjs](scripts/mcp/server.mjs).
+- **An extension tool can return an image.** A result was serialised as JSON on both routes, so image bytes reached the model as base64 text it could not decode - cost with no answer. `extToolMedia` in [tools.mjs](scripts/mcp/tools.mjs) is the one shape both routes unpack: into an AI-SDK file part for TEDI's own agent, into an MCP image block for an outside CLI. It lives in the only module the renderer and the stdio server both import, so the two cannot drift.
+
+### Changed
+
+- **The preview pill and the canvas `+` entry appear only when a browser is installed.** Both hand their url to the browser extension, so without one they would be controls that open nothing. See [browserBridge.ts](src/modules/extensions/browserBridge.ts).
+- **A local file preview opens in the system browser.** A PDF, or "Preview in Browser" on an HTML file, is user intent and the system browser renders both natively. The agent-facing path still refuses `file://` and cloud-metadata addresses outright, so a model cannot read the disk through a browser.
+
+### Removed
+
+- **The built-in browser.** `preview_embed_*`, `browser_ext_*`, the `browser` leaf kind and its MCP tool are gone from the core app - 8,169 lines across 106 files, including 3,072 of Rust. A workspace file that still holds a browser leaf restores without it: siblings in a split survive, a tab that held nothing else is dropped, and neither leaves a fabricated pane in its place. See [serialize.ts](src/modules/workspaces/serialize.ts).
+
 ## [0.4.41] - 03-09-2026
 
 ### Added

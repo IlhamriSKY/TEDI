@@ -61,12 +61,6 @@ export const MCP_PACKS: McpPack[] = [
     hint: "Preferences, theme, shortcuts, agents; enable/disable/update extensions.",
     tools: toolsInPack("settings"),
   },
-  {
-    id: "browser",
-    name: "Browser",
-    hint: "Native browser panes: page text, console, history. Not visible to any DOM tool.",
-    tools: toolsInPack("browser"),
-  },
   // NO generic "Extensions" pack. It would have no static tools of its own -
   // API Client and Database Viewer ARE the extension entries, and they are
   // resolved at runtime into their own switches below the fixed ones. An empty

@@ -1,10 +1,5 @@
 import { loadSchedules, newScheduleId, saveSchedules } from "./store";
-import type {
-  Schedule,
-  ScheduleAction,
-  TerminalInfo,
-  TerminalTarget,
-} from "../types";
+import type { Schedule, ScheduleAction, TerminalInfo, TerminalTarget } from "../types";
 
 /**
  * App glue the engine needs. App.tsx wires it once via `setSchedulerBridge`.
@@ -119,11 +114,7 @@ class SchedulerEngine {
     if (timer) clearTimeout(timer);
     this.timers.delete(id);
     const updated: Schedule = { ...cur, status: "cancelled" };
-    this.schedules = [
-      ...this.schedules.slice(0, idx),
-      updated,
-      ...this.schedules.slice(idx + 1),
-    ];
+    this.schedules = [...this.schedules.slice(0, idx), updated, ...this.schedules.slice(idx + 1)];
     await this.persist();
     this.emit();
     return true;
@@ -184,11 +175,7 @@ class SchedulerEngine {
       firedAt: Date.now(),
       error,
     };
-    this.schedules = [
-      ...this.schedules.slice(0, idx),
-      updated,
-      ...this.schedules.slice(idx + 1),
-    ];
+    this.schedules = [...this.schedules.slice(0, idx), updated, ...this.schedules.slice(idx + 1)];
     await this.persist();
     this.emit();
     const label = cur.label ?? truncate(cur.command, 60);

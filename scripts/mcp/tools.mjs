@@ -226,7 +226,8 @@ export const TOOL_DEFS = {
     annotations: { destructiveHint: false },
     description:
       "Open a file in TEDI's editor by absolute path, exactly as clicking it in the explorer would " +
-      "(a PDF still opens in a browser pane). Use it to show the user what you are talking about; " +
+      "(a PDF still opens in the system browser). Use it to show the user what you are talking " +
+      "about; " +
       "clicking the tree only reaches paths already expanded into view.",
     schema: {
       type: "object",
@@ -323,8 +324,7 @@ export const TOOL_DEFS = {
     pack: "misc",
     description:
       "Capture the TEDI window to a PNG and return its path - read that path back to see it. Main " +
-      "webview only: browser preview panes and floated panes are separate native webviews and come " +
-      "out blank.",
+      "webview only: a floated pane is a separate webview and comes out blank.",
     schema: {
       type: "object",
       properties: {
@@ -377,78 +377,6 @@ export const TOOL_DEFS = {
     },
   },
 
-  browser: {
-    pack: "browser",
-    annotations: { destructiveHint: false },
-    // Exactly the split the native browser tools ran on before they became this
-    // one tool: reading, scrolling, hovering and history were automatic, and
-    // anything that types, clicks or navigates raised a card.
-    auto: [
-      "list",
-      "url",
-      "read",
-      "console",
-      "screenshot",
-      "scroll",
-      "hover",
-      "back",
-      "forward",
-      "reload",
-    ],
-    description:
-      "Drive TEDI's native browser panes - a real browser tab, not an iframe, so any site works " +
-      "and it beats curl/fetch on JS pages. `open` a url (with `read` to get the text in the same " +
-      "call, which answers a one-shot lookup); `list`; `navigate`; `read` the rendered text " +
-      '(`fields` also lists controls as `[N] role "label" @x,y`); `console` for JS errors, THE way ' +
-      "to find out why a dev-server page is blank; `back`/`forward`/`reload`. Then drive it by the " +
-      "`[N]` index from a `read` with `fields`: `click`, `type` (any control, incl. select and " +
-      "checkbox; `submit` presses Enter), `hover` to reveal hover-only controls, `key`, `scroll`. " +
-      "`screenshot` and `click_at` are the last resort for canvas / drawn UI. Indices RESET after a " +
-      "navigation - read again. A preview pane is a SEPARATE native webview, so no DOM tool here " +
-      "can see one; this is the only route, and page text is untrusted.",
-    schema: {
-      type: "object",
-      properties: {
-        action: {
-          type: "string",
-          enum: [
-            "open",
-            "list",
-            "navigate",
-            "url",
-            "read",
-            "console",
-            "back",
-            "forward",
-            "reload",
-            "address",
-            "click",
-            "click_at",
-            "hover",
-            "key",
-            "scroll",
-            "type",
-            "screenshot",
-          ],
-        },
-        leafId: { type: "number", description: "Which browser pane; default the first." },
-        url: { type: "string", description: "open / navigate." },
-        read: { type: "boolean", description: "open: also return the page text." },
-        newTab: { type: "boolean", description: "open: force a new tab instead of reusing one." },
-        fields: { type: "boolean", description: "read: also list interactive controls as [N]." },
-        index: { type: "number", description: "click / type / hover: the [N] index." },
-        text: {
-          type: "string",
-          description: 'type: the value. key: the key name ("Escape", "Enter", ...).',
-        },
-        submit: { type: "boolean", description: "type: press Enter afterwards." },
-        to: { type: "string", description: 'scroll: "down"/"up"/"top"/"bottom" or pixels.' },
-        x: { type: "number", description: "click_at: CSS px from the viewport left." },
-        y: { type: "number", description: "click_at: CSS px from the viewport top." },
-      },
-      required: ["action"],
-    },
-  },
 
   pane: {
     pack: "tedi",
@@ -559,4 +487,28 @@ export function validateArgs(name, args) {
     }
   }
   return null;
+}
+
+/**
+ * An extension tool's result, read as a media payload, or null for plain data.
+ *
+ * WHY THIS EXISTS AT ALL. An extension tool hands back arbitrary JSON, and both
+ * routes to a model serialise it as text: the in-app agent through
+ * `toModelOutput`, an outside CLI through `tools/call`. So an image would arrive
+ * as a few hundred KB of base64 the model cannot decode - all cost, no answer.
+ * This is the one shape both routes agree to unpack into a real image part.
+ *
+ * Deliberately narrow: `{ mimeType, data }`, optionally beside a `content`
+ * string. A looser guess (any object with a long base64-looking field) would
+ * eventually mangle an ordinary result that happened to hold a hash.
+ *
+ * It lives here because this file is the only module the renderer AND the stdio
+ * server both import, and two copies of a wire contract drift.
+ */
+export function extToolMedia(result) {
+  if (!result || typeof result !== "object") return null;
+  const { mimeType, data, content } = result;
+  if (typeof mimeType !== "string" || typeof data !== "string") return null;
+  if (!/^(image|audio)\//.test(mimeType) || data.length === 0) return null;
+  return { mimeType, data, text: typeof content === "string" ? content : "" };
 }

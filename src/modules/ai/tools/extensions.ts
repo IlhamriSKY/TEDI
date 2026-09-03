@@ -2,6 +2,7 @@ import { jsonSchema, tool, type ToolSet } from "ai";
 import { aiToolsRegistry } from "@/modules/extensions/registries";
 import { scrubErrorPath } from "./context";
 import { clampToolKey, sanitizeToolName } from "./mcp";
+import { extToolMedia } from "@mcp/tools.mjs";
 
 type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown;
 
@@ -72,6 +73,25 @@ export function buildExtensionTools(
           // local paths back to the model (consistent with built-in tools).
           return { error: scrubErrorPath(e, ctx) };
         }
+      },
+      // An extension may answer with an image (a page capture, a rendered
+      // chart). Serialised as JSON it would reach the model as base64 text it
+      // cannot decode - cost with no answer - so the one agreed media shape is
+      // unpacked into a real file part, exactly as an MCP tool's image is.
+      // `extToolMedia` is shared with the stdio server so both routes agree.
+      toModelOutput: ({ output }) => {
+        if (output && typeof output === "object" && "error" in output) {
+          return { type: "text", value: String((output as { error: unknown }).error) };
+        }
+        const media = extToolMedia(output);
+        if (!media) return { type: "text", value: JSON.stringify(output ?? { ok: true }) };
+        return {
+          type: "content",
+          value: [
+            ...(media.text ? [{ type: "text" as const, text: media.text }] : []),
+            { type: "file-data" as const, data: media.data, mediaType: media.mimeType },
+          ],
+        };
       },
     });
   }

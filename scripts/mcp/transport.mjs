@@ -79,18 +79,6 @@ export const BRIDGED = {
   ai: "ai",
   aiMessages: "aiMessages",
   aiSend: "aiSend",
-  browserOpen: "browserOpen",
-  browserNav: "browserNav",
-  browserRead: "browserRead",
-  browserList: "browserList",
-  // The rest of the browser surface. `browserAct` is a DOM interaction, but it
-  // happens INSIDE a native preview webview that CDP cannot reach anyway (a
-  // preview pane is a separate webview, not part of the page), so it is an
-  // in-realm call like the others and belongs here.
-  browserAct: "browserAct",
-  browserConsole: "browserConsole",
-  browserShot: "browserShot",
-  browserDispatch: "browserDispatch",
   // Panes and terminals. Anything absent from this map falls through to CDP,
   // and CDP is Windows-only, so an omission here is not a slower path - it is a
   // tool that does not exist on macOS or Linux, and one that still passes every
@@ -152,9 +140,6 @@ const COERCE = {
   sshConnect: (id, isPrivate = false) => [String(id), Boolean(isPrivate)],
   aiMessages: (sessionId = null, maxChars = 8000) => [sessionId, Number(maxChars)],
   aiSend: (text) => [String(text)],
-  browserOpen: (url) => [String(url)],
-  browserNav: (leafId, url) => [Number(leafId), String(url)],
-  browserRead: (leafId, fields = false) => [Number(leafId), Boolean(fields)],
 };
 
 /**

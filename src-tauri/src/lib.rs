@@ -201,8 +201,7 @@ fn apply_windows_frame_fixes(_window: &tauri::WebviewWindow) {}
 /// browser shortcuts and acts on them BEFORE web content can cancel them with
 /// `preventDefault` - so Ctrl+W closed the whole window (quitting the app)
 /// instead of running the app's own close-tab shortcut. TEDI is an app shell,
-/// not a browser, so the app's keyboard handlers should own those combos. The
-/// in-app browser child webview is a separate webview and keeps its own defaults.
+/// not a browser, so the app's keyboard handlers should own those combos.
 #[cfg(target_os = "windows")]
 fn disable_browser_accelerator_keys(window: &tauri::WebviewWindow) {
     use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2Settings3;
@@ -390,9 +389,9 @@ fn open_or_reveal_child(
     // taskbar instead of floating on the desktop.
     // `get_webview_window` here, unlike everywhere else, because `parent` takes
     // nothing wider. That wrapper only matches a window holding ONE webview, so
-    // the lookup misses while a browser pane is open (`preview::embed` attaches
-    // its webview to this same window). The float then opens unparented, which
-    // costs the owned-window behaviour above and nothing else.
+    // the lookup misses if anything ever attaches a second one to this window.
+    // The float then opens unparented, which costs the owned-window behaviour
+    // above and nothing else.
     if let Some(main) = app.get_webview_window("main") {
         builder = builder.parent(&main).map_err(|e| e.to_string())?;
     }
@@ -522,13 +521,13 @@ pub fn run() {
     #[cfg(target_os = "linux")]
     configure_linux_rendering();
 
-    // Windows: apply the embedded-browser WebView2 flags at the process
-    // environment level BEFORE any webview is created, so the main window and
-    // every preview child are built with the SAME additional args. A per-child
-    // override (different from the main webview's) renders the child BLANK on
-    // Windows - tauri-apps/tauri#13092.
+    // Windows: apply the WebView2 flags at the process environment level BEFORE
+    // any webview is created, so every webview is built with the SAME additional
+    // args. A per-webview override that differs from the main window's renders
+    // that webview BLANK on Windows - tauri-apps/tauri#13092. This is also where
+    // the automation channel's `--remote-debugging-port` is appended.
     #[cfg(target_os = "windows")]
-    preview::apply_webview2_browser_args_env();
+    automation::apply_webview2_browser_args_env();
 
     let builder = tauri::Builder::default().plugin(tauri_plugin_process::init());
 
@@ -589,8 +588,8 @@ pub fn run() {
     }));
 
     // Custom URI scheme that proxies http(s) URLs and strips X-Frame-Options
-    // / CSP frame-ancestors so the preview pane can embed sites that would
-    // otherwise refuse to render in an iframe.
+    // / CSP frame-ancestors so an iframe can embed sites that would otherwise
+    // refuse to render in one - the extension marketplace card, for instance.
     let builder = preview::register(builder);
 
     // Updater is desktop-only; the plugin does not compile on android/ios.
@@ -750,26 +749,6 @@ pub fn run() {
             open_settings_window,
             open_debug_window,
             open_float_window,
-            preview::preview_embed_update,
-            preview::preview_embed_navigate,
-            preview::preview_embed_dispatch,
-            preview::preview_embed_read,
-            preview::preview_embed_console,
-            preview::preview_embed_act,
-            preview::preview_embed_screenshot,
-            preview::preview_embed_set_bg,
-            preview::preview_embed_zoom,
-            preview::preview_embed_zoom_get,
-            preview::preview_embed_url,
-            preview::preview_embed_reparent,
-            preview::preview_embed_loaded_exts,
-            preview::preview_embed_close,
-            preview::preview_resolve_favicon,
-            preview::browser_ext_list,
-            preview::browser_ext_install,
-            preview::browser_ext_install_file,
-            preview::browser_ext_set_enabled,
-            preview::browser_ext_remove,
             cli::cli_initial_target,
             cli::cli_classify_path,
             cli::cli_take_initial_update_request,

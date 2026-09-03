@@ -36,15 +36,6 @@ export type TerminalInfo = {
   agentState?: "idle" | "working" | "blocking" | "done" | null;
 };
 
-/** Snapshot row returned by `listBrowsers` - one open in-app browser pane. */
-export type BrowserInfo = {
-  tabId: number;
-  leafId: number;
-  /** Current page URL. */
-  url: string;
-  isActive: boolean;
-};
-
 export type ScheduleAction = "inject" | "submit";
 
 export type ScheduleStatus = "pending" | "fired" | "failed" | "cancelled";

@@ -178,8 +178,7 @@ function hasProviderKey(prefs: AutocompletePrefs): boolean {
   // A local OpenAI-compatible endpoint (Ollama, llama.cpp, vLLM) authenticates
   // with nothing; treat a configured loopback base URL as credentials enough.
   return (
-    prefs.provider === "openai-compatible" &&
-    isLoopbackBaseURL(prefs.openaiCompatibleBaseURL ?? "")
+    prefs.provider === "openai-compatible" && isLoopbackBaseURL(prefs.openaiCompatibleBaseURL ?? "")
   );
 }
 

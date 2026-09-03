@@ -182,6 +182,9 @@ export type AppContextSnapshot = {
    *  "all open terminals" is what you mean. */
   terminalCount: number;
   /** Kind of the focused tab. `null` when no tab is active. */
+  /** `"browser"` is not reported: a browser is an extension, so its pane
+   *  reports `"ext"` like any other. Kept in the union so an extension that
+   *  branches on it still type-checks. */
   activeTabKind: "terminal" | "ssh" | "editor" | "diff" | "browser" | "ext" | null;
   /** Workspaces the user has open. Always >= 1. */
   workspaceCount: number;

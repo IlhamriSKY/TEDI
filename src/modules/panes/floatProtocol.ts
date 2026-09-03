@@ -5,7 +5,7 @@
  * WebView2 windows). Leaf params travel in the float window's URL query.
  */
 
-export type FloatKind = "terminal" | "editor" | "table" | "browser" | "extension-panel" | "board";
+export type FloatKind = "terminal" | "editor" | "table" | "extension-panel" | "board";
 
 export type FloatLeafParams = {
   leafId: number;
@@ -22,10 +22,6 @@ export type FloatLeafParams = {
    * SSH leaf must opt OUT of it, because that pty is a Unix one.
    */
   remotePty?: boolean;
-  /** browser leaf: the address to seed the float's address bar with. The page
-   *  itself is NOT reloaded - the same native webview is re-parented into the
-   *  float window - so this only tells the float what it is already showing. */
-  url?: string;
   /** table: the table serialized as markdown. Static content, so it rides in the
    *  window URL and needs no live event mirror (unlike terminals). */
   markdown?: string;

@@ -46,8 +46,8 @@ export function containsSchemeSeparator(bytes: Uint8Array): boolean {
  * `0.0.0.0` is a BIND address, never a connect one. Two things downstream
  * refuse it and both fail silently: `port_is_open` rejects every resolved
  * address that is not loopback (net.rs) and Rust counts only 127/8 as loopback,
- * so a wildcard-bound server probes dead forever; and the browser pane cannot
- * navigate to it either. `php artisan serve --host=0.0.0.0`, uvicorn and most
+ * so a wildcard-bound server probes dead forever; and no browser can navigate
+ * to it either. `php artisan serve --host=0.0.0.0`, uvicorn and most
  * docker-compose setups print exactly this.
  *
  * Rewritten here rather than at the call site because this is the one function

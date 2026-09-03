@@ -8,7 +8,7 @@ import {
   parseHostsFile,
   urlFromConfig,
   type LocalHosts,
-} from "@/modules/browser/lib/projectUrl";
+} from "@/lib/projectUrl";
 import { IS_WINDOWS } from "@/lib/platform";
 
 /**

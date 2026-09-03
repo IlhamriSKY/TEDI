@@ -12,7 +12,6 @@ import {
   FileSearch,
   FolderOpen,
   FolderPlus,
-  Globe,
   Layers,
   List,
   ListChecks,
@@ -81,7 +80,6 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   mcp__tedi__wait_for_terminal: { label: "MCP TEDI WAIT", icon: Terminal },
   mcp__tedi__focus_pane: { label: "MCP TEDI FOCUS", icon: SquarePlus },
   mcp__tedi__pane: { label: "MCP TEDI PANE", icon: Layers },
-  mcp__tedi__browser: { label: "MCP TEDI BROWSER", icon: Globe },
   mcp__tedi__ssh: { label: "MCP TEDI SSH", icon: Terminal },
   mcp__tedi__inspect: { label: "MCP TEDI INSPECT", icon: Search },
   mcp__tedi__run_command: { label: "MCP TEDI COMMAND", icon: Sparkles },
@@ -173,9 +171,6 @@ function deriveSummary(toolName: string, input: unknown): string | null {
     case "mcp__tedi__pane":
     case "mcp__tedi__extension":
       return str("action");
-    case "mcp__tedi__browser":
-      // The url is the useful half when there is one; otherwise the verb.
-      return str("url") ?? str("action");
     case "mcp__tedi__ssh":
       return str("id") ?? str("action");
     case "mcp__tedi__run_command":
@@ -1045,7 +1040,7 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
       return (
         <img
           src={`data:image/jpeg;base64,${image}`}
-          alt="Browser pane screenshot"
+          alt="Page screenshot"
           className="border-border/60 max-h-96 w-full rounded-md border object-contain"
         />
       );

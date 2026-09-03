@@ -374,10 +374,18 @@ export function listExtensions() {
   // for API Client, which contributes five. That is a WRONG answer, not a
   // missing one: an agent reads "this extension lends the AI nothing" and stops
   // looking. Grouped by extension id in one pass so this stays O(n).
-  const byExt = new Map<string, { name: string; description?: string }[]>();
+  const byExt = new Map<
+    string,
+    { name: string; description?: string; parameters?: Record<string, unknown> }[]
+  >();
   for (const { extensionId, item } of aiToolsRegistry.list()) {
     const list = byExt.get(extensionId) ?? [];
-    list.push({ name: item.name, description: item.description });
+    // `parameters` travels with the name. Without it the OUT-OF-PROCESS server
+    // (`scripts/mcp/server.mjs`) has no schema to advertise and falls back to an
+    // open object, so an external CLI sees a tool it cannot call correctly: it
+    // cannot know an `action` enum exists, let alone which values are legal. The
+    // in-app agent never hit this because it reads the registry directly.
+    list.push({ name: item.name, description: item.description, parameters: item.parameters });
     byExt.set(extensionId, list);
   }
   return useExtensionsStore.getState().list.map((e) => ({
@@ -391,9 +399,10 @@ export function listExtensions() {
       title: x.title,
       surface: x.surface,
     })),
-    // Name AND description: an agent choosing between `api_client_send` and
-    // `api_client_save_request` cannot do it from the names alone, and these are
-    // the only place those descriptions exist outside the extension's source.
+    // Name, description AND schema: an agent choosing between `api_client_send`
+    // and `api_client_save_request` cannot do it from the names alone, and this
+    // is the only place those descriptions and argument schemas exist outside
+    // the extension's source.
     aiTools: byExt.get(e.id) ?? [],
   }));
 }

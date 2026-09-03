@@ -577,7 +577,7 @@ console.log("\n[sh] refuses a leaf that is not a terminal");
 console.log("\n[sh] does not guess a pane when focus is elsewhere and several are open");
 {
   // `data-pane-leaf` is on EVERY leaf, so `focusedLeaf()` answers with editors
-  // and browser panes too. Falling back to "the last terminal" then runs the
+  // and extension panes too. Falling back to "the last terminal" then runs the
   // command in a background pane in another tab - possibly an SSH session on
   // another host - and reports success. One open terminal is unambiguous and
   // still works; more than one is a question only the caller can answer.

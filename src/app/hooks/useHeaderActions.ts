@@ -11,7 +11,7 @@ import { type TabsApi } from "./tabsApi";
 type Params = {
   activePaneTab: PaneTab | null;
   detectedBrowserUrl: string | null;
-  openPreviewTab: (url: string) => number | null;
+  openPreviewTab: (url: string) => void;
   handleClose: (id: number) => void;
   requestCloseLeaf: (leafId: number) => void;
 } & Pick<TabsApi, "setActiveId" | "focusPane" | "pinTab" | "newSshTab" | "openFileTab">;

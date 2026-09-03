@@ -32,7 +32,7 @@ type Props = {
   onPathDeleted?: (path: string) => void;
   onRevealInTerminal?: (path: string) => void;
   onAttachToAgent?: (path: string) => void;
-  /** Open an HTML file in the in-app browser preview (context-menu action). */
+  /** Open an HTML file in the browser (context-menu action). */
   onPreviewInBrowser?: (path: string) => void;
   /** Accordion mode. Header becomes a chevron toggle; body hides while
    *  `collapsed` is true. Pair with a collapsible ResizablePanel. */

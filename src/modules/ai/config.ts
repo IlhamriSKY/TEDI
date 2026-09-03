@@ -625,7 +625,6 @@ const TERMINAL_TOOLS = [
   "mcp__tedi__wait_for_terminal",
   "mcp__tedi__focus_pane",
 ] as const;
-const BROWSER_TOOLS = ["mcp__tedi__browser"] as const;
 const SUBAGENT_TOOLS = ["run_subagent", "run_subagents"] as const;
 
 const CORE_BLOCKS: readonly PromptBlock[] = [
@@ -641,10 +640,9 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     inline: true,
     sections: [
       {
-        text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there), and a \`browsers:\` list (open in-app browser panes with URL; \`*\` = focused). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one.`,
+        text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, and a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one.`,
       },
       { needs: [TERMINAL_READ], text: `Use \`read\` for scrollback, open editors and DOM text.` },
-      { needs: BROWSER_TOOLS, text: `Use \`browser\` to open or reuse a browser pane.` },
     ],
   },
   {
@@ -729,23 +727,6 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     ],
   },
   {
-    heading: "# Browser",
-    sections: [
-      {
-        needs: BROWSER_TOOLS,
-        text: `- \`browser\` drives real pages, not iframes, so use it instead of curl/fetch for JS-heavy sites. Fact lookup is ONE call: \`browser({ action: "open", url, read: true })\` opens (reusing your research pane) and returns the text together. Search by opening a search URL; never open URLs through terminal commands, and do not curl the same page afterwards. Re-read only if it was still loading.`,
-      },
-      {
-        needs: BROWSER_TOOLS,
-        text: `- To act on a page: \`read\` with \`fields: true\` for the \`[N]\` list, then \`click\` / \`type\` by index. Indices RESET after any navigation, so read again. For complex UI: \`scroll\` -> read -> \`hover\` -> \`key\`. \`click_at\` is only for visual-only targets and \`screenshot\` is the last resort. Passwords only when the user gave them for that login.`,
-      },
-      {
-        needs: BROWSER_TOOLS,
-        text: `- Debugging your own app: after opening or reloading a dev-server page, use \`action: "console"\` for the real JS errors rather than inferring them. It captures from page load and drains, so call it right after the action you want to check. A blank or half-rendered page is a console question, not a screenshot question.`,
-      },
-    ],
-  },
-  {
     heading: "# Delegation and output",
     sections: [
       {
@@ -771,7 +752,7 @@ const CORE_BLOCKS_LITE: readonly PromptBlock[] = [
   {
     sections: [
       {
-        text: `You are TEDI, an AI agent in a developer terminal. \`Host:\` gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, terminal ordinals, and open browser panes. The LAST one is ground truth; earlier ones are that past turn's state. Name a terminal as \`#<ordinal>\`; the user can click it to jump there.`,
+        text: `You are TEDI, an AI agent in a developer terminal. \`Host:\` gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, and terminal ordinals. The LAST one is ground truth; earlier ones are that past turn's state. Name a terminal as \`#<ordinal>\`; the user can click it to jump there.`,
       },
       { text: `- Execute, do not echo; the approval card is the confirmation.` },
       { text: `- Prefer read → change → verify in one turn.` },
@@ -790,10 +771,6 @@ const CORE_BLOCKS_LITE: readonly PromptBlock[] = [
       {
         needs: SHELL_TOOLS,
         text: `- Use \`bash_run\` only for short non-interactive stdout. Use Bash Background plus \`bash_list\` for long-lived processes.`,
-      },
-      {
-        needs: BROWSER_TOOLS,
-        text: `- \`browser\` for JS-heavy pages: \`open\` with \`read:true\` is one lookup call. \`read\` with \`fields:true\` then \`click\`/\`type\` by [N]; indices reset after navigation. \`console\` for real JS errors.`,
       },
       {
         needs: TERMINAL_TOOLS,

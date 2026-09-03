@@ -173,8 +173,6 @@ export function usePaneHandles({
           };
         case "editor":
           return { path: leaf.path, dirty: leaf.dirty, ssh: leaf.sshHostLabel };
-        case "browser":
-          return { url: leaf.url, pageTitle: leaf.title };
         case "extension-panel":
           return { extensionId: leaf.extensionId, panelId: leaf.panelId, state: leaf.state };
         case "ai":

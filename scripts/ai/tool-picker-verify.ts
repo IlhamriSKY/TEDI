@@ -5,10 +5,11 @@
  * Two things must hold:
  *  1. Grouping is derived from the tool NAME, so a tool added later still lands
  *     somewhere sensible with nobody registering it. The rules are ordered, and
- *     the order is the part that breaks silently: `read_browser_console` must
- *     read as Browser, not Terminal, and `run_in_terminal` the other way round.
- *     The expected names below are the real tool set (taken from a live request
- *     capture), so a rename that quietly reshuffles a group fails here.
+ *     the order is the part that breaks silently: `schedule_command` must read
+ *     as Schedule, not Files, and `bash_list` as Shell rather than matching a
+ *     later rule. The expected names below are the real tool set (taken from a
+ *     live request capture), so a rename that quietly reshuffles a group fails
+ *     here.
  *  2. Unticking every tool must yield `undefined`, not `{}`: some endpoints
  *     reject an empty tools array, and "no tools" belongs in the request as an
  *     omitted field.
@@ -39,9 +40,9 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 
 console.log("[grouping] real built-in tool names land in the right group");
 
-// NO Browser or Terminal group. Panes, terminals and browsers moved to TEDI's
-// own in-process MCP server, so they group under `MCP: tedi` (checked below)
-// and `builtinGroup` never sees them.
+// NO Terminal group. Panes and terminals are served by TEDI's own in-process
+// MCP server, so they group under `MCP: tedi` (checked below) and
+// `builtinGroup` never sees them.
 const EXPECTED: Record<string, string[]> = {
   Shell: ["bash_run", "bash_background", "bash_logs", "bash_kill", "bash_list"],
   Files: [
@@ -69,12 +70,12 @@ for (const [group, names] of Object.entries(EXPECTED)) {
 
 console.log("\n[grouping] the ordered rules that break silently");
 check("an unknown tool falls back to Files", builtinGroup("some_new_tool") === "Files");
-// `describeTools` asks `mcpGroup` FIRST, so a tool whose name happens to contain
-// "browser" or "terminal" is grouped by the server that serves it, not by its
+// `describeTools` asks `mcpGroup` FIRST, so a tool whose name would otherwise
+// match a built-in rule is grouped by the server that serves it, not by its
 // spelling. Reversing that order would silently regroup half the surface.
 check(
   "an MCP tool is grouped by its server even when its name looks built-in",
-  mcpGroup("mcp__tedi__browser") === "tedi",
+  mcpGroup("mcp__tedi__read") === "tedi",
 );
 
 console.log("\n[grouping] MCP tools group per server");

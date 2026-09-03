@@ -82,7 +82,7 @@ function setBranch(key: string, branch: string | null) {
 
 /**
  * The branch for one row's working directory, or null while unknown / not a
- * repo. Undefined `cwd` (an editor or browser leaf) never asks.
+ * repo. Undefined `cwd` (a leaf with no working directory) never asks.
  *
  * The effect deliberately has NO dependency array: the TTL guard above makes a
  * re-run a Map lookup, and piggybacking on the renders the panel already does

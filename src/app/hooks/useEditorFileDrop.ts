@@ -12,8 +12,8 @@ const TAB_STRIP = "[data-tab-strip]";
 type Handlers = {
   /**
    * `useFileActions`' `handleOpenFile`, NOT `openFileTab` directly: it owns the
-   * which-surface decision (a PDF opens in a browser pane, everything else in
-   * an editor tab), and routing drops around it would make a dropped file
+   * which-surface decision (a PDF goes to the system browser, everything else
+   * to an editor tab), and routing drops around it would make a dropped file
    * behave differently from the same file clicked in the explorer.
    */
   openFile: (path: string, pin?: boolean) => void;

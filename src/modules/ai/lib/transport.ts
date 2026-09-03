@@ -348,8 +348,8 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
         }
 
         try {
-          // The <env> block names terminals, cwd, and browser panes: ground
-          // truth for tools, noise for a conversation that has none.
+          // The <env> block names terminals and cwd: ground truth for tools,
+          // noise for a conversation that has none.
           const augmented = snapshot.chatMode
             ? requestMessages
             : injectContext(

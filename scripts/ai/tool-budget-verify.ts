@@ -148,7 +148,7 @@ console.log(
 // ---------------------------------------------------------------------------
 // The OTHER half of the bill: TEDI's own MCP server.
 //
-// Panes, terminals, the browser and app control are served by the in-process MCP
+// Panes, terminals and app control are served by the in-process MCP
 // server, so they are absent from the built-in payload above and would go
 // unmeasured. Their definitions come from `scripts/mcp/tools.mjs`, a data-only
 // table with zero imports, so the cost can be read straight out of it.
@@ -165,7 +165,6 @@ const IN_PROCESS = [
   "focus_pane",
   "pane",
   "ssh",
-  "browser",
 ];
 let mcpChars = 0;
 for (const n of IN_PROCESS) {

@@ -1,6 +1,6 @@
 import { toast } from "@/components/ui/toast";
 import { toForwardSlash } from "@/lib/path";
-import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/modules/browser/lib/proxy";
+import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
 import {
   agentToolKind,
@@ -15,6 +15,7 @@ import {
   type PaneLayout,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
+import { openUrlInBrowser } from "@/modules/extensions/browserBridge";
 import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
 import { type TabsApi } from "./tabsApi";
 
@@ -39,7 +40,6 @@ type Params = {
   | "setActiveId"
   | "newTab"
   | "newPaneGroupTab"
-  | "newBrowserTab"
   | "setLeafCwd"
   | "splitActivePane"
   | "moveLeafToTab"
@@ -81,7 +81,6 @@ export function useTabActions({
   setActiveId,
   newTab,
   newPaneGroupTab,
-  newBrowserTab,
   setLeafCwd,
   splitActivePane,
   moveLeafToTab,
@@ -98,11 +97,8 @@ export function useTabActions({
   sendCd: (path: string) => void;
   cdInNewTab: (path: string) => void;
   spawnAgents: (agentIds: string[], layout?: PaneLayout) => void;
-  openPreviewTab: (url: string, activate?: boolean) => number | null;
-  splitActivePaneInActiveTab: (
-    dir: "row" | "col",
-    kind?: "terminal" | "editor" | "browser",
-  ) => void;
+  openPreviewTab: (url: string) => void;
+  splitActivePaneInActiveTab: (dir: "row" | "col", kind?: "terminal" | "editor") => void;
   moveLeafToGroup: (leafId: number, targetTabId: number) => void;
   handleCloseTabOrPane: () => void;
 } {
@@ -150,7 +146,7 @@ export function useTabActions({
 
   // Single-pane close (tab-strip leaf X, pane-header X, Ctrl+W on a split).
   // Confirms when the pane is a terminal running a process; otherwise drops the
-  // pane immediately. Editor/browser leaves always close without a prompt.
+  // pane immediately. Every other leaf kind closes without a prompt.
   const requestCloseLeaf = useCallback(
     (leafId: number) => {
       if (leafHasRunningProcess(leafId)) {
@@ -316,16 +312,20 @@ export function useTabActions({
     [newPaneGroupTab, explorerRoot, inheritedCwdForNewTab],
   );
 
-  const openPreviewTab = useCallback(
-    (url: string, activate = true): number | null => {
-      if (url && isSelfReferenceUrl(url)) {
-        toast(SELF_REFERENCE_NOTICE, { variant: "warning" });
-        return null;
-      }
-      return newBrowserTab(url, activate);
-    },
-    [newBrowserTab],
-  );
+  /**
+   * Show `url` in the browser extension, if the user has it.
+   *
+   * Silent when the browser extension is absent: the affordances that call this
+   * (the preview pill, the `+` menu) hide themselves in that case, so reaching
+   * here without it is a race, not a state worth a toast about.
+   */
+  const openPreviewTab = useCallback((url: string): void => {
+    if (url && isSelfReferenceUrl(url)) {
+      toast(SELF_REFERENCE_NOTICE, { variant: "warning" });
+      return;
+    }
+    void openUrlInBrowser(url);
+  }, []);
 
   /**
    * Ctrl+D / Ctrl+Shift+D: splits the active pane in the active tab.
@@ -333,13 +333,10 @@ export function useTabActions({
    * leaf becomes active. Capped at `MAX_PANES_PER_TAB`.
    */
   const splitActivePaneInActiveTab = useCallback(
-    (dir: "row" | "col", kind?: "terminal" | "editor" | "browser") => {
+    (dir: "row" | "col", kind?: "terminal" | "editor") => {
       const t = tabsRef.current.find((x) => x.id === activeId);
       if (!t || t.kind !== "pane") return;
-      // Terminal/editor splits inherit the explorer root; a browser split
-      // starts blank (no cwd) so its address bar shows.
-      const cwd = kind === "browser" ? undefined : (explorerRoot ?? undefined);
-      splitActivePane(activeId, dir, kind, cwd);
+      splitActivePane(activeId, dir, kind, explorerRoot ?? undefined);
     },
     [activeId, splitActivePane, explorerRoot],
   );

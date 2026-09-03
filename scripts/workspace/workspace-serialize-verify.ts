@@ -29,6 +29,7 @@ import {
   serializeTabs,
   savedActiveTabIndex,
   savedToTab,
+  restoreTabs,
 } from "../../src/modules/workspaces/serialize";
 import {
   foldSshBinding,
@@ -521,7 +522,7 @@ console.log("\n[active index] savedActiveTabIndex must match what serializeTabs 
     split("row", [
       named(term(1200, "/w/api"), "backend"),
       named(editor(1201, "/w/api/main.rs"), "entrypoint"),
-      named({ kind: "leaf", id: 1202, leafKind: "browser", url: "https://x.dev" }, "docs"),
+      named({ kind: "leaf", id: 1202, leafKind: "board" }, "docs"),
     ]),
     1200,
   );
@@ -530,7 +531,7 @@ console.log("\n[active index] savedActiveTabIndex must match what serializeTabs 
     savedTree.kind === "split"
       ? savedTree.children.map((c) => (c.kind === "leaf" ? c.customTitle : undefined))
       : [];
-  check("a rename persists on terminal, editor and browser leaves", savedNames, [
+  check("a rename persists on terminal, editor and board leaves", savedNames, [
     "backend",
     "entrypoint",
     "docs",
@@ -551,6 +552,55 @@ console.log("\n[active index] savedActiveTabIndex must match what serializeTabs 
     plain.kind === "leaf" && "customTitle" in plain,
     false,
   );
+}
+
+console.log("\na saved browser leaf is dropped on restore, not restored as something else");
+{
+  // Built by hand, not by `serializeTabs`: no live leaf kind produces a
+  // `browser` leaf, which is exactly why the restore side has to recognise one
+  // on its own.
+  const savedBrowser = { kind: "leaf", leafKind: "browser", url: "https://x.dev" };
+
+  // 1. A split loses only the browser child; its siblings keep their state.
+  const mixed = {
+    kind: "pane",
+    activeLeafIndex: 0,
+    paneTree: {
+      kind: "split",
+      dir: "row",
+      children: [
+        { kind: "leaf", leafKind: "terminal", cwd: "/w/api" },
+        savedBrowser,
+        { kind: "leaf", leafKind: "editor", path: "/w/api/main.rs" },
+      ],
+    },
+  } as unknown as Parameters<typeof savedToTab>[0];
+  const restoredMixed = savedToTab(mixed, () => id());
+  const kinds =
+    restoredMixed && restoredMixed.kind === "pane" && restoredMixed.paneTree.kind === "split"
+      ? restoredMixed.paneTree.children.map((c) => (c.kind === "leaf" ? c.leafKind : "split"))
+      : [];
+  check("its siblings survive without it", kinds, ["terminal", "editor"]);
+
+  // 2. A tab that was ONLY a browser has nothing left, so the tab goes too. A
+  //    fabricated replacement would put a surface the user never asked for
+  //    where their page used to be.
+  const onlyBrowser = {
+    kind: "pane",
+    activeLeafIndex: 0,
+    paneTree: savedBrowser,
+  } as unknown as Parameters<typeof savedToTab>[0];
+  check("a browser-only tab restores as nothing", savedToTab(onlyBrowser, () => id()), null);
+
+  // 3. The legacy standalone "preview" tab was a browser and nothing else.
+  const legacy = { kind: "preview", url: "https://x.dev" } as unknown as Parameters<
+    typeof savedToTab
+  >[0];
+  check("the legacy preview tab goes with it", savedToTab(legacy, () => id()), null);
+
+  // 4. `restoreTabs` is the shape every caller uses: nulls never reach them.
+  const kept = restoreTabs([legacy, onlyBrowser, mixed], () => id());
+  check("restoreTabs drops them for the caller", kept.length, 1);
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

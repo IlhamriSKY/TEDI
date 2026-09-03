@@ -3,7 +3,7 @@ import { type Tab } from "@/modules/tabs";
 import {
   defaultTabForEmptyWorkspace,
   savedActiveTabIndex,
-  savedToTab,
+  restoreTabs,
   serializeTabs,
   useWorkspacesStore,
 } from "@/modules/workspaces";
@@ -81,10 +81,14 @@ export function useWorkspaceSwitching({
       }
       const next = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
       if (!next) return;
+      // Emptiness is decided AFTER restoring, not before: a workspace whose
+      // every tab was a browser has saved tabs and no live ones, and switching
+      // into it must still land on a usable pane rather than a blank window.
+      const restored = next.tabs.length === 0 ? [] : restoreTabs(next.tabs, allocId);
       const liveTabs: Tab[] =
-        next.tabs.length === 0
+        restored.length === 0
           ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
-          : next.tabs.map((s) => savedToTab(s, allocId));
+          : restored;
       const target = liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ?? liveTabs[0];
       replaceAllTabs(liveTabs, target?.id ?? null);
     },
@@ -133,10 +137,14 @@ export function useWorkspaceSwitching({
         replaceAllTabs(cached.tabs, cached.activeId);
         return;
       }
+      // Emptiness is decided AFTER restoring, not before: a workspace whose
+      // every tab was a browser has saved tabs and no live ones, and switching
+      // into it must still land on a usable pane rather than a blank window.
+      const restored = next.tabs.length === 0 ? [] : restoreTabs(next.tabs, allocId);
       const liveTabs: Tab[] =
-        next.tabs.length === 0
+        restored.length === 0
           ? [defaultTabForEmptyWorkspace(allocId, home ?? undefined)]
-          : next.tabs.map((s) => savedToTab(s, allocId));
+          : restored;
       const target = liveTabs[Math.min(next.activeTabIndex, liveTabs.length - 1)] ?? liveTabs[0];
       replaceAllTabs(liveTabs, target?.id ?? null);
     },

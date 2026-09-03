@@ -36,8 +36,8 @@ import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { LeafIcon } from "@/components/LeafIcon";
 import { resolveExtIcon } from "@/lib/iconRegistry";
 import { cn } from "@/lib/utils";
-import { setPaneDragActive } from "@/modules/browser";
 import { panelsRegistry, useRegistry } from "@/modules/extensions";
+import { useBrowserExtensionReady } from "@/modules/extensions/browserBridge";
 import { AiChatMenuItems } from "@/modules/ai/components/AiChatMenuItems";
 import { statusLabelClass } from "@/modules/ssh/status";
 import { extensionStateLabelClass } from "@/modules/tabs/lib/entries";
@@ -429,24 +429,10 @@ export function CanvasView({
     const end = () => {
       window.removeEventListener("pointermove", onMove);
       window.removeEventListener("pointerup", end);
-      setPaneDragActive(false);
     };
-    setPaneDragActive(true);
     window.addEventListener("pointermove", onMove);
     window.addEventListener("pointerup", end);
   };
-
-  // A preview pane is a NATIVE webview: it is positioned from
-  // `getBoundingClientRect` so it follows the transform, but its page does not
-  // scale with it and would show a cropped corner. Hide it while zoomed rather
-  // than draw a lie; it comes back at 100%.
-  useEffect(() => {
-    setPaneDragActive(view.zoom !== 1);
-    // The latch is APP-WIDE and shared with the split-pane drag, so leaving the
-    // canvas while zoomed would hide every preview webview everywhere, with
-    // nothing left mounted to turn it back on.
-    return () => setPaneDragActive(false);
-  }, [view.zoom]);
 
   const hasKind = (kind: PaneLeaf["leafKind"]) => list.some(({ leaf }) => leaf.leafKind === kind);
   /** Chats already on this canvas, so the menu can grey them out rather than
@@ -458,6 +444,7 @@ export function CanvasView({
   /** The one pane wearing the focus ring: the active tab's active leaf. Looked
    *  up once, not once per window. */
   const focusedLeafId = tabs.find((t) => t.id === activeTabId)?.activeLeafId;
+  const browserReady = useBrowserExtensionReady();
 
   /**
    * The Add menu, declared once and rendered by BOTH openers: the toolbar
@@ -474,10 +461,15 @@ export function CanvasView({
         <FileCode size={14} strokeWidth={1.75} />
         <span className="flex-1">Editor</span>
       </DropdownMenuItem>
-      <DropdownMenuItem onSelect={add.browser}>
-        <Globe size={14} strokeWidth={1.75} />
-        <span className="flex-1">Browser</span>
-      </DropdownMenuItem>
+      {/* Only when the browser extension is actually installed and enabled.
+          Core has no browser of its own any more, so an always-visible entry
+          would be a menu item that silently does nothing. */}
+      {browserReady ? (
+        <DropdownMenuItem onSelect={add.browser}>
+          <Globe size={14} strokeWidth={1.75} />
+          <span className="flex-1">Browser</span>
+        </DropdownMenuItem>
+      ) : null}
       <DropdownMenuItem disabled={hasKind("scm")} onSelect={add.sourceControl}>
         <GitBranch size={14} strokeWidth={1.75} />
         <span className="flex-1">Source Control</span>
@@ -920,11 +912,10 @@ function CanvasWindow({
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const label = leafLabel(node, sshHosts, undefined, aiTitles);
   const zoom = rect.zoom ?? 1;
-  // A native webview composites ABOVE the DOM, so no CSS reaches it and it has
-  // its own zoom buttons in the address bar; a WebGL terminal canvas scales
-  // through xterm's font size instead (`paneZoom`). Everything else is DOM.
-  const zoomable = node.leafKind !== "browser";
-  const cssZoom = zoomable && node.leafKind !== "terminal" ? zoom : 1;
+  // A WebGL terminal canvas scales through xterm's font size (`paneZoom`)
+  // rather than CSS; every other leaf is DOM and takes the transform.
+  const zoomable = true;
+  const cssZoom = node.leafKind !== "terminal" ? zoom : 1;
 
   /**
    * One zoom step, shared by the buttons and the wheel so the clamp and the
@@ -983,9 +974,8 @@ function CanvasWindow({
     } catch {
       // no active pointer to capture
     }
-    // A preview pane's native webview composites ABOVE the DOM and would eat
-    // the pointer mid-gesture. Same latch the split-pane drag uses.
-    setPaneDragActive(true);
+    // Same latch the split-pane drag uses, so a gesture that starts here
+    // cannot be stolen mid-drag.
     setDragging(true);
 
     // Latest pointer, plus how far the auto-pan below has slid the canvas under
@@ -1067,7 +1057,6 @@ function CanvasWindow({
       window.removeEventListener("pointerup", end);
       window.removeEventListener("pointercancel", end);
       if (raf) cancelAnimationFrame(raf);
-      setPaneDragActive(false);
       setDragging(false);
       // A plain click on the header is a focus, not a move: committing it would
       // rewrite the tab (and re-snapshot the workspace) for nothing. Only the

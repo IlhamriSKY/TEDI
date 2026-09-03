@@ -68,3 +68,8 @@ export declare const TOOL_NAMES: string[];
 export declare function toolsInPack(pack: ToolDef["pack"]): string[];
 /** Null when `args` satisfies the tool's schema, else a sentence saying why not. */
 export declare function validateArgs(name: string, args: unknown): string | null;
+/** An extension tool result read as an image/audio payload, or null when it is
+ *  ordinary data. See the implementation for why the shape is this narrow. */
+export declare function extToolMedia(
+  result: unknown,
+): { mimeType: string; data: string; text: string } | null;

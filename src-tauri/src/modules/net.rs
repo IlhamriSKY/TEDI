@@ -121,7 +121,7 @@ const PORT_PROBE_TIMEOUT: Duration = Duration::from_millis(600);
 ///
 /// Not `http_ping`: reqwest is built with rustls and its bundled roots, so a
 /// Laragon/Herd vhost's self-signed cert fails the handshake and a live server
-/// reads as dead - while the browser pane, on the OS store, loads it fine.
+/// reads as dead - while a browser, on the OS trust store, loads it fine.
 ///
 /// Loopback only. Every resolved address must be loopback, which keeps this
 /// from being a port scanner over IPC and confirms what the hosts file claims.

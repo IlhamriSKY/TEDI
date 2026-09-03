@@ -12,23 +12,24 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.41.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.42.
 
-|                  |                                                                             |
-| ---------------- | --------------------------------------------------------------------------- |
-| Stack            | Tauri 2 + Rust (`portable-pty`) <-> React 19 + TS + xterm.js (WebGL)        |
-| Editor / UI      | CodeMirror 6, shadcn/ui (`radix-luma` / `mist`, lucide icons), Tailwind v4  |
-| AI               | `@ai-sdk/*` v6, multi-provider, BYOK                                        |
-| Bundle id        | `id.ilhamrisky.tedi` (dev profile: `id.ilhamrisky.tedi.dev`)                |
-| Keychain service | `tedi`                                                                      |
-| Package manager  | pnpm                                                                        |
-| Platforms        | macOS, Linux, Windows                                                       |
-| Frontend check   | `pnpm exec tsc --noEmit`                                                    |
-| Rust check       | `cd src-tauri && cargo check && cargo clippy`                               |
-| Build            | `pnpm tauri build`                                                          |
-| Dev              | `pnpm tauri:dev` (isolated data dir) or `pnpm tauri dev` (shares prod data) |
-| Extension dev    | `pnpm tauri:dev:ext` (symlinks local `extensions/*` into the dev profile)   |
-| Auto-updater     | Enabled: signed updates via GitHub Releases, 6 h poll                       |
+|                  |                                                                                                                                                                                                                          |
+| ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| Stack            | Tauri 2 + Rust (`portable-pty`) <-> React 19 + TS + xterm.js (WebGL)                                                                                                                                                     |
+| Editor / UI      | CodeMirror 6, shadcn/ui (`radix-luma` / `mist`, lucide icons), Tailwind v4                                                                                                                                               |
+| AI               | `@ai-sdk/*` v6, multi-provider, BYOK                                                                                                                                                                                     |
+| Bundle id        | `id.ilhamrisky.tedi` (dev profile: `id.ilhamrisky.tedi.dev`)                                                                                                                                                             |
+| Keychain service | `tedi`                                                                                                                                                                                                                   |
+| Package manager  | pnpm                                                                                                                                                                                                                     |
+| Platforms        | macOS, Linux, Windows                                                                                                                                                                                                    |
+| Download size    | 9.5 MB (Windows `.exe`), 10.9-11.5 MB (`.dmg`), 11.6 MB (`.deb` / `.rpm`), 95.9 MB (`.AppImage`, which carries its own GTK/WebKit). ~19 MB installed. No bundled Chromium and no Node runtime: the UI is the OS webview. |
+| Frontend check   | `pnpm exec tsc --noEmit`                                                                                                                                                                                                 |
+| Rust check       | `cd src-tauri && cargo check && cargo clippy`                                                                                                                                                                            |
+| Build            | `pnpm tauri build`                                                                                                                                                                                                       |
+| Dev              | `pnpm tauri:dev` (isolated data dir) or `pnpm tauri dev` (shares prod data)                                                                                                                                              |
+| Extension dev    | `pnpm tauri:dev:ext` (symlinks local `extensions/*` into the dev profile)                                                                                                                                                |
+| Auto-updater     | Enabled: signed updates via GitHub Releases, 6 h poll                                                                                                                                                                    |
 
 ## Mental model
 
@@ -66,7 +67,7 @@ src-tauri/                      Backend (Rust)
     ssh/{mod,session,sftp}.rs   ssh + sftp + ProxyJump
     extensions/{mod,commands,install,github,manifest,state,version}.rs
     cli_ext/{mod,commands,registry,install,helpers,types,scaffold,validate}.rs    headless `tedi ext`
-    preview/{mod,embed,proxy,util,browser_ext}.rs   native-webview preview backend
+    preview/{mod,proxy,util}.rs   `tedi-frame://` proxy scheme
     format.rs secrets.rs net.rs mcp.rs backup.rs clipboard.rs appimage.rs
     cli.rs cli_theme.rs cli_update.rs cli_paint.rs events.rs ids.rs lockext.rs
   tedi-cli/                     Windows console-subsystem `tedi` launcher (separate crate)
@@ -84,7 +85,7 @@ src/                            Frontend (React webview), alias @/* -> src/*
   lib/                          shared helpers (cn, path, format, iconRegistry, ...)
   styles/                       global CSS / theme tokens
   modules/
-    ai/         automation/   browser/         commandPalette/  editor/
+    ai/         automation/   commandPalette/  editor/
     explorer/   extensions/   header/          mcpInstall/      panes/
     scheduler/  scm/          settings/        shortcuts/       ssh/
     statusbar/  tabs/         terminal/        theme/           updater/
@@ -93,23 +94,23 @@ src/                            Frontend (React webview), alias @/* -> src/*
 
 ## Backend (`src-tauri/src/modules/`)
 
-| Module         | Key commands / role                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| -------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`         | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                                                                                                                                                                                                                                   |
-| `pty_daemon/`  | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                                                                                                                                                                                                                                       |
-| `fs/`          | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                                                                                                                                                                                                                                           |
-| `shell/`       | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                                                                                                                                                                                                                                   |
-| `git/`         | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                                                                                                                                                                                                                                     |
-| `ssh/`         | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                                                                                                                                                                                                                                      |
-| `extensions/`  | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                                                                                                                                                                                                                                       |
-| `preview/`     | `preview_embed_*` native-webview compositing (update/navigate/dispatch/read/act/console/screenshot/set_bg/close); `tedi-frame://` proxy for remote marketplace icons; `browser_ext_*` manages MV3 extensions loaded into the preview webview (Windows only). Every pane gets a document-start script that records console errors, uncaught exceptions, and unhandled rejections into a capped ring, drained by `preview_embed_console`. |
-| `format.rs`    | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                                                                                                                                                                                                                                           |
-| `secrets.rs`   | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                                                                                                                                                                                                                                          |
-| `net.rs`       | `http_ping` dev-server probe.                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `mcp.rs`       | Model Context Protocol support for the AI subsystem.                                                                                                                                                                                                                                                                                                                                                                                    |
-| `backup.rs`    | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                                                                                                                                                                                                                                       |
-| `clipboard.rs` | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                                                                                                                                                                                                                                                  |
-| `cli*.rs`      | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                                                                                                                                                                                                                                          |
+| Module         | Key commands / role                                                                                                                                                                                                  |
+| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`         | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                |
+| `pty_daemon/`  | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                    |
+| `fs/`          | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                        |
+| `shell/`       | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                |
+| `git/`         | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                  |
+| `ssh/`         | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                   |
+| `extensions/`  | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                    |
+| `preview/`     | `tedi-frame://` async URI-scheme proxy: strips X-Frame-Options / CSP frame-ancestors and rewrites subresource references so an iframe can embed a page that would otherwise refuse (the extension marketplace card). |
+| `format.rs`    | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                        |
+| `secrets.rs`   | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                       |
+| `net.rs`       | `http_ping` dev-server probe.                                                                                                                                                                                        |
+| `mcp.rs`       | Model Context Protocol support for the AI subsystem.                                                                                                                                                                 |
+| `backup.rs`    | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                    |
+| `clipboard.rs` | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                               |
+| `cli*.rs`      | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                       |
 
 Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
 `autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
@@ -163,7 +164,6 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                                                     |
 | `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. `lib/notes.ts`: `+` -> Note opens a quick note, a real `note-N.md` under the app data dir that autosaves (debounced, drained by the quit guard) and restores with the workspace. |
 | `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                                                              |
-| `browser/`        | The preview/browser tab: a real native webview (WebView2/WebKit) docked over the pane via `preview_embed_*` (not an iframe), with address bar, back/forward, favicon. Status-bar pill suggests opening on a detected `localhost` URL.                                                            |
 | `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`) plus the workspace canvas view (`CanvasView`, free-floating windows).                                                                                                                                        |
 | `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                                                             |
 | `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                                                  |
@@ -184,8 +184,8 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
 **Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
 ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
-are `terminal` / `editor` / `browser` / `ssh` / `extension-panel` / `board` /
-`scm` / `ai`.
+are `terminal` / `editor` / `ssh` / `extension-panel` / `board` / `scm` /
+`ai`.
 
 **Agent status**: TEDI's own chats report the SAME four states a terminal's AI
 CLI does (`AiCliState`: idle / working / blocking / done), per session, from
@@ -249,8 +249,7 @@ the percentage readout is **Fit all panes**. Panning is clamped against the CONT
 box, never a fixed frame, with half a screen of overscroll so a window can
 always be dragged out past the current edge. A terminal is raster-scaled at
 zoom != 1 (soft but exactly placed - a transform leaves xterm's own layout
-alone, unlike CSS `zoom`), and a browser pane's native webview is hidden while
-zoomed rather than shown cropped.
+alone, unlike CSS `zoom`).
 
 Windows outside the viewport (plus half a screen of margin) are CULLED to
 `visible: false`. That is a bug fix, not an optimisation: a terminal holds a
@@ -267,8 +266,7 @@ the header shows the percentage only away from 100%, and clicking it resets).
 no second setter, serializer hook or seeding path. It is applied per leaf kind,
 through the arm that works there: a terminal scales xterm's `fontSize`
 (`paneZoom`, since CSS `zoom` on a WebGL canvas breaks cursor and glyph
-positioning), every DOM-bodied pane takes CSS `zoom`, and a browser pane is a
-native webview no CSS can reach so it keeps its own zoom buttons. The canvas Add menu calls the ORDINARY tab openers, so a pane added
+positioning) and every other pane takes CSS `zoom`. The canvas Add menu calls the ORDINARY tab openers, so a pane added
 there is a normal pane tab that is still present when you switch back.
 
 ## AI subsystem (`src/modules/ai/`)
@@ -324,17 +322,22 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 | `todo.ts`                  | `todo_write`                                                                                                                                                   | auto     |
 | `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                           | approval |
 
-**Panes, terminals and the browser are NOT in this table.** They are MCP tools on
+**Panes and terminals are NOT in this table.** They are MCP tools on
 TEDI's own in-process server (`lib/tediMcpServer.ts`), served from the shared
 table in `scripts/mcp/tools.mjs` and reaching the app through the capability
 bridge (`modules/automation/bridge.ts`) - the same functions the stdio server
 drives from outside. The agent calls them as `mcp__tedi__*`: `sh` (run in the
 user's visible terminal; `submit:false` types without running), `read`
 (terminal scrollback / open editors / DOM text), `state`, `wait_for_terminal`,
-`focus_pane`, `pane` (open, close, group, rotate, consolidate) and `browser`
-(open, read, console, click, type, scroll, screenshot, history). What stays
+`focus_pane` and `pane` (open, close, group, rotate, consolidate). What stays
 native is file IO and the agent's own hidden shell: `bash_*` because sub-agents
 get it and get no MCP tools at all.
+
+An installed extension adds its own tools to the same surface: they reach the
+in-app agent through `tools/extensions.ts` and are re-advertised to outside CLIs
+as `ext_<name>`, carrying their real JSON Schema. The `tedi.browser` extension
+uses this for its `browser` tool, so a browser is driven by exactly the same
+call from either side.
 
 Approval-gated tools pause and render an in-UI card; AI-proposed edits open in a
 side-by-side `ai-diff` tab accepted/rejected per hunk before any write. An MCP
@@ -352,9 +355,9 @@ impossible (`run_subagent` is never built inside a sub-agent). Every built-in
 prompt, and per-agent model and temperature, is user-overridable via `prompts.ts`.
 
 **Live-context bridge**: App.tsx `setLive({...})` lets tools read the active
-terminal's cwd + scrollback lazily and drive terminals and browser panes; the
-per-turn `<env>` block carries `workspace_root`, `active_terminal_cwd`,
-`active_file`, and the open terminal and browser lists.
+terminal's cwd + scrollback lazily and drive terminals; the per-turn `<env>`
+block carries `workspace_root`, `active_terminal_cwd`, `active_file`, and the
+open terminal list.
 
 ## Extension ecosystem
 
@@ -412,6 +415,7 @@ committed) and holds working copies for local iteration:
 | `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                           |
 | `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                             |
 | `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                 |
+| `tedi.browser`               | A real Chromium in a pane over CDP: screencast rendering, Chrome Web Store extensions, and a `browser` tool on the MCP surface (`ext_browser` from outside).                                    |
 | `tedi.ai-usage`              | Status-bar usage meters: `statusbar:write` with a label + progress, `settings:*`, gated `invoke`.                                                                                               |
 
 **Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
@@ -561,10 +565,13 @@ dev` shares prod data. The daemon outlives the dev GUI; set
 ## Recent capabilities
 
 - **PTY daemon** persistence across window close, with scrollback replay.
-- **Native-webview `browser/` preview**: real WebView2/WebKit, not an iframe, so
-  logged-in apps, DRM video, WebSockets, and HMR work. The agent drives it with a
-  full tool set and can read the page's **console errors** (`read_browser_console`),
-  which closes the run-it, see-it-break, fix-it loop.
+- **Browser** (`tedi.browser` extension): a real Chromium driven over CDP and
+  drawn into a pane from a `Page.startScreencast` stream. Reuses an installed
+  Chrome / Edge / Brave / Chromium and downloads Chrome for Testing only when
+  there is none, so the TEDI download is unaffected. Chrome Web Store extensions
+  (an ad blocker, say) persist in its own profile. The agent reads the page's
+  **accessibility tree** and acts on `[N]` refs with trusted input, and drains
+  **console errors** - which closes the run-it, see-it-break, fix-it loop.
 - **MCP** (stdio), both as a client and as a server driving a running window.
 - **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`), ten agents.
 - **Plan mode** (`>plan`) queuing mutations into one review diff.

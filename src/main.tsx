@@ -45,7 +45,6 @@ installFocusRestore();
 // every in-app handler (a Radix ContextMenu, the terminal's copy/paste, the
 // canvas menu) has already run and cancelled the event when it owns the click.
 // Text fields keep the native menu - it is the only copy/paste UI they have.
-// The in-app browser pane is a separate webview and is not affected.
 document.addEventListener("contextmenu", (e) => {
   if (e.defaultPrevented) return;
   const el = e.target as HTMLElement | null;

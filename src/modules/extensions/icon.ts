@@ -23,10 +23,7 @@ export function mimeForRelPath(rel: string): string {
   return "application/octet-stream";
 }
 
-export async function loadExtensionIcon(
-  extId: string,
-  relPath: string,
-): Promise<string | null> {
+export async function loadExtensionIcon(extId: string, relPath: string): Promise<string | null> {
   const key = `${extId}:${relPath}`;
   const cached = cache.get(key);
   if (cached !== undefined) return cached;

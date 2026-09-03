@@ -14,7 +14,7 @@ import {
   safeLocalUrl,
   urlFromConfig,
   urlFromEnv,
-} from "../../src/modules/browser/lib/projectUrl";
+} from "../../src/lib/projectUrl";
 
 let failed = 0;
 function check(label: string, got: unknown, want: unknown): void {

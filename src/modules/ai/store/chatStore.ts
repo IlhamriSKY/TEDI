@@ -2,7 +2,6 @@ import { registerBridge } from "@/modules/automation/bridge";
 import { Chat, type UIMessage } from "@ai-sdk/react";
 import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { create } from "zustand";
-import type { BrowserDiag } from "@/modules/browser";
 import {
   DEFAULT_MODEL_ID,
   providerNeedsKey,
@@ -50,7 +49,7 @@ import {
 } from "../lib/sessions";
 import type { CompactStages } from "../lib/compact";
 import { disposeSessionShell } from "../tools/shell";
-import type { BrowserInfo, TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
+import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
 
@@ -61,7 +60,6 @@ type Live = {
   injectIntoActivePty: (text: string) => boolean;
   getWorkspaceRoot: () => string | null;
   getActiveFile: () => string | null;
-  openPreview: (url: string) => number | null;
   openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
    *  Returns true if a new tab was created. */
@@ -112,29 +110,6 @@ type Live = {
   /** Activate the tab owning that terminal ordinal and focus its leaf.
    *  False when no live terminal carries the ordinal. */
   focusTerminal: (ordinal: number) => boolean;
-  /** Snapshot every open in-app browser pane with its current URL. */
-  listBrowsers: () => BrowserInfo[];
-  /** Navigate an existing browser pane (by leaf id) to a URL. False if that leaf isn't a browser. */
-  navigateBrowser: (leafId: number, url: string) => boolean;
-  /** Drive an existing browser pane's history: back / forward / reload. */
-  dispatchBrowser: (leafId: number, action: "back" | "forward" | "reload" | "stop") => boolean;
-  /** Read an existing browser pane's rendered text (title + visible body).
-   *  With `fields` also lists tagged interactive controls as `[N]`. */
-  readBrowser: (leafId: number, fields?: boolean) => Promise<string | null>;
-  /** Type into / click an interactive control (by `[N]` index) of a browser
-   *  pane. Returns the raw result string, or null if not a browser. */
-  actBrowser: (
-    leafId: number,
-    index: number,
-    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
-    text: string,
-    submit: boolean,
-  ) => Promise<string | null>;
-  /** Drain a browser pane's captured console errors / warnings / uncaught
-   *  exceptions. Null if that leaf isn't a browser. */
-  consoleBrowser: (leafId: number) => Promise<BrowserDiag[] | null>;
-  /** Capture a browser pane as a base64 JPEG (last-resort visual). */
-  screenshotBrowser: (leafId: number) => Promise<string | null>;
   /** Inject text into a specific terminal (no Enter). */
   injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
   /** Submit a command (Enter appended) to a specific terminal. */
@@ -280,7 +255,6 @@ const NOOP_LIVE: Live = {
   injectIntoActivePty: () => false,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
-  openPreview: () => null,
   openSshTab: () => false,
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
@@ -291,13 +265,6 @@ const NOOP_LIVE: Live = {
   runInActiveTerminal: () => false,
   listTerminals: () => [],
   focusTerminal: () => false,
-  listBrowsers: () => [],
-  navigateBrowser: () => false,
-  dispatchBrowser: () => false,
-  readBrowser: async () => null,
-  actBrowser: async () => null,
-  consoleBrowser: async () => null,
-  screenshotBrowser: async () => null,
   injectIntoTerminal: () => false,
   runInTerminal: () => false,
   isTerminalBusy: () => true,
@@ -461,18 +428,8 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       pinnedWorkspaceRoot = workspaceRoot;
     },
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
-    openPreview: (url) => useChatStore.getState().live.openPreview(url),
     openSshTab: (id, name, isPrivate) =>
       useChatStore.getState().live.openSshTab(id, name, isPrivate),
-    listBrowsers: () => useChatStore.getState().live.listBrowsers(),
-    navigateBrowser: (leafId, url) => useChatStore.getState().live.navigateBrowser(leafId, url),
-    dispatchBrowser: (leafId, action) =>
-      useChatStore.getState().live.dispatchBrowser(leafId, action),
-    readBrowser: (leafId, fields) => useChatStore.getState().live.readBrowser(leafId, fields),
-    actBrowser: (leafId, index, action, text, submit) =>
-      useChatStore.getState().live.actBrowser(leafId, index, action, text, submit),
-    consoleBrowser: (leafId) => useChatStore.getState().live.consoleBrowser(leafId),
-    screenshotBrowser: (leafId) => useChatStore.getState().live.screenshotBrowser(leafId),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
     openTerminalAdvanced: (opts) => useChatStore.getState().live.openTerminalAdvanced(opts),
     consolidateTerminalsIntoGroup: (targetTabId) =>
@@ -546,7 +503,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
         workspaceRoot: live.getWorkspaceRoot(),
         activeFile: live.getActiveFile(),
         terminals: live.listTerminals(),
-        browsers: live.listBrowsers(),
       };
     },
     getPlanMode: () => usePlanStore.getState().active,
@@ -1125,68 +1081,12 @@ registerBridge({
     }
     return { sessionId: id, total: rows.length, messages: kept };
   },
-  /**
-   * The native browser panes, through the SAME live context ai-native's own
-   * browser tools use (`app/lib/buildLiveContext.ts`).
-   *
-   * Going through it rather than calling `preview_embed_*` directly is what
-   * makes `open` work at all: a preview pane has no native webview until the
-   * app has given it a URL, so `preview_embed_navigate` on a blank pane is a
-   * no-op and every later read answers "no open browser pane with that id".
-   * `openPreview` is the path that creates one.
-   */
   // NEVER return a bare `null` from any of these. The driver's `#tedi`
   // helper reads `null` as "this function does not exist on this build" and
   // reports it as a missing automation surface - so a browser call made
   // before the AI panel has ever mounted came back as "start TEDI with
   // TEDI_DEBUG_PORT set", which is both wrong and unactionable. A sentence
   // is the answer; null is a different question.
-  browserOpen: (url: string) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return c.openPreview(String(url)) ?? "could not open a browser pane";
-  },
-  browserNav: (leafId: number, url: string) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return c.navigateBrowser(Number(leafId), String(url)) || `leaf ${leafId} is not a browser pane`;
-  },
-  browserRead: async (leafId: number, fields = false) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return (await c.readBrowser(Number(leafId), Boolean(fields))) ?? "";
-  },
-  browserList: () => getToolContext()?.listBrowsers() ?? [],
-  browserDispatch: (leafId: number, action: "back" | "forward" | "reload" | "stop") => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return c.dispatchBrowser(Number(leafId), action) || `leaf ${leafId} is not a browser pane`;
-  },
-  browserAct: async (
-    leafId: number,
-    index: number,
-    action: "click" | "type" | "hover" | "key" | "scroll" | "clickxy",
-    text = "",
-    submit = false,
-  ) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return (
-      (await c.actBrowser(Number(leafId), Number(index), action, String(text), Boolean(submit))) ??
-      `leaf ${leafId} is not a browser pane`
-    );
-  },
-  browserConsole: async (leafId: number) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return (await c.consoleBrowser(Number(leafId))) ?? `leaf ${leafId} is not a browser pane`;
-  },
-  browserShot: async (leafId: number) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
-    return (await c.screenshotBrowser(Number(leafId))) ?? `leaf ${leafId} is not a browser pane`;
-  },
-
   /**
    * Pane and terminal control, for the `pane` and `sh` MCP tools.
    *

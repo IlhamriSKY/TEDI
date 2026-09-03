@@ -129,7 +129,7 @@ for (const [label, prompt] of [
   const on = named(prompt);
   check(`${label}: names the core tools`, on.length >= 10, { named: on.length });
 }
-for (const heading of ["# Environment", "# Files", "# Browser", "# Delegation and output"]) {
+for (const heading of ["# Environment", "# Files", "# Terminal and panes", "# Delegation and output"]) {
   check(`full: keeps ${heading}`, SYSTEM_PROMPT.includes(heading));
 }
 
@@ -143,17 +143,30 @@ for (const variant of ["full", "lite"] as const) {
 }
 
 console.log("\n[partial] switching one group off drops only that group");
-const noBrowser = new Set(
-  REAL_TOOLS.filter((t) => !t.includes("browser") && t !== "navigate_and_read"),
-);
-const p = buildCorePrompt("full", (t) => noBrowser.has(t));
-check(
-  "no browser tool is named",
-  named(p).every((t) => noBrowser.has(t)),
-  { named: named(p) },
-);
-check("the `# Browser` heading went with them", !p.includes("# Browser"));
-check("`read_file` survived", /`read_file`/.test(p));
+// `# Files` is the group to switch off here because all seven of its sections
+// are `needs`-gated, so "the heading goes with its tools" is a real assertion
+// rather than one a stray ungated line would satisfy anyway. `# Fetch and shell`
+// looks like a candidate and is not: `bash_run` is also named by a
+// TERMINAL-gated line, so turning shell off leaves the name behind.
+const FILE_TOOLS = [
+  "read_file",
+  "list_directory",
+  "delete_file",
+  "move_file",
+  "copy_file",
+  "edit",
+  "multi_edit",
+  "write_file",
+  "replace_in_files",
+  "grep",
+  "glob",
+  "create_directory",
+];
+const noFiles = new Set(REAL_TOOLS.filter((t) => !FILE_TOOLS.includes(t)));
+const p = buildCorePrompt("full", (t) => noFiles.has(t));
+check("no file tool is named", named(p).every((t) => noFiles.has(t)), { named: named(p) });
+check("the `# Files` heading went with them", !p.includes("# Files"));
+check("`mcp__tedi__sh` survived", /`sh`/.test(p));
 check("`run_subagents` survived", /`run_subagents`/.test(p));
 
 console.log("\n[headings] a block with no surviving section leaves nothing behind");

@@ -80,6 +80,47 @@ pub fn debug_port() -> Option<u16> {
     })
 }
 
+// ---------------------------------------------------------------------------
+// WebView2 startup flags.
+// ---------------------------------------------------------------------------
+
+/// WebView2 command-line flags for TEDI's own webviews.
+///
+/// Keeps wry's defaults (disable the mini-menu / SmartScreen / PDF OOUI) and adds
+/// the bits that keep the window processing while it is minimized or occluded:
+/// turning off `CalculateNativeWinOcclusion` plus renderer and timer background
+/// throttling, so CDP input and rendering keep working for the automation
+/// channel rather than freezing behind an occlusion check.
+#[cfg(target_os = "windows")]
+const WEBVIEW2_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --autoplay-policy=no-user-gesture-required";
+
+/// Publish those flags, plus the automation port when one is configured, through
+/// the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` env var the WebView2 loader reads
+/// when it creates each environment - so every webview is created with the SAME
+/// additional args.
+///
+/// Per-webview `additional_browser_args` that differ from the main webview's
+/// render a child permanently BLANK on Windows (tauri-apps/tauri#13092), which is
+/// why this is process-wide rather than set where a webview is built.
+///
+/// Must run once at startup, before the first webview is created.
+#[cfg(target_os = "windows")]
+pub fn apply_webview2_browser_args_env() {
+    // Opt-in automation port: it opens the WebView2 DevTools Protocol on loopback
+    // so external tooling (see `scripts/mcp/`) can evaluate JS, dispatch real
+    // input and capture stills. Off unless asked for, so shipped builds keep no
+    // listening socket. `TEDI_DEBUG_PORT`, or the stored setting the Install MCP
+    // button writes - which is why it reads `debug_port()` rather than the env
+    // var directly: the app has to be able to turn its own channel on.
+    let args = match debug_port() {
+        Some(port) => format!("{WEBVIEW2_ARGS} --remote-debugging-port={port}"),
+        None => WEBVIEW2_ARGS.to_string(),
+    };
+    // Edition 2021: `set_var` is safe. Called on the main thread at startup before
+    // any webview (or other thread) exists.
+    std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

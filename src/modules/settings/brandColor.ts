@@ -9,12 +9,7 @@ import { BRAND_COLOR_DEFAULT, normalizeBrandColor } from "./store";
 const FAST_PATH_KEY = "tedi-brand-color-shadow";
 
 // CSS vars driven directly by the brand hex. Identical in light and dark.
-const PRIMARY_VARS = [
-  "--primary",
-  "--ring",
-  "--sidebar-primary",
-  "--sidebar-ring",
-] as const;
+const PRIMARY_VARS = ["--primary", "--ring", "--sidebar-primary", "--sidebar-ring"] as const;
 
 type RGB = { r: number; g: number; b: number };
 
@@ -28,7 +23,10 @@ function hexToRgb(hex: string): RGB {
 }
 
 function rgbToHex({ r, g, b }: RGB): string {
-  const c = (n: number) => Math.max(0, Math.min(255, Math.round(n))).toString(16).padStart(2, "0");
+  const c = (n: number) =>
+    Math.max(0, Math.min(255, Math.round(n)))
+      .toString(16)
+      .padStart(2, "0");
   return `#${c(r)}${c(g)}${c(b)}`;
 }
 

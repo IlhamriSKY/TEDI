@@ -103,7 +103,6 @@ export function leafLabel(
     return tag ? `${tag}:${leaf.customTitle}` : leaf.customTitle;
   }
   if (leaf.leafKind === "editor") return basename(leaf.path);
-  if (leaf.leafKind === "browser") return leaf.title || titleFromUrl(leaf.url);
   if (leaf.leafKind === "extension-panel") return leaf.title || "panel";
   if (leaf.leafKind === "board") return "Board";
   if (leaf.leafKind === "scm") return "Source Control";
@@ -206,15 +205,13 @@ export function activeLeaf(tab: Tab): PaneLeaf | null {
   return findLeaf(tab.paneTree, tab.activeLeafId);
 }
 
-export function activeLeafKind(tab: Tab): "terminal" | "editor" | "browser" | null {
+export function activeLeafKind(tab: Tab): "terminal" | "editor" | null {
   const leaf = activeLeaf(tab);
   if (!leaf) return null;
-  // Extension-panel, board and scm leaves aren't one of the
-  // terminal/editor/browser kinds the chrome derivations branch on; report null
-  // so callers fall to their defaults instead of every one special-casing them.
-  return leaf.leafKind === "terminal" || leaf.leafKind === "editor" || leaf.leafKind === "browser"
-    ? leaf.leafKind
-    : null;
+  // Extension-panel, board, scm and ai leaves aren't one of the
+  // terminal/editor kinds the chrome derivations branch on; report null so
+  // callers fall to their defaults instead of every one special-casing them.
+  return leaf.leafKind === "terminal" || leaf.leafKind === "editor" ? leaf.leafKind : null;
 }
 
 export function isTerminalLikeTab(tab: Tab): boolean {
