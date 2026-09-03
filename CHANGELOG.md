@@ -18,6 +18,10 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 - **The preview pill and the canvas `+` entry appear only when a browser is installed.** Both hand their url to the browser extension, so without one they would be controls that open nothing. See [browserBridge.ts](src/modules/extensions/browserBridge.ts).
 - **A local file preview opens in the system browser.** A PDF, or "Preview in Browser" on an HTML file, is user intent and the system browser renders both natively. The agent-facing path still refuses `file://` and cloud-metadata addresses outright, so a model cannot read the disk through a browser.
 
+### Fixed
+
+- **`pnpm tauri:dev:ext` had stopped linking local extensions, silently.** The linker resolves the repo root from its own location, and it kept resolving one level short of it after the script moved into `scripts/ext/` - so it looked for `scripts/extensions`, found nothing, printed "no extensions found" and exited 0. Every dev run since had been loading whatever junctions happened to be left over from before the move, which is why a newly added extension never appeared. See [link-dev-extensions.mjs](scripts/ext/link-dev-extensions.mjs).
+
 ### Removed
 
 - **The built-in browser.** `preview_embed_*`, `browser_ext_*`, the `browser` leaf kind and its MCP tool are gone from the core app - 8,169 lines across 106 files, including 3,072 of Rust. A workspace file that still holds a browser leaf restores without it: siblings in a split survive, a tab that held nothing else is dropped, and neither leaves a fabricated pane in its place. See [serialize.ts](src/modules/workspaces/serialize.ts).

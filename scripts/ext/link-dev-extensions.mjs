@@ -35,7 +35,13 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
+// TWO levels up, not one: this file lives at `scripts/ext/`, so a single `..`
+// resolves to `scripts/` and every path built from it lands somewhere that does
+// not exist - `scripts/extensions`, `scripts/src-tauri/tauri.dev.conf.json`. The
+// failure is silent in the worst way: `discoverIds` finds no directory, reports
+// "no extensions found", and exits 0, so `pnpm tauri:dev:ext` looks like it
+// linked and simply did nothing.
+const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..", "..");
 const extSrcDir = path.join(repoRoot, "extensions");
 const devConfPath = path.join(repoRoot, "src-tauri", "tauri.dev.conf.json");
 
