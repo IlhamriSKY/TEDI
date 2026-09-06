@@ -190,13 +190,21 @@
   }
 }
 
-/* TWO PALETTES, and they are not a nicety. A holographic film is bright because
+/* THE FOIL ITSELF, DEFINED ONCE.
+ *
+ * Everything that says `max` is now cut out of this one sheet rather than
+ * imitating it: the word clips it to text, the activity pixels clip it to a
+ * grid of cells, and the brain icon masks it to a glyph. Three copies of "a
+ * gradient roughly like the foil" is what made them disagree - one was a
+ * prism, another a single hue, and only one of them carried the gloss.
+ *
+ * TWO PALETTES, and they are not a nicety. A holographic film is bright because
  * it reflects; on a white page the same bright stops have almost no contrast and
  * the word turns pastel and unreadable, and a white gloss on white makes it
  * worse. So the light ground gets deeper stops and a restrained gloss, the dark
  * ground the bright film. Same geometry, different ink. */
-.tedi-effort-max {
-  background-image:
+:root {
+  --tedi-foil:
     radial-gradient(
       55% 130% at 24% 34%,
       rgb(255 255 255 / 0.3),
@@ -210,32 +218,10 @@
       rgb(255 255 255 / 0) 5px
     ),
     repeating-linear-gradient(74deg, #0891b2 0, #7c3aed 9px, #db2777 18px, #0891b2 27px);
-  /* THE POOL IS SIZED IN PIXELS, like the layers under it. A percentage size is
-   * measured against the element, so on a label a few characters wide the pool
-   * grows to cover the whole word - and a full-width white veil does not read as
-   * a highlight, it just washes the hues out to near-grey and takes the motion
-   * with them. 70x26 keeps it smaller than the word, so it stays a glint that
-   * travels across the glyphs. The repeating layers tile on their own and must
-   * keep their own pixel periods, so they stay `auto`. */
-  background-size:
-    70px 26px,
-    auto,
-    auto;
-  background-position:
-    -18px 30%,
-    0 center,
-    0 center;
-  -webkit-background-clip: text;
-  background-clip: text;
-  color: transparent;
-  /* prefers-reduced-motion is handled by the global reset at the top of this
-   * file, which pins any animation to a single 0.01ms pass - the foil then
-   * stands still and stays perfectly legible. */
-  animation: tedi-effort-max-foil 14s ease-in-out infinite alternate;
 }
 
-.dark .tedi-effort-max {
-  background-image:
+.dark {
+  --tedi-foil:
     radial-gradient(
       55% 130% at 24% 34%,
       rgb(255 255 255 / 0.45),
@@ -251,193 +237,105 @@
     repeating-linear-gradient(74deg, #22d3ee 0, #a855f7 9px, #f472b6 18px, #22d3ee 27px);
 }
 
-/* The brain icon beside a foil label. THE FALLBACK, now: see the `stroke` below.
+/* THE SHEET'S GEOMETRY, also once. The pool is sized in PIXELS like the layers
+ * under it: a percentage size is measured against the element, so on a label a
+ * few characters wide the pool would grow to cover the whole word, and a
+ * full-width white veil is not a highlight, it just washes the hues to grey and
+ * takes the motion with them. 70x26 keeps it smaller than anything it is cut
+ * into, so it stays a glint that travels. The repeating layers tile on their
+ * own and must keep their own pixel periods, so they stay `auto`. */
+.tedi-foil {
+  background-image: var(--tedi-foil);
+  background-size:
+    70px 26px,
+    auto,
+    auto;
+}
+
+/* The word, clipped out of the sheet. `color: transparent` is what makes the
+ * gradient visible, which is also why an icon sibling drawing with
+ * `currentColor` would vanish - see `.tedi-foil-glyph` below. */
+.tedi-effort-max {
+  background-position:
+    -18px 30%,
+    0 center,
+    0 center;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  /* prefers-reduced-motion is handled by the global reset at the top of this
+   * file, which pins any animation to a single 0.01ms pass - the foil then
+   * stands still and stays perfectly legible. */
+  animation: tedi-effort-max-foil 14s ease-in-out infinite alternate;
+}
+
+/* The brain icon, cut out of the same sheet as the word beside it.
  *
- * A solid hue drifting through the palette was the whole treatment, and beside a
- * word showing all three stops at once it never matched - at any instant the
- * icon was one colour and the label was a prism, which is exactly the "the brain
- * is a different colour from max" it now falls back to only when the paint
- * server is missing.
+ * It used to be a solid hue drifting through the palette, because an SVG stroke
+ * draws with `currentColor` and cannot hold a gradient the way text can. That
+ * was the mismatch: at any instant the icon was ONE colour while the word was a
+ * prism, and the icon carried none of the gloss. Masking sidesteps the stroke
+ * entirely - the element IS the foil, and the glyph only decides which of it
+ * you see - so the icon cannot drift out of agreement with the label again.
  *
- * Its own keyframes per ground, because the two palettes differ (see above) and
- * a keyframe cannot read a variable that is redefined further down. */
-@keyframes tedi-effort-max-icon-light {
-  0% {
-    color: #0891b2;
-  }
-  50% {
-    color: #7c3aed;
-  }
-  100% {
-    color: #db2777;
-  }
-}
-
-@keyframes tedi-effort-max-icon-dark {
-  0% {
-    color: #22d3ee;
-  }
-  50% {
-    color: #a855f7;
-  }
-  100% {
-    color: #f472b6;
-  }
-}
-
-.tedi-effort-max-icon {
-  color: #7c3aed;
-  animation: tedi-effort-max-icon-light 14s ease-in-out infinite alternate;
-  /* THE SAME FOIL, PAINTED INTO THE STROKE. An SVG stroke can hold a gradient
-     after all - not as a `color`, but as a paint server the stroke references,
-     which is what lets the icon carry all three stops at once like the word
-     next to it instead of one hue at a time.
-     `currentColor` is the paint FALLBACK, not decoration: a `url()` that
-     resolves to nothing paints `none` in SVG, so a window that renders the icon
-     without the <defs> would draw an invisible brain. With the fallback it
-     simply drops back to the drifting solid hue above. */
-  stroke: url(#tedi-max-ink) currentColor;
-}
-
-.dark .tedi-effort-max-icon {
-  color: #a855f7;
-  animation-name: tedi-effort-max-icon-dark;
-}
-
-/* THE MAX PALETTE, once, so everything that says "max" says it in the same ink.
+ * The path data is lucide's `Brain`, inlined rather than rendered through
+ * `<Brain>`: a mask needs an image, and an element cannot mask itself. It is
+ * pinned to the same lucide build the app compiles against, the way the browser
+ * extension pins its toolbar glyphs. If lucide redraws the brain, this and the
+ * import in ReasoningDropdown go stale together, which is why the component
+ * still imports `Brain` for every level below max.
  *
- * The label wears a foil gradient, the brain icon wears a stroke gradient, and
- * the activity pixels wear it as a fill; before this each carried its own copy
- * and drifted to a different hue, so at `max` the icon could sit on pink while
- * the word beside it ran cyan. Three stops, two grounds, one 14s alternating
- * cycle - the same cycle the foil label runs on, so they move together.
- *
- * Each stop is offset by a third of the cycle. That is what makes the gradient
- * DRIFT rather than pulse: the three stops are always at different points of
- * the same journey. */
-@keyframes tedi-max-ink-a-light {
-  0% {
-    stop-color: #0891b2;
-  }
-  50% {
-    stop-color: #7c3aed;
-  }
-  100% {
-    stop-color: #db2777;
-  }
-}
-@keyframes tedi-max-ink-b-light {
-  0% {
-    stop-color: #7c3aed;
-  }
-  50% {
-    stop-color: #db2777;
-  }
-  100% {
-    stop-color: #0891b2;
-  }
-}
-@keyframes tedi-max-ink-c-light {
-  0% {
-    stop-color: #db2777;
-  }
-  50% {
-    stop-color: #0891b2;
-  }
-  100% {
-    stop-color: #7c3aed;
-  }
-}
-@keyframes tedi-max-ink-a-dark {
-  0% {
-    stop-color: #22d3ee;
-  }
-  50% {
-    stop-color: #a855f7;
-  }
-  100% {
-    stop-color: #f472b6;
-  }
-}
-@keyframes tedi-max-ink-b-dark {
-  0% {
-    stop-color: #a855f7;
-  }
-  50% {
-    stop-color: #f472b6;
-  }
-  100% {
-    stop-color: #22d3ee;
-  }
-}
-@keyframes tedi-max-ink-c-dark {
-  0% {
-    stop-color: #f472b6;
-  }
-  50% {
-    stop-color: #22d3ee;
-  }
-  100% {
-    stop-color: #a855f7;
-  }
-}
-.tedi-max-ink-a {
-  animation: tedi-max-ink-a-light 14s ease-in-out infinite alternate;
-}
-.tedi-max-ink-b {
-  animation: tedi-max-ink-b-light 14s ease-in-out infinite alternate;
-}
-.tedi-max-ink-c {
-  animation: tedi-max-ink-c-light 14s ease-in-out infinite alternate;
-}
-.dark .tedi-max-ink-a {
-  animation-name: tedi-max-ink-a-dark;
-}
-.dark .tedi-max-ink-b {
-  animation-name: tedi-max-ink-b-dark;
-}
-.dark .tedi-max-ink-c {
-  animation-name: tedi-max-ink-c-dark;
+ * `background-position` is the label's, not the pixels': both are cut from a
+ * sheet anchored to their own box, and at 11px the glyph sees roughly one hue
+ * of the run - which is what the word's first glyph sees too. */
+.tedi-foil-glyph {
+  display: inline-block;
+  background-position:
+    -18px 30%,
+    0 center,
+    0 center;
+  animation: tedi-effort-max-foil 14s ease-in-out infinite alternate;
+  -webkit-mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18V5'/%3E%3Cpath d='M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4'/%3E%3Cpath d='M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5'/%3E%3Cpath d='M17.997 5.125a4 4 0 0 1 2.526 5.77'/%3E%3Cpath d='M18 18a4 4 0 0 0 2-7.464'/%3E%3Cpath d='M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517'/%3E%3Cpath d='M6 18a4 4 0 0 1-2-7.464'/%3E%3Cpath d='M6.003 5.125a4 4 0 0 0-2.526 5.77'/%3E%3C/svg%3E");
+  mask-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='%23000' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M12 18V5'/%3E%3Cpath d='M15 13a4.17 4.17 0 0 1-3-4 4.17 4.17 0 0 1-3 4'/%3E%3Cpath d='M17.598 6.5A3 3 0 1 0 12 5a3 3 0 1 0-5.598 1.5'/%3E%3Cpath d='M17.997 5.125a4 4 0 0 1 2.526 5.77'/%3E%3Cpath d='M18 18a4 4 0 0 0 2-7.464'/%3E%3Cpath d='M19.967 17.483A4 4 0 1 1 12 18a4 4 0 1 1-7.967-.517'/%3E%3Cpath d='M6 18a4 4 0 0 1-2-7.464'/%3E%3Cpath d='M6.003 5.125a4 4 0 0 0-2.526 5.77'/%3E%3C/svg%3E");
+  -webkit-mask-size: contain;
+  mask-size: contain;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  -webkit-mask-position: center;
+  mask-position: center;
 }
 
-/* The activity pixels at `max`. `background-color` rather than the gradient,
- * because a 4px cell is smaller than any gradient period worth drawing - at
- * that size the palette reads as the cell's colour, and the cells are already
- * travelling, so the block still shows several hues at once. */
-@keyframes tedi-max-pixel-light {
-  0% {
-    background-color: #0891b2;
-  }
-  50% {
-    background-color: #7c3aed;
-  }
-  100% {
-    background-color: #db2777;
-  }
-}
-@keyframes tedi-max-pixel-dark {
-  0% {
-    background-color: #22d3ee;
-  }
-  50% {
-    background-color: #a855f7;
-  }
-  100% {
-    background-color: #f472b6;
+/* The activity pixels, cut out of the same sheet.
+ *
+ * ONE sheet across the whole block, not one colour per cell: each cell shifts
+ * the background by its own position (`--fx`/`--fy`, set inline), so together
+ * they sample a single continuous foil and the hue run, the gloss ridges and
+ * the travelling pool all cross the block exactly as they cross the word. A
+ * per-cell colour could not do that - a 4px cell is smaller than any period in
+ * the sheet, so each cell was flat, and giving them a per-cell phase made the
+ * block a colour ramp rather than a foil.
+ *
+ * The two animations are deliberately NOT in step with each other: the chase
+ * carries opacity and is offset per cell, so the light travels; the foil
+ * carries colour and is offset by nothing, so the sheet stays whole. That is
+ * the whole reason the delay list on the cell reads `-0.45s, 0s`. */
+@keyframes tedi-max-pixel-foil {
+  to {
+    background-position:
+      calc(64px + var(--fx)) calc(10px + var(--fy)),
+      calc(42px + var(--fx)) var(--fy),
+      calc(-34px + var(--fx)) var(--fy);
   }
 }
+
 .pixel-chase-max {
-  /* Two animations on one cell: the chase carries the opacity, the palette
-     carries the colour, and they run at their own speeds on purpose - a 0.9s
-     sweep through a 14s hue drift. */
+  background-position:
+    calc(-18px + var(--fx)) calc(-6px + var(--fy)),
+    var(--fx) var(--fy),
+    var(--fx) var(--fy);
   animation:
     pixel-chase 0.9s ease-in-out infinite,
-    tedi-max-pixel-light 14s ease-in-out infinite alternate;
-}
-.dark .pixel-chase-max {
-  animation:
-    pixel-chase 0.9s ease-in-out infinite,
-    tedi-max-pixel-dark 14s ease-in-out infinite alternate;
+    tedi-max-pixel-foil 14s ease-in-out infinite alternate;
 }
 
 /* The hop being dialled in the SSH connect overlay

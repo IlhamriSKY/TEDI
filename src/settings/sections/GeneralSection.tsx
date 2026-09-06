@@ -11,7 +11,6 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { cn } from "@/lib/utils";
 import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { SEARCH_ENGINES, searchEngineById } from "@/modules/settings/searchEngines";
 import {
   UI_ZOOM_DEFAULT,
   UI_ZOOM_MAX,
@@ -26,7 +25,6 @@ import {
   setAutoOpenProjectUrl,
   setAutostart,
   setRestoreWindowState,
-  setSearchEngine,
   setUiZoom,
   setShowHiddenFiles,
   setShowSourceControl,
@@ -71,7 +69,6 @@ export function GeneralSection() {
   const aiBlockingSound = usePreferencesStore((s) => s.aiBlockingSound);
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
   const customSoundCount = [aiBlockingSound, aiCompletionSound].filter(Boolean).length;
-  const searchEngine = usePreferencesStore((s) => s.searchEngine);
   const autoOpenProjectUrl = usePreferencesStore((s) => s.autoOpenProjectUrl);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
   const fontFamily = usePreferencesStore((s) => s.fontFamily);
@@ -305,30 +302,6 @@ export function GeneralSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Browser</Label>
-        <SettingRow
-          title="Default search engine"
-          description='Typing a non-URL term in the browser address bar runs a search with this engine. E.g. "youtube" opens search results instead of failing to load.'
-        >
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" className="h-9 justify-between gap-2 px-2.5 text-[12px]">
-                <span>{searchEngineById(searchEngine).label}</span>
-                <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="min-w-40">
-              {SEARCH_ENGINES.map((e) => (
-                <DropdownMenuItem
-                  key={e.id}
-                  onSelect={() => void setSearchEngine(e.id)}
-                  className={cn("text-[12px]", e.id === searchEngine && "bg-accent/50")}
-                >
-                  {e.label}
-                </DropdownMenuItem>
-              ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
-        </SettingRow>
         <SettingRow
           title="Open a dev server's URL automatically"
           description="Open it in the browser as soon as it is detected, either from the project's own config (.env APP_URL, a vite port, a package.json dev script) when the port already answers, or printed by a terminal running npm run dev / php artisan serve. Off, the same URL just lights the globe button in the toolbar. Only this machine's addresses are ever opened, and both need the Browser extension installed."

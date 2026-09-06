@@ -111,133 +111,141 @@ export function InstallReviewDialog({
           </DialogDescription>
         </DialogHeader>
 
-        {preview ? (
-          <div className="flex items-start gap-3">
-            <PreviewIconSlot preview={preview} />
-            <div className="flex min-w-0 flex-1 flex-col gap-1">
-              {preview.status === "ready" ? (
-                <>
-                  <div className="flex flex-wrap items-center gap-2">
-                    <span className="text-[14px] leading-tight font-semibold">
-                      {preview.manifest.name}
+        {/* THE SCROLLER. `DialogContent` is a flex column that is capped at the
+            viewport and `overflow-hidden`, so without this everything past the
+            cap was CLIPPED, not scrolled - and the first casualty was the footer,
+            which meant a manifest with enough permissions left you looking at a
+            dialog whose Install button you could not reach. Header and footer
+            stay pinned; only the review body moves. */}
+        <div className="-mr-2 flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto pr-2">
+          {preview ? (
+            <div className="flex items-start gap-3">
+              <PreviewIconSlot preview={preview} />
+              <div className="flex min-w-0 flex-1 flex-col gap-1">
+                {preview.status === "ready" ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-[14px] leading-tight font-semibold">
+                        {preview.manifest.name}
+                      </span>
+                      <Badge variant="secondary" className="h-4 px-1.5 font-mono text-[10px]">
+                        v{preview.manifest.version}
+                      </Badge>
+                    </div>
+                    {preview.manifest.description ? (
+                      <p className="text-muted-foreground text-[11.5px] leading-relaxed">
+                        {preview.manifest.description}
+                      </p>
+                    ) : null}
+                    <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
+                      {preview.manifest.author ? <>by {preview.manifest.author} · </> : null}
+                      Source: {preview.sourceLabel}
+                    </div>
+                  </>
+                ) : preview.status === "loading" ? (
+                  <>
+                    <div className="bg-muted h-3.5 w-32 animate-pulse rounded" />
+                    <div className="bg-muted h-2.5 w-48 animate-pulse rounded" />
+                    <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
+                      Reading {preview.sourceLabel}…
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <span className="text-destructive text-[12.5px] leading-tight font-medium">
+                      Could not read this package
                     </span>
-                    <Badge variant="secondary" className="h-4 px-1.5 font-mono text-[10px]">
-                      v{preview.manifest.version}
-                    </Badge>
-                  </div>
-                  {preview.manifest.description ? (
-                    <p className="text-muted-foreground text-[11.5px] leading-relaxed">
-                      {preview.manifest.description}
+                    <p className="text-muted-foreground text-[11px] leading-relaxed">
+                      {preview.message}
                     </p>
-                  ) : null}
-                  <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
-                    {preview.manifest.author ? <>by {preview.manifest.author} · </> : null}
-                    Source: {preview.sourceLabel}
-                  </div>
-                </>
-              ) : preview.status === "loading" ? (
-                <>
-                  <div className="bg-muted h-3.5 w-32 animate-pulse rounded" />
-                  <div className="bg-muted h-2.5 w-48 animate-pulse rounded" />
-                  <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
-                    Reading {preview.sourceLabel}…
-                  </div>
-                </>
-              ) : (
-                <>
-                  <span className="text-destructive text-[12.5px] leading-tight font-medium">
-                    Could not read this package
-                  </span>
-                  <p className="text-muted-foreground text-[11px] leading-relaxed">
-                    {preview.message}
-                  </p>
-                  <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
-                    {preview.sourceLabel}
-                  </div>
-                </>
-              )}
-            </div>
-          </div>
-        ) : null}
-
-        {ready ? (
-          isUpdate ? (
-            <div className="flex flex-col gap-2">
-              {newPerms.length > 0 ? (
-                <div className="border-destructive/40 bg-destructive/5 flex flex-col gap-1.5 rounded-md border px-2.5 py-2">
-                  <span className="text-destructive text-[10.5px] font-medium tracking-tight uppercase">
-                    {newPerms.length} new permission{newPerms.length === 1 ? "" : "s"} requested by
-                    this update
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {newPerms.map((p) => (
-                      <PermissionBadge key={p} permission={p} />
-                    ))}
-                  </div>
-                </div>
-              ) : (
-                <span className="text-muted-foreground text-[10.5px]">
-                  No new permissions requested by this update.
-                </span>
-              )}
-              {keptPerms.length > 0 ? (
-                <div className="flex flex-col gap-1.5 opacity-70">
-                  <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
-                    Already approved
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {keptPerms.map((p) => (
-                      <PermissionBadge key={p} permission={p} />
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-            </div>
-          ) : requested.length > 0 ? (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
-                Permissions requested
-              </span>
-              <div className="flex flex-wrap gap-1">
-                {requested.map((p) => (
-                  <PermissionBadge key={p} permission={p} />
-                ))}
+                    <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
+                      {preview.sourceLabel}
+                    </div>
+                  </>
+                )}
               </div>
             </div>
-          ) : null
-        ) : null}
+          ) : null}
 
-        {grantsNearTotal ? (
-          <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
-            <span className="font-medium">Near-total access.</span> This extension can call almost
-            any internal command (filesystem, shell, SSH, git, …). Only install it if you trust the
-            publisher.
-          </div>
-        ) : null}
+          {ready ? (
+            isUpdate ? (
+              <div className="flex flex-col gap-2">
+                {newPerms.length > 0 ? (
+                  <div className="border-destructive/40 bg-destructive/5 flex flex-col gap-1.5 rounded-md border px-2.5 py-2">
+                    <span className="text-destructive text-[10.5px] font-medium tracking-tight uppercase">
+                      {newPerms.length} new permission{newPerms.length === 1 ? "" : "s"} requested
+                      by this update
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {newPerms.map((p) => (
+                        <PermissionBadge key={p} permission={p} />
+                      ))}
+                    </div>
+                  </div>
+                ) : (
+                  <span className="text-muted-foreground text-[10.5px]">
+                    No new permissions requested by this update.
+                  </span>
+                )}
+                {keptPerms.length > 0 ? (
+                  <div className="flex flex-col gap-1.5 opacity-70">
+                    <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
+                      Already approved
+                    </span>
+                    <div className="flex flex-wrap gap-1">
+                      {keptPerms.map((p) => (
+                        <PermissionBadge key={p} permission={p} />
+                      ))}
+                    </div>
+                  </div>
+                ) : null}
+              </div>
+            ) : requested.length > 0 ? (
+              <div className="flex flex-col gap-1.5">
+                <span className="text-muted-foreground text-[10.5px] font-medium tracking-tight uppercase">
+                  Permissions requested
+                </span>
+                <div className="flex flex-wrap gap-1">
+                  {requested.map((p) => (
+                    <PermissionBadge key={p} permission={p} />
+                  ))}
+                </div>
+              </div>
+            ) : null
+          ) : null}
 
-        {aiTools.length > 0 ? (
-          <div className="border-icon-working/40 bg-icon-working/5 text-foreground/80 rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
-            <span className="text-foreground font-medium">
-              Registers {aiTools.length} AI tool{aiTools.length === 1 ? "" : "s"}
-            </span>{" "}
-            the assistant can call. Each runs this extension&rsquo;s code and is gated by your
-            tool-approval flow.
-            <ul className="mt-1 space-y-0.5">
-              {aiTools.map((t) => (
-                <li key={t.name}>
-                  <span className="text-foreground font-medium">{t.name}</span>
-                  <span className="text-foreground/60"> &mdash; {t.description}</span>
-                </li>
-              ))}
-            </ul>
-          </div>
-        ) : null}
+          {grantsNearTotal ? (
+            <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
+              <span className="font-medium">Near-total access.</span> This extension can call almost
+              any internal command (filesystem, shell, SSH, git, …). Only install it if you trust
+              the publisher.
+            </div>
+          ) : null}
 
-        {installError ? (
-          <div className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-[11px]">
-            {installError}
-          </div>
-        ) : null}
+          {aiTools.length > 0 ? (
+            <div className="border-icon-working/40 bg-icon-working/5 text-foreground/80 rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
+              <span className="text-foreground font-medium">
+                Registers {aiTools.length} AI tool{aiTools.length === 1 ? "" : "s"}
+              </span>{" "}
+              the assistant can call. Each runs this extension&rsquo;s code and is gated by your
+              tool-approval flow.
+              <ul className="mt-1 space-y-0.5">
+                {aiTools.map((t) => (
+                  <li key={t.name}>
+                    <span className="text-foreground font-medium">{t.name}</span>
+                    <span className="text-foreground/60"> &mdash; {t.description}</span>
+                  </li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+
+          {installError ? (
+            <div className="bg-destructive/10 text-destructive rounded-md px-3 py-2 text-[11px]">
+              {installError}
+            </div>
+          ) : null}
+        </div>
 
         <DialogFooter>
           <Button variant="outline" size="sm" onClick={onCancel} disabled={busy}>

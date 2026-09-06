@@ -78,6 +78,12 @@ const NON_THEMABLE = new Set([
   // theme sets without needing a knob of its own. Giving it one would let a
   // theme pick a hover that is darker than the rest state on a dark theme.
   "--tedi-button-face-hover",
+  // Not a colour at all: three stacked gradient layers (hue cycle, gloss
+  // ridges, drifting pool) that make up the max-effort foil. A colour picker
+  // cannot express it, and the level is deliberately OFF the theme's hue ramp -
+  // foil is the one thing in the app no preset supplies. See
+  // `.tedi-foil` in globals.css and `levelClass` in ReasoningDropdown.tsx.
+  "--tedi-foil",
 ]);
 
 const declared = new Set([...css.matchAll(/^\s*(--tedi-[a-z0-9-]+)\s*:/gm)].map((m) => m[1]));

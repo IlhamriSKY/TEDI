@@ -45,6 +45,9 @@ export function PixelActivity({
   // One full cycle is spread across the longest diagonal, so the last cell lights
   // exactly as the first one comes round again and the loop has no seam.
   const span = Math.max(1, rows + cols - 2);
+  // 4px cell + 2px gap. The `max` variant needs it in JS because each cell has
+  // to shift the shared foil back by its own position in the block.
+  const PITCH = 6;
   return (
     <span
       className={cn("inline-grid shrink-0 gap-[2px]", className)}
@@ -63,23 +66,33 @@ export function PixelActivity({
         // delay elapses, so the block would flash fully lit for the first
         // second of every run - exactly when you are looking at it.
         const chase = `-${(frac * 0.9).toFixed(2)}s`;
-        // The max variant runs a SECOND animation (the 14s palette), and the
-        // delay list matches the animation list. Spreading the palette along
-        // the same diagonal is what puts all three hues on the block at once,
-        // the way the foil label shows them across its glyphs - one shared
-        // clock would have made every cell the same colour at every instant.
-        const delay = variant === "max" ? `${chase}, -${(frac * 14).toFixed(1)}s` : chase;
         return (
           <span
             key={i}
             aria-hidden
             className={cn(
               "size-1",
-              // The max variant carries its colour in its own keyframes, so it
-              // must not also take `bg-current` - one source of ink per cell.
-              variant === "max" ? "pixel-chase-max" : "pixel-chase bg-current",
+              // At max the cell is a WINDOW onto the foil, not a coloured
+              // square, so it takes the sheet instead of `bg-current`.
+              variant === "max" ? "tedi-foil pixel-chase-max" : "pixel-chase bg-current",
             )}
-            style={{ animationDelay: delay }}
+            style={
+              variant === "max"
+                ? {
+                    // Where this cell sits in the block, negated: the sheet is
+                    // anchored to each cell's own box, so shifting it back by
+                    // the cell's offset makes all of them sample ONE continuous
+                    // foil. Without this every cell shows the same 4px crop,
+                    // which at that size is a flat colour.
+                    ["--fx" as string]: `${-x * PITCH}px`,
+                    ["--fy" as string]: `${-y * PITCH}px`,
+                    // Two animations, two delays. The chase is offset per cell
+                    // so the light travels; the foil gets NO offset, because a
+                    // sheet whose cells are out of phase is not a sheet.
+                    animationDelay: `${chase}, 0s`,
+                  }
+                : { animationDelay: chase }
+            }
           />
         );
       })}
