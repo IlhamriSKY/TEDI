@@ -27,13 +27,12 @@ export type {
 export { checkPermission, permissionRiskTier } from "./permissions";
 export { useRegistry } from "./useRegistry";
 export { loadExtensionIcon } from "./icon";
-export { ExtensionStatusItems } from "./components/ExtensionStatusItems";
+export { useStatusItemEntries, type StatusItemEntry } from "./components/ExtensionStatusItems";
 export { ExtensionSidebarSection } from "./components/ExtensionSidebarSection";
 export { RightPanelHost } from "./components/RightPanelHost";
 export {
-  RightPanelActionToggles,
-  RightPanelCompactToggles,
-  RightPanelDefaultToggles,
+  useRightPanelToggleEntries,
+  type PanelToggleEntry,
 } from "./components/RightPanelToggleButtons";
 export { isRightPanelOpen, useRightPanelStore, type ActivePanel } from "./rightPanelStore";
 export {
@@ -46,8 +45,14 @@ export {
   MOVABLE_BUILTIN_SECTIONS,
   type BuiltinSectionId,
 } from "./sidebarPlacementStore";
-export { SidebarSectionRightToggles } from "./components/SidebarSectionRightToggles";
-export { BuiltinSectionRightToggles } from "./components/BuiltinSectionRightToggles";
+export {
+  useSidebarSectionToggleEntries,
+  type SidebarToggleEntry,
+} from "./components/SidebarSectionRightToggles";
+export {
+  useBuiltinSectionToggleEntries,
+  type BuiltinToggleEntry,
+} from "./components/BuiltinSectionRightToggles";
 export {
   setExtensionWorkspaceBridge,
   getExtensionWorkspaceBridge,

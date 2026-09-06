@@ -116,9 +116,9 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
           )}
           aria-label="Toggle diff"
         >
-          <ChevronDown size={11} strokeWidth={1.75} />
+          <ChevronDown size={11} strokeWidth={2} />
         </button>
-        <Icon size={13} strokeWidth={1.75} className="text-muted-foreground mt-0.5 shrink-0" />
+        <Icon size={13} strokeWidth={2} className="text-muted-foreground mt-0.5 shrink-0" />
         <div className="min-w-0 flex-1">
           <div className="flex items-baseline gap-1.5 font-mono text-[11.5px]">
             <span className="text-foreground truncate">{basename(item.path)}</span>
@@ -147,7 +147,7 @@ function PlanRow({ item, onReject }: { item: QueuedEdit; onReject: () => void })
           onClick={onReject}
           aria-label="Reject"
         >
-          <X size={11} strokeWidth={1.75} />
+          <X size={11} strokeWidth={2} />
         </Button>
       </div>
       {open && !isDir ? (

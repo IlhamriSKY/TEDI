@@ -18,11 +18,13 @@ import {
 } from "../lib/messageBody";
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
+import { useIsMaxEffort } from "../lib/useMaxEffort";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
 import { SLASH_COMMANDS } from "../lib/slashCommands";
 import { cn } from "@/lib/utils";
+import { PixelActivity } from "@/components/ui/pixel-activity";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
 import { ImageLightbox } from "./ImageLightbox";
@@ -45,7 +47,7 @@ function CommandSnippet({ name }: { name: string }) {
   const Icon = meta.icon;
   return (
     <div className="border-border/50 bg-muted/40 inline-flex max-w-full items-center gap-2 rounded-md border px-2 py-1">
-      <Icon size={12} strokeWidth={1.75} className="text-foreground shrink-0" />
+      <Icon size={12} strokeWidth={2} className="text-foreground shrink-0" />
       <span className="text-foreground font-mono text-[11px]">{meta.invocation}</span>
       {meta.label && meta.label !== name ? (
         <span className="text-muted-foreground truncate text-[11px]">{meta.label}</span>
@@ -82,9 +84,9 @@ function UserAttachmentChips({
           <TooltipTrigger asChild>
             <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
               {sel.source === "editor" ? (
-                <Code size={11} strokeWidth={1.75} className="text-muted-foreground" />
+                <Code size={11} strokeWidth={2} className="text-muted-foreground" />
               ) : (
-                <Terminal size={11} strokeWidth={1.75} className="text-muted-foreground" />
+                <Terminal size={11} strokeWidth={2} className="text-muted-foreground" />
               )}
               <span>
                 {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
@@ -595,6 +597,7 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
   // time-in-turn. `true`: while mounted, the turn is by definition running.
   const elapsed = useElapsedSince(true);
   const label = readableActivity(activity, waiting);
+  const isMax = useIsMaxEffort();
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -605,11 +608,15 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
       role="status"
       aria-label={`AI status: ${label}`}
     >
-      <span className="border-border/60 bg-background flex shrink-0 items-center gap-0.5 rounded-md border px-1.5 py-1 shadow-xs">
-        <ThinkingDot delay={0} />
-        <ThinkingDot delay={0.18} />
-        <ThinkingDot delay={0.36} />
-      </span>
+      {/* No frame around it. The block IS the indicator, and a border made it
+          read as a button you could press. At max the cells take the foil
+          palette, so the deepest setting is visible while the turn runs and
+          not only in the picker that set it. */}
+      <PixelActivity
+        label="AI working"
+        variant={isMax ? "max" : "default"}
+        className="text-muted-foreground"
+      />
       <span className="min-w-0 flex-1 truncate leading-none" title={label}>
         {label}
       </span>
@@ -622,23 +629,5 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
         </span>
       ) : null}
     </motion.div>
-  );
-}
-
-function ThinkingDot({ delay }: { delay: number }) {
-  return (
-    <motion.span
-      className="bg-muted-foreground/70 block size-1.5 rounded-full"
-      animate={{
-        opacity: [0.25, 1, 0.25],
-        y: [0, -2, 0],
-      }}
-      transition={{
-        duration: 1.1,
-        repeat: Infinity,
-        ease: "easeInOut",
-        delay,
-      }}
-    />
   );
 }

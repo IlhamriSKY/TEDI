@@ -167,8 +167,12 @@ export type Preferences = {
   /** Show the code editor minimap. Default true. */
   showMinimap: boolean;
   /** Render the coding font's ligatures in the editor (`=>` as an arrow, `!=`
-   *  as `≠`). Default true, which is what an unset `font-variant-ligatures`
-   *  already did - the pref exists so the fused glyphs can be turned off. */
+   *  as `≠`). Default **false**: a ligature glyph is one glyph with a huge
+   *  negative left bearing that paints backwards over the cells it replaces,
+   *  and WebView2 only repaints the cell you just typed - so `=>` loses its
+   *  `=` and a run of `====` paints nothing but its tail until something
+   *  forces a full repaint. The characters are always in the document; only
+   *  the pixels go missing. Turn it on to get the fused glyphs back. */
   editorLigatures: boolean;
   terminalWebglEnabled: boolean;
   terminalFontSize: number;
@@ -197,6 +201,18 @@ export type Preferences = {
    * switched back off. Default false.
    */
   statusBarCompact: boolean;
+  /**
+   * Where the user dragged each status-bar item: three arrays of item ids, one
+   * per zone (readouts / indicators / actions), in the order they were dropped.
+   *
+   * Sparse ON PURPOSE. An id appears only once it has been moved, so an item
+   * nobody has touched keeps following its own default zone - which is how a
+   * newly installed extension lands somewhere sensible instead of at the end of
+   * whatever list was saved months ago, and how a default the app changes later
+   * still reaches everyone who never rearranged anything. Ids of uninstalled
+   * extensions are simply ignored on the way out.
+   */
+  statusBarLayout: string[][];
   /** Show the Source Control panel. Default true. */
   showSourceControl: boolean;
   /**
@@ -417,6 +433,7 @@ const KEY_TERMINAL_SCROLLBACK = "terminalScrollback";
 const KEY_TERMINAL_ENV_PATH = "terminalEnvPath";
 const KEY_SHOW_HIDDEN_FILES = "showHiddenFiles";
 const KEY_STATUS_BAR_COMPACT = "statusBarCompact";
+const KEY_STATUS_BAR_LAYOUT = "statusBarLayout";
 const KEY_SHOW_SOURCE_CONTROL = "showSourceControl";
 const KEY_SOURCE_CONTROL_IN_RIGHT_PANEL = "sourceControlInRightPanel";
 const KEY_SSH_IN_RIGHT_PANEL = "sshInRightPanel";
@@ -542,13 +559,14 @@ export const DEFAULT_PREFERENCES: Preferences = {
   vimMode: false,
   lineWrap: false,
   showMinimap: true,
-  editorLigatures: true,
+  editorLigatures: false,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
   terminalScrollback: TERMINAL_SCROLLBACK_DEFAULT,
   terminalEnvPath: [],
   showHiddenFiles: false,
   statusBarCompact: false,
+  statusBarLayout: [[], [], []] as string[][],
   showSourceControl: true,
   sourceControlInRightPanel: false,
   sshInRightPanel: false,
@@ -682,6 +700,7 @@ export async function loadPreferences(): Promise<Preferences> {
     terminalEnvPath: normalizeTerminalPathEntries(get<unknown>(KEY_TERMINAL_ENV_PATH)),
     showHiddenFiles: get<boolean>(KEY_SHOW_HIDDEN_FILES) ?? DEFAULT_PREFERENCES.showHiddenFiles,
     statusBarCompact: get<boolean>(KEY_STATUS_BAR_COMPACT) ?? DEFAULT_PREFERENCES.statusBarCompact,
+    statusBarLayout: normalizeStatusBarLayout(get<unknown>(KEY_STATUS_BAR_LAYOUT)),
     showSourceControl:
       get<boolean>(KEY_SHOW_SOURCE_CONTROL) ?? DEFAULT_PREFERENCES.showSourceControl,
     sourceControlInRightPanel:
@@ -798,6 +817,31 @@ function normalizeOpenAICompatibleInstances(
  * migrated rather than lost. A corrupt or absent value yields `[]` so the
  * terminal still spawns with the inherited PATH.
  */
+/**
+ * Coerce a persisted status-bar layout into exactly three arrays of ids.
+ *
+ * Written defensively because this is a settings file a user can hand-edit and
+ * an older build can have written: a missing zone, a fourth zone, a number
+ * where an id belongs, or an id repeated in two zones would otherwise render
+ * one item twice or drop a whole zone. Duplicates keep their FIRST placement,
+ * so the file can never make one item exist in two places at once.
+ */
+function normalizeStatusBarLayout(raw: unknown): string[][] {
+  const zones: string[][] = [[], [], []];
+  if (!Array.isArray(raw)) return zones;
+  const seen = new Set<string>();
+  for (let z = 0; z < zones.length; z++) {
+    const list = raw[z];
+    if (!Array.isArray(list)) continue;
+    for (const id of list) {
+      if (typeof id !== "string" || !id || seen.has(id)) continue;
+      seen.add(id);
+      zones[z].push(id);
+    }
+  }
+  return zones;
+}
+
 function normalizeTerminalPathEntries(raw: unknown): TerminalPathEntry[] {
   if (!Array.isArray(raw)) return [];
   const out: TerminalPathEntry[] = [];
@@ -995,6 +1039,10 @@ export async function setShowHiddenFiles(value: boolean): Promise<void> {
 
 export async function setStatusBarCompact(value: boolean): Promise<void> {
   await writePref(KEY_STATUS_BAR_COMPACT, value);
+}
+
+export async function setStatusBarLayout(value: string[][]): Promise<void> {
+  await writePref(KEY_STATUS_BAR_LAYOUT, value);
 }
 
 export async function setShowSourceControl(value: boolean): Promise<void> {
@@ -1463,6 +1511,7 @@ export async function onPreferencesChange(
     terminalEnvPath: KEY_TERMINAL_ENV_PATH,
     showHiddenFiles: KEY_SHOW_HIDDEN_FILES,
     statusBarCompact: KEY_STATUS_BAR_COMPACT,
+    statusBarLayout: KEY_STATUS_BAR_LAYOUT,
     showSourceControl: KEY_SHOW_SOURCE_CONTROL,
     sourceControlInRightPanel: KEY_SOURCE_CONTROL_IN_RIGHT_PANEL,
     sshInRightPanel: KEY_SSH_IN_RIGHT_PANEL,

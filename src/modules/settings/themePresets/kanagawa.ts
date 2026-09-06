@@ -38,7 +38,6 @@ const KANAGAWA_DARK: ThemeColors = {
   diffAdded: "#98bb6c",
   diffRemoved: "#e46876",
   info: "#7fb4ca",
-  resizeHandle: "#363646",
   // Kanagawa Wave ANSI 16 (official terminal palette).
   ansiBlack: "#090618",
   ansiRed: "#c34043",
@@ -94,7 +93,6 @@ const KANAGAWA_LIGHT: ThemeColors = {
   diffAdded: "#6f894e",
   diffRemoved: "#c84053",
   info: "#4d699b",
-  resizeHandle: "#d5cea3",
   // Kanagawa Lotus ANSI 16 (official light terminal palette).
   ansiBlack: "#1f1f28",
   ansiRed: "#c84053",

@@ -33,7 +33,7 @@ export function ImageLightbox({ url, onClose }: { url: string; onClose: () => vo
         className="bg-secondary text-foreground hover:bg-destructive/10 hover:text-destructive absolute top-4 right-4 cursor-pointer rounded-md p-1.5"
         aria-label="Close preview"
       >
-        <X size={16} strokeWidth={2} />
+        <X size={16} strokeWidth={1.75} />
       </button>
     </div>,
     document.body,

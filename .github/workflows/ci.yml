@@ -79,10 +79,38 @@ jobs:
       # is #[ignore]d, so the default run stays offline and fast. Deliberately no
       # count here: it drifted (27 -> 41 -> 43) every time tests were added.
       #
-      # NOTE: this job is Linux-only, so it never compiles the macOS or Windows
-      # `cfg` branches - those are first built by release.yml's matrix, i.e. at
-      # tag time. A macOS-only compile error therefore surfaces during a release,
-      # not on the PR that introduced it.
+      # NOTE: this job is Linux-only. `check-windows-macos` below compiles the
+      # other two targets, so a platform-specific `cfg` break now fails the PR
+      # that introduced it rather than the next release tag. clippy and the
+      # tests stay here alone because they are platform-neutral.
       - name: cargo test
         working-directory: src-tauri
         run: cargo test --locked
+
+  # Compile-only coverage for the two targets the `rust` job cannot see. Without
+  # it the macOS and Windows `cfg` branches were first built by release.yml's
+  # matrix, i.e. at tag time, so a macOS-only compile error surfaced during a
+  # release instead of on the PR that introduced it. `cargo check` alone is the
+  # whole point: that every branch still compiles. One macOS runner covers both
+  # shipped arches because the source carries no `#[cfg(target_arch)]` item,
+  # only `cfg!` expressions, which the compiler type-checks on any arch.
+  check-windows-macos:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: ./src-tauri -> target
+          key: ${{ matrix.os }}
+          cache-on-failure: true
+
+      - name: cargo check
+        working-directory: src-tauri
+        run: cargo check --all-targets --locked

@@ -111,7 +111,6 @@ export const DARK_COLORS: ThemeColors = {
   tabAccentPreview: "#22d3ee",
   tabAccentAiDiff: "#a78bfa",
   tabAccentGitDiff: "#fbbf24",
-  resizeHandle: "#2b2b2b",
   ...ANSI_DARK,
 };
 
@@ -155,6 +154,5 @@ export const LIGHT_COLORS: ThemeColors = {
   tabAccentPreview: "#06b6d4",
   tabAccentAiDiff: "#8b5cf6",
   tabAccentGitDiff: "#f59e0b",
-  resizeHandle: "#e5e7eb",
   ...ANSI_LIGHT,
 };

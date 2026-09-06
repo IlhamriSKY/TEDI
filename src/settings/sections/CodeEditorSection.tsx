@@ -103,7 +103,7 @@ export function CodeEditorSection() {
         </SettingRow>
         <SettingRow
           title="Font ligatures"
-          description="Let the coding font fuse character pairs into one glyph, so => draws as an arrow and != as ≠. Turn off to see every character exactly as typed."
+          description="Let the coding font fuse character pairs into one glyph, so => draws as an arrow and != as ≠. Off by default: a fused glyph paints outside its own cell, and the editor's WebView repaints only the cell you just typed, so freshly typed => and ==== can look half-erased until the line is redrawn."
         >
           <Switch checked={editorLigatures} onCheckedChange={(v) => void setEditorLigatures(v)} />
         </SettingRow>

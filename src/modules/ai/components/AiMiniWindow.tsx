@@ -351,9 +351,9 @@ function AiDockButton() {
         aria-label={toRight ? "Move AI to the right panel" : "Move AI to the left sidebar"}
       >
         {toRight ? (
-          <PanelRight size={13} strokeWidth={1.75} />
+          <PanelRight size={13} strokeWidth={2} />
         ) : (
-          <PanelLeft size={13} strokeWidth={1.75} />
+          <PanelLeft size={13} strokeWidth={2} />
         )}
       </Button>
     </IconTooltip>
@@ -411,7 +411,7 @@ function SessionPicker() {
         className="max-w-[calc(var(--radix-popper-available-width)-8px)] min-w-56"
       >
         <DropdownMenuItem onSelect={() => newSession()} className="gap-2 text-xs">
-          <Plus size={12} strokeWidth={1.75} />
+          <Plus size={12} strokeWidth={2} />
           New session
         </DropdownMenuItem>
         {sorted.length > 0 ? <DropdownMenuSeparator /> : null}
@@ -471,7 +471,7 @@ function SessionRow({
             "cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
           )}
         >
-          <Trash2 size={11} strokeWidth={1.75} />
+          <Trash2 size={11} strokeWidth={2} />
         </button>
       </IconTooltip>
     </DropdownMenuItem>
@@ -507,7 +507,7 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
                 )}
               >
                 <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
-                  <Icon size={13} strokeWidth={1.75} />
+                  <Icon size={13} strokeWidth={2} />
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="text-foreground text-[12px] font-medium">{s.label}</div>

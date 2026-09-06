@@ -37,7 +37,6 @@ const NORD_DARK: ThemeColors = {
   diffAdded: "#a3be8c",
   diffRemoved: "#bf616a",
   info: "#81a1c1",
-  resizeHandle: "#4c566a",
   // Nord ANSI 16.
   ansiBlack: "#3b4252",
   ansiRed: "#bf616a",
@@ -91,7 +90,6 @@ const NORD_LIGHT: ThemeColors = {
   diffAdded: "#a3be8c",
   diffRemoved: "#bf616a",
   info: "#5e81ac",
-  resizeHandle: "#d8dee9",
   // Nord has no official light terminal palette; the standard Nord ANSI is
   // tuned for dark surfaces (green/yellow/cyan wash out on #eceff4). These are
   // the same Nord hues deepened to read on the light background while keeping

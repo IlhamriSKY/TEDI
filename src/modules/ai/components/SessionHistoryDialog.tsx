@@ -65,7 +65,7 @@ export function SessionHistoryDialog() {
           <div className="relative mt-1">
             <Search
               size={13}
-              strokeWidth={1.75}
+              strokeWidth={2}
               className="text-muted-foreground absolute top-1/2 left-2 -translate-y-1/2"
             />
             <Input

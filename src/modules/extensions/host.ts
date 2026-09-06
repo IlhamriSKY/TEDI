@@ -555,6 +555,7 @@ export type ExtensionContext = {
       reuseKey?: string;
       state: ExtensionTabState | null;
       title?: string;
+      icon?: string;
     }): void;
   };
   /** Saved-SSH-connection access. `listConnections` returns the user's saved
@@ -1090,6 +1091,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           reuseKey: opts.reuseKey,
           state: opts.state,
           title: opts.title,
+          icon: opts.icon,
         });
       },
     },

@@ -165,5 +165,15 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
     [path, sshSessionId, dirty],
   );
 
-  return { doc, dirty, liveContent, onChange, save, reload };
+  /**
+   * Write the live buffer to ANOTHER path, leaving this document untouched.
+   * Local only: the native save dialog picks a local path, so a remote file has
+   * nowhere to put it. The caller retargets its editor leaf onto the new file.
+   */
+  const saveAs = useCallback(async (target: string) => {
+    await invoke("fs_write_file", { path: target, content: bufferRef.current });
+    notifyMemoryPathChanged(target);
+  }, []);
+
+  return { doc, dirty, liveContent, onChange, save, saveAs, reload };
 }

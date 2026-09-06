@@ -84,7 +84,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                 !isMiniWindow && TOOLBAR_HOVER,
               )}
             >
-              <ActiveIcon size={11} strokeWidth={1.75} className="shrink-0" />
+              <ActiveIcon size={11} strokeWidth={2} className="shrink-0" />
               <span className="truncate">{chatMode ? "Chat" : active.name}</span>
               <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
             </Button>
@@ -109,7 +109,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
             >
               <Icon
                 size={13}
-                strokeWidth={1.75}
+                strokeWidth={2}
                 className={cn(
                   "mt-0.5",
                   a.id === activeId ? "text-foreground" : "text-muted-foreground",
@@ -144,7 +144,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
                     a.id === activeId && "bg-accent/40",
                   )}
                 >
-                  <Icon size={13} strokeWidth={1.75} className="text-muted-foreground mt-0.5" />
+                  <Icon size={13} strokeWidth={2} className="text-muted-foreground mt-0.5" />
                   <span className="flex min-w-0 flex-1 flex-col">
                     <span className="truncate">{a.name}</span>
                     {a.description ? (
@@ -168,7 +168,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
         >
           <MessageCircle
             size={13}
-            strokeWidth={1.75}
+            strokeWidth={2}
             className={cn("mt-0.5", chatMode ? "text-foreground" : "text-muted-foreground")}
           />
           <span className="flex min-w-0 flex-1 flex-col">
@@ -217,7 +217,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           onSelect={() => void openSettingsWindow("agents")}
           className="text-muted-foreground gap-2 text-[12px]"
         >
-          <Settings size={12} strokeWidth={1.75} />
+          <Settings size={12} strokeWidth={2} />
           Manage agents…
         </DropdownMenuItem>
       </DropdownMenuContent>

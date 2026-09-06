@@ -38,12 +38,12 @@ export function AiChatMenuItems({
   return (
     <DropdownMenuSub>
       <DropdownMenuSubTrigger>
-        <Sparkles size={14} strokeWidth={1.75} />
+        <Sparkles size={14} strokeWidth={2} />
         <span className="flex-1 whitespace-nowrap">AI Chat</span>
       </DropdownMenuSubTrigger>
       <DropdownMenuSubContent className="max-w-64 min-w-52">
         <DropdownMenuItem onSelect={() => onOpen(newSession())}>
-          <MessageSquarePlus size={14} strokeWidth={1.75} />
+          <MessageSquarePlus size={14} strokeWidth={2} />
           <span className="flex-1 whitespace-nowrap">New chat</span>
         </DropdownMenuItem>
         {recent.length > 0 ? <DropdownMenuSeparator /> : null}

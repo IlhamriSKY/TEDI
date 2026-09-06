@@ -68,6 +68,7 @@ const HANDLED = new Set<string>([
   "view.zoomReset",
   "editor.toggleWordWrap",
   "editor.formatDocument",
+  "editor.saveAs",
   "terminal.copy",
   "terminal.paste",
   "terminal.close",

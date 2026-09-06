@@ -633,16 +633,36 @@ async fn set_enabled(
         .map_err(|_| "extensions state lock poisoned".to_string())?;
     let st_path = state_path(&app)?;
     let mut st = load_state(&st_path);
+    // SEED THE GRANT FROM THE MANIFEST, NEVER EMPTY. An extension with no state
+    // entry has been running on its manifest permissions all along - that is
+    // exactly what `ext_list` reports for it, by the same fallback. Creating an
+    // entry here is bookkeeping for a toggle, not a permission decision, so an
+    // empty vec would silently REVOKE every capability the extension already
+    // had. And it never comes back: from that point the entry exists, so the
+    // manifest fallback in `ext_list` stops applying and the extension loads
+    // for the rest of time with nothing granted.
+    //
+    // Entry-less is the normal state for anything that did not come through the
+    // install pipeline - a dev-linked extension has none until its first toggle
+    // - so this was the difference between an extension that works and one that
+    // is enabled, loads, and is refused every permission it declares. The pane
+    // it contributes then has no renderer at all and its tab restores blank on
+    // every launch.
+    let seeded_permissions = extensions_root(&app)
+        .ok()
+        .and_then(|root| read_installed_manifest(&root.join(&id)))
+        .map(|m| m.permissions)
+        .unwrap_or_default();
     let entry = st
         .entries
         .entry(id.clone())
-        .or_insert_with(|| ExtensionEntry {
+        .or_insert_with(move || ExtensionEntry {
             enabled,
             source: "local".into(),
             installed_at_ms: super::state::now_ms(),
             version: String::new(),
             fingerprint: String::new(),
-            approved_permissions: Vec::new(),
+            approved_permissions: seeded_permissions,
             latest_version: None,
             last_checked_at_ms: None,
         });

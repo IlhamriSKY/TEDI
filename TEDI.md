@@ -415,8 +415,9 @@ committed) and holds working copies for local iteration:
 | `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                           |
 | `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                             |
 | `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                 |
-| `tedi.browser`               | A real Chromium in a pane over CDP: screencast rendering, Chrome Web Store extensions, and a `browser` tool on the MCP surface (`ext_browser` from outside).                                    |
+| `tedi.browser`               | A real Chromium docked onto the pane that owns it, driven over CDP: Chrome Web Store extensions, and a `browser` tool on the MCP surface (`ext_browser` from outside).                          |
 | `tedi.ai-usage`              | Status-bar usage meters: `statusbar:write` with a label + progress, `settings:*`, gated `invoke`.                                                                                               |
+| `tedi.process-monitor`       | One streamed sampler over `shell_bg_spawn_direct` instead of a spawn per tick, a status-bar meter whose tooltip draws a pixel chart, and a `panels[] surface:"tab"` process tree.               |
 
 **Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
 the dev profile's app-data dir (`link:ext` / `relink:ext` / `unlink:ext` manage
@@ -565,13 +566,20 @@ dev` shares prod data. The daemon outlives the dev GUI; set
 ## Recent capabilities
 
 - **PTY daemon** persistence across window close, with scrollback replay.
-- **Browser** (`tedi.browser` extension): a real Chromium driven over CDP and
-  drawn into a pane from a `Page.startScreencast` stream. Reuses an installed
+- **Browser** (`tedi.browser` extension): a real Chromium driven over CDP, its
+  window placed on the pane that owns it so the page is composited by the GPU at
+  full resolution with a native pointer and an ordinary Chrome user agent. One
+  pane is one page, titled and iconed from the page itself. Reuses an installed
   Chrome / Edge / Brave / Chromium and downloads Chrome for Testing only when
   there is none, so the TEDI download is unaffected. Chrome Web Store extensions
   (an ad blocker, say) persist in its own profile. The agent reads the page's
   **accessibility tree** and acts on `[N]` refs with trusted input, and drains
   **console errors** - which closes the run-it, see-it-break, fix-it loop.
+  On the **canvas** the pane paints a `Page.startScreencast` stream into a
+  `<canvas>` instead and parks the window: an OS window cannot be scaled by the
+  canvas transform, stacked between two DOM elements, or culled, so it would
+  show a 1:1 crop over everything above it. Same Chrome, same profile, same tab;
+  only the painter changes, so a signed-in session survives a view switch.
 - **MCP** (stdio), both as a client and as a server driving a running window.
 - **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`), ten agents.
 - **Plan mode** (`>plan`) queuing mutations into one review diff.

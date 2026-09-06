@@ -36,6 +36,7 @@ export type ShortcutId =
   | "view.cycleWorkspaceView"
   | "editor.toggleWordWrap"
   | "editor.formatDocument"
+  | "editor.saveAs"
   | "editor.toggleComment"
   | "terminal.copy"
   | "terminal.paste"
@@ -296,6 +297,14 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Cycle workspace view (tabs / kanban / canvas)",
     group: "View",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "m" }],
+  },
+  {
+    // Save As. Mod+S is CodeMirror keymap (see EditorPane), not a catalog
+    // entry, so this is the only save chord listed here.
+    id: "editor.saveAs",
+    label: "Save file as...",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "s" }],
   },
   {
     id: "editor.toggleWordWrap",

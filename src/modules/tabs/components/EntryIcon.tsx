@@ -63,6 +63,22 @@ export function EntryIcon({ entry }: { entry: Entry }) {
     return glyph;
   }
   if (entry.kind === "ext") {
+    // An image ref, which is what a runtime icon usually is: a browser pane
+    // publishes the page's favicon as a `data:` URL. `resolveExtIcon` returns
+    // null for those by design, so without this branch the strip shows a
+    // database for every page. Kept identical to `LeafIcon`'s branch, because
+    // the strip and the pane header name the same leaf.
+    if (entry.icon?.startsWith("data:")) {
+      return (
+        <img
+          src={entry.icon}
+          alt=""
+          width={14}
+          height={14}
+          className="size-3.5 shrink-0 rounded-[2px] object-contain"
+        />
+      );
+    }
     // Extension tab icon: resolve `lucide:<Name>` / legacy `hugeicon:<Name>` if
     // the extension hinted one, else fall back to a generic database glyph. No
     // tint: inherits the surrounding tab's foreground colour so ext tabs

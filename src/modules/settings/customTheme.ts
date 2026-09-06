@@ -100,8 +100,6 @@ export type ThemeColors = {
   tabAccentPreview: string;
   tabAccentAiDiff: string;
   tabAccentGitDiff: string;
-  /** Color of the drag-to-resize divider between split panes. */
-  resizeHandle: string;
   /**
    * Full ANSI 16-colour palette painted by the terminal. The first eight
    * are the "standard" colours; the latter eight are the "bright" set.
@@ -223,7 +221,6 @@ const COLOR_VAR_MAP: Record<keyof ThemeColors, readonly string[]> = {
   tabAccentPreview: ["--tedi-tab-browser"],
   tabAccentAiDiff: ["--tedi-tab-ai-diff"],
   tabAccentGitDiff: ["--tedi-tab-git-diff"],
-  resizeHandle: ["--tedi-resize-handle"],
   ansiBlack: ["--tedi-ansi-black"],
   ansiRed: ["--tedi-ansi-red"],
   ansiGreen: ["--tedi-ansi-green"],
@@ -627,7 +624,6 @@ const SAFE_LIGHT_FALLBACK: ThemeColors = {
   tabAccentPreview: "#06b6d4",
   tabAccentAiDiff: "#8b5cf6",
   tabAccentGitDiff: "#f59e0b",
-  resizeHandle: "#e5e7eb",
   ansiBlack: "#3f3f46",
   ansiRed: "#dc2626",
   ansiGreen: "#16a34a",
@@ -686,7 +682,6 @@ const SAFE_DARK_FALLBACK: ThemeColors = {
   tabAccentPreview: "#22d3ee",
   tabAccentAiDiff: "#a78bfa",
   tabAccentGitDiff: "#fbbf24",
-  resizeHandle: "#2b2b2b",
   ansiBlack: "#18181b",
   ansiRed: "#ef4444",
   ansiGreen: "#22c55e",

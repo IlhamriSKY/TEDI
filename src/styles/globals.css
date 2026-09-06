@@ -107,6 +107,25 @@
   }
 }
 
+/* One lit head travelling along a row of pixels (components/ui/pixel-activity.tsx).
+ * Every cell runs the same cycle and the component staggers the delay, so the
+ * row reads as movement rather than as five things blinking. The floor is 0.18
+ * rather than 0 because the unlit state is a TRACK, the same dim rest the
+ * status-bar meters draw behind an empty bar. Honors prefers-reduced-motion via
+ * the global reset above, which leaves the cells sitting at that floor. */
+@keyframes pixel-chase {
+  0%,
+  100% {
+    opacity: 0.18;
+  }
+  30% {
+    opacity: 1;
+  }
+}
+.pixel-chase {
+  animation: pixel-chase 0.9s ease-in-out infinite;
+}
+
 /* The `max` reasoning level (src/modules/ai/components/ReasoningDropdown.tsx).
  *
  * Every level up to `xhigh` takes one theme token on a cool-to-warm ramp, which
@@ -232,13 +251,13 @@
     repeating-linear-gradient(74deg, #22d3ee 0, #a855f7 9px, #f472b6 18px, #22d3ee 27px);
 }
 
-/* The brain icon beside a foil label.
+/* The brain icon beside a foil label. THE FALLBACK, now: see the `stroke` below.
  *
- * An SVG stroke draws with `currentColor`, so it cannot hold a gradient the way
- * the label does - a stroke has no area for one to sit in. What it can hold is
- * the same palette over TIME: the colour drifts through the identical stops on
- * the identical 14s alternating cycle, so icon and label move together and read
- * as one control rather than as a coloured glyph next to a foil word.
+ * A solid hue drifting through the palette was the whole treatment, and beside a
+ * word showing all three stops at once it never matched - at any instant the
+ * icon was one colour and the label was a prism, which is exactly the "the brain
+ * is a different colour from max" it now falls back to only when the paint
+ * server is missing.
  *
  * Its own keyframes per ground, because the two palettes differ (see above) and
  * a keyframe cannot read a variable that is redefined further down. */
@@ -269,11 +288,156 @@
 .tedi-effort-max-icon {
   color: #7c3aed;
   animation: tedi-effort-max-icon-light 14s ease-in-out infinite alternate;
+  /* THE SAME FOIL, PAINTED INTO THE STROKE. An SVG stroke can hold a gradient
+     after all - not as a `color`, but as a paint server the stroke references,
+     which is what lets the icon carry all three stops at once like the word
+     next to it instead of one hue at a time.
+     `currentColor` is the paint FALLBACK, not decoration: a `url()` that
+     resolves to nothing paints `none` in SVG, so a window that renders the icon
+     without the <defs> would draw an invisible brain. With the fallback it
+     simply drops back to the drifting solid hue above. */
+  stroke: url(#tedi-max-ink) currentColor;
 }
 
 .dark .tedi-effort-max-icon {
   color: #a855f7;
   animation-name: tedi-effort-max-icon-dark;
+}
+
+/* THE MAX PALETTE, once, so everything that says "max" says it in the same ink.
+ *
+ * The label wears a foil gradient, the brain icon wears a stroke gradient, and
+ * the activity pixels wear it as a fill; before this each carried its own copy
+ * and drifted to a different hue, so at `max` the icon could sit on pink while
+ * the word beside it ran cyan. Three stops, two grounds, one 14s alternating
+ * cycle - the same cycle the foil label runs on, so they move together.
+ *
+ * Each stop is offset by a third of the cycle. That is what makes the gradient
+ * DRIFT rather than pulse: the three stops are always at different points of
+ * the same journey. */
+@keyframes tedi-max-ink-a-light {
+  0% {
+    stop-color: #0891b2;
+  }
+  50% {
+    stop-color: #7c3aed;
+  }
+  100% {
+    stop-color: #db2777;
+  }
+}
+@keyframes tedi-max-ink-b-light {
+  0% {
+    stop-color: #7c3aed;
+  }
+  50% {
+    stop-color: #db2777;
+  }
+  100% {
+    stop-color: #0891b2;
+  }
+}
+@keyframes tedi-max-ink-c-light {
+  0% {
+    stop-color: #db2777;
+  }
+  50% {
+    stop-color: #0891b2;
+  }
+  100% {
+    stop-color: #7c3aed;
+  }
+}
+@keyframes tedi-max-ink-a-dark {
+  0% {
+    stop-color: #22d3ee;
+  }
+  50% {
+    stop-color: #a855f7;
+  }
+  100% {
+    stop-color: #f472b6;
+  }
+}
+@keyframes tedi-max-ink-b-dark {
+  0% {
+    stop-color: #a855f7;
+  }
+  50% {
+    stop-color: #f472b6;
+  }
+  100% {
+    stop-color: #22d3ee;
+  }
+}
+@keyframes tedi-max-ink-c-dark {
+  0% {
+    stop-color: #f472b6;
+  }
+  50% {
+    stop-color: #22d3ee;
+  }
+  100% {
+    stop-color: #a855f7;
+  }
+}
+.tedi-max-ink-a {
+  animation: tedi-max-ink-a-light 14s ease-in-out infinite alternate;
+}
+.tedi-max-ink-b {
+  animation: tedi-max-ink-b-light 14s ease-in-out infinite alternate;
+}
+.tedi-max-ink-c {
+  animation: tedi-max-ink-c-light 14s ease-in-out infinite alternate;
+}
+.dark .tedi-max-ink-a {
+  animation-name: tedi-max-ink-a-dark;
+}
+.dark .tedi-max-ink-b {
+  animation-name: tedi-max-ink-b-dark;
+}
+.dark .tedi-max-ink-c {
+  animation-name: tedi-max-ink-c-dark;
+}
+
+/* The activity pixels at `max`. `background-color` rather than the gradient,
+ * because a 4px cell is smaller than any gradient period worth drawing - at
+ * that size the palette reads as the cell's colour, and the cells are already
+ * travelling, so the block still shows several hues at once. */
+@keyframes tedi-max-pixel-light {
+  0% {
+    background-color: #0891b2;
+  }
+  50% {
+    background-color: #7c3aed;
+  }
+  100% {
+    background-color: #db2777;
+  }
+}
+@keyframes tedi-max-pixel-dark {
+  0% {
+    background-color: #22d3ee;
+  }
+  50% {
+    background-color: #a855f7;
+  }
+  100% {
+    background-color: #f472b6;
+  }
+}
+.pixel-chase-max {
+  /* Two animations on one cell: the chase carries the opacity, the palette
+     carries the colour, and they run at their own speeds on purpose - a 0.9s
+     sweep through a 14s hue drift. */
+  animation:
+    pixel-chase 0.9s ease-in-out infinite,
+    tedi-max-pixel-light 14s ease-in-out infinite alternate;
+}
+.dark .pixel-chase-max {
+  animation:
+    pixel-chase 0.9s ease-in-out infinite,
+    tedi-max-pixel-dark 14s ease-in-out infinite alternate;
 }
 
 /* The hop being dialled in the SSH connect overlay
@@ -339,8 +503,6 @@
   --tedi-tab-browser: #06b6d4;
   --tedi-tab-ai-diff: #8b5cf6;
   --tedi-tab-git-diff: #f59e0b;
-  /* Drag-to-resize divider between split panes. Themable via Settings. */
-  --tedi-resize-handle: #e5e7eb;
   /* ANSI 16 palette for the terminal. Themable per preset. Light-mode
    * defaults are slightly muted; dark variants below brighten them. */
   --tedi-ansi-black: #3f3f46;
@@ -458,7 +620,6 @@
   --tedi-tab-browser: #22d3ee;
   --tedi-tab-ai-diff: #a78bfa;
   --tedi-tab-git-diff: #fbbf24;
-  --tedi-resize-handle: #2b2b2b;
   /* Brighter ANSI palette for dark mode (matches the previous hardcoded
    * Tailwind defaults the codebase shipped with). */
   --tedi-ansi-black: #18181b;
@@ -1223,10 +1384,43 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
  * will render without duplicating its filtering; the DOM already knows. The
  * sibling combinator is what makes the FIRST visible group borderless: a group
  * shows its hairline only when a non-empty group actually precedes it. */
-.sb-group:empty {
+/* A zone is now a drop target, so every item sits in its own `.sb-item` span
+ * and the group is never literally `:empty` - the spans are still there when
+ * what they hold renders null. `:has` moves the same question one level down:
+ * a group is empty when none of its items has any content. Both rules are kept
+ * because a zone is not the only `.sb-group` (the compact toggle is its own).
+ *
+ * While a drag is in flight `.sb-dragging` unhides every zone: you cannot drop
+ * an item into a group that display:none took off the row. */
+.sb-group:not(:has(> .sb-item:not(:empty))) {
   display: none;
 }
-.sb-group:not(:empty) ~ .sb-group:not(:empty)::before {
+/* An item whose component rendered nothing must not be laid out at all. A
+ * zero-width flex child still sits between two `gap`s, so every hidden item
+ * (an idle agent pill, an SSH button with no session, zoom at 100%) opened a
+ * 12px hole in a row spaced at 6px - which reads as the bar having random
+ * uneven spacing. `display: none` takes it out of the flex flow, so the gap is
+ * counted once. */
+.sb-item:empty {
+  display: none;
+}
+.sb-dragging .sb-group {
+  display: flex;
+  min-width: 1.25rem;
+}
+.sb-dragging .sb-zone {
+  outline: 1px dashed color-mix(in srgb, var(--foreground) 25%, transparent);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+.sb-dragging .sb-zone[data-over="true"] {
+  outline-color: var(--primary);
+  outline-style: solid;
+}
+.sb-item.is-dragging {
+  opacity: 0.4;
+}
+.sb-group:has(> .sb-item:not(:empty)) ~ .sb-group:has(> .sb-item:not(:empty))::before {
   content: "";
   align-self: center;
   flex: none;

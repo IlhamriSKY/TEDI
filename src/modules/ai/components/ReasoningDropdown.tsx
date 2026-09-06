@@ -50,14 +50,47 @@ const LEVEL_COLOR: Record<string, string> = {
 /**
  * The classes for one level, per element.
  *
- * They differ only at `max`, and only because of how the foil is drawn: it is a
- * gradient painted into the TEXT, which needs `color: transparent`. An icon
- * draws with `currentColor`, so that would erase it - it takes a solid hue from
- * the same palette instead.
+ * They differ only at `max`, and only because of where the foil has to be
+ * painted: the label takes it as a gradient clipped to the TEXT, the icon as a
+ * gradient its STROKE references. Same palette, same 14s cycle, two paint
+ * mechanisms - because `background-clip: text` needs `color: transparent`, and
+ * that would erase a glyph drawn with `currentColor`.
  */
 function levelClass(level: string, target: "label" | "icon"): string {
   if (level !== "max") return LEVEL_COLOR[level] ?? "text-foreground";
   return target === "label" ? "tedi-effort-max font-medium" : "tedi-effort-max-icon";
+}
+
+/**
+ * The paint server the brain icon's stroke points at.
+ *
+ * An SVG `url(#id)` paint resolves within the DOCUMENT, so the gradient has to
+ * be mounted somewhere - and mounting it HERE, beside the only icon that uses
+ * it, is what keeps it working in the float and settings windows too. Those are
+ * separate documents; a definition parked in the main app's root would resolve
+ * to nothing in them, and the icon would fall back to a solid hue with no sign
+ * that anything was missing.
+ *
+ * Rendered outside the `Button`: the button's own rule forces every descendant
+ * svg to 16px, which would give this zero-sized element a real box.
+ *
+ * The stops carry the animation, not the gradient - three stops each walking
+ * the same palette a third of a cycle apart, which is what makes the ink DRIFT
+ * across the glyph instead of pulsing on it.
+ */
+function MaxInkDefs() {
+  return (
+    <svg width="0" height="0" aria-hidden focusable="false" className="absolute">
+      <defs>
+        {/* Diagonal, matching the angle the foil label runs its hues at. */}
+        <linearGradient id="tedi-max-ink" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0%" className="tedi-max-ink-a" />
+          <stop offset="50%" className="tedi-max-ink-b" />
+          <stop offset="100%" className="tedi-max-ink-c" />
+        </linearGradient>
+      </defs>
+    </svg>
+  );
 }
 export function ReasoningDropdown() {
   const modelId = useChatStore((s) => s.selectedModelId);
@@ -91,6 +124,7 @@ export function ReasoningDropdown() {
 
   return (
     <DropdownMenu>
+      {current === "max" ? <MaxInkDefs /> : null}
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
@@ -108,7 +142,7 @@ export function ReasoningDropdown() {
                   as unset, and it would mute the colour the level just chose. */}
               <Brain
                 size={11}
-                strokeWidth={1.75}
+                strokeWidth={2}
                 className={cn(
                   "shrink-0",
                   current === REASONING_AUTO ? "opacity-70" : levelClass(current, "icon"),

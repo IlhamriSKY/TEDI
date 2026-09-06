@@ -132,9 +132,9 @@ export function MentionPickerContent({
 function ItemIcon({ item }: { item: MentionItem }) {
   if (item.kind === "selection") {
     return item.source === "editor" ? (
-      <Code size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+      <Code size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
     ) : (
-      <Terminal size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+      <Terminal size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
     );
   }
   if (item.kind === "folder") {

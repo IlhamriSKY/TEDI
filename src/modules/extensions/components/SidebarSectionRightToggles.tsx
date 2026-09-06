@@ -18,31 +18,32 @@ import {
   useSidebarPlacementStore,
 } from "../sidebarPlacementStore";
 
-export function SidebarSectionRightToggles() {
+/** One moved sidebar section, as the status bar's zone layout sees it. */
+export type SidebarToggleEntry = { id: string; node: React.ReactNode };
+
+/** Each moved section as an individually placeable status-bar entry. */
+export function useSidebarSectionToggleEntries(): SidebarToggleEntry[] {
   const sections = useRegistry(sidebarSectionsRegistry);
   const placement = useSidebarPlacementStore((s) => s.placement);
   const panels = useRightPanelStore((s) => s.panels);
 
-  const moved = sections.filter(
-    ({ extensionId, item }) =>
-      item.movableToRight && placement[sidebarSectionKey(extensionId, item.id)] === "right",
-  );
-  if (moved.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {moved.map(({ extensionId, item }) => (
+  return sections
+    .filter(
+      ({ extensionId, item }) =>
+        item.movableToRight && placement[sidebarSectionKey(extensionId, item.id)] === "right",
+    )
+    .map(({ extensionId, item }) => ({
+      id: `section:${extensionId}:${item.id}`,
+      node: (
         <SectionToggle
-          key={`${extensionId}:${item.id}`}
           extensionId={extensionId}
           sectionId={item.id}
           title={item.title}
           icon={item.icon}
           isOpen={isRightPanelOpen(panels, extensionId, sectionPanelId(item.id))}
         />
-      ))}
-    </div>
-  );
+      ),
+    }));
 }
 
 function SectionToggle({

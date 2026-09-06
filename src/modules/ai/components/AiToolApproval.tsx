@@ -58,7 +58,7 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
     <div className="border-border bg-card rounded-lg border shadow-sm">
       <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
         <span className="bg-icon-working size-1.5 shrink-0 animate-pulse rounded-full" />
-        <Icon size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+        <Icon size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground text-[12px] font-medium">{label}</span>
         <span className="text-muted-foreground ml-auto text-[10px]">needs approval</span>
       </div>

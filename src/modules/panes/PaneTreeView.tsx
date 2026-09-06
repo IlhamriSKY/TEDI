@@ -1129,7 +1129,6 @@ const PaneNodes = memo(function PaneNodes({
   return (
     <ResizablePanelGroup
       orientation={node.dir === "row" ? "horizontal" : "vertical"}
-      className="gap-1.5"
       // `onLayoutChanged` fires once the layout settles (no debounce needed);
       // `isUserInteraction` isolates a genuine drag/keyboard resize from mount,
       // container-resize, and programmatic layouts so only real user intent is
@@ -1144,7 +1143,7 @@ const PaneNodes = memo(function PaneNodes({
     >
       {node.children.map((child, i) => (
         <Fragment key={child.id}>
-          {i > 0 && <ResizableHandle withHandle />}
+          {i > 0 && <ResizableHandle />}
           {/* Numeric sizes would be read as pixels; a "%"-string keeps them
               as percentages of the group. */}
           <ResizablePanel

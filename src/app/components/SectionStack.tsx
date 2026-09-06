@@ -316,7 +316,7 @@ export function SectionStack({
       }}
     >
       <SortableContext items={visible} strategy={verticalListSortingStrategy}>
-        <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1 gap-1.5">
+        <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
           {(() => {
             // Insertion preview: the dragged section keeps its slot (no reflow,
             // so the resizable layout is untouched); instead a thin line marks
@@ -334,7 +334,7 @@ export function SectionStack({
                 showDrop && key === overKey ? (dragIdx < overIdx ? "bottom" : "top") : null;
               return (
                 <Fragment key={key}>
-                  {i > 0 && <ResizableHandle withHandle />}
+                  {i > 0 && <ResizableHandle />}
                   <ResizablePanel
                     id={`${idPrefix}-${key}`}
                     defaultSize={section.defaultSize}

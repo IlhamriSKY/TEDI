@@ -388,20 +388,46 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
       reuseKey?: string;
       state: ExtensionTabState | null;
       title?: string;
+      icon?: string;
     }) => {
       const matches = (extensionId: string, panelId: string, reuseKey?: string) =>
         extensionId === opts.extensionId &&
         panelId === opts.panelId &&
         (reuseKey ?? undefined) === (opts.reuseKey ?? undefined);
-      setTabs((curr) =>
-        curr.map((t) => {
+      setTabs((curr) => {
+        // IDENTITY IS THE CONTRACT, not just an optimisation. `Array.map`
+        // allocates a NEW array even when every element comes back by
+        // reference, and a new `tabs` identity is a real state change: it
+        // re-renders the strip and the pane tree, and it re-runs
+        // `useWorkspacePersistence`, which serializes the whole tab tree and
+        // writes the workspaces file. This setter used to be called only on a
+        // rare transition (SQL Explorer changing connection state), so nobody
+        // noticed. A browser pane publishes its title and favicon once a SECOND
+        // for as long as it is open, and each of those writes carries a
+        // base64 favicon on the leaf - so an idle pane rewrote the entire
+        // workspaces store at 1 Hz, forever. Returning `curr` unchanged when
+        // nothing matched or nothing moved is what makes a no-op free, for
+        // every caller rather than for the one that happened to hurt.
+        let changed = false;
+        const next = curr.map((t) => {
           if (t.kind === "ext") {
             if (!matches(t.extensionId, t.panelId, t.reuseKey)) return t;
-            const next: ExtensionTab = { ...t };
-            if (opts.state === null) delete next.state;
-            else next.state = opts.state;
-            if (opts.title !== undefined) next.title = opts.title;
-            return next;
+            const patched: ExtensionTab = { ...t };
+            if (opts.state === null) delete patched.state;
+            else patched.state = opts.state;
+            if (opts.title !== undefined) patched.title = opts.title;
+            if (opts.icon !== undefined) patched.icon = opts.icon;
+            // A tab carries `state` as an opaque object, so it cannot be
+            // compared cheaply; the two fields that move every tick can.
+            if (
+              patched.title === t.title &&
+              patched.icon === t.icon &&
+              patched.state === t.state
+            ) {
+              return t;
+            }
+            changed = true;
+            return patched;
           }
           if (t.kind === "pane") {
             const leaf = leaves(t.paneTree).find(
@@ -411,14 +437,19 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
             if (!leaf) return t;
             const paneTree = updateExtensionPanelLeafInTree(t.paneTree, leaf.id, {
               ...(opts.title !== undefined ? { title: opts.title } : {}),
+              ...(opts.icon !== undefined ? { icon: opts.icon } : {}),
               state: opts.state,
             });
+            // `updateExtensionPanelLeaf` already returns the same node when its
+            // patch is a no-op, which is exactly the signal wanted here.
             if (paneTree === t.paneTree) return t;
+            changed = true;
             return syncPaneMirror({ ...t, paneTree });
           }
           return t;
-        }),
-      );
+        });
+        return changed ? next : curr;
+      });
     },
     [],
   );

@@ -23,21 +23,23 @@ const ICONS: Record<BuiltinSectionId, LucideIcon> = {
   workspaces: LayoutDashboard,
 };
 
-export function BuiltinSectionRightToggles() {
+/** One docked built-in section, as the status bar's zone layout sees it. */
+export type BuiltinToggleEntry = { id: string; node: React.ReactNode };
+
+/** Each docked built-in section as an individually placeable status-bar entry. */
+export function useBuiltinSectionToggleEntries(): BuiltinToggleEntry[] {
   const placement = useSidebarPlacementStore((s) => s.placement);
   const panels = useRightPanelStore((s) => s.panels);
   const toggle = useRightPanelStore((s) => s.toggle);
 
-  const moved = MOVABLE_BUILTIN_SECTIONS.filter((s) => placement[s.id] === "right");
-  if (moved.length === 0) return null;
-
-  return (
-    <div className="flex items-center gap-1.5">
-      {moved.map(({ id, title }) => {
-        const Icon = ICONS[id];
-        const isOpen = isRightPanelOpen(panels, BUILTIN_SECTION_EXT, sectionPanelId(id));
-        return (
-          <IconTooltip key={id} label={`${isOpen ? "Close" : "Open"} ${title}`} side="top">
+  return MOVABLE_BUILTIN_SECTIONS.filter((s) => placement[s.id] === "right").map(
+    ({ id, title }) => {
+      const Icon = ICONS[id];
+      const isOpen = isRightPanelOpen(panels, BUILTIN_SECTION_EXT, sectionPanelId(id));
+      return {
+        id: `builtin:${id}`,
+        node: (
+          <IconTooltip label={`${isOpen ? "Close" : "Open"} ${title}`} side="top">
             <button
               type="button"
               onClick={() => toggle(BUILTIN_SECTION_EXT, sectionPanelId(id))}
@@ -53,8 +55,8 @@ export function BuiltinSectionRightToggles() {
               <Icon size={16} strokeWidth={1.75} className="shrink-0" />
             </button>
           </IconTooltip>
-        );
-      })}
-    </div>
+        ),
+      };
+    },
   );
 }

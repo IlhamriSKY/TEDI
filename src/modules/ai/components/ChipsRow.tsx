@@ -37,7 +37,7 @@ export function ChipsRow({
                   transition={{ duration: 0.12 }}
                   className="group border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
                 >
-                  <CmdIcon size={11} strokeWidth={1.75} className="text-muted-foreground" />
+                  <CmdIcon size={11} strokeWidth={2} className="text-muted-foreground" />
                   <span className="font-medium">&gt;{cmd.name}</span>
                   <button
                     type="button"
@@ -94,15 +94,11 @@ export function ChipsRow({
                 >
                   {f.kind === "selection" ? (
                     f.source === "editor" ? (
-                      <Code
-                        size={11}
-                        strokeWidth={1.75}
-                        className="text-muted-foreground shrink-0"
-                      />
+                      <Code size={11} strokeWidth={2} className="text-muted-foreground shrink-0" />
                     ) : (
                       <Terminal
                         size={11}
-                        strokeWidth={1.75}
+                        strokeWidth={2}
                         className="text-muted-foreground shrink-0"
                       />
                     )

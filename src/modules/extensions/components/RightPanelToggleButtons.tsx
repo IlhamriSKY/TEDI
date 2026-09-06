@@ -48,69 +48,42 @@ const ICON_MAP: Record<string, LucideIcon> = {
   "tedi.secondary-folder-tree": Folder,
 };
 
-function useSortedRightPanels(match: (p: { compact?: boolean; kind?: string }) => boolean) {
+/** One right-panel toggle, as the status bar's zone layout sees it. */
+export type PanelToggleEntry = { id: string; node: React.ReactNode };
+
+/**
+ * Every right-panel toggle as an individually placeable entry, in the same
+ * order the three fixed rows used to draw them: actions first (a click does a
+ * thing), then the borderless compact cluster, then the panel triggers.
+ *
+ * The three rows are gone. They encoded a placement decision the user could not
+ * change, and the status bar now owns placement - so what is left here is the
+ * ordering that decides where an unplaced toggle lands by default.
+ */
+export function useRightPanelToggleEntries(): PanelToggleEntry[] {
   const panels = useRegistry(panelsRegistry);
-  const filtered = panels.filter((p) => p.item.surface === "right" && match(p.item));
-  return [...filtered].sort((a, b) => {
+  const right = panels.filter((p) => p.item.surface === "right");
+  const rank = (item: { kind?: string; compact?: boolean }) =>
+    item.kind === "action" ? 0 : item.compact === true ? 1 : 2;
+  const sorted = [...right].sort((a, b) => {
+    const r = rank(a.item) - rank(b.item);
+    if (r !== 0) return r;
     const e = a.extensionId.localeCompare(b.extensionId);
     return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
   });
-}
-
-/**
- * One icon-only toggle row. `compactOnly` selects which cluster to render —
- * the chrome is identical, only the status-bar placement differs (see the
- * two exported wrappers).
- */
-function RightPanelToggleRow({
-  match,
-}: {
-  match: (p: { compact?: boolean; kind?: string }) => boolean;
-}) {
-  const sorted = useSortedRightPanels(match);
-  if (sorted.length === 0) return null;
-  return (
-    <div className="flex items-center gap-1.5">
-      {sorted.map(({ extensionId, item }) => (
-        <ToggleButton
-          key={`${extensionId}:${item.id}`}
-          extensionId={extensionId}
-          panelId={item.id}
-          title={item.title}
-          icon={item.icon ?? null}
-          toggleCommand={item.toggleCommand ?? null}
-          isAction={item.kind === "action"}
-        />
-      ))}
-    </div>
-  );
-}
-
-/**
- * Action-kind buttons (`panel.kind === "action"`): a click runs the panel's
- * `toggleCommand` and nothing slides out. Its own group in the status bar,
- * because "do a thing" and "show me a panel" are different promises.
- */
-export function RightPanelActionToggles() {
-  return <RightPanelToggleRow match={(p) => p.kind === "action"} />;
-}
-
-/**
- * Compact-flagged right-panel toggles (`panel.compact === true`). Rendered
- * alongside `ExtensionStatusItems` at the left of the status-bar right group
- * so borderless icons (Screenshot, Discord, ...) sit together as one cluster.
- */
-export function RightPanelCompactToggles() {
-  return <RightPanelToggleRow match={(p) => p.kind !== "action" && p.compact === true} />;
-}
-
-/**
- * Default (non-compact) right-panel toggles. Rendered next to `AiOpenButton` /
- * `ScmRightOpenButton`. Chrome is identical to the compact cluster (icon-only);
- * only the placement differs. The title + shortcut chip appear in the tooltip.
- */
-export function RightPanelDefaultToggles() {
-  return <RightPanelToggleRow match={(p) => p.kind !== "action" && p.compact !== true} />;
+  return sorted.map(({ extensionId, item }) => ({
+    id: `panel:${extensionId}:${item.id}`,
+    node: (
+      <ToggleButton
+        extensionId={extensionId}
+        panelId={item.id}
+        title={item.title}
+        icon={item.icon ?? null}
+        toggleCommand={item.toggleCommand ?? null}
+        isAction={item.kind === "action"}
+      />
+    ),
+  }));
 }
 
 function ToggleButton({

@@ -76,7 +76,7 @@ export function ModelSection({
           {providerId ? (
             <ProviderIcon provider={providerId} size={11} className="shrink-0" />
           ) : (
-            <Pin size={11} strokeWidth={1.75} className="fill-foreground/70 shrink-0" />
+            <Pin size={11} strokeWidth={2} className="fill-foreground/70 shrink-0" />
           )}
           <span className="truncate">{title}</span>
           <span className="text-muted-foreground/60 tracking-normal normal-case">

@@ -57,7 +57,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
           )}
         >
           <span className="flex w-full items-center gap-1.5">
-            <Icon size={13} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+            <Icon size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
             <span className="text-primary font-mono font-medium">{c.invocation}</span>
             {c.argHint ? (
               <span className="text-icon-working font-mono text-[10.5px]">{c.argHint}</span>
@@ -113,7 +113,7 @@ export function SnippetPickerContent({ items, activeIndex, onPick, onHover, empt
                       >
                         <Terminal
                           size={13}
-                          strokeWidth={1.75}
+                          strokeWidth={2}
                           className="text-muted-foreground shrink-0"
                         />
                         {/* Same `#<ordinal>` the model sees in `<env>` and writes

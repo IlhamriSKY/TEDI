@@ -290,7 +290,7 @@ export function AppRightSlot({
   return (
     <>
       <SectionDropRail column="right" />
-      <ResizableHandle withHandle />
+      <ResizableHandle />
       <ResizablePanel
         id="right-slot"
         panelRef={rightSlotRef}

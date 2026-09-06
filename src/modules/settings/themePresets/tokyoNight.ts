@@ -37,7 +37,6 @@ const TOKYO_DARK: ThemeColors = {
   diffAdded: "#9ece6a",
   diffRemoved: "#f7768e",
   info: "#7dcfff",
-  resizeHandle: "#2d3047",
   // Tokyo Night Storm ANSI 16.
   ansiBlack: "#15161e",
   ansiRed: "#f7768e",
@@ -94,7 +93,6 @@ const TOKYO_LIGHT: ThemeColors = {
   diffAdded: "#587539",
   diffRemoved: "#f52a65",
   info: "#2e7de9",
-  resizeHandle: "#a8aecb",
   // Tokyo Night Day ANSI 16 (official light terminal palette).
   ansiBlack: "#b4b5b9",
   ansiRed: "#f52a65",

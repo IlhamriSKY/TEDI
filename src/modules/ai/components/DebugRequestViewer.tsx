@@ -23,7 +23,7 @@ export function DebugRequestViewer() {
         className="text-muted-foreground hover:text-foreground size-7 shrink-0 rounded-md"
         onClick={() => void openDebugWindow()}
       >
-        <Bug size={12} strokeWidth={1.75} />
+        <Bug size={12} strokeWidth={2} />
       </Button>
     </IconTooltip>
   );

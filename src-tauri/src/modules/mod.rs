@@ -8,6 +8,7 @@ pub mod cli_paint;
 pub mod cli_theme;
 pub mod cli_update;
 pub mod clipboard;
+pub mod dock;
 pub mod events;
 pub mod extensions;
 pub mod format;

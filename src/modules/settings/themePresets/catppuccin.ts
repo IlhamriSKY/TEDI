@@ -37,7 +37,6 @@ const CATPPUCCIN_DARK: ThemeColors = {
   diffAdded: "#a6e3a1",
   diffRemoved: "#f38ba8",
   info: "#89dceb",
-  resizeHandle: "#45475a",
   // Catppuccin Mocha ANSI 16.
   ansiBlack: "#45475a",
   ansiRed: "#f38ba8",
@@ -96,7 +95,6 @@ const CATPPUCCIN_LIGHT: ThemeColors = {
   diffAdded: "#40a02b",
   diffRemoved: "#d20f39",
   info: "#04a5e5",
-  resizeHandle: "#bcc0cc",
   // Catppuccin Latte ANSI 16 (official light terminal palette).
   ansiBlack: "#5c5f77",
   ansiRed: "#d20f39",

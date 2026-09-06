@@ -28,6 +28,30 @@ type Listener = () => void;
 /** One row of a `StatusItem.detail` tooltip. Renders as: label, an optional
  *  real progress bar, an optional value, and muted trailing note. A row with an
  *  empty `label` and no `progress` is a plain footer line. */
+/**
+ * A pixel chart drawn above a `StatusItem.detail`'s rows: one column per
+ * sample, oldest first, on the same 4 px grid `PixelBar` uses. The host does no
+ * scaling - each value is already 0..1 - because only the extension knows
+ * whether its axis should start at zero, auto-fit a window, or clamp to a
+ * budget.
+ *
+ * At most the newest 48 columns are drawn: 48 * 6 px is the widest grid the
+ * tooltip's popover can hold without wrapping.
+ */
+export type StatusItemDetailChart = {
+  /** Oldest first, newest last. Each 0..1; 0 draws an empty column, so a gap in
+   *  the data and a value at the floor stay distinguishable. */
+  values: number[];
+  /** Fill colour, same palette as `StatusItem.tone`. */
+  tone?: "default" | "success" | "warning" | "error";
+  /** Grid height in cells. Clamped to 3..16, default 8. */
+  rows?: number;
+  /** Caption under the grid, left (e.g. `"last 3 min"`). */
+  label?: string;
+  /** Caption under the grid, right (e.g. `"peak 6.0G · low 4.8G"`). */
+  note?: string;
+};
+
 export type StatusItemDetailRow = {
   label: string;
   /** 0..1 fill; when set the row draws a real themed progress bar. */
@@ -52,12 +76,19 @@ export type StatusItem = {
   /** Optional 0..1 fill. When set, the item renders a compact themed progress
    *  bar after the icon/label (clamped to [0,1]); the fill colour follows
    *  `tone` (error red, warning amber, else accent). Omit for an icon-only
-   *  item (the default; existing items are unaffected). */
+   *  item (the default; existing items are unaffected).
+   *
+   *  It also decides PLACEMENT: an extension that publishes any metered item
+   *  sorts before the icon-only ones (then by extension id), so the readouts
+   *  group together instead of being scattered among the state lights, and the
+   *  compact bar keeps exactly these. The rank is per extension, so one meter
+   *  going temporarily unavailable does not move its siblings. */
   progress?: number;
   /** Optional structured tooltip. When set, the tooltip renders a small panel
    *  with a real progress bar per row instead of the plain `tooltip` string
-   *  (which stays the aria-label and the fallback on hosts that ignore this). */
-  detail?: { title?: string; rows: StatusItemDetailRow[] };
+   *  (which stays the aria-label and the fallback on hosts that ignore this).
+   *  `chart` adds a pixel trend above the rows. */
+  detail?: { title?: string; rows: StatusItemDetailRow[]; chart?: StatusItemDetailChart };
   /** Optional click handler. When set the item renders as a real `<button>`
    *  instead of a decorative `<span role="img">`, so it is focusable and
    *  keyboard-activatable. Without this an extension that wants a clickable
@@ -79,6 +110,58 @@ export type StatusItem = {
    */
   kind?: "status" | "action";
 };
+
+/** One status item as the registry lists it. */
+export type StatusItemEntry = { extensionId: string; item: StatusItem };
+
+/**
+ * Which bar group an item belongs to. An item that displays data is a status,
+ * even when it is clickable; anything else with a click handler is an action.
+ * An extension overrides the guess with `kind` (an icon-only connection state
+ * that opens a dialog is still a status).
+ */
+export function statusItemKind(item: StatusItem): "status" | "action" {
+  if (item.kind) return item.kind;
+  if (item.progress !== undefined || item.label || item.detail) return "status";
+  return item.onClick ? "action" : "status";
+}
+
+/**
+ * Filter and order the status bar's extension items: readouts first, then state
+ * lights, each group by (extensionId, itemId).
+ *
+ * This is the same distinction the compact bar makes when it keeps ONLY meters:
+ * a bar with a number is something you scan, an icon is something you notice.
+ * Alphabetical order alone scattered the readouts among the lights (a usage
+ * meter, a connection icon, then another meter), which reads as noise.
+ *
+ * The rank is per EXTENSION, not per item, and is computed from ALL items
+ * rather than the filtered subset: an extension that publishes any meter keeps
+ * ALL of its items in the readout group, so a provider that goes temporarily
+ * unavailable (its meter falling back to a bare icon) neither jumps across the
+ * bar nor splits its own pair.
+ *
+ * Pure, and exported for `scripts/ui/statusbar-order-verify.ts`: the failure
+ * mode here is a wrong ORDER, which nothing but an eye would otherwise catch.
+ */
+export function orderStatusItems(
+  entries: readonly StatusItemEntry[],
+  opts: { kind?: "status" | "action"; metersOnly?: boolean } = {},
+): StatusItemEntry[] {
+  const metered = new Set(
+    entries.filter((e) => e.item.progress !== undefined).map((e) => e.extensionId),
+  );
+  const rank = (e: StatusItemEntry) => (metered.has(e.extensionId) ? 0 : 1);
+  return entries
+    .filter((e) => !opts.kind || statusItemKind(e.item) === opts.kind)
+    .filter((e) => !opts.metersOnly || e.item.progress !== undefined)
+    .sort((a, b) => {
+      const m = rank(a) - rank(b);
+      if (m !== 0) return m;
+      const e = a.extensionId.localeCompare(b.extensionId);
+      return e !== 0 ? e : a.item.id.localeCompare(b.item.id);
+    });
+}
 
 class Registry<T> {
   /** Items contributed per extension. */

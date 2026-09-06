@@ -66,6 +66,10 @@ export type SetExtensionTabStateOpts = {
   state: ExtensionTabState | null;
   /** Optional new tab/pane title (e.g. "SQL Explorer · mydb"). */
   title?: string;
+  /** Optional new icon, same refs `contributes.panels[].icon` accepts. Runtime
+   *  because a panel's identity can move - a browser pane following a site's
+   *  favicon is the case this exists for. */
+  icon?: string;
 };
 
 export type SetExtensionTabStateFn = (opts: SetExtensionTabStateOpts) => void;

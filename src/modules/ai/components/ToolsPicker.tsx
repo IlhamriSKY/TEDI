@@ -169,7 +169,7 @@ export function ToolsPicker() {
               chatMode && "opacity-50",
             )}
           >
-            <Wrench size={12} strokeWidth={1.75} className="shrink-0" />
+            <Wrench size={12} strokeWidth={2} className="shrink-0" />
             {/* Always rendered once the list is known, all-on included. Hiding
                 it at 77/77 was read as the count "disappearing". */}
             {total > 0 ? (

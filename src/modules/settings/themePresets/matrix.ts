@@ -43,7 +43,6 @@ const MATRIX_DARK: ThemeColors = {
   tabAccentPreview: "#00d4ff",
   tabAccentAiDiff: "#aaff00",
   tabAccentGitDiff: "#ffd700",
-  resizeHandle: "#0d2f0d",
   // Matrix ANSI 16 - green-dominant phosphor palette.
   ansiBlack: "#003b00",
   ansiRed: "#ff003c",
@@ -103,7 +102,6 @@ const MATRIX_LIGHT: ThemeColors = {
   tabAccentPreview: "#1976d2",
   tabAccentAiDiff: "#5a8f00",
   tabAccentGitDiff: "#b58900",
-  resizeHandle: "#bfd9bf",
   // Matrix "light" inverts the phosphor look: dark greens on a pale-green page.
   // Generic blue ANSI would clash, so use a dark-green-dominant set that reads
   // on #f4fff4 and keeps the Matrix identity.

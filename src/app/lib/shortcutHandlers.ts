@@ -39,6 +39,9 @@ export interface ShortcutHandlerDeps {
   toggleRightSlot: () => void;
   requestCloseLeaf: (leafId: number) => void;
   setNewEditorOpen: (open: boolean) => void;
+  /** Retargets an editor leaf onto another file. Used by Save As so the pane
+   *  follows the file it just wrote. */
+  setEditorLeafPath: (leafId: number, path: string) => void;
   setAgentDialogOpen: (open: boolean) => void;
   searchInlineRef: RefObject<SearchInlineHandle | null>;
   editorRefs: RefObject<Map<number, EditorPaneHandle>>;
@@ -67,6 +70,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     requestCloseLeaf,
     setNewEditorOpen,
     setAgentDialogOpen,
+    setEditorLeafPath,
     searchInlineRef,
     editorRefs,
     terminalRefs,
@@ -154,6 +158,19 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     },
     "editor.toggleWordWrap": () => {
       void setLineWrap(!usePreferencesStore.getState().lineWrap);
+    },
+    "editor.saveAs": () => {
+      // Same silent fall-through as Format Document when the focused leaf is
+      // not an editor. The leaf follows the file it was saved as, so the tab
+      // title, the language mode and the next Ctrl+S all track the new path.
+      if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
+      const leafId = activeLeafIdInTab;
+      void editorRefs.current
+        .get(leafId)
+        ?.saveAs()
+        .then((saved) => {
+          if (saved) setEditorLeafPath(leafId, saved);
+        });
     },
     "editor.formatDocument": () => {
       // Falls through silently when the focused leaf isn't an editor —

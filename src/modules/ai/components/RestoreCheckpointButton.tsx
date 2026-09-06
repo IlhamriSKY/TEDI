@@ -49,7 +49,7 @@ export function RestoreCheckpointButton() {
           "disabled:cursor-not-allowed disabled:opacity-50",
         )}
       >
-        <Undo2 size={11} strokeWidth={1.75} />
+        <Undo2 size={11} strokeWidth={2} />
         <span>Restore</span>
         {fileCount > 0 ? (
           // Spell out the unit: a bare "· 2" next to an undo arrow reads as a

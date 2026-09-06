@@ -863,6 +863,7 @@ export default function App() {
         requestCloseLeaf,
         setNewEditorOpen,
         setAgentDialogOpen,
+        setEditorLeafPath,
         searchInlineRef,
         editorRefs,
         terminalRefs,
@@ -1144,10 +1145,12 @@ export default function App() {
 
           {/* Bento tray: the deep `bg-sidebar` well holds the three body columns
               as separate 1px-bordered cards, inset from the header/status bar and
-              gapped from each other (`p-1.5` + `gap-1.5`). Under glass the gaps
-              reveal the wallpaper, matching the floating-panels look. */}
+              gapped from each other by one seam of the same 6px - `p-1.5` at the
+              tray edges, a 6px `ResizableHandle` (the group carries no `gap` of
+              its own) between the columns. Under glass the gaps reveal the
+              wallpaper, matching the floating-panels look. */}
           <main className="bg-sidebar flex min-h-0 flex-1 flex-col">
-            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 gap-1.5 p-1.5">
+            <ResizablePanelGroup orientation="horizontal" className="min-h-0 flex-1 p-1.5">
               <AppSidebar
                 sidebarRef={sidebarRef}
                 explorerRoot={explorerRoot}
@@ -1182,7 +1185,7 @@ export default function App() {
                 openGitDiffTab={openGitDiffTab}
                 openScmTab={openScmTab}
               />
-              <ResizableHandle withHandle />
+              <ResizableHandle />
               <WorkspaceArea
                 previewUrl={browserReady ? detectedBrowserUrl : null}
                 previewLeafId={previewLeafId}

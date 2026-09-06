@@ -16,26 +16,32 @@ function ResizablePanel({ ...props }: ResizablePrimitive.PanelProps) {
   return <ResizablePrimitive.Panel data-slot="resizable-panel" {...props} />;
 }
 
-function ResizableHandle({
-  withHandle,
-  className,
-  ...props
-}: ResizablePrimitive.SeparatorProps & {
-  withHandle?: boolean;
-}) {
+/**
+ * A bento gutter, not a divider. The handle paints nothing at all: it simply IS
+ * the gap between two cards, which is why the groups carry no `gap` of their
+ * own - one 6px gutter here, the same 6px the tray pads its edges with, so every
+ * seam in the app is the same width. Resizing is grabbing that gutter at the
+ * card's edge; the library inflates the hit region around this element to
+ * `resizeTargetMinimumSize` (10px mouse / 20px touch) and swaps in a resize
+ * cursor, which is the whole affordance a gutter needs.
+ *
+ * It stays a real element rather than being dropped entirely (v4 also resizes on
+ * a bare gap between two panels) because arrow-key resizing is bound per
+ * separator, and that is the only keyboard path to a pane size.
+ */
+function ResizableHandle({ className, ...props }: ResizablePrimitive.SeparatorProps) {
   return (
     <ResizablePrimitive.Separator
       data-slot="resizable-handle"
       className={cn(
-        "bg-[color:var(--tedi-resize-handle)] hover:bg-primary/50 ring-offset-background focus-visible:ring-ring relative flex w-px items-center justify-center transition-colors after:absolute after:inset-y-0 after:left-1/2 after:w-1 after:-translate-x-1/2 focus-visible:ring-1 focus-visible:outline-hidden aria-[orientation=horizontal]:h-px aria-[orientation=horizontal]:w-full aria-[orientation=horizontal]:after:left-0 aria-[orientation=horizontal]:after:h-1 aria-[orientation=horizontal]:after:w-full aria-[orientation=horizontal]:after:translate-x-0 aria-[orientation=horizontal]:after:-translate-y-1/2 [&[aria-orientation=horizontal]>div]:rotate-90",
+        "w-1.5 outline-hidden aria-[orientation=horizontal]:h-1.5 aria-[orientation=horizontal]:w-full",
+        // Keyboard focus is the one moment a gutter has to show itself; a
+        // pointer drag has the cursor to say it.
+        "focus-visible:outline-primary/70 focus-visible:outline-2 focus-visible:-outline-offset-2",
         className,
       )}
       {...props}
-    >
-      {withHandle && (
-        <div className="bg-[color:var(--tedi-resize-handle)] z-10 flex h-6 w-1 shrink-0 rounded-lg" />
-      )}
-    </ResizablePrimitive.Separator>
+    />
   );
 }
 

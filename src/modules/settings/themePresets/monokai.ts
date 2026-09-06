@@ -42,7 +42,6 @@ const MONOKAI_DARK: ThemeColors = {
   diffAdded: "#a6e22e",
   diffRemoved: "#f92672",
   info: "#66d9ef",
-  resizeHandle: "#3e3d32",
   // Monokai ANSI 16.
   ansiBlack: "#272822",
   ansiRed: "#f92672",
@@ -99,7 +98,6 @@ const MONOKAI_LIGHT: ThemeColors = {
   diffAdded: "#75af00",
   diffRemoved: "#f92672",
   info: "#006d75",
-  resizeHandle: "#d1d1d1",
   // Monokai has no canonical light terminal palette; these keep the Monokai
   // hues but deepened so red/green/yellow/cyan read on the #fafafa background.
   // Brights restore the familiar neon Monokai tones.

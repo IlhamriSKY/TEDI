@@ -42,7 +42,6 @@ const SOLARIZED_DARK: ThemeColors = {
   diffAdded: "#859900",
   diffRemoved: "#dc322f",
   info: "#2aa198",
-  resizeHandle: "#0e4150",
   // Solarized ANSI 16 (shared between Dark + Light per author's spec).
   ansiBlack: "#073642",
   ansiRed: "#dc322f",
@@ -101,7 +100,6 @@ const SOLARIZED_LIGHT: ThemeColors = {
   diffAdded: "#859900",
   diffRemoved: "#dc322f",
   info: "#2aa198",
-  resizeHandle: "#d6d0bd",
   // Solarized ANSI (shared with Dark).
   ansiBlack: "#073642",
   ansiRed: "#dc322f",

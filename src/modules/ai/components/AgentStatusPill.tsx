@@ -1,9 +1,10 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Spinner } from "@/components/ui/spinner";
+import { PixelActivity } from "@/components/ui/pixel-activity";
 import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
+import { useIsMaxEffort } from "../lib/useMaxEffort";
 import { useChatStore, type AgentRunStatus } from "../store/chatStore";
 import { CircleAlert, ShieldUser } from "lucide-react";
 
@@ -22,6 +23,7 @@ export function AgentStatusPill({ onClick }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const isRunning = meta.status === "thinking" || meta.status === "streaming";
   const elapsed = useElapsedSince(isRunning);
+  const isMax = useIsMaxEffort();
 
   // Approval-pending and error always surface here. A plain run surfaces only
   // while the AI panel is CLOSED - with it open the chat's own indicator says
@@ -34,7 +36,17 @@ export function AgentStatusPill({ onClick }: Props) {
     ? describe(meta)
     : {
         tone: "border-border/60 bg-muted/40 text-muted-foreground hover:bg-muted/60",
-        icon: <Spinner className="size-3" />,
+        // The pixel strip, not a spinner: this pill sits inches from the AI
+        // usage meters and the memory chart, which are the same 4px cells. A
+        // spinning circle beside them was the odd material out.
+        //
+        // Two rows, not the chat indicator's four: a 4x4 block is 22px and this
+        // pill is 24px tall including its border, so the square would have
+        // touched both edges. Two rows is 10px, which is the height the 12px
+        // glyphs in the other pill states occupy.
+        icon: (
+          <PixelActivity rows={2} cols={4} variant={isMax ? "max" : "default"} label="AI running" />
+        ),
         label: "AI running",
       };
 
@@ -80,7 +92,7 @@ function describe(meta: {
   if (meta.status === "awaiting-approval") {
     return {
       tone: "border-icon-working/40 bg-icon-working/10 text-icon-working hover:bg-icon-working/15",
-      icon: <ShieldUser size={12} strokeWidth={1.75} />,
+      icon: <ShieldUser size={12} strokeWidth={2} />,
       label:
         meta.approvalsPending > 1 ? `${meta.approvalsPending} approvals needed` : "Approval needed",
     };
@@ -88,7 +100,7 @@ function describe(meta: {
   // Only "error" reaches here; caller filters out thinking/streaming/idle.
   return {
     tone: "border-destructive/40 bg-destructive/10 text-destructive hover:bg-destructive/15",
-    icon: <CircleAlert size={12} strokeWidth={1.75} />,
+    icon: <CircleAlert size={12} strokeWidth={2} />,
     label: meta.error ?? "Error",
   };
 }

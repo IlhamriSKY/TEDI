@@ -493,13 +493,19 @@ const DEFAULT_CANVAS_RECT: CanvasRect = { x: 4, y: 5, w: 46, h: 48, z: 1 };
 export function updateExtensionPanelLeaf(
   n: PaneNode,
   id: PaneId,
-  patch: { title?: string; state?: ExtensionTabState | null },
+  patch: { title?: string; icon?: string; state?: ExtensionTabState | null },
 ): PaneNode {
   if (isLeaf(n)) {
     if (n.id !== id || n.leafKind !== "extension-panel") return n;
     let next: PaneLeaf = n;
     if (patch.title !== undefined && patch.title !== n.title) {
       next = { ...next, title: patch.title };
+    }
+    // `icon` moves at runtime for the same reason `title` does: a pane whose
+    // content changes identity - a browser following a favicon - has to be able
+    // to say so in the header it already owns.
+    if (patch.icon !== undefined && patch.icon !== n.icon) {
+      next = { ...next, icon: patch.icon };
     }
     if (patch.state !== undefined) {
       if (patch.state === null) {
@@ -513,7 +519,14 @@ export function updateExtensionPanelLeaf(
     }
     return next;
   }
-  return { ...n, children: n.children.map((c) => updateExtensionPanelLeaf(c, id, patch)) };
+  // SAME NODE BY REFERENCE WHEN NOTHING MOVED, like every other walk in this
+  // module. Rebuilding the split unconditionally made the leaf's own no-op
+  // short-circuit above worthless: any tree with a split answered with a fresh
+  // root, `useAuxTabs` read that as a change, and a browser pane publishing its
+  // title once a second re-serialized and rewrote the whole workspaces file at
+  // 1 Hz. A single-leaf tab hid it, because that path returns `n` directly.
+  const children = n.children.map((c) => updateExtensionPanelLeaf(c, id, patch));
+  return children.every((c, i) => c === n.children[i]) ? n : { ...n, children };
 }
 
 /** Patch an editor leaf's mutable state. */

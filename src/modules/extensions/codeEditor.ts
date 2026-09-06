@@ -164,7 +164,7 @@ const baseTheme = EditorView.theme({
     fontFamily: `var(--tedi-mono-font, ${MONO_FONT_CSS_FALLBACK})`,
     // Same var the main editor reads, so an extension's editor can't disagree
     // with it about whether `=>` renders as an arrow.
-    fontVariantLigatures: "var(--tedi-editor-ligatures, normal)",
+    fontVariantLigatures: "var(--tedi-editor-ligatures, none)",
     fontSize: "calc(var(--tedi-editor-font-size, 13px) * var(--content-zoom, 1))",
     lineHeight: "1.55",
     backgroundColor: "transparent !important",

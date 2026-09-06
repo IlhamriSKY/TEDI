@@ -329,7 +329,18 @@ mod unix {
 
     impl Shell {
         pub fn detect() -> (Shell, String) {
-            let path = std::env::var("SHELL").unwrap_or_else(|_| "/bin/zsh".into());
+            // `$SHELL` is unset in containers, cron and some minimal login
+            // setups. zsh is macOS's default and always present there; on Linux
+            // it usually is not installed at all, and `CommandBuilder` on a
+            // missing binary fails the terminal outright instead of degrading,
+            // so fall back to the one shell POSIX guarantees.
+            let path = std::env::var("SHELL").unwrap_or_else(|_| {
+                if cfg!(target_os = "macos") {
+                    "/bin/zsh".into()
+                } else {
+                    "/bin/sh".into()
+                }
+            });
             let name = path.rsplit('/').next().unwrap_or("").to_string();
             let shell = match name.as_str() {
                 "zsh" => Shell::Zsh,

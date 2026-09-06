@@ -126,6 +126,27 @@ export function LeafIcon({
   }
 
   if (info.leafKind === "extension-panel") {
+    // A runtime icon can be an IMAGE rather than a glyph name, and that is the
+    // whole point of the `icon` field on `setExtensionTabState`: it is how a
+    // browser pane wears the favicon of the page it is showing.
+    // `resolveExtIcon` answers null for anything that is not `lucide:` or
+    // `hugeicon:` precisely so "the caller's asset loader handles it" - and this
+    // is that loader. Without this branch a `data:` URL falls through to the
+    // fallback and every browser pane wears a database.
+    if (info.extIcon?.startsWith("data:")) {
+      return (
+        <img
+          src={info.extIcon}
+          alt=""
+          width={size}
+          height={size}
+          // `object-contain` because a favicon is not always square, and the
+          // rounding matches the other pane glyphs at this size.
+          className={cn("shrink-0 rounded-[2px] object-contain", className)}
+          style={{ width: size, height: size }}
+        />
+      );
+    }
     // The extension's own glyph when it hinted one (API Client sends a paper
     // plane), else the generic database shape the SQL Explorer wants anyway.
     const Icon = resolveExtIcon(info.extIcon) ?? Database;

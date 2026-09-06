@@ -31,6 +31,18 @@ const CREATE_NO_WINDOW: u32 = 0x0800_0000;
 /// retry `transport::connect_to_daemon()` with backoff after this returns
 /// successfully — the daemon needs a short window to bind its socket.
 pub fn spawn_daemon_detached() -> io::Result<()> {
+    // Under an AppImage `current_exe()` is inside the squashfs mount the
+    // runtime tears down the moment the GUI exits - and this daemon is built to
+    // OUTLIVE the GUI (see the module header), so it would be left running off
+    // a dead mount, taking SIGBUS on the first cold page it faults in and
+    // killing every terminal it holds. Re-launching the `.AppImage` itself
+    // gives the daemon its own mount, held for exactly as long as it runs.
+    #[cfg(target_os = "linux")]
+    {
+        if let Some(appimage) = std::env::var_os("APPIMAGE") {
+            return spawn_daemon_from(Path::new(&appimage));
+        }
+    }
     let exe = std::env::current_exe()?;
     spawn_daemon_from(&exe)
 }

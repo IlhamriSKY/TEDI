@@ -22,7 +22,6 @@ export const COLOR_FIELDS: { key: keyof ThemeColors; label: string; group: strin
   { key: "border", label: "Border", group: "Borders" },
   { key: "input", label: "Input border", group: "Borders" },
   { key: "ring", label: "Focus / tab bar", group: "Borders" },
-  { key: "resizeHandle", label: "Split-pane divider", group: "Borders" },
   { key: "accent", label: "Accent", group: "Highlights" },
   { key: "accentForeground", label: "Accent text", group: "Highlights" },
   { key: "muted", label: "Muted", group: "Highlights" },

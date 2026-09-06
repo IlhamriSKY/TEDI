@@ -68,9 +68,12 @@ import {
 } from "./lib/formatters";
 import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
 import { toast } from "@/components/ui/toast";
+import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
+import { runCommand } from "@/modules/shortcuts";
+import { shortcutHint } from "@/modules/shortcuts/shortcuts";
 import { escapeRegex } from "@/lib/utils";
 import { COMPACT_ITEM } from "@/modules/explorer/lib/menuItemClass";
-import { subscribeFileChange } from "@/modules/explorer/lib/fsRefresh";
+import { dispatchFsRefreshForFile, subscribeFileChange } from "@/modules/explorer/lib/fsRefresh";
 
 export type EditorPaneHandle = {
   setQuery: (q: string) => void;
@@ -103,6 +106,10 @@ export type EditorPaneHandle = {
    *  the float window to save before floating and on dock-back, so an editor can
    *  hand off between the main pane and its float without losing edits. */
   save: () => Promise<void>;
+  /** Write the buffer to a path picked in the native save dialog and return it,
+   *  so the caller can retarget the leaf onto the new file (VSCode behaviour).
+   *  Null when the user cancels, the write fails, or the file is remote. */
+  saveAs: () => Promise<string | null>;
 };
 
 type Props = {
@@ -224,7 +231,14 @@ export function EditorPane({
   aiDisabled,
   ref,
 }: Props) {
-  const { doc, liveContent, onChange, save, reload } = useDocument({
+  const {
+    doc,
+    liveContent,
+    onChange,
+    save,
+    saveAs: writeBufferTo,
+    reload,
+  } = useDocument({
     path,
     onDirtyChange,
     sshSessionId,
@@ -281,6 +295,10 @@ export function EditorPane({
   // Selection presence sampled when the context menu opens, so Copy/Cut can be
   // disabled without re-rendering the pane on every cursor move.
   const [menuHasSelection, setMenuHasSelection] = useState(false);
+  const saveAsHint = shortcutHint(
+    "editor.saveAs",
+    usePreferencesStore((s) => s.shortcuts),
+  );
   useEffect(() => {
     setLangOverride(null);
   }, [path]);
@@ -437,6 +455,34 @@ export function EditorPane({
 
   const pathRef = useRef(path);
   pathRef.current = path;
+
+  /**
+   * Save As. Writes the CURRENT buffer to the chosen path and hands it back;
+   * this file is left as it was on disk, exactly like VSCode. Reassigned every
+   * render so it never closes over a stale doc/session.
+   */
+  const saveAsRef = useRef<() => Promise<string | null>>(async () => null);
+  saveAsRef.current = async () => {
+    if (sshSessionId !== undefined) {
+      toast("Save As writes to this machine, so it is not available for a remote file.", {
+        variant: "error",
+      });
+      return null;
+    }
+    // Only a text document has a buffer to write; image/binary/too-large panes
+    // render a placeholder and have nothing to save.
+    if (doc.status !== "ready") return null;
+    const target = await saveFileDialog({ defaultPath: pathRef.current });
+    if (!target) return null;
+    try {
+      await writeBufferTo(target);
+    } catch (e) {
+      toast(`Save As failed: ${String(e)}`, { variant: "error" });
+      return null;
+    }
+    dispatchFsRefreshForFile(target);
+    return target;
+  };
   // Whether the markdown preview (not CodeMirror) is the active surface. Read
   // by the imperative handle so find/search routes to <MarkdownFindBar> in
   // preview mode. Mirrored into a ref so the handle's deps stay [path].
@@ -775,6 +821,7 @@ export function EditorPane({
         await saveRef.current();
         onSavedRef.current?.();
       },
+      saveAs: () => saveAsRef.current(),
     }),
     [path, emitMatches],
   );
@@ -968,6 +1015,20 @@ export function EditorPane({
           <ContextMenuItem className={COMPACT_ITEM} onSelect={handleFormat}>
             Format Document
             <ContextMenuShortcut>Shift+Alt+F</ContextMenuShortcut>
+          </ContextMenuItem>
+          {/* Routed through the command registry, not saveAsRef directly: the
+              app-level handler is the one that retargets this leaf onto the new
+              file, and the right-click already focused this pane. The float
+              window registers no commands, so there it writes the copy itself
+              rather than doing nothing at all. */}
+          <ContextMenuItem
+            className={COMPACT_ITEM}
+            onSelect={() => {
+              if (!runCommand("editor.saveAs")) void saveAsRef.current();
+            }}
+          >
+            Save As...
+            <ContextMenuShortcut>{saveAsHint}</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />
           <ContextMenuItem

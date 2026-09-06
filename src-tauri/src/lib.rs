@@ -64,8 +64,9 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    automation, backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, extensions,
-    format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell, ssh,
+    automation, backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, dock,
+    extensions, format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell,
+    ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -129,7 +130,8 @@ fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, GWLP_WNDPROC,
-        GWL_STYLE, MINMAXINFO, WM_GETMINMAXINFO, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+        GWL_STYLE, MINMAXINFO, WM_GETMINMAXINFO, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_PARENTNOTIFY,
+        WM_RBUTTONDOWN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
     };
 
     // Single main window, so one slot for the original proc is enough.
@@ -151,6 +153,22 @@ fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
         };
+
+        // A CLICK ON A DOCKED WINDOW. An extension can hand us a window from
+        // another process to hold as a pane (see `modules::dock`). The OS
+        // delivers clicks to it by position but leaves the keyboard focus where
+        // it was - on our own webview - so the page could be clicked and not
+        // typed into. `WM_PARENTNOTIFY` is the OS telling us a child was
+        // pressed, and this proc is the only place that hears it: the adopted
+        // window covers the pane, so the webview never sees the click at all.
+        if msg == WM_PARENTNOTIFY
+            && matches!(
+                wparam as u32 & 0xFFFF,
+                WM_LBUTTONDOWN | WM_MBUTTONDOWN | WM_RBUTTONDOWN
+            )
+        {
+            dock::focus_clicked_child(hwnd as isize);
+        }
 
         if msg == WM_GETMINMAXINFO {
             // Let the original proc fill defaults first (TAO enforces the
@@ -423,57 +441,72 @@ fn open_or_reveal_child(
     Ok(Some(window))
 }
 
-// WebKitGTK's DMA-BUF renderer fails to create an EGL display on wlroots
-// compositors (#105), NVIDIA's proprietary driver, and minimal sessions (#126).
-// It works on Mesa-backed GNOME/KDE/COSMIC, so only fall back where trouble is
-// likely. Override with WEBKIT_DISABLE_DMABUF_RENDERER=1 (safe) or =0 (hardware).
+// WebKitGTK's DMA-BUF renderer needs a working EGL display; without one the web
+// process aborts with `EGL_BAD_PARAMETER` and no window ever opens (#105, #126).
+// That happens on wlroots and unrecognised desktops, on NVIDIA's proprietary
+// driver, and in VMs or containers exposing no DRM render node, none of which is
+// Wayland-only, so the fallback must NOT be gated on the session type: an X11
+// Cinnamon/XFCE session and a 3D-less VM abort exactly the same way. Only
+// Mesa-backed GNOME/KDE/COSMIC on real hardware keeps the hardware path.
+// Override with WEBKIT_DISABLE_DMABUF_RENDERER=1 (safe) or =0 (hardware).
 #[cfg(target_os = "linux")]
 fn configure_linux_rendering() {
     if std::env::var_os("WEBKIT_DISABLE_DMABUF_RENDERER").is_some() {
         return;
     }
 
-    let wayland = std::env::var("XDG_SESSION_TYPE")
-        .map(|v| v.eq_ignore_ascii_case("wayland"))
-        .unwrap_or(false)
-        || std::env::var_os("WAYLAND_DISPLAY").is_some();
-    if !wayland {
-        return;
-    }
-
-    match wayland_dmabuf_fallback_reason() {
+    match dmabuf_fallback_reason() {
         Some(reason) => {
             eprintln!(
-                "tedi: Wayland session, {reason}; disabling WebKitGTK DMA-BUF renderer \
+                "tedi: {reason}; disabling WebKitGTK DMA-BUF renderer \
                  (override: WEBKIT_DISABLE_DMABUF_RENDERER=0)"
             );
             unsafe { std::env::set_var("WEBKIT_DISABLE_DMABUF_RENDERER", "1") };
         }
         None => eprintln!(
-            "tedi: Wayland session on a known-good compositor; keeping WebKitGTK DMA-BUF renderer \
+            "tedi: known-good desktop with a render node; keeping WebKitGTK DMA-BUF renderer \
              (set WEBKIT_DISABLE_DMABUF_RENDERER=1 if the window stays blank)"
         ),
     }
 }
 
 #[cfg(target_os = "linux")]
-fn wayland_dmabuf_fallback_reason() -> Option<&'static str> {
+fn dmabuf_fallback_reason() -> Option<&'static str> {
+    // No render node at all (VirtualBox, a 3D-less VM, a container): EGL cannot
+    // come up whatever the desktop claims, so this outranks the allowlist below.
+    if !has_drm_render_node() {
+        return Some("no DRM render node in /dev/dri");
+    }
     if has_nvidia_gpu() {
         return Some("NVIDIA proprietary driver detected");
     }
     let desktop = std::env::var("XDG_CURRENT_DESKTOP")
         .or_else(|_| std::env::var("XDG_SESSION_DESKTOP"))
-        .unwrap_or_default()
-        .to_lowercase();
-    const KNOWN_GOOD: [&str; 6] = ["gnome", "kde", "plasma", "cosmic", "unity", "pantheon"];
-    if !desktop.is_empty() && KNOWN_GOOD.iter().any(|d| desktop.contains(d)) {
-        return None;
-    }
+        .unwrap_or_default();
     if desktop.is_empty() {
-        Some("compositor not advertised (XDG_CURRENT_DESKTOP unset)")
-    } else {
-        Some("wlroots / unrecognised compositor")
+        return Some("desktop not advertised (XDG_CURRENT_DESKTOP unset)");
     }
+    if desktop_is_known_good(&desktop) {
+        None
+    } else {
+        Some("unrecognised desktop / compositor")
+    }
+}
+
+#[cfg(target_os = "linux")]
+fn desktop_is_known_good(desktop: &str) -> bool {
+    const KNOWN_GOOD: [&str; 6] = ["gnome", "kde", "plasma", "cosmic", "unity", "pantheon"];
+    let desktop = desktop.to_lowercase();
+    KNOWN_GOOD.iter().any(|d| desktop.contains(d))
+}
+
+#[cfg(target_os = "linux")]
+fn has_drm_render_node() -> bool {
+    std::fs::read_dir("/dev/dri").is_ok_and(|mut nodes| {
+        nodes.any(|node| {
+            node.is_ok_and(|node| node.file_name().to_string_lossy().starts_with("renderD"))
+        })
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -762,6 +795,10 @@ pub fn run() {
             backup::backup_seal,
             backup::backup_open,
             clipboard::clipboard_read_text,
+            dock::dock_adopt_window,
+            dock::dock_place_window,
+            dock::dock_clip_window,
+            dock::dock_release_window,
             net::http_ping,
             net::port_is_open,
             net::http_stream,
@@ -1100,5 +1137,25 @@ mod ui_thread_guard {
             "ALLOWED_SYNC_COMMANDS lists commands that are no longer sync: {stale:?}\n\
              Remove them from the list."
         );
+    }
+}
+
+#[cfg(all(test, target_os = "linux"))]
+mod linux_rendering {
+    /// #105/#126 regression: the EGL fallback was gated on Wayland, so an X11
+    /// Cinnamon session kept the DMA-BUF renderer and WebKit aborted with
+    /// `EGL_BAD_PARAMETER` before the window opened. Cinnamon/XFCE/MATE must
+    /// read as unknown so they take the safe path.
+    #[test]
+    fn only_mesa_desktops_keep_the_hardware_path() {
+        for unknown in ["X-Cinnamon", "XFCE", "MATE", "sway", "Hyprland"] {
+            assert!(
+                !super::desktop_is_known_good(unknown),
+                "{unknown} must fall back"
+            );
+        }
+        for good in ["ubuntu:GNOME", "KDE", "COSMIC", "pantheon"] {
+            assert!(super::desktop_is_known_good(good), "{good} must keep GPU");
+        }
     }
 }

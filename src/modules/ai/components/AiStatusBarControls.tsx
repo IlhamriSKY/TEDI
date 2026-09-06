@@ -116,7 +116,7 @@ export function AiStatusBarControls() {
           ) : c.voice.transcribing ? (
             <Spinner className="size-3" />
           ) : (
-            <Mic size={13} strokeWidth={1.75} />
+            <Mic size={13} strokeWidth={2} />
           )}
         </IconBtn>
       )}
@@ -137,7 +137,7 @@ export function AiStatusBarControls() {
             }
             onClick={c.stop}
           >
-            <CircleStop size={13} strokeWidth={1.75} />
+            <CircleStop size={13} strokeWidth={2} />
           </IconBtn>
           <DropdownMenu>
             <Tooltip>
@@ -150,7 +150,7 @@ export function AiStatusBarControls() {
                     className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
                     aria-label="Send options"
                   >
-                    <Send size={12} strokeWidth={1.75} />
+                    <Send size={12} strokeWidth={2} />
                     Send
                   </Button>
                 </DropdownMenuTrigger>
@@ -196,7 +196,7 @@ export function AiStatusBarControls() {
             className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
             aria-label="Send (Enter)"
           >
-            <Send size={12} strokeWidth={1.75} />
+            <Send size={12} strokeWidth={2} />
             Send
           </Button>
         </IconTooltip>

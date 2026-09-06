@@ -126,7 +126,7 @@ cd src-tauri && cargo clippy && cargo fmt
 ## Notes per platform
 
 - **Windows**: SmartScreen warns on first launch (unsigned); click _More info > Run anyway_. Shell priority: `pwsh.exe`, `powershell.exe`, `cmd.exe`.
-- **Linux**: on `EGL_BAD_PARAMETER` or a blank window, set `WEBKIT_DISABLE_DMABUF_RENDERER=1`. AppImage needs FUSE (else `--appimage-extract-and-run`, or use the `.deb` / `.rpm`).
+- **Linux**: TEDI turns WebKitGTK's DMA-BUF renderer off by itself on anything but Mesa-backed GNOME/KDE/COSMIC, and on any session with no DRM render node, because without a working EGL display the web process aborts with `EGL_BAD_PARAMETER` before the window opens. It prints the reason on stderr; force the decision either way with `WEBKIT_DISABLE_DMABUF_RENDERER=1` (safe) or `=0` (hardware). App opacity / glass needs a running compositor, so on a bare tiling WM start one (picom) or leave that setting off. AppImage needs FUSE (else `--appimage-extract-and-run`, or use the `.deb` / `.rpm`); on Arch that is the `fuse2` package, and `.deb` / `.rpm` are not usable there.
 - **macOS**: minimum 10.15. Unsigned builds may trip Gatekeeper; drag to `/Applications`, run `xattr -cr /Applications/TEDI.app` once, then open from Finder.
 
 ## Credits
