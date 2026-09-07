@@ -4,6 +4,20 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.43] - 07-09-2026
+
+### Changed
+
+- **Max reasoning effort is one sheet of foil, not three imitations of one.** The level is the only one in the app drawn as a material rather than a colour, and it existed three times over: the word was a prism clipped to text, the brain icon beside it a single hue drifting through the same stops, and the activity pixels a flat colour per cell - so at any instant they were three different materials, and only one of them carried the gloss. There is one definition now and every surface is CUT OUT of it: the word clips it to text, the icon masks it to the glyph, and each activity cell shifts it by its own position so the block samples one continuous sheet instead of sixteen separate crops of it. The two animations on a cell are deliberately out of step, which is the whole trick: the chase carries opacity and is offset per cell so the light travels, the foil carries colour and is offset by nothing so the sheet stays whole. Net 102 lines lighter - the icon's six stop-colour keyframes, its three stop classes, the mounted `<defs>` and the per-cell palette all had nothing left to do. See [globals.css](src/styles/globals.css), [pixel-activity.tsx](src/components/ui/pixel-activity.tsx), [ReasoningDropdown.tsx](src/modules/ai/components/ReasoningDropdown.tsx).
+
+### Fixed
+
+- **The install dialog could not be scrolled, so its own Install button was unreachable.** `DialogContent` is a flex column capped at the viewport and `overflow-hidden`, and the review dialog put its entire body in as direct children - so a manifest with enough permissions to overflow pushed the footer past the clipped edge. Not merely off screen: there was no scroller, so nothing could bring it back, and the only way out of the dialog was Escape. The review body is its own scroller now with the header and footer pinned, which is what the eight other long dialogs in the app already did. See [InstallReviewDialog.tsx](src/settings/sections/components/InstallReviewDialog.tsx).
+
+### Removed
+
+- **The browser's default-search-engine setting, which nothing had read since the browser left the core app.** It belonged to the built-in browser's address bar, and that address bar is now the extension's: it prefixes `https://` for a bare host and does not search at all, nor does it read the host's preferences. So the picker in Settings wrote a value no code consumed - a control that looked like it did something and did not. Gone with `searchEngines.ts` and its store field. The Browser group keeps the one setting that is genuinely the core app's: opening a detected dev-server URL, which core detects and hands to the extension. See [GeneralSection.tsx](src/settings/sections/GeneralSection.tsx), [store.ts](src/modules/settings/store.ts).
+
 ## [0.4.42] - 07-09-2026
 
 ### Added
