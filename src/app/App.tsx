@@ -36,6 +36,7 @@ import { AgentRunBridge, hasAnyKey, useChatStore } from "@/modules/ai";
 import { AiComposerProvider } from "@/modules/ai/lib/composer";
 import { useRightPanelStore, useSidebarPlacementStore } from "@/modules/extensions";
 import { isVimEditorFocused, type EditorPaneHandle } from "@/modules/editor";
+import { isExtensionEditorFocused } from "@/modules/extensions/codeEditor";
 import { Header, type SearchInlineHandle } from "@/modules/header";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
@@ -944,6 +945,15 @@ export default function App() {
       // action instead of going dead. Runs before the terminal branch because
       // an editor is never a terminal leaf.
       if (isVimControlChord(e) && isVimEditorFocused()) return true;
+
+      // An extension's own CodeMirror owns the two find chords while it has
+      // focus. `search.focus` is "Find in terminal" and `editor.findReplace`
+      // only ever acts on an editor LEAF, so in an extension panel both are
+      // dead keys that would still be swallowed capture-phase - which left
+      // `ctx.ui.codeEditor`'s search reachable by no key at all.
+      if ((id === "search.focus" || id === "editor.findReplace") && isExtensionEditorFocused()) {
+        return true;
+      }
 
       // A focused terminal owns every bare-Ctrl control code (Ctrl+E, Ctrl+W,
       // Ctrl+K, Ctrl+L, Ctrl+[ Esc, Ctrl+I Tab, the tmux/screen prefix, …) and

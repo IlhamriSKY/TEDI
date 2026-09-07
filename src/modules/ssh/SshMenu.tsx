@@ -36,11 +36,11 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 // `CopyPlus`, not `Copy`: plain Copy already means copy-to-clipboard everywhere
 // else in the app (code blocks, chat), and one glyph per action is the rule.
 import {
+  Cloud,
   CopyPlus,
   Download,
   Pencil,
   Plus,
-  Server,
   Trash2,
   Upload,
   type LucideIcon,
@@ -169,7 +169,7 @@ export function SshMenu({ onConnect }: Props) {
               )}
               aria-label="SSH connections"
             >
-              <Server size={15} strokeWidth={1.75} />
+              <Cloud size={15} strokeWidth={1.75} />
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>

@@ -13,16 +13,9 @@ import { cn } from "@/lib/utils";
 import type { GitBranch } from "../types";
 import { Check, ChevronDown, Cloud, GitBranch as GitBranchIcon } from "lucide-react";
 
-/** Labelled form row. Same shape `SshConnectionDialog` uses, so every dialog in
- *  the app stacks its fields identically. */
-export function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{label}</span>
-      {children}
-    </div>
-  );
-}
+// Re-exported so the PR/repo dialogs keep importing their form parts from one
+// place; the row itself is shared with every other dialog in the app.
+export { Field } from "@/components/ui/field";
 
 type ComboboxProps = {
   branches: GitBranch[];

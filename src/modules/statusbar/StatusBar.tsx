@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { CwdBreadcrumb } from "./CwdBreadcrumb";
 import { OsPill } from "./OsPill";
 import {
+  LOCKED_ZONE,
   STATUS_ZONES,
   ZONE_LABELS,
   moveItem,
@@ -31,7 +32,7 @@ import {
   type ZoneItem,
 } from "./layout";
 import { useStatusBarEntries } from "./useStatusBarEntries";
-import { GitBranch, Server } from "lucide-react";
+import { Cloud, GitBranch } from "lucide-react";
 
 type Props = {
   cwd: string | null;
@@ -92,13 +93,13 @@ function StatusBarInner({
   // sets state, so the churn fed itself: React gave up with "Maximum update
   // depth exceeded" inside DndContext and the error boundary swallowed the bar.
   //
-  // So the layout is computed from the item SET - ids, home zone, pinned - and
-  // keyed on a signature of it, which only changes when an item actually
-  // appears, disappears or moves. The nodes are looked up by id at render time,
-  // so they stay as fresh as they ever were.
-  const signature = entries.map((e) => `${e.id}:${e.defaultZone}:${e.pinned ? 1 : 0}`).join("|");
+  // So the layout is computed from the item SET - ids and home zone - and keyed
+  // on a signature of it, which only changes when an item actually appears,
+  // disappears or moves. The nodes are looked up by id at render time, so they
+  // stay as fresh as they ever were.
+  const signature = entries.map((e) => `${e.id}:${e.defaultZone}`).join("|");
   const items = useMemo(
-    () => entries.map(({ id, defaultZone, pinned }) => ({ id, defaultZone, pinned })),
+    () => entries.map(({ id, defaultZone }) => ({ id, defaultZone })),
     // Keyed on `signature`, not on `entries`: the signature IS `entries`,
     // compared by value instead of by reference.
     [signature],
@@ -133,7 +134,7 @@ function StatusBarInner({
     if (!overId) return null;
     const zoneMatch = /^zone:(\d)$/.exec(overId);
     if (zoneMatch) return { zone: Number(zoneMatch[1]) as StatusZone, index: -1 };
-    for (const z of STATUS_ZONES) {
+    for (const z of DRAGGABLE_ZONES) {
       const at = zones[z].findIndex((i) => i.id === overId);
       if (at >= 0) return { zone: z, index: at };
     }
@@ -183,11 +184,12 @@ function StatusBarInner({
           sshSessionId={sshSessionId}
         />
       </div>
-      {/* Three zones, left to right: what this is costing you, what is going on
-          elsewhere, and what you can press. Every item can be dragged into any
-          of them and the arrangement is saved, so the only fixed thing on this
-          side is the fold button - it is the control, and a control that moves
-          is a control you have to hunt for. */}
+      {/* Three zones, left to right: what survives folding the bar, what folds
+          away, and TEDI's own AI. The first two are yours - drag anything
+          between them and the arrangement is saved - which makes "keep this
+          when I fold" a drag rather than a setting. The third is locked, and so
+          is the fold button beside it: they are the two controls you must be
+          able to find in the same place every time. */}
       <div className="flex shrink-0 items-center gap-1.5">
         <DndContext
           sensors={sensors}
@@ -200,19 +202,28 @@ function StatusBarInner({
           }}
           onDragEnd={onDragEnd}
         >
-          {STATUS_ZONES.map((z) => (
+          {DRAGGABLE_ZONES.map((z) => (
             <Zone key={z} zone={z} items={zones[z]} nodes={nodes} compact={compact} />
           ))}
           {/* The overlay is what the cursor carries; without it the item would
-              be dragged out of a row that immediately reflows around the hole. */}
+              be dragged out of a row that immediately reflows around the hole.
+
+              `size-full` and NO padding, because dnd-kit sizes its own overlay
+              element to the dragged node's measured rect (`width: rect.width`).
+              A wrapper with padding is therefore BIGGER than the box it is
+              given and overflows it from the top-left corner, which is what put
+              the glyph 8 px from one edge of the floating chip and 4 px from
+              the other. Filling the rect instead makes the chip exactly the
+              shape of the hole it left, whatever the item's own width. */}
           <DragOverlay dropAnimation={null}>
             {draggingEntry ? (
-              <div className="bg-popover/90 flex items-center rounded-md px-1 py-0.5 shadow-lg ring-1 ring-black/10">
+              <div className="bg-popover text-popover-foreground ring-border flex size-full items-center justify-center rounded-md shadow-md ring-1">
                 {draggingEntry.node}
               </div>
             ) : null}
           </DragOverlay>
         </DndContext>
+        <LockedZone items={zones[LOCKED_ZONE]} nodes={nodes} />
         <div className="sb-group flex shrink-0 items-center gap-1.5">
           <span className="sb-item flex items-center">
             <CompactToggle compact={compact} />
@@ -225,14 +236,19 @@ function StatusBarInner({
 
 export const StatusBar = memo(StatusBarInner);
 
+/** The zones a drag can touch. Rendered inside the DndContext; the locked zone
+ *  is rendered after it, so it is not a sortable, not a droppable, and not
+ *  reachable by a drag that has already started. */
+const DRAGGABLE_ZONES = STATUS_ZONES.filter((z) => z !== LOCKED_ZONE);
+
 /**
- * One zone: a sortable row that is also a drop target, so an item can be
- * dropped into a zone that is currently empty (which is the only way to move
+ * One draggable zone: a sortable row that is also a drop target, so an item can
+ * be dropped into a zone that is currently empty (which is the only way to move
  * the last item out of one).
  *
- * Compact mode filters the items rather than the zone, because the rule is per
- * item: zone 0 stays whole, and the pinned AI items stay wherever they were
- * dragged.
+ * Compact mode filters the items rather than hiding the zone, because a zone
+ * that `display: none` took off the row is a zone you cannot drop into - and
+ * the filtered-away items still have to be there to slide aside for a drag.
  */
 function Zone({
   zone,
@@ -270,6 +286,28 @@ function Zone({
         ))}
       </div>
     </SortableContext>
+  );
+}
+
+/**
+ * The AI zone. A plain row, deliberately outside the DndContext: it is not a
+ * sortable and not a droppable, so its items cannot be dragged out, nothing can
+ * be dropped in, and no compact filter runs over it. It keeps `.sb-group` and
+ * `.sb-item` so it still gets the divider and the `:empty` collapse the other
+ * groups get - the only thing it gives up is the drag.
+ */
+function LockedZone({ items, nodes }: { items: ZoneItem[]; nodes: Map<string, React.ReactNode> }) {
+  return (
+    <div
+      aria-label={ZONE_LABELS[LOCKED_ZONE]}
+      className="sb-group flex shrink-0 items-center gap-1.5"
+    >
+      {items.map((item) => (
+        <span key={item.id} className="sb-item flex items-center">
+          {nodes.get(item.id)}
+        </span>
+      ))}
+    </div>
   );
 }
 
@@ -404,7 +442,7 @@ function SshRightOpenButton({ hasAnySshLeaf }: { hasAnySshLeaf: boolean }) {
           open ? "text-foreground bg-accent/60" : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <Server size={16} strokeWidth={1.75} className="shrink-0" />
+        <Cloud size={16} strokeWidth={1.75} className="shrink-0" />
       </button>
     </IconTooltip>
   );

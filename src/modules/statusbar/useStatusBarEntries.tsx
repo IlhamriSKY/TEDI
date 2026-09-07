@@ -30,10 +30,10 @@ import type { StatusZone, ZoneItem } from "./layout";
 export type StatusBarEntry = ZoneItem & { node: React.ReactNode };
 
 /**
- * TEDI's own AI, pinned so compact mode keeps it wherever it was dragged. The
- * agent pill rides the same flag: it is the AI's status, and a bar that folds
- * away a pending approval while keeping the button that opens it would hide the
- * one thing that was asking for attention.
+ * TEDI's own AI. Both halves live in the locked zone: the button is the one
+ * control the bar exists to keep reachable, and the pill is that same agent's
+ * status - a bar that folded away a pending approval while keeping the button
+ * that opens it would hide the one thing asking for attention.
  */
 const AI_IDS = { pill: "ai:agent", button: "ai:panel" } as const;
 
@@ -56,35 +56,35 @@ export function useStatusBarEntries({
   const sectionToggles = useSidebarSectionToggleEntries();
   const builtinToggles = useBuiltinSectionToggleEntries();
 
-  const entry = (id: string, defaultZone: StatusZone, node: React.ReactNode, pinned?: boolean) => ({
+  const entry = (id: string, defaultZone: StatusZone, node: React.ReactNode) => ({
     id,
     defaultZone,
     node,
-    ...(pinned ? { pinned: true } : {}),
   });
 
   return [
-    // --- 0: readouts ----------------------------------------------------
+    // --- 0: kept when the bar folds ------------------------------------
     // An update prompt is the one thing here that asks something of you, and a
     // zoom pill is the only way back to 100% that is not a keyboard shortcut -
     // both belong with what a folded bar keeps.
     entry("updater", 0, <UpdaterPill />),
     entry("zoom", 0, <ZoomControl />),
-    entry(AI_IDS.pill, 0, <AgentStatusPill onClick={onOpenMini} />, true),
-    // A meter is a reading; a bare icon is a light. That is the whole split
-    // between zone 0 and zone 1, and it is the same test the compact bar and
-    // the tooltip ordering already use.
+    // A meter is a reading you glance at deliberately; a bare icon is a light
+    // that only matters when it changes. That is the whole split between what
+    // a folded bar keeps and what it drops, and it is the same test the
+    // tooltip ordering already uses.
     ...statusItems.map((e) => entry(e.id, e.meter ? 0 : 1, e.node)),
 
-    // --- 1: indicators --------------------------------------------------
+    // --- 1: folds away --------------------------------------------------
     entry("scheduler", 1, <SchedulerStatusPill />),
+    ...panelToggles.map((e) => entry(e.id, 1, e.node)),
+    ...sectionToggles.map((e) => entry(e.id, 1, e.node)),
+    ...builtinToggles.map((e) => entry(e.id, 1, e.node)),
+    entry("scm", 1, scm),
+    entry("ssh", 1, ssh),
 
-    // --- 2: actions -----------------------------------------------------
-    ...panelToggles.map((e) => entry(e.id, 2, e.node)),
-    ...sectionToggles.map((e) => entry(e.id, 2, e.node)),
-    ...builtinToggles.map((e) => entry(e.id, 2, e.node)),
-    entry("scm", 2, scm),
-    entry("ssh", 2, ssh),
-    entry(AI_IDS.button, 2, <AiOpenButton onToggle={togglePanel} active={panelOpen} />, true),
+    // --- 2: AI, locked ---------------------------------------------------
+    entry(AI_IDS.pill, 2, <AgentStatusPill onClick={onOpenMini} />),
+    entry(AI_IDS.button, 2, <AiOpenButton onToggle={togglePanel} active={panelOpen} />),
   ];
 }

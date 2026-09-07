@@ -65,7 +65,19 @@ export const EDITOR_THEME_LABELS: Record<EditorThemeId, string> = {
  * the directory in the list (so the user can flip it back on) but excludes it
  * from the PATH the Rust PTY layer assembles at spawn.
  */
-export type TerminalPathEntry = { path: string; enabled: boolean };
+export type TerminalPathEntry = {
+  path: string;
+  enabled: boolean;
+  /** Extension id that added this entry, when one did. Purely informational to
+   *  the PTY layer (it reads `path` and `enabled` only); it is what lets the
+   *  Settings row say where a folder came from, and what lets that extension
+   *  find and remove its own entry without guessing by path. */
+  managedBy?: string;
+  /** Extension id that switched this entry OFF to avoid a conflict. Only that
+   *  extension turns it back on, so unregistering restores exactly what
+   *  registering changed and never re-enables something the USER disabled. */
+  disabledBy?: string;
+};
 
 /**
  * Normalize a user-entered PATH directory before persisting: trim whitespace,
@@ -840,7 +852,10 @@ function normalizeTerminalPathEntries(raw: unknown): TerminalPathEntry[] {
       const rec = item as Record<string, unknown>;
       const path = typeof rec.path === "string" ? cleanTerminalPath(rec.path) : "";
       if (!path) continue;
-      out.push({ path, enabled: rec.enabled !== false });
+      const entry: TerminalPathEntry = { path, enabled: rec.enabled !== false };
+      if (typeof rec.managedBy === "string" && rec.managedBy) entry.managedBy = rec.managedBy;
+      if (typeof rec.disabledBy === "string" && rec.disabledBy) entry.disabledBy = rec.disabledBy;
+      out.push(entry);
     }
   }
   return out;
@@ -1055,8 +1070,21 @@ export async function setTerminalScrollback(value: number): Promise<void> {
  * on newly opened terminals.
  */
 export async function setTerminalEnvPath(value: TerminalPathEntry[]): Promise<void> {
+  // Rebuilt field by field rather than spread, so an unknown key cannot be
+  // persisted - but `managedBy`/`disabledBy` MUST survive the round trip or an
+  // extension loses track of its own entry the first time anything else writes
+  // the list.
   const cleaned = value
-    .map((e) => ({ path: cleanTerminalPath(e.path), enabled: e.enabled !== false }))
+    .map((e) => {
+      /** @type {TerminalPathEntry} */
+      const out: TerminalPathEntry = {
+        path: cleanTerminalPath(e.path),
+        enabled: e.enabled !== false,
+      };
+      if (e.managedBy) out.managedBy = e.managedBy;
+      if (e.disabledBy) out.disabledBy = e.disabledBy;
+      return out;
+    })
     .filter((e) => e.path.length > 0);
   await writePref(KEY_TERMINAL_ENV_PATH, cleaned);
 }

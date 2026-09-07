@@ -8,6 +8,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Field } from "@/components/ui/field";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { applyBackup, buildBackup, type ImportResult } from "./backup";
@@ -103,10 +104,7 @@ export function SshBackupDialog({ open, onOpenChange, mode }: Props) {
         ) : null}
 
         <div className="flex flex-col gap-3">
-          <div className="flex flex-col gap-1.5">
-            <span className="text-muted-foreground text-[11px] font-medium tracking-tight">
-              Passphrase
-            </span>
+          <Field label="Passphrase">
             <Input
               type="password"
               autoFocus
@@ -117,13 +115,10 @@ export function SshBackupDialog({ open, onOpenChange, mode }: Props) {
               }}
               className="h-8 font-mono text-[12px]"
             />
-          </div>
+          </Field>
 
           {isExport ? (
-            <div className="flex flex-col gap-1.5">
-              <span className="text-muted-foreground text-[11px] font-medium tracking-tight">
-                Confirm passphrase
-              </span>
+            <Field label="Confirm passphrase">
               <Input
                 type="password"
                 value={confirm}
@@ -138,7 +133,7 @@ export function SshBackupDialog({ open, onOpenChange, mode }: Props) {
                   The two passphrases do not match.
                 </span>
               ) : null}
-            </div>
+            </Field>
           ) : null}
 
           {isExport ? (

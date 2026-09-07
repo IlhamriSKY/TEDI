@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Field } from "@/components/ui/field";
 import type { FsReadResult } from "@/lib/ipc";
 import {
   authFields,
@@ -797,15 +798,6 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
         </DialogFooter>
       </DialogContent>
     </Dialog>
-  );
-}
-
-function Field({ label, children }: { label: string; children: React.ReactNode }) {
-  return (
-    <div className="flex flex-col gap-1.5">
-      <span className="text-muted-foreground text-[11px] font-medium tracking-tight">{label}</span>
-      {children}
-    </div>
   );
 }
 

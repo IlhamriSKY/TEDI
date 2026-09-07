@@ -1,5 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { IS_WINDOWS } from "@/lib/platform";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { cn } from "@/lib/utils";
@@ -15,11 +16,19 @@ import { SettingsAccordion } from "../../components/SettingsAccordion";
 import { CircleAlert, CircleCheck, CircleX, LoaderCircle, Plus, Trash2 } from "lucide-react";
 
 /**
- * Editor for the terminal's "Additional PATH" list. Each row is an explicit
- * entry the user adds via the input + Add button, with a button to remove it.
- * A folder in the list is active; remove it to deactivate. Writes persist
- * immediately (no commit-on-blur) so it is always clear when a change took
- * effect. The Rust PTY layer reads the entries from the settings file at spawn.
+ * Editor for the terminal's "Additional PATH" list. Each row is a folder with a
+ * switch and a delete button: OFF keeps it listed and out of the PATH, delete
+ * forgets it. Writes persist immediately (no commit-on-blur) so it is always
+ * clear when a change took effect. The Rust PTY layer reads the entries from the
+ * settings file at spawn and already skipped disabled ones - the switch is the
+ * UI catching up with a data model that supported it all along, and it is what
+ * lets two folders holding the same php coexist without conflicting.
+ *
+ * A row can also be OWNED: an extension with `terminal:path` registers its own
+ * folder and switches off the entries that would shadow it, and the second line
+ * says which extension did that. Only the extension that disabled an entry can
+ * re-enable it, and flipping the switch by hand takes that right away - once the
+ * user has an opinion about a folder, nothing may quietly overrule it.
  *
  * Each row also auto-probes its folder (`terminal_probe_path`): it flags a
  * missing folder and shows the versions of known dev tools found there
@@ -110,6 +119,20 @@ export function AdditionalPathEditor() {
 
   const removeEntry = (index: number) => persist(entries.filter((_, i) => i !== index));
 
+  // Off, not gone. A folder you are debugging - or one an extension switched off
+  // so its own runtimes win - should be one click from coming back, and the row
+  // keeps showing which tools it holds while it is off. `disabledBy` is cleared
+  // on a manual flip: once the user has an opinion, the extension that disabled
+  // it no longer owns the decision and must not silently re-enable it later.
+  const toggleEntry = (index: number, enabled: boolean) =>
+    persist(
+      entries.map((e, i) => {
+        if (i !== index) return e;
+        const { disabledBy: _cleared, ...rest } = e;
+        return { ...rest, enabled };
+      }),
+    );
+
   return (
     <SettingsAccordion
       title="Additional PATH"
@@ -121,7 +144,15 @@ export function AdditionalPathEditor() {
         </>
       }
       summary={
-        entries.length > 0 ? `${entries.length} folder${entries.length === 1 ? "" : "s"}` : "None"
+        entries.length === 0
+          ? "None"
+          : // Counts the ones actually on the PATH. "2 folders" while both were
+            // switched off was a summary that disagreed with every terminal.
+            (() => {
+              const on = entries.filter((e) => e.enabled !== false).length;
+              const off = entries.length - on;
+              return `${on} active${off > 0 ? `, ${off} off` : ""}`;
+            })()
       }
     >
       <div className="flex flex-col gap-3">
@@ -139,7 +170,7 @@ export function AdditionalPathEditor() {
             placeholder={
               IS_WINDOWS ? "D:\\Ilham\\Project\\laragon\\bin\\composer" : "/opt/tools/bin"
             }
-            className="h-9 rounded-lg font-mono text-[11.5px]"
+            className="h-9 font-mono text-[11.5px]"
           />
           <Button
             variant="outline"
@@ -160,10 +191,34 @@ export function AdditionalPathEditor() {
                 key={`${entry.path}-${index}`}
                 className="border-border/50 bg-background/40 flex items-center gap-2 rounded-md border py-1.5 pr-1.5 pl-2.5"
               >
+                <Switch
+                  checked={entry.enabled !== false}
+                  onCheckedChange={(next) => toggleEntry(index, next)}
+                  aria-label={
+                    entry.enabled !== false ? "Disable this folder" : "Enable this folder"
+                  }
+                  className="shrink-0"
+                />
                 <div className="flex min-w-0 flex-1 flex-col gap-0.5">
-                  <span className="truncate font-mono text-[11.5px]" title={entry.path}>
+                  <span
+                    className={cn(
+                      "flex items-center gap-1.5 truncate font-mono text-[11.5px]",
+                      entry.enabled === false && "text-muted-foreground/60 line-through",
+                    )}
+                    title={entry.path}
+                  >
                     {entry.path}
                   </span>
+                  {/* Where the entry came from, so a folder the user did not add
+                      by hand is not a mystery - and so "switched off by X" reads
+                      as a decision rather than as something breaking. */}
+                  {entry.managedBy || entry.disabledBy ? (
+                    <span className="text-muted-foreground/70 text-[10px]">
+                      {entry.managedBy
+                        ? `Added by ${entry.managedBy}`
+                        : `Switched off by ${entry.disabledBy}`}
+                    </span>
+                  ) : null}
                   <ProbeStatus state={probes[entry.path]} />
                 </div>
                 <Button

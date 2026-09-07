@@ -2,7 +2,7 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { useSshHosts } from "./connections";
 import { sshAttemptOutcome, type SshHopState, type SshStatus } from "./status";
 import { cn } from "@/lib/utils";
-import { Laptop, Server } from "lucide-react";
+import { Cloud, Laptop } from "lucide-react";
 
 /**
  * What a connecting SSH pane shows instead of three dim banner lines.
@@ -189,7 +189,7 @@ export function SshConnectOverlay({ status, connectionId }: Props) {
                   {node.isLocal ? (
                     <Laptop size={14} strokeWidth={1.75} className="text-muted-foreground" />
                   ) : (
-                    <Server size={14} strokeWidth={1.75} className={STATE_TEXT[node.state]} />
+                    <Cloud size={14} strokeWidth={1.75} className={STATE_TEXT[node.state]} />
                   )}
                 </span>
                 <span className="text-muted-foreground w-full truncate text-center text-[10px]">

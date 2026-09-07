@@ -7,6 +7,7 @@ import { createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { onIconsReady, resolveExtIcon } from "@/lib/iconRegistry";
 import { invoke as tauriInvoke } from "@tauri-apps/api/core";
+import { IS_WINDOWS } from "@/lib/platform";
 import { emit as tauriEmit, listen as tauriListen, type UnlistenFn } from "@tauri-apps/api/event";
 import { toast } from "@/components/ui/toast";
 
@@ -33,6 +34,8 @@ import {
   closeForwardForConnection as closeSshForwardForConnection,
   openForwardForConnection as openSshForwardForConnection,
 } from "@/modules/ssh/tunnel";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+import type { TerminalPathEntry } from "@/modules/settings/store";
 import { mountCodeEditor, type CodeEditorHandle, type CodeEditorOptions } from "./codeEditor";
 import {
   aiToolsRegistry,
@@ -489,6 +492,8 @@ export type ExtensionContext = {
      *  Languages supported in v0.2.4: `sql`, `sql:mysql`, `sql:postgres`,
      *  `sql:sqlite`, `json`, `plain`. */
     codeEditor(container: HTMLElement, opts: CodeEditorOptions): CodeEditorHandle;
+    /** Native folder picker. Resolves to the chosen absolute path, or null. */
+    pickFolder(opts?: { title?: string; defaultPath?: string }): Promise<string | null>;
   };
   /** Status-bar icons in the bottom-right. Multiple items per extension;
    *  keyed by `id`. Removed automatically on `deactivate`. */
@@ -596,6 +601,23 @@ export type ExtensionContext = {
    *  in try/catch. The returned `Disposer` clears this extension's
    *  registration; the host also disposes on `deactivate`.
    *  Requires `shell:transform`. */
+  /** The terminal's own "Additional PATH" list. Every method requires
+   *  `terminal:path`. */
+  terminal: {
+    /** The list as Settings shows it, in PATH order. */
+    listPaths(): TerminalPathEntry[];
+    /**
+     * Put `dir` first on the terminal PATH, and switch OFF any other entry that
+     * provides one of `provides` (probed, not guessed). Idempotent.
+     */
+    registerPath(
+      dir: string,
+      opts?: { provides?: string[] },
+    ): Promise<{ added: boolean; disabled: string[] }>;
+    /** Remove this extension's entry and re-enable only what it switched off. */
+    unregisterPath(dir?: string): Promise<{ removed: boolean; restored: string[] }>;
+  };
+
   shell: {
     registerCommandTransformer(transformer: ShellCommandTransformer): Disposer;
   };
@@ -664,6 +686,20 @@ const STORAGE_FILE = (id: string) => `tedi-ext-${id}.json`;
  * Builds the per-extension storage facade. Lazy-imports `tauri-plugin-store`
  * so the LazyStore is only created on first use.
  */
+/** Two PATH entries pointing at the same directory. Windows is case-insensitive
+ *  and accepts forward slashes, and a trailing separator means nothing anywhere,
+ *  so `C:/Tools/`, `C:\Tools` and `c:\tools` are one folder. Mirrors
+ *  `AdditionalPathEditor`'s own comparison, which is what the user sees. */
+function sameTerminalDir(a: string, b: string): boolean {
+  const win = IS_WINDOWS;
+  const norm = (v: string) => {
+    const slashed = win ? v.replace(/\//g, "\\") : v;
+    const noTrail = slashed.replace(/[\\/]+$/, "");
+    return win ? noTrail.toLowerCase() : noTrail;
+  };
+  return norm(a) === norm(b);
+}
+
 async function buildStorage(id: string): Promise<ExtensionContext["storage"]> {
   const { LazyStore } = await import("@tauri-apps/plugin-store");
   const store = new LazyStore(STORAGE_FILE(id), { defaults: {}, autoSave: 200 });
@@ -973,6 +1009,23 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         disposers.push(() => handle.dispose());
         return handle;
       },
+      async pickFolder(opts) {
+        // The same native picker `mountFolderTree`'s "Open Folder" button
+        // already opens for an extension, so this grants no reach an extension
+        // did not have - it just stops the ones that need a path from asking the
+        // user to TYPE an absolute path, which is how a stray tab ends up in a
+        // Windows root and every later write fails with os error 123.
+        //
+        // Ungated on purpose: it shows an OS dialog the user has to confirm, and
+        // returns only what they picked. Nothing is read.
+        const picked = await openDialog({
+          directory: true,
+          multiple: false,
+          defaultPath: opts?.defaultPath,
+          title: opts?.title ?? "Choose a folder",
+        });
+        return typeof picked === "string" ? picked : null;
+      },
       icon(name, opts) {
         const span = document.createElement("span");
         if (opts?.className) span.className = opts.className;
@@ -1125,6 +1178,85 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           String(remoteHost),
           Number(remotePort),
         );
+      },
+    },
+    terminal: {
+      listPaths() {
+        requirePermission(ext.id, declared, "terminal:path");
+        return prefsMod.usePreferencesStore.getState().terminalEnvPath.map((e) => ({ ...e }));
+      },
+      async registerPath(dir, opts) {
+        requirePermission(ext.id, declared, "terminal:path");
+        const mod = await import("@/modules/settings/store");
+        const path = mod.cleanTerminalPath(dir);
+        if (!path) return { added: false, disabled: [] };
+
+        const current = prefsMod.usePreferencesStore.getState().terminalEnvPath;
+        const provides = (opts?.provides ?? []).map((t) => t.toLowerCase());
+
+        // Which OTHER entries would shadow this one. Asked of the same probe the
+        // Settings rows use, so "conflict" means the same thing in both places:
+        // a folder that really does contain a php / node / composer, not a folder
+        // whose name looks like it might.
+        const disabled: string[] = [];
+        const next: TerminalPathEntry[] = [];
+        for (const entry of current) {
+          if (sameTerminalDir(entry.path, path)) continue; // ours, re-added below
+          if (!entry.enabled || provides.length === 0) {
+            next.push({ ...entry });
+            continue;
+          }
+          let tools: string[] = [];
+          try {
+            const probe = await tauriInvoke<{ isDir: boolean; tools: { tool: string }[] }>(
+              "terminal_probe_path",
+              { path: entry.path, extraDirs: current.filter((e) => e.enabled).map((e) => e.path) },
+            );
+            tools = probe.tools.map((t: { tool: string }) => t.tool.toLowerCase());
+          } catch {
+            // A folder that cannot be probed is left alone: switching off an
+            // entry we could not read would be guessing with the user's PATH.
+            next.push({ ...entry });
+            continue;
+          }
+          if (tools.some((t) => provides.includes(t))) {
+            disabled.push(entry.path);
+            next.push({ ...entry, enabled: false, disabledBy: ext.id });
+          } else {
+            next.push({ ...entry });
+          }
+        }
+
+        // FIRST in the list. `assemble_path` keeps list order and prepends the
+        // result to the system PATH, so index 0 is what a terminal resolves
+        // first - which is the whole point of a managed environment.
+        next.unshift({ path, enabled: true, managedBy: ext.id });
+        await mod.setTerminalEnvPath(next);
+        return { added: true, disabled };
+      },
+      async unregisterPath(dir) {
+        requirePermission(ext.id, declared, "terminal:path");
+        const mod = await import("@/modules/settings/store");
+        const path = dir ? mod.cleanTerminalPath(dir) : "";
+        const current = prefsMod.usePreferencesStore.getState().terminalEnvPath;
+
+        const restored: string[] = [];
+        const next: TerminalPathEntry[] = [];
+        for (const entry of current) {
+          if (entry.managedBy === ext.id && (!path || sameTerminalDir(entry.path, path))) continue;
+          // Only what THIS extension switched off comes back. An entry the user
+          // disabled themselves stays disabled.
+          if (entry.disabledBy === ext.id) {
+            restored.push(entry.path);
+            const { disabledBy: _drop, ...rest } = entry;
+            next.push({ ...rest, enabled: true });
+            continue;
+          }
+          next.push({ ...entry });
+        }
+        const removed = next.length !== current.length;
+        if (removed || restored.length > 0) await mod.setTerminalEnvPath(next);
+        return { removed, restored };
       },
     },
     shell: {

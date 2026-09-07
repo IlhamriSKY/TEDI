@@ -2,7 +2,14 @@ import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
-import { Input } from "@/components/ui/input";
+import { Input, NumberInput } from "@/components/ui/input";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
+import { ChevronDown } from "lucide-react";
 import { Switch } from "@/components/ui/switch";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { cn } from "@/lib/utils";
@@ -236,15 +243,11 @@ function ContributedSettingRow({ extId, setting }: { extId: string; setting: Con
     );
   } else if (setting.type === "number") {
     control = (
-      <Input
-        className="h-7 w-20 text-[11px]"
-        type="number"
-        value={typeof value === "number" ? String(value) : ""}
-        onChange={(e) => {
-          const n = Number(e.target.value);
-          if (!Number.isFinite(n)) return;
-          void write(n);
-        }}
+      <NumberInput
+        className="h-7 w-24 text-[11px]"
+        value={typeof value === "number" ? value : ""}
+        onValueChange={(n) => void write(n)}
+        aria-label={setting.label}
       />
     );
   } else if (setting.type === "note") {
@@ -260,18 +263,34 @@ function ContributedSettingRow({ extId, setting }: { extId: string; setting: Con
       </span>
     );
   } else if (setting.type === "select" && setting.options) {
+    // A menu, not a native `<select>`: this was the only native one left in the
+    // app, and it drew the OS control - square, its own font, its own popup -
+    // inside a card where every other picker is the outline button + menu below.
+    const current = typeof value === "string" ? value : "";
     control = (
-      <select
-        className="border-border/60 bg-background h-7 rounded-md border px-2 text-[11px]"
-        value={typeof value === "string" ? value : ""}
-        onChange={(e) => void write(e.target.value)}
-      >
-        {setting.options.map((opt) => (
-          <option key={opt.value} value={opt.value}>
-            {opt.label}
-          </option>
-        ))}
-      </select>
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button
+            variant="outline"
+            className="h-7 justify-between gap-2 px-2.5 text-[11px]"
+            aria-label={setting.label}
+          >
+            <span>{setting.options.find((o) => o.value === current)?.label ?? current}</span>
+            <ChevronDown size={12} strokeWidth={2} className="opacity-70" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="end" className="min-w-[180px]">
+          {setting.options.map((opt) => (
+            <DropdownMenuItem
+              key={opt.value}
+              onSelect={() => void write(opt.value)}
+              className={cn("text-[11px]", opt.value === current && "bg-accent/50")}
+            >
+              {opt.label}
+            </DropdownMenuItem>
+          ))}
+        </DropdownMenuContent>
+      </DropdownMenu>
     );
   }
   return (

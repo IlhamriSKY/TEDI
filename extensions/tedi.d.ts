@@ -485,6 +485,19 @@ export type ShellCommandKind = "bash" | "terminal";
  * the original string to pass through. Non-string returns are dropped and the
  * call is wrapped in try/catch.
  */
+/** One row of Settings → Terminal → Additional PATH. */
+export type TerminalPathEntry = {
+  /** Absolute directory. */
+  path: string;
+  /** Off entries stay in the list and are skipped when a terminal spawns. */
+  enabled: boolean;
+  /** Extension that added this entry, when one did. */
+  managedBy?: string;
+  /** Extension that switched this entry off to avoid a conflict. Only that
+   *  extension turns it back on. */
+  disabledBy?: string;
+};
+
 export type ShellCommandTransformer = (command: string, kind: ShellCommandKind) => string;
 
 // ---------------------------------------------------------------------------
@@ -537,7 +550,17 @@ export type MountedFolderTree = {
 // ---------------------------------------------------------------------------
 
 export type CodeEditorLanguage =
-  "sql" | "sql:mysql" | "sql:postgres" | "sql:sqlite" | "json" | "javascript" | "http" | "plain";
+  | "sql"
+  | "sql:mysql"
+  | "sql:postgres"
+  | "sql:sqlite"
+  | "json"
+  | "javascript"
+  | "http"
+  /** `key = value` with `;`/`#` comments and `[section]` headers: php.ini,
+   *  .env, .properties, .conf. */
+  | "ini"
+  | "plain";
 
 /**
  * One autocomplete suggestion. `type` selects the leading icon CodeMirror
@@ -757,6 +780,7 @@ export type KnownPermission =
   | "workspaces:manage"
   /** Rewrite every shell command the AI agent runs. Badged high. */
   | "shell:transform"
+  | "terminal:path"
   /** Retarget the agent's model / provider and toggle sub-agents. */
   | "ai:configure"
   /** Submit a prompt as if the user typed it. */
@@ -951,9 +975,21 @@ export type ExtensionContext = {
       opts?: { size?: number; strokeWidth?: number; className?: string },
     ): HTMLElement;
     /** Mount a CodeMirror 6 editor that reuses the host's bundle, so line
-     *  numbers, gutter, selection and syntax highlight match the main editor
-     *  pane exactly. Ungated; auto-disposed. */
+     *  numbers, gutter, folding, selection and syntax highlight match the main
+     *  editor pane exactly. Find and replace is included and wears the app's
+     *  chrome: Mod+F opens it, Mod+G / Shift+Mod+G step, Escape closes.
+     *  Ungated; auto-disposed. */
     codeEditor(container: HTMLElement, opts: CodeEditorOptions): CodeEditorHandle;
+    /**
+     * Native folder picker. Resolves to the absolute path the user chose, or
+     * null when they cancelled.
+     *
+     * Ungated: it shows an OS dialog the user has to confirm and returns only
+     * what they picked. Use it anywhere you would otherwise ask someone to type
+     * an absolute path - a typed path is how a stray character ends up in a
+     * Windows root and every later write fails.
+     */
+    pickFolder(opts?: { title?: string; defaultPath?: string }): Promise<string | null>;
   };
 
   /** Bottom-right status-bar icons, keyed by `id`. Removed on deactivate. */
@@ -1035,6 +1071,42 @@ export type ExtensionContext = {
     ): Promise<{ localPort: number }>;
     /** Release a forward. The session closes once its last forward is gone. */
     closeForward(connectionId: string, remoteHost: string, remotePort: number): Promise<void>;
+  };
+
+  /**
+   * The terminal's own "Additional PATH" list - the folders Settings prepends
+   * to every terminal's PATH. Every method requires `terminal:path`.
+   *
+   * For an extension that MANAGES runtimes: registering a folder is how `php`
+   * in a TEDI terminal becomes the php you installed rather than whatever was
+   * on the system PATH first. The alternative is asking the user to paste a
+   * path into Settings, which they have to be told about and can get wrong.
+   */
+  terminal: {
+    /** The list as Settings shows it, in PATH order (first wins). */
+    listPaths(): TerminalPathEntry[];
+    /**
+     * Put `dir` FIRST on the terminal PATH, and switch off any other entry that
+     * provides one of `provides` (`["php", "node", "composer"]`, say).
+     *
+     * Conflicts are PROBED, not guessed: an entry is only disabled when the
+     * same check Settings runs actually finds one of those tools in it, and a
+     * folder that cannot be probed is left alone. Disabled, never deleted - the
+     * user's own entries stay in the list, switched off, and
+     * `unregisterPath` puts back exactly the ones this call changed.
+     *
+     * Idempotent: calling it again re-asserts the position and returns.
+     */
+    registerPath(
+      dir: string,
+      opts?: { provides?: string[] },
+    ): Promise<{ added: boolean; disabled: string[] }>;
+    /**
+     * Remove this extension's entry and re-enable only what registering it
+     * switched off. An entry the USER disabled stays disabled. Omit `dir` to
+     * drop every entry this extension owns.
+     */
+    unregisterPath(dir?: string): Promise<{ removed: boolean; restored: string[] }>;
   };
 
   shell: {

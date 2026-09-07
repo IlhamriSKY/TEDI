@@ -1,11 +1,22 @@
 /**
  * Lightweight CodeMirror 6 mount used by `ctx.ui.codeEditor`. Keeps the
- * subset of features that matter for ad-hoc query editors (syntax
- * highlight, line numbers, history, Mod+Enter callback, optional
- * extension-driven completions) while staying out of the bigger
- * EditorPane extension tower (vim, minimap, lint, full search) so an
- * extension can drop one of these into any container without taking on
- * the EditorPane shape.
+ * subset of features that matter for ad-hoc query and config editors (syntax
+ * highlight, line numbers, folding, history, find and replace, Mod+Enter
+ * callback, optional extension-driven completions) while staying out of the
+ * bigger EditorPane extension tower (vim, minimap, lint, diagnostics, the
+ * React find bar) so an extension can drop one of these into any container
+ * without taking on the EditorPane shape.
+ *
+ * Find used to be on the excluded list, and that was the wrong line to draw.
+ * An extension editing a real file (`tedi.devenv` edits php.ini, which runs to
+ * two thousand lines) needs to FIND something in it, and no extension can add
+ * search from outside: `CodeEditorHandle` deliberately hands back no
+ * `EditorView`, so there is no way to set a selection or scroll to an offset,
+ * and CodeMirror only renders the visible viewport, so a match a thousand
+ * lines down has no DOM node to select either. The only alternative left was a
+ * plain `<textarea>`, which throws away the syntax highlight and the gutter to
+ * buy `setSelectionRange`. `@codemirror/search` is already a dependency and is
+ * what the editor pane itself runs on, so this is four lines and a panel skin.
  *
  * The theme intentionally pulls TEDI's CSS variables instead of
  * hard-coded colors so the editor visually matches whatever theme the
@@ -30,7 +41,16 @@ import {
   syntaxHighlighting,
 } from "@codemirror/language";
 import { http } from "@codemirror/legacy-modes/mode/http";
+import { properties } from "@codemirror/legacy-modes/mode/properties";
 import { mySQL, pgSQL, sqlite, standardSQL } from "@codemirror/legacy-modes/mode/sql";
+import { search } from "@codemirror/search";
+import { createElement, createRef } from "react";
+import { createRoot } from "react-dom/client";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import {
+  EditorFindReplace,
+  type EditorFindReplaceHandle,
+} from "@/modules/editor/EditorFindReplace";
 import { makeFoldMarker } from "@/modules/editor/lib/foldMarker";
 import { loadEditorTheme, tryEditorTheme } from "@/modules/editor/lib/themes";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -47,8 +67,27 @@ import {
   lineNumbers,
 } from "@codemirror/view";
 
+/** True when keyboard focus sits inside an editor mounted by
+ *  `ctx.ui.codeEditor`. Mirrors `isVimEditorFocused`, and is read by the global
+ *  shortcut guard so a chord the app claims (Mod+F, Mod+H) reaches the editor
+ *  the user is actually typing in. */
+export function isExtensionEditorFocused(): boolean {
+  const el = document.activeElement as HTMLElement | null;
+  return !!el?.closest('[data-ext-code-editor="on"]');
+}
+
 export type CodeEditorLanguage =
-  "sql" | "sql:mysql" | "sql:postgres" | "sql:sqlite" | "json" | "javascript" | "http" | "plain";
+  | "sql"
+  | "sql:mysql"
+  | "sql:postgres"
+  | "sql:sqlite"
+  | "json"
+  | "javascript"
+  | "http"
+  /** `key = value` with `;`/`#` comments and `[section]` headers: php.ini,
+   *  .env, .properties, .conf. */
+  | "ini"
+  | "plain";
 
 /** Single autocomplete suggestion. `type` controls the leading icon CM
  *  paints (keyword / variable / property / type / function / etc - see
@@ -117,6 +156,12 @@ function pickLanguage(name?: CodeEditorLanguage): Extension {
     // the JetBrains HTTP Client read.
     case "http":
       return StreamLanguage.define(http);
+    // php.ini, .env, .properties, .conf: `key = value` with `;` or `#`
+    // comments and `[section]` headers. The same legacy mode the editor pane
+    // resolves for these files (`editor/lib/languages.ts`), so an ini opened
+    // by an extension is coloured exactly like one opened from the tree.
+    case "ini":
+      return StreamLanguage.define(properties);
     case "plain":
     default:
       return [];
@@ -360,6 +405,10 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
       })
     : [];
 
+  /** Handle for the find bar mounted below. Created before the state so the
+   *  Mod+F binding can close over it. */
+  const findRef = createRef<EditorFindReplaceHandle>();
+
   const state = EditorState.create({
     doc: opts.value ?? "",
     extensions: [
@@ -375,6 +424,32 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
       // the same wherever it appears.
       foldGutter({ markerDOM: makeFoldMarker }),
       history(),
+      // Exactly the editor pane's line (`editor/lib/extensions.ts`). This
+      // carries the search STATE and the find/replace commands; it never opens
+      // a panel, because `searchKeymap` is deliberately absent here the same
+      // way the pane sets `searchKeymap: false`.
+      search({ top: true }),
+      // Mod+F and Mod+H both open the app's own find bar, which is what they do
+      // in the editor pane. Returning true stops CodeMirror looking further and
+      // stops the browser's own find.
+      keymap.of([
+        {
+          key: "Mod-f",
+          preventDefault: true,
+          run: () => {
+            findRef.current?.open();
+            return true;
+          },
+        },
+        {
+          key: "Mod-h",
+          preventDefault: true,
+          run: () => {
+            findRef.current?.open();
+            return true;
+          },
+        },
+      ]),
       keymap.of([...defaultKeymap, ...historyKeymap, ...foldKeymap]),
       cmdEnterKeymap,
       completionExtension,
@@ -397,6 +472,38 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
   });
 
   const view = new EditorView({ state, parent: container });
+
+  // Marks this subtree as an extension's editor, so `useGlobalShortcuts` can
+  // stand down for it. Without this the find bar is unreachable by the one key
+  // anybody presses for it: `search.focus` ("Find in terminal") owns Mod+F on
+  // `window` in the CAPTURE phase and `stopImmediatePropagation`s it, so the
+  // keystroke never reaches CodeMirror. It goes on the CONTAINER, not on
+  // `view.dom`, because the find bar is a SIBLING of the editor - marking only
+  // the editor would let the app eat Escape and Mod+F while the caret is in the
+  // find field itself.
+  container.setAttribute("data-ext-code-editor", "on");
+  // The bar is `position: absolute` and anchors to its nearest positioned
+  // ancestor, so it is mounted INSIDE `view.dom` (the `.cm-editor` box) rather
+  // than in the caller's container. Anchoring to the container put it wherever
+  // that container happened to start - in SQL Explorer, over its own Run /
+  // Explain / Export toolbar. `.cm-editor` is exactly the editor, and it is
+  // already where CodeMirror mounts its own panels.
+  if (getComputedStyle(view.dom).position === "static") view.dom.style.position = "relative";
+
+  // `EditorFindReplace` is an app component, so it needs the app's providers:
+  // its icon buttons are `IconTooltip`, and `Tooltip` does NOT self-provide - it
+  // inherits the `TooltipProvider` App.tsx puts at the root, which a detached
+  // React root does not have.
+  const findHost = document.createElement("div");
+  view.dom.append(findHost);
+  const findRoot = createRoot(findHost);
+  findRoot.render(
+    createElement(
+      TooltipProvider,
+      null,
+      createElement(EditorFindReplace, { getView: () => view, ref: findRef }),
+    ),
+  );
 
   // Follow the editor pane: load the chosen theme if its chunk is not in yet,
   // and swap when the user picks another one in Settings. Guarded against a
@@ -442,6 +549,12 @@ export function mountCodeEditor(container: HTMLElement, opts: CodeEditorOptions)
     dispose() {
       alive = false;
       unsubTheme();
+      // Unmounting synchronously from inside a React render would throw, and
+      // `dispose()` is often called from a dialog's own close handler.
+      queueMicrotask(() => {
+        findRoot.unmount();
+        findHost.remove();
+      });
       try {
         view.destroy();
       } catch {

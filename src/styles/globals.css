@@ -1288,7 +1288,7 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
  * a group is empty when none of its items has any content. Both rules are kept
  * because a zone is not the only `.sb-group` (the compact toggle is its own).
  *
- * While a drag is in flight `.sb-dragging` unhides every zone: you cannot drop
+ * While a drag is in flight the zones are unhidden again below: you cannot drop
  * an item into a group that display:none took off the row. */
 .sb-group:not(:has(> .sb-item:not(:empty))) {
   display: none;
@@ -1302,26 +1302,68 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
 .sb-item:empty {
   display: none;
 }
-.sb-dragging .sb-group {
+/* Unhide the DROP TARGETS only, and only while a drag is in flight.
+ *
+ * `.sb-group.sb-zone` rather than `.sb-zone`: the hide rule above scores (0,3,0)
+ * because `:has()` and `:not()` each carry their argument's specificity, so the
+ * one-class version lost outright and an empty zone stayed off the row - which
+ * made "drag the last item out of a zone" a move you could not undo, because
+ * the zone you took it from was no longer there to put it back in.
+ *
+ * The locked AI group and the fold button are `.sb-group` but not `.sb-zone`,
+ * so neither inflates to a 28px placeholder for a drag that can never land
+ * on it.
+ *
+ * The highlight itself is drawn INSIDE the box. The outline this replaces used
+ * `outline-offset`, which grew the 24px row of buttons into a 32px ring in a
+ * 32px bar: it sat flush on the footer's own top border and read as a clipped
+ * box rather than as a target. An inset ring and a tint cannot overflow, so
+ * nothing else on the row has to move to make space for them. */
+.sb-dragging .sb-group.sb-zone {
   display: flex;
-  min-width: 1.25rem;
+  min-width: 1.75rem;
+  border-radius: 5px;
+  background-color: color-mix(in srgb, var(--foreground) 6%, transparent);
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--foreground) 14%, transparent);
+  transition: background-color 120ms ease-out;
 }
-.sb-dragging .sb-zone {
-  outline: 1px dashed color-mix(in srgb, var(--foreground) 25%, transparent);
-  outline-offset: 3px;
-  border-radius: 2px;
+/* The tint already separates the zones, so the group's own leading hairline is
+ * a second divider inside the first. Free to fade: the hairline is absolutely
+ * positioned (see the divider rule below), so hiding it resizes nothing. */
+.sb-dragging .sb-group.sb-zone::before {
+  opacity: 0;
 }
-.sb-dragging .sb-zone[data-over="true"] {
-  outline-color: var(--primary);
-  outline-style: solid;
+.sb-dragging .sb-group.sb-zone[data-over="true"] {
+  background-color: color-mix(in srgb, var(--primary) 14%, transparent);
+  box-shadow: inset 0 0 0 1px var(--primary);
 }
 .sb-item.is-dragging {
   opacity: 0.4;
 }
+/* The hairline is POSITIONED, not laid out, and that is the whole of the bar's
+ * spacing rhythm.
+ *
+ * As a flex child it was 1px of content plus a second 6px `gap` of its own, so
+ * an icon either side of a group boundary sat 37px apart where two icons in the
+ * same group sat 30px apart - a bar that looked unevenly spaced for a reason
+ * nothing on screen explained. Worse, the hairline is drawn INSIDE its group's
+ * box, so once a zone got a drag tint the leading 7px landed inside the tint
+ * and the first icon of every zone but the first was visibly indented while the
+ * last icon of every zone touched its edge.
+ *
+ * Taking it out of the flow makes the pitch a flat 30px (a 24px item plus the
+ * row's one 6px gap) from one end of the bar to the other, with the hairline
+ * floating in the middle of the gap it divides. `left` is half the gap plus
+ * half the rule: -(6/2) - (1/2). */
+.sb-group {
+  position: relative;
+}
 .sb-group:has(> .sb-item:not(:empty)) ~ .sb-group:has(> .sb-item:not(:empty))::before {
   content: "";
-  align-self: center;
-  flex: none;
+  position: absolute;
+  top: 50%;
+  left: -3.5px;
+  translate: 0 -50%;
   width: 1px;
   height: 0.875rem;
   background-color: color-mix(in srgb, var(--border) 70%, transparent);

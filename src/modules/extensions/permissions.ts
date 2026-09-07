@@ -55,6 +55,7 @@ export const KNOWN_PERMISSIONS = [
   "ssh:connections",
   "workspaces:manage",
   "shell:transform",
+  "terminal:path",
   "ai:configure",
   "ai:prompt",
 ] as const;
@@ -81,6 +82,8 @@ export const PERMISSION_DESCRIPTIONS: Record<KnownPermission, string> = {
   "ssh:connections":
     "List saved SSH hosts and open or port-forward one by id. Credentials never cross the boundary, but this opens a remote shell.",
   "workspaces:manage": "Create workspaces and switch the active one.",
+  "terminal:path":
+    "Add this extension's own folder to the terminal PATH, and switch off other entries that would shadow it.",
   "shell:transform": "Rewrite every shell command the AI agent runs before it executes.",
   "ai:configure": "Retarget the AI agent's model/provider and toggle sub-agents.",
   "ai:prompt": "Submit a prompt to the AI agent as if the user typed it.",
@@ -154,6 +157,7 @@ const HIGH_PROBES: readonly string[] = [
   "secrets:read",
   "ssh:connections",
   "shell:transform",
+  "terminal:path",
   "ai:configure",
 ];
 

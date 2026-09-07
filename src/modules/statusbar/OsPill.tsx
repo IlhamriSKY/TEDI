@@ -9,7 +9,7 @@ import {
 } from "@/modules/ssh/status";
 import { IS_LINUX, IS_MAC, IS_WINDOWS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
-import { Server } from "lucide-react";
+import { Cloud } from "lucide-react";
 
 const HOP_STATE_LABEL: Record<SshHopState, string> = {
   pending: "not reached yet",
@@ -80,7 +80,7 @@ export function OsPill({ sshSessionId, sshRoute, sshHostLabel }: Props) {
           {os?.brand ? (
             <BrandIcon brand={os.brand} size={14} className={cn("shrink-0", tint)} />
           ) : (
-            <Server size={14} strokeWidth={1.75} className={cn("shrink-0", tint)} />
+            <Cloud size={14} strokeWidth={1.75} className={cn("shrink-0", tint)} />
           )}
         </span>
       </TooltipTrigger>

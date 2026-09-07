@@ -9,10 +9,10 @@ import {
 } from "@/modules/terminal/lib/aiCliStatus";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 import {
+  Cloud,
   Database,
   GitBranch,
   Lock,
-  Server,
   Sparkles,
   SquarePen,
   SquareTerminal,
@@ -171,7 +171,7 @@ export function LeafIcon({
 
   // Terminal: cloud for SSH, local terminal otherwise.
   return info.isSsh ? (
-    <Server size={size} strokeWidth={2} className={cn("shrink-0", className)} />
+    <Cloud size={size} strokeWidth={2} className={cn("shrink-0", className)} />
   ) : (
     <SquareTerminal size={size} strokeWidth={2} className={cn("shrink-0", className)} />
   );

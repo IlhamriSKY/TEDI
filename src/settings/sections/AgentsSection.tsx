@@ -666,7 +666,7 @@ function CustomInstructionsBlock({ value }: { value: string }) {
         value={draft}
         onChange={(e) => setDraft(e.target.value)}
         placeholder="e.g. Always reply in concise bullet points. Prefer pnpm over npm. My machine is an M-series Mac."
-        className="bg-background border-border min-h-[112px] resize-y border font-sans text-[12px] leading-relaxed"
+        className="min-h-[112px] resize-y font-sans text-[12px] leading-relaxed"
       />
     </div>
   );
