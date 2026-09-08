@@ -4,7 +4,7 @@ import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { scheduler } from "../lib/engine";
-import { useSchedules } from "../store";
+import { useSchedules } from "../useSchedules";
 import type { Schedule } from "../types";
 import { Clock, SquareTerminal, X } from "lucide-react";
 

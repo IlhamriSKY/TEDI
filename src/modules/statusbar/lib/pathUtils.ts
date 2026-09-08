@@ -1,3 +1,5 @@
+import { toForwardSlash } from "@/lib/path";
+
 export type Segment = {
   label: string;
   fullPath: string;
@@ -6,13 +8,9 @@ export type Segment = {
 
 const WINDOWS_DRIVE = /^([A-Za-z]:)(.*)$/;
 
-function normalize(p: string): string {
-  return p.replace(/\\/g, "/");
-}
-
 export function segmentsFromCwd(cwd: string, home: string | null): Segment[] {
-  const normCwd = normalize(cwd);
-  const normHome = home !== null ? normalize(home) : null;
+  const normCwd = toForwardSlash(cwd);
+  const normHome = home !== null ? toForwardSlash(home) : null;
 
   const usingHome =
     normHome !== null && (normCwd === normHome || normCwd.startsWith(normHome + "/"));

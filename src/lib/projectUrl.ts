@@ -7,8 +7,11 @@
  * to THIS project and would offer a database or a sibling checkout on 3000.
  *
  * No Tauri/window imports (the caller owns the IO) so project-url-verify can
- * run it under node.
+ * run it under node - and any import here must be RELATIVE for the same
+ * reason: `tsx` does not resolve the `@/` alias.
  */
+
+import { basename } from "./path";
 
 /** Config files consulted, in priority order. The first that yields a url wins. */
 export const PROJECT_URL_FILES = [
@@ -156,7 +159,7 @@ export function urlFromConfig(
   localHosts?: LocalHosts,
 ): string | null {
   const t = text.length > MAX_CONFIG_BYTES ? text.slice(0, MAX_CONFIG_BYTES) : text;
-  const name = filename.replace(/\\/g, "/").split("/").pop() ?? filename;
+  const name = basename(filename);
   if (name === ".env") {
     const raw = urlFromEnv(t);
     return raw ? safeLocalUrl(raw, localHosts) : null;

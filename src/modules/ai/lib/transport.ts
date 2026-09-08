@@ -1,3 +1,4 @@
+import { basename, dirname } from "@/lib/path";
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -97,10 +98,10 @@ function clearMemoryCachesForPath(path: string): void {
 subscribeMemoryPathChanges(clearMemoryCachesForPath);
 
 async function readFileSignature(path: string): Promise<FileSignature | null> {
-  const slash = path.replace(/\\/g, "/");
-  const idx = slash.lastIndexOf("/");
-  const dir = idx === -1 ? "." : path.slice(0, idx);
-  const name = idx === -1 ? path : slash.slice(idx + 1);
+  // `.` rather than "" for a bare filename: this is a `readDir` argument, and
+  // the shared `dirname` answers "" where the backend wants the cwd.
+  const dir = dirname(path) || ".";
+  const name = basename(path);
   try {
     const entries = await native.readDir(dir);
     const match = entries.find((entry) => entry.name === name);

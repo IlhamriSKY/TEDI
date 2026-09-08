@@ -6,6 +6,7 @@ import type { TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { toast } from "@/components/ui/toast";
+import { basename } from "@/lib/path";
 import type { FsReadResult } from "@/lib/ipc";
 import { getChat, getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
 import { MAX_GOAL_TURNS, disarmGoalRun, nextGoalStep, settleGoal } from "./goalRunner";
@@ -256,7 +257,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
   const attachFileByPath = useCallback(async (path: string) => {
     try {
       const result = await invoke<FsReadResult>("fs_read_file", { path });
-      const name = normalizeBasename(path);
+      const name = basename(path);
       const id = `path-${path}`;
       if (result.kind === "image") {
         setFiles((prev) => {
@@ -308,7 +309,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         lines.push(e.kind === "dir" ? `${e.name}/` : e.name);
       }
       const body = lines.length === 0 ? "(empty)" : lines.join("\n");
-      const name = `${normalizeBasename(path)}/`;
+      const name = `${basename(path)}/`;
       const id = `folder-${path}`;
       setFiles((prev) => {
         if (prev.some((f) => f.id === id)) return prev;
@@ -550,13 +551,6 @@ export function AiComposerProvider({ children }: ProviderProps) {
   );
 
   return <Ctx.Provider value={ctx}>{children}</Ctx.Provider>;
-}
-
-function normalizeBasename(path: string): string {
-  const norm = path.replace(/\\/g, "/");
-  const trimmed = norm.endsWith("/") ? norm.slice(0, -1) : norm;
-  const i = trimmed.lastIndexOf("/");
-  return i === -1 ? trimmed : trimmed.slice(i + 1);
 }
 
 async function readAttachment(file: File): Promise<FileAttachment | null> {

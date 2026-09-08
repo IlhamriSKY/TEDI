@@ -88,9 +88,14 @@ export type PendingCreate = {
   kind: "file" | "dir";
 };
 
-export function dirname(path: string): string {
-  // Accept `/` and `\` so the tree doesn't collapse to root after a
-  // rename/delete on Windows (Rust may return backslash paths).
+/**
+ * Parent directory, falling back to the ROOT rather than the `""` that
+ * `lib/path`'s `dirname` returns: both callers below feed the result straight
+ * to `fetchChildren`, which needs a directory to list. Accepts `\` as well so
+ * the tree doesn't collapse to root after a rename or delete on Windows, where
+ * Rust may hand back backslash paths.
+ */
+function parentDirOrRoot(path: string): string {
   const i = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   if (i <= 0) return "/";
   return path.slice(0, i);
@@ -351,7 +356,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     async (newName: string) => {
       if (!renaming) return;
       const trimmed = newName.trim();
-      const parent = dirname(renaming);
+      const parent = parentDirOrRoot(renaming);
       const oldName = renaming.slice(parent === "/" ? 1 : parent.length + 1);
       if (!trimmed || trimmed === oldName) {
         setRenaming(null);
@@ -376,7 +381,7 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       try {
         await invoke("fs_delete", { path });
         options?.onPathDeleted?.(path);
-        await fetchChildren(dirname(path));
+        await fetchChildren(parentDirOrRoot(path));
       } catch (e) {
         console.error("fs_delete failed:", e);
       }

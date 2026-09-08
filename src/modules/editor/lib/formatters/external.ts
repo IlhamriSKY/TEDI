@@ -22,6 +22,7 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { FsReadResult } from "@/lib/ipc";
+import { dirname } from "@/lib/path";
 
 type FormatOutput = {
   stdout: string;
@@ -32,12 +33,6 @@ type FormatOutput = {
 };
 
 const TEMP_FILE_TOKEN = "${file}";
-
-function dirOf(path: string): string {
-  const norm = path.replace(/\\/g, "/");
-  const idx = norm.lastIndexOf("/");
-  return idx === -1 ? "" : norm.slice(0, idx);
-}
 
 function extFromPath(path: string): string {
   const base = path.split(/[\\/]/).pop() ?? "";
@@ -53,7 +48,7 @@ async function tempFilePath(originalPath: string): Promise<string> {
   const ext = extFromPath(originalPath);
   // Tauri's tempDir would need an extra plugin, so write the temp file beside
   // the original with a hidden prefix instead.
-  const dir = dirOf(originalPath);
+  const dir = dirname(originalPath);
   const name = `.tedi-fmt-${randomToken()}${ext}`;
   return dir ? `${dir}/${name}` : name;
 }
@@ -118,7 +113,7 @@ export async function formatWithExternal(args: {
   timeoutSecs?: number;
 }): Promise<string> {
   const usesTempFile = args.args.some((a) => a.includes(TEMP_FILE_TOKEN));
-  const cwd = dirOf(args.filepath) || undefined;
+  const cwd = dirname(args.filepath) || undefined;
 
   if (!usesTempFile) {
     const res = await runFormatter({

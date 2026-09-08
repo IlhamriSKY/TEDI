@@ -13,7 +13,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { basename, toForwardSlash } from "@/lib/path";
+import { basename, dirname, toForwardSlash } from "@/lib/path";
 import { humanizeFsError } from "@/lib/fsError";
 import { segmentsFromCwd, type Segment } from "./lib/pathUtils";
 import { ChevronRight, Folder, Search } from "lucide-react";
@@ -29,12 +29,6 @@ type Props = {
    *  system cannot find the path"). Null for local terminals. */
   sshSessionId?: number | null;
 };
-
-function dirname(path: string): string {
-  const i = path.lastIndexOf("/");
-  if (i <= 0) return "/";
-  return path.slice(0, i);
-}
 
 // Pill/badge styles for the breadcrumb segments. Clickable segments use the
 // outline-style badge (muted text, fills on hover); the current folder uses
@@ -56,7 +50,9 @@ export function CwdBreadcrumb({ cwd, filePath, home, onCd, sshSessionId }: Props
     return <span className="text-muted-foreground/70 text-xs">no directory</span>;
   }
 
-  const dirPath = filePath ? dirname(filePath) : (cwd as string);
+  // A root-level file has no parent (""), and the breadcrumb still needs a root
+  // to draw.
+  const dirPath = filePath ? dirname(filePath) || "/" : (cwd as string);
   const segments = segmentsFromCwd(dirPath, home);
   const leafLabel = filePath ? basename(filePath) : segments[segments.length - 1].label;
   // When showing a file, every directory segment is a navigable link.
