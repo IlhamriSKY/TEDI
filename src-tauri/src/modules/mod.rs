@@ -15,6 +15,7 @@ pub mod format;
 pub mod fs;
 pub mod git;
 pub mod ids;
+pub mod local_socket;
 pub mod lockext;
 pub mod mcp;
 pub mod mcp_bridge;

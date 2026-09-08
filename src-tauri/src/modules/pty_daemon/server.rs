@@ -374,40 +374,19 @@ async fn idle_watcher(state: Arc<DaemonState>, timeout: Duration) {
 }
 
 fn bind_async() -> std::io::Result<interprocess::local_socket::tokio::Listener> {
-    use interprocess::local_socket::ListenerOptions;
-
+    // Unlike the MCP bridge, the daemon must NOT take over a socket a live peer
+    // still owns: that peer holds this machine's PTYs, and stealing its address
+    // would strand every one of them. A successful connect means someone is
+    // home, so refuse rather than replace. Only when nothing answers is the
+    // leftover file safe to remove, which `local_socket::bind` then does.
     #[cfg(unix)]
-    {
-        use interprocess::local_socket::{GenericFilePath, ToFsName};
-        let path = super::paths::socket_path();
-        // Probe stale socket: a successful connect means a peer is alive
-        // and we refuse to double-bind. Failure means we can remove the
-        // file and take over.
-        if super::transport::connect_to_daemon().is_ok() {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::AddrInUse,
-                "daemon already running",
-            ));
-        }
-        let _ = std::fs::remove_file(&path);
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let name = path.as_path().to_fs_name::<GenericFilePath>()?;
-        let listener = ListenerOptions::new().name(name).create_tokio()?;
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        Ok(listener)
+    if super::transport::connect_to_daemon().is_ok() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::AddrInUse,
+            "daemon already running",
+        ));
     }
-    #[cfg(windows)]
-    {
-        use interprocess::local_socket::{GenericNamespaced, ToNsName};
-        let name_str = super::paths::socket_name();
-        let name = name_str.as_str().to_ns_name::<GenericNamespaced>()?;
-        ListenerOptions::new().name(name).create_tokio()
-    }
+    crate::modules::local_socket::bind(super::paths::STEM)
 }
 
 // ── per-client handling ─────────────────────────────────────────────────

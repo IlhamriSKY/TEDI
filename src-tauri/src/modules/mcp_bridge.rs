@@ -118,75 +118,20 @@ fn handshake_path() -> Option<PathBuf> {
     app_data_dir().map(|d| d.join("mcp-bridge.json"))
 }
 
-/// Socket address, per user and per profile, matching the PTY daemon's scheme.
-#[cfg(unix)]
-fn socket_path() -> PathBuf {
-    let suffix = if cfg!(debug_assertions) { "-dev" } else { "" };
-    if let Some(dir) = std::env::var_os("XDG_RUNTIME_DIR") {
-        return PathBuf::from(dir).join(format!("tedi-mcp{suffix}.sock"));
-    }
-    let tmp = std::env::var_os("TMPDIR")
-        .map(PathBuf::from)
-        .unwrap_or_else(|| PathBuf::from("/tmp"));
-    let user = std::env::var("USER").unwrap_or_else(|_| "default".into());
-    tmp.join(format!("tedi-mcp-{user}{suffix}.sock"))
-}
-
-#[cfg(windows)]
-fn socket_name() -> String {
-    let suffix = if cfg!(debug_assertions) { "-dev" } else { "" };
-    let user = std::env::var("USERNAME").unwrap_or_else(|_| "default".into());
-    let mut h: u32 = 0x811c_9dc5;
-    for &b in user.as_bytes() {
-        h ^= b as u32;
-        h = h.wrapping_mul(0x0100_0193);
-    }
-    format!("tedi-mcp-{h:08x}{suffix}")
-}
+/// This bridge's socket. Naming and binding live in `local_socket`, shared with
+/// the PTY daemon; only this stem differs.
+const STEM: &str = "tedi-mcp";
 
 /// Address string written into the handshake file for the client to use.
 fn socket_address() -> String {
-    #[cfg(windows)]
-    {
-        format!(r"\\.\pipe\{}", socket_name())
-    }
-    #[cfg(unix)]
-    {
-        socket_path().to_string_lossy().into_owned()
-    }
+    crate::modules::local_socket::address(STEM)
 }
 
+/// Unlike the daemon there is no liveness probe: a leftover socket here can
+/// only be a crashed run, because a live TEDI means this process is a second
+/// instance and single-instance forwarding has already handed off.
 fn bind() -> std::io::Result<interprocess::local_socket::tokio::Listener> {
-    use interprocess::local_socket::ListenerOptions;
-    #[cfg(unix)]
-    {
-        use interprocess::local_socket::{GenericFilePath, ToFsName};
-        let path = socket_path();
-        // A leftover file from a crashed run would make `bind` fail with
-        // AddrInUse forever. Removing it is safe: if a live TEDI still owns it,
-        // this process is a second instance and single-instance forwarding has
-        // already handed off.
-        let _ = std::fs::remove_file(&path);
-        if let Some(parent) = path.parent() {
-            if !parent.exists() {
-                std::fs::create_dir_all(parent)?;
-            }
-        }
-        let name = path.as_path().to_fs_name::<GenericFilePath>()?;
-        let listener = ListenerOptions::new().name(name).create_tokio()?;
-        // Owner-only. On unix the filesystem IS the access control, so this line
-        // is what makes the token a second factor rather than the only one.
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
-        Ok(listener)
-    }
-    #[cfg(windows)]
-    {
-        use interprocess::local_socket::{GenericNamespaced, ToNsName};
-        let name_str = socket_name();
-        let name = name_str.as_str().to_ns_name::<GenericNamespaced>()?;
-        ListenerOptions::new().name(name).create_tokio()
-    }
+    crate::modules::local_socket::bind(STEM)
 }
 
 /// Publish the socket address + token so a client can find them.
