@@ -3,11 +3,16 @@
 //
 //   "Imports: always @/..., never relative across modules."
 //
-// A file under src/modules/<mod>/ may use relative imports WITHIN its own module,
-// but must reach any other module (or src/lib, src/components, ...) through the
-// `@/*` alias. This guard flags relative specifiers that escape the importing
-// file's own module directory. It has zero dependencies so it never touches the
-// lockfile; run it with `node scripts/check-imports.mjs` (npm script: lint:imports).
+// A file may use relative imports WITHIN its own unit, but must reach any other
+// unit through the `@/*` alias. A unit is one `src/modules/<mod>/`, or one of
+// the other top-level trees under `src/`. This guard flags relative specifiers
+// that escape the importing file's own unit. It has zero dependencies so it
+// never touches the lockfile; run it with `node scripts/check-imports.mjs`
+// (npm script: lint:imports).
+//
+// The trees beyond `src/modules/` were once unchecked, and were clean anyway.
+// They are covered now so they stay that way: the rule was always universal,
+// only the check was partial.
 //
 // Exit code 0 = clean, 1 = violations found.
 
@@ -16,7 +21,7 @@ import { join, resolve, dirname, sep, relative } from "node:path";
 import { fileURLToPath } from "node:url";
 
 const ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
-const MODULES_DIR = join(ROOT, "src", "modules");
+const SRC = join(ROOT, "src");
 
 /** Recursively collect .ts/.tsx files under a directory. */
 function walk(dir) {
@@ -33,11 +38,14 @@ function walk(dir) {
   return out;
 }
 
-/** The module directory that owns `file`, e.g. .../src/modules/ai. */
-function moduleDirOf(file) {
-  const rel = relative(MODULES_DIR, file); // e.g. ai/lib/agent.ts
-  const seg = rel.split(sep)[0];
-  return join(MODULES_DIR, seg);
+/**
+ * The unit that owns `file`: `src/modules/<mod>` for a module file, else the
+ * top-level tree under `src/` (`src/app`, `src/lib`, ...).
+ */
+function unitDirOf(file) {
+  const rel = relative(SRC, file); // e.g. modules/ai/lib/agent.ts, or app/App.tsx
+  const [first, second] = rel.split(sep);
+  return first === "modules" ? join(SRC, first, second) : join(SRC, first);
 }
 
 // Matches `... from "x"` (import/export) and bare `import "x"`.
@@ -54,17 +62,19 @@ function specifiers(src) {
 
 const violations = [];
 
-for (const file of walk(MODULES_DIR)) {
-  const ownModuleDir = moduleDirOf(file) + sep;
+for (const file of walk(SRC)) {
+  // `src/main.tsx` and friends sit directly in `src/` and belong to no unit.
+  if (dirname(file) === SRC) continue;
+  const ownDir = unitDirOf(file) + sep;
   const src = readFileSync(file, "utf8");
   for (const spec of specifiers(src)) {
     if (!spec.startsWith(".")) continue; // alias or package import - fine
     const resolved = resolve(dirname(file), spec) + sep;
-    if (!resolved.startsWith(ownModuleDir)) {
+    if (!resolved.startsWith(ownDir)) {
       violations.push({
         file: relative(ROOT, file),
         spec,
-        hint: `resolves outside ${relative(ROOT, moduleDirOf(file))}; use the @/ alias instead`,
+        hint: `resolves outside ${relative(ROOT, unitDirOf(file))}; use the @/ alias instead`,
       });
     }
   }

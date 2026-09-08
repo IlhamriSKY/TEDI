@@ -25,7 +25,8 @@
  * action enum, so it is the one that would suffer most from an open-object
  * fallback, and its enum can be checked against the runner that serves it.
  */
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 
 let failures = 0;
 function check(label: string, actual: unknown, expected: unknown): void {
@@ -111,8 +112,17 @@ console.log("\nan image survives BOTH routes rather than arriving as base64 text
   );
 }
 
-console.log("\nthe browser tool's enum and its runner agree");
-{
+// The extension lives in its own repo and the core repo ignores `extensions/*`,
+// so a fresh checkout (a new contributor's, or CI's) has no `tedi.browser`.
+// Skip rather than crash: the core half above is what a core change can break.
+const BROWSER_TOOLS = join(import.meta.dirname, "../../extensions/tedi.browser/src/tools.js");
+if (!existsSync(BROWSER_TOOLS)) {
+  console.log(
+    "\n  skip: extensions/tedi.browser is not checked out (separate repo), " +
+      "so its tool enum cannot be cross-checked.",
+  );
+} else {
+  console.log("\nthe browser tool's enum and its runner agree");
   const mod = (await import("../../extensions/tedi.browser/src/tools.js")) as unknown as {
     TOOL: { name: string; parameters: { properties: { action: { enum: string[] } } } };
     TOOLS: unknown[];
@@ -131,8 +141,16 @@ console.log("\nthe browser tool's enum and its runner agree");
   const body = runner.slice(runner.indexOf("export async function runTool"));
   const implemented = [...body.matchAll(/^\s{4}case "([a-z_]+)":/gm)].map((m) => m[1]).sort();
 
-  check("every declared action is implemented", declared.filter((a) => !implemented.includes(a)), []);
-  check("every implemented action is declared", implemented.filter((a) => !declared.includes(a)), []);
+  check(
+    "every declared action is implemented",
+    declared.filter((a) => !implemented.includes(a)),
+    [],
+  );
+  check(
+    "every implemented action is declared",
+    implemented.filter((a) => !declared.includes(a)),
+    [],
+  );
   check("and there are enough of them to be worth one tool", declared.length >= 20, true);
 }
 

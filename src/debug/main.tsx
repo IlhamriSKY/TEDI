@@ -1,6 +1,6 @@
-import "../lib/tauri-browser-shim";
+import "@/lib/tauri-browser-shim";
 
-import "../styles/globals.css";
+import "@/styles/globals.css";
 
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import ReactDOM from "react-dom/client";

@@ -14,7 +14,8 @@
  *  3. GATED ON REAL FOCUS: bare Ctrl+C / Ctrl+V are `isTerminalControlChord`s,
  *     so App's `isDisabled` decides whether they reach the app or fall through
  *     to the shell. Two halves must hold, and each fails in a different
- *     direction: `appOwnsTerminalChord` must claim them (or paste is dead and
+ *     direction: `isDisabled`'s `terminal.copy` / `terminal.paste` branch must
+ *     claim them (or paste is dead and
  *     Ctrl+C never copies), and the DOM-focus check must gate them (or matching
  *     while the caret is in the AI composer / an editor / a dialog field
  *     preventDefaults the keystroke and kills NATIVE copy/paste app-wide -
@@ -24,7 +25,7 @@
  *     Ctrl+C copy forever and the user cannot interrupt a runaway command.
  */
 /// <reference types="node" />
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 // Straight from the catalog file, NOT the `@/modules/shortcuts` barrel: the
@@ -234,15 +235,23 @@ console.log("5. every OTHER xterm that can drive a live (SSH) shell can paste to
   // return false WITHOUT preventDefault and the browser's own paste command
   // fires the `paste` event xterm already listens for. Asserted because adding a
   // preventDefault there silently kills paste again.
-  const remote = read("extensions/tedi.remote-access/client/src/hooks/useRemote.ts");
-  assert(
-    /if \(key === "v"\) return false;/.test(remote),
-    "the remote web client hands Ctrl+V to the browser's native paste",
-  );
-  assert(
-    !/if \(key === "v"\)[\s\S]{0,80}?preventDefault/.test(remote),
-    "and does NOT preventDefault it (that is what stops the paste event firing)",
-  );
+  //
+  // Skipped when the extension is not checked out: it lives in its own repo and
+  // the core repo ignores `extensions/*`, so a fresh clone has no copy of it.
+  const remotePath = "extensions/tedi.remote-access/client/src/hooks/useRemote.ts";
+  if (!existsSync(remotePath)) {
+    console.log(`  skip: ${remotePath} is not checked out (separate repo)`);
+  } else {
+    const remote = read(remotePath);
+    assert(
+      /if \(key === "v"\) return false;/.test(remote),
+      "the remote web client hands Ctrl+V to the browser's native paste",
+    );
+    assert(
+      !/if \(key === "v"\)[\s\S]{0,80}?preventDefault/.test(remote),
+      "and does NOT preventDefault it (that is what stops the paste event firing)",
+    );
+  }
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

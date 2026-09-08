@@ -35,6 +35,15 @@ jobs:
       - name: Check module import discipline
         run: pnpm run lint:imports
 
+      # The architectural invariants: ~15s for 76 checks that a type-check
+      # cannot see (which files the bundle ships, that no host table names an
+      # extension, that both MCP servers read one schema). They were run by hand
+      # until a missing bundle resource shipped a server that could not start.
+      # Checks needing an extension working copy skip themselves here, since
+      # `extensions/*` is gitignored and a CI checkout has none.
+      - name: Verify invariants
+        run: pnpm verify
+
       - name: Build frontend
         run: pnpm build
 
