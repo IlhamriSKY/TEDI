@@ -35,6 +35,7 @@ import {
   TagDialog,
 } from "./components/RepoDialogs";
 import { friendlyGhError, ghFor } from "./gh";
+import { useScmRepoTarget, useScmRepoTargetStore } from "./repoTarget";
 import type { GitChange, GitChangeStatus, GitInProgress, GitStatus, OpenDiffInput } from "./types";
 import { cn } from "@/lib/utils";
 import { CircleAlert, FolderGit2, X } from "lucide-react";
@@ -180,7 +181,7 @@ function discardPaths(changes: GitChange[]): string[] {
 }
 
 export function SourceControlPanel({
-  rootPath,
+  rootPath: workspaceRoot,
   onPathDeleted,
   onOpenDiff,
   onClose,
@@ -191,6 +192,15 @@ export function SourceControlPanel({
   sshSessionId = null,
   sshCwd = null,
 }: Props) {
+  // A repository picked out of the Explorer replaces the workspace root for
+  // this panel and everything it hosts - graph, PRs, diffs - because they all
+  // read the resolved root below rather than the prop. Remote mode reads the
+  // SSH session's repo and has no local path to point anywhere.
+  const repoTarget = useScmRepoTarget(workspaceRoot);
+  const clearRepoTarget = useScmRepoTargetStore((s) => s.clear);
+  const targeted = sshSessionId === null && repoTarget !== null;
+  const rootPath = targeted ? repoTarget : workspaceRoot;
+
   const [status, setStatus] = useState<GitStatus | null>(null);
   /**
    * Which repository `status` describes, set in the same update as `status`.
@@ -902,6 +912,31 @@ export function SourceControlPanel({
 
       {collapsed ? null : (
         <>
+          {/* Every count, branch and button below now belongs to a repository
+              the file tree is not rooted at, so say which one and how to get
+              back rather than letting the panel quietly disagree with the
+              Explorer beside it. */}
+          {targeted ? (
+            <div className="border-border/60 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
+              <FolderGit2 size={13} strokeWidth={2} className="text-icon-working shrink-0" />
+              <span
+                className="min-w-0 flex-1 truncate text-[11px]"
+                title={status?.root ?? repoTarget}
+              >
+                {basename(status?.root ?? repoTarget)}
+              </span>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-6 px-2 text-[11px]"
+                onClick={clearRepoTarget}
+                aria-label="Follow the workspace repository again"
+              >
+                Follow workspace
+              </Button>
+            </div>
+          ) : null}
+
           {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
 
           {/* A half-finished merge or rebase is the one state where the normal

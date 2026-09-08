@@ -17,6 +17,8 @@ import {
 } from "@/components/ui/context-menu";
 import { cn } from "@/lib/utils";
 import { humanizeFsError } from "@/lib/fsError";
+import { useScmRepoTargetStore } from "@/modules/scm/repoTarget";
+import { runCommand } from "@/modules/shortcuts";
 import { memo, useCallback, useState } from "react";
 import { InlineInput } from "./InlineInput";
 import { copyToClipboard, relativePath, revealInFinder } from "./lib/contextActions";
@@ -231,6 +233,19 @@ function FileTreeNodeImpl({
           {isDir && onRevealInTerminal && (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onRevealInTerminal(path)}>
               Open in Terminal
+            </ContextMenuItem>
+          )}
+          {/* Local-only, like Reveal below: the target is a host path, and the
+              remote panel reads its SSH session's repo instead. */}
+          {isDir && !remote && (
+            <ContextMenuItem
+              className={COMPACT_ITEM}
+              onSelect={() => {
+                useScmRepoTargetStore.getState().target(path, rootPath);
+                runCommand("scm.open");
+              }}
+            >
+              Open in Source Control
             </ContextMenuItem>
           )}
           {/* Local-only: revealInFinder hands the path to the host OS file
