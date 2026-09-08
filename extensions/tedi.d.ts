@@ -1047,7 +1047,8 @@ export type ExtensionContext = {
     setActiveContent(content: string): boolean;
   };
 
-  /** Extension-owned tabs and split-pane leaves. All three need `tabs:open`. */
+  /** Extension-owned tabs and split-pane leaves, plus the app's own terminal.
+   *  All of them need `tabs:open`. */
   tabs: {
     /** Open or focus a standalone workspace tab that mounts the renderer
      *  registered for `panelId`. Returns the tab id, or `null`. */
@@ -1055,6 +1056,20 @@ export type ExtensionContext = {
     /** Same, but as a native split-pane leaf - the same frame as a terminal
      *  or editor, splittable and joinable. */
     openExtensionPane(opts: OpenExtensionTabOptions): number | null;
+    /**
+     * Open a REAL terminal tab, working directory `cwd`.
+     *
+     * The app's own terminal, not a surface of your own: the same shell, the
+     * same PATH (including anything an extension registered on it), the same
+     * AI-CLI detection and the same tab controls. If you know where something
+     * lives - a project folder, a checkout, a mount - put the user in it
+     * instead of printing the path and hoping.
+     *
+     * Returns the new tab's id, or `null` if the app has not wired the bridge
+     * yet (very early activation). Feature-detect with
+     * `typeof ctx.tabs.openTerminal === "function"` on older hosts.
+     */
+    openTerminal(opts?: { cwd?: string }): number | null;
     /** Tint the title to reflect a lifecycle state and/or relabel it.
      *  Matches on `(extensionId, panelId, reuseKey)` and patches BOTH a
      *  standalone tab and a live pane leaf. Pass `state: null` to clear. */

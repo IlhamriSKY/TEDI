@@ -53,6 +53,35 @@ export function openExtensionPane(opts: OpenExtensionTabOpts): number | null {
 }
 
 /**
+ * Open a REAL terminal tab, in a directory the extension names.
+ *
+ * Not a panel of its own: an extension that manages projects, containers or
+ * remote hosts wants the terminal the user already knows - same shell, same
+ * PATH, same AI-CLI detection, same tab - opened somewhere specific. The
+ * alternative was telling people the path and letting them cd to it.
+ */
+export type OpenTerminalTabOpts = {
+  /** Working directory for the shell. Omitted means the app's default. */
+  cwd?: string;
+};
+
+export type OpenTerminalTabFn = (opts: OpenTerminalTabOpts) => number | null;
+
+let terminalOpener: OpenTerminalTabFn | null = null;
+
+export function setOpenTerminalTab(fn: OpenTerminalTabFn | null): void {
+  terminalOpener = fn;
+}
+
+export function openTerminalTab(opts: OpenTerminalTabOpts): number | null {
+  if (!terminalOpener) {
+    console.warn("[extensions] openTerminalTab called before App wired the bridge; ignoring");
+    return null;
+  }
+  return terminalOpener(opts);
+}
+
+/**
  * Lifecycle tone the extension can apply to its tab title. Re-exports the
  * type from `useTabs` so callers (host wrapper + bridge consumers) don't
  * have to import the whole tab module.

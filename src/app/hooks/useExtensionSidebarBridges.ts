@@ -1,6 +1,7 @@
 import {
   setOpenExtensionTab,
   setOpenExtensionPane,
+  setOpenTerminalTab,
   setSetExtensionTabState,
   setSidebarSetter,
   setRightSidebarSetter,
@@ -15,6 +16,9 @@ import { isPanelOpen, setPanelOpen } from "@/app/lib/panelSize";
 type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
   openExtensionPane: (opts: OpenExtensionTabOpts) => number | null;
+  /** `useTabs().newTab`, so `ctx.tabs.openTerminal({ cwd })` opens the app's
+   *  own terminal rather than an extension surface pretending to be one. */
+  newTerminalTab: (cwd?: string) => number;
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
@@ -54,6 +58,7 @@ function setSidebarVisibleImperative(p: PanelImperativeHandle, visible: boolean)
 export function useExtensionSidebarBridges({
   openExtensionTab,
   openExtensionPane,
+  newTerminalTab,
   setExtensionTabState,
   sidebarRef,
   sidebarHiderRef,
@@ -75,6 +80,14 @@ export function useExtensionSidebarBridges({
     setOpenExtensionPane((opts) => openExtensionPane(opts));
     return () => setOpenExtensionPane(null);
   }, [openExtensionPane]);
+
+  // Wire `ctx.tabs.openTerminal({ cwd })` so an extension can open the app's
+  // own terminal in a directory it names - the same shell, PATH and AI-CLI
+  // detection the user already has, rather than a shell of the extension's own.
+  useEffect(() => {
+    setOpenTerminalTab((opts) => newTerminalTab(opts.cwd));
+    return () => setOpenTerminalTab(null);
+  }, [newTerminalTab]);
 
   // Wire `ctx.tabs.setExtensionTabState(...)` for extensions to tint their
   // tab title by lifecycle (SQL Explorer uses it to mirror the SSH palette).

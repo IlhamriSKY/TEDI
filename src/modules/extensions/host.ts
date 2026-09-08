@@ -57,6 +57,7 @@ import {
 import {
   openExtensionTab as openExtTabBridge,
   openExtensionPane as openExtPaneBridge,
+  openTerminalTab as openTerminalTabBridge,
   setExtensionTabState as setExtensionTabStateBridge,
   setSidebarVisible as setSidebarVisibleBridge,
   setRightSidebarVisible as setRightSidebarVisibleBridge,
@@ -549,6 +550,19 @@ export type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
+    /**
+     * Open a REAL terminal tab, working directory `cwd`.
+     *
+     * The app's own terminal, not a surface of the extension's: the same shell,
+     * the same PATH (including anything an extension registered on it), the
+     * same AI-CLI detection and the same tab controls. An extension that knows
+     * where something lives - a project folder, a container mount, a checkout -
+     * can put the user in it instead of printing the path and hoping.
+     *
+     * Returns the new tab's id, or `null` if the app has not wired the bridge
+     * yet (very early activation). Requires `tabs:open`.
+     */
+    openTerminal(opts?: { cwd?: string }): number | null;
     /** Tint the title text to reflect a lifecycle state and/or update the
      *  title. Matches on `(extensionId, panelId, reuseKey)` and patches BOTH a
      *  standalone tab and a live split-pane leaf for the panel. Pass `null`
@@ -1133,6 +1147,10 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           icon: opts.icon,
           reuseKey: opts.reuseKey,
         });
+      },
+      openTerminal(opts) {
+        requirePermission(ext.id, declared, "tabs:open");
+        return openTerminalTabBridge({ cwd: opts?.cwd ? String(opts.cwd) : undefined });
       },
       setExtensionTabState(opts) {
         requirePermission(ext.id, declared, "tabs:open");

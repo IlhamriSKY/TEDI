@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.47] - 08-09-2026
+
+### Added
+
+- **An extension can open a real terminal, in a directory it names.** `ctx.tabs.openTerminal({ cwd })` opens the app's own terminal tab - the same shell, the same PATH including whatever an extension registered on it, the same AI-CLI detection and the same tab controls - not a surface of the extension's own. An extension that knows where something lives, a project folder or a checkout or a mount, can now put the user in it instead of printing the path and hoping. It is gated on the `tabs:open` permission every extension that opens anything already declares, so nothing needs re-reviewing, and it is a whole method rather than an option field, so an extension detects it with `typeof ctx.tabs.openTerminal === "function"` and needs no `engines.tedi` bump to keep working on an older host. Dev Environment 0.1.11 is the first caller: every project row gets a Terminal button. See [tabsBridge.ts](src/modules/extensions/tabsBridge.ts), [host.ts](src/modules/extensions/host.ts), [useExtensionSidebarBridges.ts](src/app/hooks/useExtensionSidebarBridges.ts).
+
+### Fixed
+
+- **`TEDI.md` says the version it is on.** It was left at 0.4.45 through the whole of 0.4.46 - the fourth version file, and the one that gets forgotten, because grepping the previous version cannot find a file that never left the one before it.
+
 ## [0.4.46] - 08-09-2026
 
 ### Added

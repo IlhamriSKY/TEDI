@@ -440,6 +440,7 @@ export default function App() {
   useExtensionSidebarBridges({
     openExtensionTab,
     openExtensionPane,
+    newTerminalTab: newTab,
     setExtensionTabState,
     sidebarRef,
     sidebarHiderRef,
