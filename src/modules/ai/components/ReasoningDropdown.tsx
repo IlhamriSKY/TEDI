@@ -10,6 +10,7 @@ import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setModelReasoning } from "@/modules/settings/store";
 import { Brain, Check } from "lucide-react";
+import { LEVEL_COLOR } from "../lib/effort";
 import { REASONING_AUTO, reasoningControlFor } from "../lib/reasoning";
 import { useChatStore } from "../store/chatStore";
 
@@ -28,37 +29,23 @@ import { useChatStore } from "../store/chatStore";
  */
 
 /**
- * Colour per level, cool to warm, so depth reads at a glance on the trigger
- * without opening anything.
- *
- * Theme TOKENS, never a fixed hue: these have to stay legible across every
- * preset, light and dark, and only the tokens are tuned for that. `max` is the
- * one exception and does not appear here - it steps off the hue ramp into foil,
- * which no theme can supply (`.tedi-effort-max` in `styles/globals.css`).
- *
- * A level with no entry falls back to the menu's own colour rather than picking
- * one, so a value a provider adds later is uncoloured, not miscoloured.
- */
-const LEVEL_COLOR: Record<string, string> = {
-  minimal: "text-muted-foreground",
-  low: "text-info",
-  medium: "text-diff-added",
-  high: "text-icon-working",
-  xhigh: "text-destructive",
-};
-
-/**
  * The class for one level's label.
  *
  * Every level but `max` is a colour. `max` is a MATERIAL: `.tedi-foil` paints
  * the sheet, `.tedi-effort-max` clips it to the text. The icon is cut from the
  * same sheet rather than coloured to match it, which is why it needs its own
  * element rather than a class from here - see the trigger.
+ *
+ * The colour table itself lives in `lib/effort.ts`, beside the hook that
+ * resolves a running turn's level: this picker and the pixel block that
+ * animates while the turn runs have to agree on what `high` looks like, and
+ * two tables did not.
  */
 function levelClass(level: string): string {
   if (level === "max") return "tedi-foil tedi-effort-max font-medium";
   return LEVEL_COLOR[level] ?? "text-foreground";
 }
+
 export function ReasoningDropdown() {
   const modelId = useChatStore((s) => s.selectedModelId);
   const provider = useChatStore((s) => s.selectedProvider);

@@ -165,6 +165,9 @@ function PixelChart({ chart }: { chart: NonNullable<StatusItem["detail"]>["chart
     for (const v of values) cols.push(barColumn(v, rows, fill));
   }
   const columnLabels = cells ? chart.columnLabels?.slice(-cols.length) : undefined;
+  // The grid's own width, which is where a column label has to stop: every
+  // column is a cell plus its gap, less the trailing gap the last one has not.
+  const gridWidth = cols.length * CELL_PITCH - 2;
   // The hovered cell's own label replaces the summary, which is the whole
   // point: a square in a grid of 371 cannot say what day it is on its own.
   const note = (hovered != null ? cellLabels?.[hovered] : null) || chart.note;
@@ -172,11 +175,23 @@ function PixelChart({ chart }: { chart: NonNullable<StatusItem["detail"]>["chart
     <div className="flex flex-col gap-1">
       {columnLabels?.some(Boolean) ? (
         // Absolute, on the column pitch: a label is wider than its column and
-        // has to overhang rather than push the grid out of alignment.
+        // has to overhang rather than push the grid out of alignment. The
+        // overhang stops at the grid's right edge, because the last month
+        // labels one of the final columns: anchored to it, "Sep" ran past the
+        // popover's padding and read as clipped. `100%` inside a translate is
+        // the SPAN's own width, so the clamp costs no guess at how wide a
+        // month name is in the user's locale.
         <div className="text-muted-foreground relative h-2.5 text-[9px] leading-none">
           {columnLabels.map((label, i) =>
             label ? (
-              <span key={i} className="absolute top-0" style={{ left: i * CELL_PITCH }}>
+              <span
+                key={i}
+                className="absolute top-0"
+                style={{
+                  left: i * CELL_PITCH,
+                  transform: `translateX(min(0px, calc(${gridWidth - i * CELL_PITCH}px - 100%)))`,
+                }}
+              >
                 {label}
               </span>
             ) : null,

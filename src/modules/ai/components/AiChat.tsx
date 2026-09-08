@@ -18,7 +18,7 @@ import {
 } from "../lib/messageBody";
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
-import { useIsMaxEffort } from "../lib/useMaxEffort";
+import { effortTextClass, useEffortLevel } from "../lib/effort";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
@@ -597,7 +597,7 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
   // time-in-turn. `true`: while mounted, the turn is by definition running.
   const elapsed = useElapsedSince(true);
   const label = readableActivity(activity, waiting);
-  const isMax = useIsMaxEffort();
+  const effort = useEffortLevel();
   return (
     <motion.div
       initial={{ opacity: 0, y: 4 }}
@@ -609,13 +609,13 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
       aria-label={`AI status: ${label}`}
     >
       {/* No frame around it. The block IS the indicator, and a border made it
-          read as a button you could press. At max the cells take the foil
-          palette, so the deepest setting is visible while the turn runs and
-          not only in the picker that set it. */}
+          read as a button you could press. The cells take the reasoning level's
+          own colour - foil at max - so the depth the turn is running at is
+          visible while it runs and not only in the picker that set it. */}
       <PixelActivity
         label="AI working"
-        variant={isMax ? "max" : "default"}
-        className="text-muted-foreground"
+        variant={effort === "max" ? "max" : "default"}
+        className={effortTextClass(effort)}
       />
       <span className="min-w-0 flex-1 truncate leading-none" title={label}>
         {label}

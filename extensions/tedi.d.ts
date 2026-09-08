@@ -253,6 +253,19 @@ export type OpenExtensionTabOptions = {
   /** Stable key for dedup - re-opening with the same key focuses the
    *  existing tab instead of pushing a new one. */
   reuseKey?: string;
+  /**
+   * Whose panel to open. Defaults to your own.
+   *
+   * Naming ANOTHER extension opens that one's panel, which is how you hand the
+   * user off to a tool that does the next step better than you could. It moves
+   * no data and reads nothing: the panel is rendered by the extension that owns
+   * it, exactly as if the user had opened it themselves.
+   *
+   * Returns `null` when that extension is not installed, not enabled, or has no
+   * renderer for `panelId` - so check the result before telling the user
+   * anything happened.
+   */
+  extensionId?: string;
 };
 
 // ---------------------------------------------------------------------------
@@ -1267,4 +1280,8 @@ export type HostFeature =
    *  that displays data rather than just an icon. */
   | "statusItem.progress"
   /** `SidebarSection.onItemContextMenu` - right-click a row. */
-  | "sidebarSection.contextMenu";
+  | "sidebarSection.contextMenu"
+  /** {@link OpenExtensionTabOptions.extensionId} - open ANOTHER extension's
+   *  panel. An older host ignores the field and opens your own, which is the
+   *  exact silent-wrong-answer this list exists for. */
+  | "openExtensionTab.extensionId";

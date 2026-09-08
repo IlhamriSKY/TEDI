@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
-import { useIsMaxEffort } from "../lib/useMaxEffort";
+import { effortTextClass, useEffortLevel } from "../lib/effort";
 import { useChatStore, type AgentRunStatus } from "../store/chatStore";
 import { CircleAlert, ShieldUser } from "lucide-react";
 
@@ -23,7 +23,7 @@ export function AgentStatusPill({ onClick }: Props) {
   const panelOpen = useChatStore((s) => s.panelOpen);
   const isRunning = meta.status === "thinking" || meta.status === "streaming";
   const elapsed = useElapsedSince(isRunning);
-  const isMax = useIsMaxEffort();
+  const effort = useEffortLevel();
 
   // Approval-pending and error always surface here. A plain run surfaces only
   // while the AI panel is CLOSED - with it open the chat's own indicator says
@@ -40,12 +40,16 @@ export function AgentStatusPill({ onClick }: Props) {
         // usage meters and the memory chart, which are the same 4px cells. A
         // spinning circle beside them was the odd material out.
         //
-        // Two rows, not the chat indicator's four: a 4x4 block is 22px and this
-        // pill is 24px tall including its border, so the square would have
-        // touched both edges. Two rows is 10px, which is the height the 12px
-        // glyphs in the other pill states occupy.
+        // Coloured by the reasoning level the turn is running at, foil at max -
+        // the same ink the picker gave the word. The pill's own
+        // `text-muted-foreground` stays the answer for Auto, which is what the
+        // picker shows for it too.
         icon: (
-          <PixelActivity rows={2} cols={4} variant={isMax ? "max" : "default"} label="AI running" />
+          <PixelActivity
+            variant={effort === "max" ? "max" : "default"}
+            className={effortTextClass(effort)}
+            label="AI running"
+          />
         ),
         label: "AI running",
       };

@@ -168,11 +168,44 @@ export const HOST_FEATURES = [
   "statusItem.progress",
   /** `SidebarSection.onItemContextMenu` - right-click a row. */
   "sidebarSection.contextMenu",
+  /** `OpenExtensionTabOptions.extensionId` - open ANOTHER extension's panel.
+   *  An older host ignores the field and opens your own, which is the exact
+   *  silent-wrong-answer this list exists for. */
+  "openExtensionTab.extensionId",
 ] as const;
 
 export type HostFeature = (typeof HOST_FEATURES)[number];
 
 const HOST_FEATURE_SET: ReadonlySet<string> = new Set(HOST_FEATURES);
+
+/**
+ * Whose panel a tab or pane request is for, or `null` when it cannot be opened.
+ *
+ * Your own by default. Naming ANOTHER extension is allowed but gated on that
+ * panel being able to render - a registered renderer means the extension is
+ * installed, enabled and activated. Without the gate the tab opens regardless
+ * and the user gets an empty frame named after an extension they may not have,
+ * which is a worse answer than the `null` a caller can act on.
+ */
+function resolvePanelTarget(
+  callerId: string,
+  opts: { panelId: string; extensionId?: string },
+): { extensionId: string; panelId: string } | null {
+  const extensionId = opts.extensionId ? String(opts.extensionId) : callerId;
+  if (extensionId !== callerId && !panelRenderersRegistry.get(extensionId, opts.panelId)) {
+    return null;
+  }
+  return { extensionId, panelId: opts.panelId };
+}
+
+/** The presentation half of a panel-open request, shared by tab and pane. */
+function rest(opts: { title: string; icon?: string; reuseKey?: string }): {
+  title: string;
+  icon?: string;
+  reuseKey?: string;
+} {
+  return { title: opts.title, icon: opts.icon, reuseKey: opts.reuseKey };
+}
 
 /**
  * Result shapes for the Rust commands extensions actually call, so
@@ -539,6 +572,22 @@ export type ExtensionContext = {
       title: string;
       icon?: string;
       reuseKey?: string;
+      /**
+       * Whose panel to open. Defaults to your own.
+       *
+       * Naming ANOTHER extension opens that one's panel, which is how an
+       * extension hands the user off to a tool that does the next step better
+       * than it could: the Dev Environment knows the connection details for the
+       * database it is running and SQL Explorer knows how to browse one, and
+       * before this there was no way to get from one to the other except by
+       * telling the user to go and find it.
+       *
+       * It moves no data and reads nothing - the panel is rendered by the
+       * extension that owns it, exactly as if the user had opened it - so this
+       * stays on `tabs:open`, the permission for putting a tab on screen.
+       * Returns `null` when that extension is not installed or not enabled.
+       */
+      extensionId?: string;
     }): number | null;
     /** Open (or focus) the panel as a NATIVE split-pane leaf — same frame as a
      *  terminal/editor/browser, splittable and joinable — instead of a
@@ -1130,23 +1179,13 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     tabs: {
       openExtensionTab(opts) {
         requirePermission(ext.id, declared, "tabs:open");
-        return openExtTabBridge({
-          extensionId: ext.id,
-          panelId: opts.panelId,
-          title: opts.title,
-          icon: opts.icon,
-          reuseKey: opts.reuseKey,
-        });
+        const target = resolvePanelTarget(ext.id, opts);
+        return target === null ? null : openExtTabBridge({ ...target, ...rest(opts) });
       },
       openExtensionPane(opts) {
         requirePermission(ext.id, declared, "tabs:open");
-        return openExtPaneBridge({
-          extensionId: ext.id,
-          panelId: opts.panelId,
-          title: opts.title,
-          icon: opts.icon,
-          reuseKey: opts.reuseKey,
-        });
+        const target = resolvePanelTarget(ext.id, opts);
+        return target === null ? null : openExtPaneBridge({ ...target, ...rest(opts) });
       },
       openTerminal(opts) {
         requirePermission(ext.id, declared, "tabs:open");

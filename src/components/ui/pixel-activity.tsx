@@ -12,26 +12,44 @@ import { cn } from "@/lib/utils";
  * So the same grid, animated instead of measured. The light sweeps DIAGONALLY:
  * a cell's delay comes from `x + y`, so the wave crosses the block corner to
  * corner. Row-major would have read as a snake and a single row as a blink;
- * a diagonal is the one that reads as motion at 22 px without reading as noise.
+ * a diagonal is the one that reads as motion at this size without reading as
+ * noise.
  *
  * It is CSS keyframes with a per-cell delay rather than N animated components,
  * because the whole point is that a cell is a cell - discrete, identical, and
  * cheap enough to leave running for a turn that lasts minutes.
  *
  * `bg-current` on purpose: the block inherits whatever colour it is dropped
- * into, so it reads as amber in a warning pill and muted in a chat header
- * without a single prop.
+ * into, so it takes the reasoning level's own ink from a class on the caller
+ * without a prop, and reads as muted where no level is set.
  */
+
+/** 2 rows by 4 columns: a 22x10 strip, not a square.
+ *
+ * Both indicators that draw this sit on one line of text - the status pill is
+ * 24 px tall including its border, and the chat's running row is a single
+ * 11.5 px line - so a 4x4 block at 22 px touched both edges of each of them. A
+ * strip is the height the 12 px glyphs in the pill's other states occupy, which
+ * is what makes the running state sit on the same baseline as the rest.
+ *
+ * Fixed rather than props: both call sites want the same strip, and a knob with
+ * one setting is a knob to keep in sync for nothing. */
+const ROWS = 2;
+const COLS = 4;
+/** 4px cell + 2px gap. The `max` variant needs it in JS because each cell has
+ *  to shift the shared foil back by its own position in the block. */
+const PITCH = 6;
+/** One full cycle is spread across the longest diagonal, so the last cell lights
+ *  exactly as the first one comes round again and the loop has no seam. On a
+ *  2x4 that is 4 steps, and the wave reads as a head travelling left to right
+ *  with a one-row lean rather than as a corner-to-corner sweep. */
+const SPAN = ROWS + COLS - 2;
+
 export function PixelActivity({
-  rows = 4,
-  cols = 4,
   className,
   label = "Working",
   variant = "default",
 }: {
-  /** Grid height in cells. `1` gives the single-row strip an icon slot wants. */
-  rows?: number;
-  cols?: number;
   className?: string;
   /** Announced to screen readers; the cells themselves are decorative. */
   label?: string;
@@ -42,25 +60,28 @@ export function PixelActivity({
    */
   variant?: "default" | "max";
 }) {
-  // One full cycle is spread across the longest diagonal, so the last cell lights
-  // exactly as the first one comes round again and the loop has no seam.
-  const span = Math.max(1, rows + cols - 2);
-  // 4px cell + 2px gap. The `max` variant needs it in JS because each cell has
-  // to shift the shared foil back by its own position in the block.
-  const PITCH = 6;
   return (
     <span
       className={cn("inline-grid shrink-0 gap-[2px]", className)}
-      style={{ gridTemplateColumns: `repeat(${cols}, 4px)` }}
+      style={{
+        gridTemplateColumns: `repeat(${COLS}, 4px)`,
+        // The block's own size, for `.pixel-chase-max` to size the foil's
+        // repeating layers to. Left at their default they take the CELL's box,
+        // which is 4px - smaller than every period in the sheet, so the cells
+        // tile one flat crop instead of sampling a prism. Inherited, so the
+        // cells read it without eight more inline properties.
+        ["--fw" as string]: `${COLS * PITCH - 2}px`,
+        ["--fh" as string]: `${ROWS * PITCH - 2}px`,
+      }}
       role="status"
       aria-label={label}
     >
-      {Array.from({ length: rows * cols }).map((_, i) => {
-        const x = i % cols;
-        const y = Math.floor(i / cols);
+      {Array.from({ length: ROWS * COLS }).map((_, i) => {
+        const x = i % COLS;
+        const y = Math.floor(i / COLS);
         // How far along the diagonal this cell sits, 0 at the top-left corner
         // and 1 at the bottom-right.
-        const frac = (x + y) / span;
+        const frac = (x + y) / SPAN;
         // NEGATIVE, so each cell starts already part-way through its cycle: a
         // positive delay leaves a cell at its pre-animation opacity until the
         // delay elapses, so the block would flash fully lit for the first

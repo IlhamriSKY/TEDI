@@ -329,6 +329,20 @@
 }
 
 .pixel-chase-max {
+  /* THE SHEET IS THE BLOCK'S SIZE, NOT THE CELL'S, and this is what makes the
+   * paragraph above true rather than aspirational. `.tedi-foil` leaves the two
+   * repeating layers at `auto`, which is the element's own box - on a 4px cell
+   * that is a 4px tile, so it repeats every 4px and each cell's `--fx` shift
+   * wraps inside one period. Every cell then showed the SAME crop and the block
+   * was a flat cyan while the word beside it was a full prism. Sizing the
+   * layers to the block (`--fw`/`--fh`, set in pixel-activity.tsx) gives them
+   * the 22x10 they need, so a cell is genuinely a window onto one sheet and the
+   * hue run crosses the strip exactly as it crosses the word. The pool keeps
+   * its own 70x26: it is a travelling glint, not a tile. */
+  background-size:
+    70px 26px,
+    var(--fw) var(--fh),
+    var(--fw) var(--fh);
   background-position:
     calc(-18px + var(--fx)) calc(-6px + var(--fy)),
     var(--fx) var(--fy),
