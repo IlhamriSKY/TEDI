@@ -15,7 +15,7 @@ export type LiveSnapshot = {
   workspaceRoot: string | null;
   activeFile: string | null;
   /** Every terminal in tab order. Surfaced in the per-turn <env> so the AI
-   *  can address terminals by ordinal/title without `list_terminals`. */
+   *  can address terminals by ordinal/title without a tool call. */
   terminals: TerminalInfo[];
 };
 
@@ -76,8 +76,8 @@ export function injectContext(
 }
 
 /** Env block prepended to a user message. Short so the cacheable prefix stays
- *  stable. Terminal scrollback is not included; the agent calls `read_terminal`
- *  when needed. */
+ *  stable. Terminal scrollback is not included; the agent calls the MCP `read`
+ *  tool when it needs it. */
 export function formatEnvBlock(live: LiveSnapshot): string | null {
   const lines: string[] = [];
   if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);

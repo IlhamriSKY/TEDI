@@ -566,9 +566,9 @@ export const ORCHESTRATION_PROMPT_BODY_LITE = `## SUB-AGENT ORCHESTRATION (enabl
  * `needs` lists the tools the text talks about; the piece is emitted only when
  * at least one of them is actually in this turn's tool set. No `needs` means
  * tool-agnostic prose that always goes out. This is the whole fix for a prompt
- * that told a model to use `run_subagents` and `read_browser` while the tool
- * picker had switched both off - instructions for tools that are not there are
- * billed every turn and are a guaranteed failed call.
+ * that told a model to use tools the picker had switched off: instructions for
+ * tools that are not there are billed every turn and are a guaranteed failed
+ * call.
  */
 export type PromptSection = { needs?: readonly string[]; text: string };
 

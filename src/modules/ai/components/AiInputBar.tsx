@@ -68,7 +68,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   // textarea; scroll-synced via the textarea's onScroll below.
   const highlightRef = useRef<HTMLDivElement>(null);
 
-  // Shell-style ArrowUp/Down through sent user messages. `histIndex` is the
+  // Shell-style ArrowUp/Down through sent user messages. `histIndexRef` is the
   // position in `history` (0 = newest). `null` means not navigating; stepping
   // past the newest restores the user's draft.
   //

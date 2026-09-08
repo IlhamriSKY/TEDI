@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.44.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.45.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -38,13 +38,18 @@ Six invariants (rationale in [ARCHITECTURE.md](ARCHITECTURE.md#2-design-principl
 1. **Two processes.** Frontend (`src/`, React webview) owns UI; backend
    (`src-tauri/`, Rust) owns every OS resource. The webview reaches the OS only
    via `invoke("cmd", args)`; streaming output returns over a Tauri `Channel`.
-   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 126
+   Every command is registered in `src-tauri/src/lib.rs` (`invoke_handler`, 111
    commands) which is the whole backend API index.
 2. **Two webviews.** The main window and a separate Settings window
    (`src/settings/`). They share state via `tauri-plugin-store`, not React.
    `src/settings/` is the Settings UI; `src/modules/settings/` is the state layer.
 3. **Modules are self-contained.** Import only through the `@/*` alias, never a
-   relative path across modules (enforced by `scripts/check-imports.mjs`).
+   relative path that leaves your own module (or, outside `modules/`, your own
+   top-level tree). Enforced across all of `src/` by
+   `scripts/check-imports.mjs`. A module's `index.ts` is a CONVENIENCE
+   re-export, not a required door: `@/modules/<mod>/<file>` is normal and is
+   what most call sites use, so there is nothing to add to a barrel when you
+   add a file.
 4. **Tabs never unmount.** Inactive tabs are hidden with `invisible
 pointer-events-none` so PTYs and dev servers keep streaming.
 5. **Secrets live only in the OS keychain** (`secrets_*` commands, service
@@ -56,7 +61,7 @@ pointer-events-none` so PTYs and dev servers keep streaming.
 
 ```
 src-tauri/                      Backend (Rust)
-  src/lib.rs                    invoke_handler (all 126 commands) + boot + CLI dispatch
+  src/lib.rs                    invoke_handler (all 111 commands) + boot + CLI dispatch
   src/main.rs                   thin shim
   src/modules/
     pty/{mod,session,shell_init,job,path_probe}.rs + scripts/   interactive PTYs
@@ -68,8 +73,9 @@ src-tauri/                      Backend (Rust)
     extensions/{mod,commands,install,github,manifest,state,version}.rs
     cli_ext/{mod,commands,registry,install,helpers,types,scaffold,validate}.rs    headless `tedi ext`
     preview/{mod,proxy,util}.rs   `tedi-frame://` proxy scheme
-    format.rs secrets.rs net.rs mcp.rs backup.rs clipboard.rs appimage.rs
-    cli.rs cli_theme.rs cli_update.rs cli_paint.rs events.rs ids.rs lockext.rs
+    format.rs secrets.rs net.rs mcp.rs mcp_bridge.rs backup.rs clipboard.rs
+    appimage.rs automation.rs chatgpt_auth.rs dock.rs events.rs ids.rs lockext.rs
+    cli.rs cli_theme.rs cli_update.rs cli_paint.rs
   tedi-cli/                     Windows console-subsystem `tedi` launcher (separate crate)
   capabilities/                 plugin API allowlist for the webview
 
@@ -79,8 +85,8 @@ src/                            Frontend (React webview), alias @/* -> src/*
   settings/                     Settings UI (SEPARATE webview, entry settings/main.tsx)
   debug/                        AI debug-capture viewer (SEPARATE webview, entry debug.html)
   float/                        Floated pane window (SEPARATE webview, entry float.html)
-  components/ui/                shadcn (generated; don't hand-edit)
-  components/ai-elements/       Vercel AI Elements (generated; don't hand-edit)
+  components/ui/                shadcn, SCAFFOLDED then owned (see Conventions)
+  components/ai-elements/       Vercel AI Elements, same rule
   components/BrandIcon.tsx      provider/brand marks without a Lucide equivalent
   lib/                          shared helpers (cn, path, format, iconRegistry, ...)
   styles/                       global CSS / theme tokens
@@ -94,23 +100,27 @@ src/                            Frontend (React webview), alias @/* -> src/*
 
 ## Backend (`src-tauri/src/modules/`)
 
-| Module         | Key commands / role                                                                                                                                                                                                  |
-| -------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`         | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                |
-| `pty_daemon/`  | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                    |
-| `fs/`          | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                        |
-| `shell/`       | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                |
-| `git/`         | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                  |
-| `ssh/`         | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                   |
-| `extensions/`  | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                    |
-| `preview/`     | `tedi-frame://` async URI-scheme proxy: strips X-Frame-Options / CSP frame-ancestors and rewrites subresource references so an iframe can embed a page that would otherwise refuse (the extension marketplace card). |
-| `format.rs`    | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                        |
-| `secrets.rs`   | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                       |
-| `net.rs`       | `http_ping` dev-server probe.                                                                                                                                                                                        |
-| `mcp.rs`       | Model Context Protocol support for the AI subsystem.                                                                                                                                                                 |
-| `backup.rs`    | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                    |
-| `clipboard.rs` | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                               |
-| `cli*.rs`      | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                       |
+| Module            | Key commands / role                                                                                                                                                                                                  |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`            | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                |
+| `pty_daemon/`     | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                    |
+| `fs/`             | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                        |
+| `shell/`          | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                |
+| `git/`            | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                  |
+| `ssh/`            | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                   |
+| `extensions/`     | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                    |
+| `preview/`        | `tedi-frame://` async URI-scheme proxy: strips X-Frame-Options / CSP frame-ancestors and rewrites subresource references so an iframe can embed a page that would otherwise refuse (the extension marketplace card). |
+| `format.rs`       | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                        |
+| `secrets.rs`      | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                       |
+| `net.rs`          | `http_ping` dev-server probe.                                                                                                                                                                                        |
+| `mcp.rs`          | Model Context Protocol support for the AI subsystem.                                                                                                                                                                 |
+| `backup.rs`       | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                    |
+| `clipboard.rs`    | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                               |
+| `dock.rs`         | `dock_adopt/place/clip/release_window`: reparent another process's window as a `WS_CHILD` so a pane can hold a real browser. Windows only.                                                                           |
+| `mcp_bridge.rs`   | The local socket (named pipe / unix socket) an outside AI CLI reaches a running window through. The default MCP transport; CDP is the fallback for real input only.                                                  |
+| `automation.rs`   | Where the automation port comes from: WebView2 fixes its browser arguments before the first webview exists, so the port is read from the settings file at startup, not from an env var.                              |
+| `chatgpt_auth.rs` | OAuth PKCE sign-in with a ChatGPT account (loopback listener on 1455, no CORS on the exchange, refresh token straight to the keychain), so a subscription pays for a turn instead of API credits.                    |
+| `cli*.rs`         | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                       |
 
 Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
 `autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
@@ -124,6 +134,21 @@ Init scripts in `pty/scripts/` bootstrap shells to emit **OSC 7** (cwd) and
 bash (`--rcfile`), fish. Windows: pwsh 7+ (falls back to powershell 5.1, then cmd
 with no integration). `pty/shell_init.rs` is split into `#[cfg(unix)]` /
 `#[cfg(windows)]` arms; keep new platform code in the right arm.
+
+The shells are NOT at parity, so check this before relying on a marker:
+
+| Shell | OSC 7 | 133 A/B | 133 C | 133 D | `tedi_open` / `tp` (OSC 8888) |
+| ----- | ----- | ------- | ----- | ----- | ----------------------------- |
+| zsh   | yes   | yes     | yes   | yes   | yes                           |
+| bash  | yes   | yes     | yes   | yes   | yes                           |
+| fish  | yes   | yes     | yes   | yes   | no                            |
+| pwsh  | yes   | yes     | no    | yes   | no                            |
+
+pwsh has no native pre-exec hook. A PSReadLine Enter chord used to emit
+**133 C** and was removed: it was fragile across PSReadLine versions and crashed
+the shell intermittently. The frontend synthesises command-start from the Enter
+keystroke instead (`terminal/lib/aiCliDetector.ts`), so anything deriving "a
+command is running" must not assume C has arrived.
 
 ### PTY daemon (persistence)
 
@@ -157,7 +182,7 @@ Logs at `<data_dir>/id.ilhamrisky.tedi/logs/tedi-ptyd.log` (`TEDI_PTYD_LOG=debug
 
 macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
-## Frontend (`src/modules/`, 21 modules)
+## Frontend (`src/modules/`, 20 modules)
 
 | Module            | Role                                                                                                                                                                                                                                                                                             |
 | ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -444,9 +469,17 @@ ${file}`).
 - **Icons**: `lucide-react` imported by name (`import { Search } from
 "lucide-react"`). Brand marks: `components/BrandIcon.tsx`. Dynamic/extension
   icons: `lib/iconRegistry.ts` `resolveExtIcon` (accepts `lucide:<Name>` and
-  legacy `hugeicon:<Name>`).
-- **Styling**: Tailwind v4 (`src/App.css` `@theme`, no `tailwind.config.*`);
-  `cn()` from `@/lib/utils`. shadcn/ui + AI Elements are generated, not hand-edited.
+  legacy `hugeicon:<Name>`). Every surface that draws an EXTENSION's icon goes
+  through `extensions/icon.ts` `useExtensionIcon`, which resolves a name, an
+  asset path or a `data:` URL in one place. Core holds no per-extension icon
+  table: an extension picks its glyph in its own manifest.
+- **Styling**: Tailwind v4 (`src/styles/globals.css` + `shadcn-tailwind.css` `@theme`, no `tailwind.config.*`);
+  `cn()` from `@/lib/utils`. shadcn/ui and AI Elements were SCAFFOLDED from their
+  registries and are now OWNED: `ui/button` and `ui/toast` carry TEDI tokens, six
+  of the eleven `ai-elements/` files carry TEDI code, and `ui/field`,
+  `icon-tooltip`, `pixel-activity` and `search-option-toggle` are TEDI's own. Add
+  a NEW component with the CLI; never re-run it over an existing one, which
+  silently reverts all of that.
 - **Imports**: always `@/...`, never relative across modules.
 - **Paths**: split with `.split(/[\\/]/)`; canonical frontend form is
   forward-slash (convert `homeDir()` backslashes at the boundary). OSC 7 arrives

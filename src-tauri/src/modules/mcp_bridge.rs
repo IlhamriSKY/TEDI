@@ -163,7 +163,7 @@ pub fn cleanup() {
     }
     #[cfg(unix)]
     {
-        let _ = std::fs::remove_file(socket_path());
+        let _ = std::fs::remove_file(crate::modules::local_socket::path(STEM));
     }
 }
 

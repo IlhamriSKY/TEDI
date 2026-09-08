@@ -49,6 +49,9 @@ const fail = (msg: string): void => {
 
 const expressions: string[] = [];
 
+/** True for the `{ v }`-enveloped shape `Driver#tedi` builds. */
+const isTediCall = (e: string): boolean => e.includes("=> ({ v })");
+
 /**
  * Stands in for the CDP socket: records what would be evaluated, and answers
  * with a shape the caller can keep working from.
@@ -58,9 +61,6 @@ const expressions: string[] = [];
  * `editors()`, and the first one to get a non-mappable answer throws into
  * `state`'s degrade path, which would silently skip the rest.
  */
-/** True for the `{ v }`-enveloped shape `Driver#tedi` builds. */
-const isTediCall = (e: string): boolean => e.includes("=> ({ v })");
-
 const fakeCdp = {
   send(method: string, params: { expression?: string }) {
     if (method === "Runtime.evaluate" && params.expression) {

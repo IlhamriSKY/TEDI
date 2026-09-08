@@ -139,12 +139,12 @@ Fix [IR]: sanitize LD_LIBRARY_PATH for child processes when running as AppImage
 
 This is [Conventional Commits](https://www.conventionalcommits.org/) with two additions - the type and scope are capitalised, and every subject carries the author's initials.
 
-| Part      | Rule                                                                                                                        |
-| --------- | --------------------------------------------------------------------------------------------------------------------------- |
-| `Type`    | Capitalised. One of `Feat`, `Fix`, `Chore`, `Docs`, `Perf`, `Refactor`, `Test`, `Build`, `CI`, `Style`, `Release`. Append `!` for a breaking change: `Feat! [IR]: drop the v1 config` |
+| Part      | Rule                                                                                                                                                                                        |
+| --------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Type`    | Capitalised. One of `Feat`, `Fix`, `Chore`, `Docs`, `Perf`, `Refactor`, `Test`, `Build`, `CI`, `Style`, `Release`. Append `!` for a breaking change: `Feat! [IR]: drop the v1 config`       |
 | `(Scope)` | Optional but preferred. Capitalised; acronyms stay upper-case - `(UI)`, `(AI)`, `(SSH)`, `(SCM)`, `(MCP)`, `(CLI)`, not `(Ui)`. Hyphenated scopes capitalise both halves: `(Remote-Access)` |
-| `[II]`    | **Required.** The initials of whoever wrote the change - first letter of first name plus first letter of last name, upper-case. Not the initials of whoever merges it |
-| `subject` | Imperative mood, lower-case first word, no trailing period. Say what the change does, not what you did                        |
+| `[II]`    | **Required.** The initials of whoever wrote the change - first letter of first name plus first letter of last name, upper-case. Not the initials of whoever merges it                       |
+| `subject` | Imperative mood, lower-case first word, no trailing period. Say what the change does, not what you did                                                                                      |
 
 Common scopes: `Terminal`, `Editor`, `Explorer`, `Panes`, `Tabs`, `PTY`, `AI`, `Settings`, `Shortcuts`, `SSH`, `SCM`, `UI`, `Extensions`, `Browser`, `Installer`, `CI`.
 
@@ -185,12 +185,13 @@ src-tauri/        Rust backend (every #[tauri::command] is registered in src/lib
 src/
   app/App.tsx     Top-level coordinator (cross-module wiring, not feature logic)
   settings/       Settings UI (a SEPARATE Tauri webview; distinct from src/modules/settings/)
-  components/      shadcn/ui + Vercel AI Elements (generated; don't hand-edit)
+  components/      shadcn/ui + Vercel AI Elements, scaffolded then OWNED (many carry TEDI edits)
   lib/            Shared helpers
-  modules/        19 self-contained features:
-                  terminal, editor, explorer, panes, tabs, workspaces, header,
-                  statusbar, shortcuts, commandPalette, settings, theme, ai, scm,
-                  ssh, browser, scheduler, updater, extensions
+  modules/        20 self-contained features:
+                  ai, automation, commandPalette, editor, explorer, extensions,
+                  header, mcpInstall, panes, scheduler, scm, settings,
+                  shortcuts, ssh, statusbar, tabs, terminal, theme, updater,
+                  workspaces
 ```
 
 For the exhaustive per-file reference (every command, every gotcha) see [TEDI.md](TEDI.md).

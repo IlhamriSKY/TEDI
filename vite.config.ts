@@ -6,7 +6,7 @@ import { defineConfig } from "vite";
 const host = process.env.TAURI_DEV_HOST;
 
 // https://vite.dev/config/
-export default defineConfig(async ({ mode }) => ({
+export default defineConfig(async () => ({
   plugins: [react(), tailwindcss()],
   resolve: {
     alias: {
@@ -19,10 +19,14 @@ export default defineConfig(async ({ mode }) => ({
       "@mcp": path.resolve(__dirname, "./scripts/mcp"),
     },
   },
-  esbuild: {
-    drop: mode === "production" ? (["debugger"] as ["debugger"]) : [],
-    pure: mode === "production" ? ["console.debug", "console.info", "console.trace"] : [],
-  },
+  // NO `esbuild:` BLOCK. Vite 8 transforms with Oxc and deprecated that key;
+  // the `drop` / `pure` lists that used to strip `debugger` and
+  // `console.debug|info|trace` from release builds were silently ignored from
+  // the moment of the bump, and the built bundle still carried every one of
+  // them. Oxc exposes no equivalent, so dead config was removed rather than
+  // left to imply a guarantee that had stopped holding. Gate developer chatter
+  // at runtime instead - `import.meta.env.DEV` is statically replaced, so a
+  // `if (!import.meta.env.DEV) return;` really does drop the branch.
   build: {
     target: process.env.TAURI_ENV_PLATFORM === "windows" ? "chrome105" : "es2020",
     chunkSizeWarningLimit: 1500,

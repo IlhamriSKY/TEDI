@@ -682,10 +682,6 @@ export type ExtensionContext = {
 
 const STORAGE_FILE = (id: string) => `tedi-ext-${id}.json`;
 
-/**
- * Builds the per-extension storage facade. Lazy-imports `tauri-plugin-store`
- * so the LazyStore is only created on first use.
- */
 /** Two PATH entries pointing at the same directory. Windows is case-insensitive
  *  and accepts forward slashes, and a trailing separator means nothing anywhere,
  *  so `C:/Tools/`, `C:\Tools` and `c:\tools` are one folder. Mirrors
@@ -700,6 +696,7 @@ function sameTerminalDir(a: string, b: string): boolean {
   return norm(a) === norm(b);
 }
 
+/** Lazy-imports `tauri-plugin-store` so the LazyStore is created on first use. */
 async function buildStorage(id: string): Promise<ExtensionContext["storage"]> {
   const { LazyStore } = await import("@tauri-apps/plugin-store");
   const store = new LazyStore(STORAGE_FILE(id), { defaults: {}, autoSave: 200 });
@@ -727,11 +724,12 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   const storage = await buildStorage(ext.id);
   const declared = ext.manifest.permissions;
   const log = (level: "info" | "warn" | "error", args: unknown[]): void => {
-    // `info` is developer chatter, so it stops at the dev build - the same rule
-    // vite's esbuild `pure` list applies to the app's own console.info. That
-    // list cannot reach this call: `console[level]` is a computed access, which
-    // is how every extension's info logs ended up in a shipped build's console.
-    // warn and error stay: they are the only diagnostics a packaged app has.
+    // `info` is developer chatter, so it stops at the dev build. The gate has
+    // to be this explicit check: `import.meta.env.DEV` is statically replaced,
+    // so the branch really is dropped, whereas a bundler-side "pure function"
+    // list could never have reached `console[level]` anyway - it is a computed
+    // access. warn and error stay; they are the only diagnostics a packaged app
+    // has.
     if (level === "info" && !import.meta.env.DEV) return;
     // eslint-disable-next-line no-console
     console[level](`[ext:${ext.id}]`, ...args);

@@ -27,8 +27,8 @@ import { useEffect, useRef, useState } from "react";
  * elsewhere in App), so the hook takes no params. `keysLoaded` gates the boot
  * model-restore and the right-slot render, so it is returned. Effects are moved
  * verbatim from App with identical dependency arrays and source order; the
- * async hydration gates (`prefsHydrated`, `keysLoaded`, the `bootModelRestored`
- * ref) make their relative mount order irrelevant.
+ * async hydration gates (`prefsHydrated`, `keysLoaded`, the
+ * `bootModelRestoredRef`) make their relative mount order irrelevant.
  */
 export function useAiBootstrap(): { keysLoaded: boolean } {
   const setApiKeys = useChatStore((s) => s.setApiKeys);

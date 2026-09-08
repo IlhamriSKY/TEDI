@@ -18,6 +18,16 @@ import { todoProgress, useAgentTodos } from "@/modules/terminal/lib/agentTodos";
 import { ChevronRight, Folder, GitBranch } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 
+/** Left to right is the arc of one agent turn: waiting for work, doing it,
+ *  stopped for approval, finished and wanting attention. So the two columns
+ *  that actually want the user are the two nearest the end. */
+const COLUMNS: { state: AiCliState; label: string }[] = [
+  { state: "idle", label: "Idle" },
+  { state: "working", label: "Working" },
+  { state: "blocking", label: "Blocked" },
+  { state: "done", label: "Done" },
+];
+
 /**
  * Kanban of the workspace's AGENTS, grouped by what each is doing: a terminal
  * running an AI CLI, and a pane holding one of TEDI's own chats. Both report
@@ -38,17 +48,6 @@ import { useEffect, useMemo, useState } from "react";
  * It draws no chrome of its own: the pane frame already supplies the border and
  * the header, so a second border here would read as a box inside a box.
  */
-
-/** Left to right is the arc of one agent turn: waiting for work, doing it,
- *  stopped for approval, finished and wanting attention. So the two columns
- *  that actually want the user are the two nearest the end. */
-const COLUMNS: { state: AiCliState; label: string }[] = [
-  { state: "idle", label: "Idle" },
-  { state: "working", label: "Working" },
-  { state: "blocking", label: "Blocked" },
-  { state: "done", label: "Done" },
-];
-
 export function WorkspaceBoard({
   tabs,
   sshStatuses,

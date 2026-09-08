@@ -180,10 +180,9 @@ export function syncPaneMirror(tab: PaneTab): PaneTab {
  * Apply `update` to the pane tree of whichever tab holds `leafId`, and re-sync
  * that tab's mirror. Every other tab, and a tab whose tree is unchanged by
  * `update`, comes back by reference so callers can bail on a no-op. Shared
- * shape behind `renameLeaf`, `setLeafTerminalTheme`, `setLeafPtyId`,
- * `reorderLeafInGroup` (useTabs.ts) and `setBrowserLeafUrl`/
- * `setBrowserLeafTitle` (useAuxTabs.ts) - each just picks which `panes.ts`
- * mutator `update` calls.
+ * shape behind `renameLeaf`, `setCanvasRects`, `setLeafTerminalTheme`,
+ * `setLeafPtyId` and `reorderLeafInGroup` (all in `useTabs.ts`) - each just
+ * picks which `panes.ts` mutator `update` calls.
  */
 export function updateLeafTree(
   tabs: Tab[],

@@ -31,6 +31,7 @@ import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 import { makeTransport } from "./transport.mjs";
+import { tediDataFiles } from "./socket.mjs";
 import { TOOL_DEFS, TOOL_NAMES, validateArgs, extToolMedia } from "./tools.mjs";
 
 /**
@@ -365,7 +366,6 @@ const HANDLERS = {
     return `opened SSH connection ${a.id}, but its pane did not appear in time - call \`state\` for its leafId`;
   },
 
-
   pane: async (d, a) => {
     switch (a.action) {
       case "open": {
@@ -471,27 +471,11 @@ export const TOOLS = Object.fromEntries(
 // owns the pack -> tools mapping and writes the resolved flat list. A second
 // copy here would drift the first time a tool was renamed.
 
-/** Settings file, without an AppHandle. Both candidates because
- *  `tauri-plugin-store` resolves against the app CONFIG dir, which on Windows is
- *  the same Roaming folder as the data dir but on Linux is not. */
-function settingsCandidates() {
-  const home = process.env.APPDATA || process.env.XDG_CONFIG_HOME || process.env.HOME || "";
-  const id = process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi";
-  const roots = [
-    process.env.APPDATA,
-    process.env.XDG_CONFIG_HOME,
-    process.env.HOME && path.join(process.env.HOME, ".config"),
-    process.env.HOME && path.join(process.env.HOME, ".local", "share"),
-    home,
-  ].filter(Boolean);
-  return [...new Set(roots)].map((r) => path.join(r, id, "tedi-settings.json"));
-}
-
 /** `{ disabledTools, extensions }`, or the permissive default when the file is
  *  absent or unreadable. Never throws: a surface setting must not be able to
  *  stop the server from starting. */
 function readSurface() {
-  for (const file of settingsCandidates()) {
+  for (const file of tediDataFiles("tedi-settings.json")) {
     try {
       const j = JSON.parse(readFileSync(file, "utf8"));
       return {

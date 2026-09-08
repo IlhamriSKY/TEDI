@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (126 commands today).
+index of the backend API surface (111 commands today).
 
 ```mermaid
 flowchart LR
@@ -344,9 +344,12 @@ never silently widen a grant.
   without a Lucide equivalent live in `src/components/BrandIcon.tsx`. Dynamic,
   name-based lookups (extension icons) go through `src/lib/iconRegistry.ts`
   `resolveExtIcon`, which accepts `lucide:<Name>` and legacy `hugeicon:<Name>` refs.
-- **Styling:** Tailwind v4 (config in `src/App.css` via `@theme`, no
-  `tailwind.config.*`). Use `cn()` from `@/lib/utils`. shadcn/ui and Vercel AI
-  Elements are generated; regenerate rather than hand-editing.
+- **Styling:** Tailwind v4, configured via `@theme` in `src/styles/globals.css`
+  (which imports `shadcn-tailwind.css`), no `tailwind.config.*`. Use `cn()` from
+  `@/lib/utils`. shadcn/ui and Vercel AI Elements were scaffolded from their
+  registries and are now OWNED, not generated: several carry TEDI tokens and
+  TEDI logic. Use the CLI to add a NEW component; re-running it over an
+  existing one silently reverts those edits.
 - **Cross-platform:** resolve HOME and cache dirs via the `dirs` crate, never raw
   `$HOME`/`%USERPROFILE%`. Send `\r` (CR) for Enter, not `\n`. Gate Unix-only
   shell logic behind `#[cfg(unix)]` and keep Windows code in the `windows` arm.

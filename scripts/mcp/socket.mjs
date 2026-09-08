@@ -20,9 +20,16 @@ import net from "node:net";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 
-/** Same search order `readSurface` uses for `tedi-settings.json`, because the
- *  handshake file is written into the same directory. */
-function handshakeCandidates() {
+/**
+ * Where `name` may live under TEDI's per-user directory, in search order.
+ *
+ * Both the config and data roots, because `tauri-plugin-store` resolves a bare
+ * filename against the app CONFIG dir, which on Windows and macOS is the same
+ * folder as the data dir but on Linux is not. Mirrors `ids::settings_candidates`
+ * on the Rust side. Shared with `server.mjs`, which needs the same order for
+ * `tedi-settings.json` - the handshake is written into that same directory.
+ */
+export function tediDataFiles(name) {
   const home = process.env.APPDATA || process.env.XDG_CONFIG_HOME || process.env.HOME || "";
   const id = process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi";
   const roots = [
@@ -32,12 +39,12 @@ function handshakeCandidates() {
     process.env.HOME && path.join(process.env.HOME, ".local", "share"),
     home,
   ].filter(Boolean);
-  return [...new Set(roots)].map((r) => path.join(r, id, "mcp-bridge.json"));
+  return [...new Set(roots)].map((r) => path.join(r, id, name));
 }
 
 /** `{ socket, token }`, or null when TEDI is not running (or never wrote one). */
 export function readHandshake() {
-  for (const file of handshakeCandidates()) {
+  for (const file of tediDataFiles("mcp-bridge.json")) {
     try {
       const j = JSON.parse(readFileSync(file, "utf8"));
       if (typeof j.socket === "string" && typeof j.token === "string") return j;

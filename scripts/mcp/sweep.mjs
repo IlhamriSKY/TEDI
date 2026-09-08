@@ -20,7 +20,20 @@
  * deliberately not exercised is listed at the end rather than passed over.
  */
 
-const PROJECT = process.env.SWEEP_PROJECT ?? "D:\\Ilham\\Project\\laragon\\www\\TEDI - terax-ai";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Folder the sweep drives TEDI into before it starts.
+ *
+ * This repo by default, resolved from this file rather than written out: the
+ * default used to be the author's own absolute path, so on any other machine
+ * the preflight `cd` went nowhere and every later check failed for that one
+ * reason. `SWEEP_PROJECT` still overrides it - the requirement is only that the
+ * folder be a real project and not `$HOME` (see the header).
+ */
+const PROJECT = (
+  process.env.SWEEP_PROJECT ?? fileURLToPath(new URL("../..", import.meta.url))
+).replace(/[\\/]+$/, "");
 const SCRATCH = "sweep-scratch.md";
 
 const results = [];

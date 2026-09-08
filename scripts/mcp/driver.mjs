@@ -200,7 +200,7 @@ export class Cdp {
    * The one thing about TEDI a driving agent could not see AT ALL. A change that
    * throws in the webview leaves the DOM half-rendered and every other tool
    * reports the half-rendered result as the truth - the screenshot looks wrong,
-   * `read_dom` comes back short, and nothing anywhere says "an exception was
+   * a DOM `read` comes back short, and nothing anywhere says "an exception was
    * thrown". Console events are pushed by the renderer whether anyone asked or
    * not, so capturing them costs one listener and no round trips.
    *

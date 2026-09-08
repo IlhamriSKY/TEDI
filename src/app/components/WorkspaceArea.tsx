@@ -74,14 +74,6 @@ type Props = {
 >;
 
 /**
- * The center workspace column. Stacks the live PaneStack and the four overlay
- * surfaces (AI diff, git diff, SCM, extension tabs) in one relative box, each
- * shown/hidden by the active tab kind via the `invisible`/`pointer-events-none`
- * pattern (kept mounted so their session/scroll state survives a tab switch).
- * Lifted out of App verbatim; the per-leaf handlers arrive bundled as
- * `paneHandles`, with the chrome/ssh/tabs-api handlers threaded in alongside.
- */
-/**
  * One absolutely-positioned overlay in the workspace stack. Hidden rather than
  * unmounted, so a surface keeps its session and scroll position across a tab or
  * view switch. Extracted because the wrapper was written out five times with
@@ -99,6 +91,12 @@ function Overlay({ hidden, children }: { hidden: boolean; children: React.ReactN
   );
 }
 
+/**
+ * The center workspace column: the live PaneStack plus the four overlay
+ * surfaces (AI diff, git diff, SCM, extension tabs) stacked in one relative
+ * box, each shown or hidden by the active tab kind. Per-leaf handlers arrive
+ * bundled as `paneHandles`, with the chrome / ssh / tabs-api ones alongside.
+ */
 export function WorkspaceArea({
   tabs,
   activeId,
