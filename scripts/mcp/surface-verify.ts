@@ -218,5 +218,39 @@ if (!/AGENT_DENIED_PREFS\.has\(key as PrefKey\)/.test(storeSrc)) {
   fail("_writePreference does not consult AGENT_DENIED_PREFS");
 } else ok("the deny-set is declared and enforced in _writePreference");
 
+// ---------------------------------------------------------------------------
+// 6. The installed app ships every file `server.mjs` reaches.
+// ---------------------------------------------------------------------------
+//
+// These are plain ES modules with no bundler: the app spawns `server.mjs` from
+// the resource directory and node resolves `./transport.mjs` beside it. A file
+// left out of `tauri.conf.json` is therefore not a degraded server, it is
+// ERR_MODULE_NOT_FOUND before the first request - and it is invisible in dev,
+// where node resolves against the repo and everything is present. `transport`
+// and `socket` were both missing for exactly that reason.
+console.log("\n[bundle] every module server.mjs imports is a bundle resource");
+
+const reachable = new Set<string>();
+async function collectImports(file: string): Promise<void> {
+  if (reachable.has(file)) return;
+  reachable.add(file);
+  const src = await readFile(`scripts/mcp/${file}`, "utf8");
+  for (const m of src.matchAll(/from "\.\/([A-Za-z0-9_.-]+)"/g)) await collectImports(m[1]);
+}
+await collectImports("server.mjs");
+
+const conf = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8")) as {
+  bundle: { resources: Record<string, string> };
+};
+const shipped = new Set(
+  Object.keys(conf.bundle.resources)
+    .filter((k) => k.includes("scripts/mcp/"))
+    .map((k) => k.slice(k.lastIndexOf("/") + 1)),
+);
+const absent = [...reachable].filter((f) => !shipped.has(f)).sort();
+if (absent.length) {
+  fail(`tauri.conf.json does not ship: ${absent.join(", ")} - the server cannot start installed`);
+} else ok(`all ${reachable.size} reachable modules are bundled`);
+
 console.log(failed ? `\n${failed} check(s) FAILED` : "\nALL PASS");
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
