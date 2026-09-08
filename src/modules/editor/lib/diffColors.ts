@@ -12,6 +12,7 @@
  * (before this runs) is unchanged; `applyEditorDiffColors` then snaps them to
  * the editor theme's pair.
  */
+import { EditorView } from "@codemirror/view";
 import type { EditorThemeId } from "@/modules/settings/store";
 
 type DiffPair = { added: string; removed: string };
@@ -32,6 +33,23 @@ const EDITOR_DIFF_COLORS: Record<EditorThemeId, DiffPair> = {
 
 const VAR_ADDED = "--tedi-editor-diff-added";
 const VAR_REMOVED = "--tedi-editor-diff-removed";
+
+/**
+ * Shared by both diff panes (AI proposed-edit and Git side-by-side), so they
+ * cannot drift apart.
+ *
+ * Replaces `@codemirror/merge`'s default 2px gradient underline with a block
+ * background: on a pure insertion the underline read as decoration rather than
+ * as changed text. The tint comes from the EDITOR-owned var above, not an app
+ * theme token, so it follows the code theme. MergeView's outer scroll wiring
+ * stays in `globals.css` (`.cm-mergeView`), which `EditorView.theme` cannot
+ * reach.
+ */
+export const DIFF_THEME = EditorView.theme({
+  ".cm-changedText": {
+    background: `color-mix(in srgb, var(${VAR_ADDED}) 18%, transparent) !important`,
+  },
+});
 
 /** Write the editor theme's diff tint onto `:root`. Idempotent. */
 export function applyEditorDiffColors(id: EditorThemeId): void {

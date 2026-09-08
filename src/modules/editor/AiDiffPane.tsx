@@ -7,6 +7,7 @@ import { EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
 import CodeMirror, { type ReactCodeMirrorRef } from "@uiw/react-codemirror";
 import { useEffect, useMemo, useRef } from "react";
+import { DIFF_THEME } from "./lib/diffColors";
 import { buildSharedExtensions, languageCompartment } from "./lib/extensions";
 import { resolveLanguage } from "./lib/languageResolver";
 import { useEditorTheme } from "./lib/themes";
@@ -21,18 +22,6 @@ type Props = {
   onAccept: () => void;
   onReject: () => void;
 };
-
-// Override default merge styles: replace the default 2px linear-gradient
-// underline with proper block backgrounds. Reads cleaner - especially for
-// pure insertions, where the underline-style marker looked decorative.
-const DIFF_THEME = EditorView.theme({
-  // Inline added-text highlight inside merge view. Reads the EDITOR-owned
-  // `--tedi-editor-diff-added` token so the diff tint follows the code-editor
-  // theme (set by `applyEditorDiffColors`), not the app theme.
-  ".cm-changedText": {
-    background: "color-mix(in srgb, var(--tedi-editor-diff-added) 18%, transparent) !important",
-  },
-});
 
 const STATUS_LABEL: Record<AiDiffStatus, string> = {
   pending: "Pending review",

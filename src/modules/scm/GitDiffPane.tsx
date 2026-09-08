@@ -7,6 +7,7 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { DIFF_THEME } from "@/modules/editor/lib/diffColors";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
 import { useEditorTheme } from "@/modules/editor/lib/themes";
@@ -77,17 +78,6 @@ type SizeInfo = {
   linesB: number;
   tooLarge: boolean;
 };
-
-// Match AiDiffPane's diff coloring. MergeView scroll wiring lives in
-// `globals.css` (.cm-mergeView); EditorView.theme can't reach the outer wrapper.
-// Inline added-text highlight reads the EDITOR-owned `--tedi-editor-diff-added`
-// token (set from `editorTheme` by `applyEditorDiffColors`), so the diff tint
-// follows the code-editor theme, not the app theme.
-const DIFF_THEME = EditorView.theme({
-  ".cm-changedText": {
-    background: "color-mix(in srgb, var(--tedi-editor-diff-added) 18%, transparent) !important",
-  },
-});
 
 // One tick on the overview ruler. `total` is the owning pane's line count,
 // used to position the mark by percentage. `jumpTo` scrolls that pane to startLine.

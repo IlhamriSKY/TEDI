@@ -34,7 +34,7 @@ import { Spinner } from "@/components/ui/spinner";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { toast } from "@/components/ui/toast";
+import { usePrAction } from "./usePrAction";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { cn } from "@/lib/utils";
 import {
@@ -223,7 +223,6 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [tab, setTab] = useState<"diff" | "conversation">("diff");
-  const [running, setRunning] = useState<string | null>(null);
   const [openFiles, setOpenFiles] = useState<Set<string>>(() => new Set());
   /** Non-null while the review form is open; the verdict picks the gh flag. */
   const [verdict, setVerdict] = useState<ReviewVerdict | null>(null);
@@ -284,27 +283,10 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
     });
   }, []);
 
-  const act = useCallback(
-    async (label: string, fn: () => Promise<void>, done?: string) => {
-      if (running || busy) return;
-      setRunning(label);
-      try {
-        await fn();
-        toast(done ?? `${label} finished.`, { variant: "success" });
-        onRefresh();
-        await load();
-      } catch (e) {
-        toast(friendlyGhError(e), { variant: "error" });
-      } finally {
-        setRunning(null);
-      }
-    },
-    [running, busy, onRefresh, load],
-  );
+  const { running, busyAll, act } = usePrAction({ busy, onRefresh, load });
 
   const checks = useMemo(() => summarizeChecks(pr?.statusCheckRollup), [pr]);
   const blocked = pr ? mergeBlockReason(pr) : "Loading…";
-  const busyAll = busy || running !== null;
 
   /**
    * The conversation, oldest first: the description is the first message, and

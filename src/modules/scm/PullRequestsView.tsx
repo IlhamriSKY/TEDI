@@ -23,7 +23,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Spinner } from "@/components/ui/spinner";
-import { toast } from "@/components/ui/toast";
+import { usePrAction } from "./usePrAction";
 import { cn } from "@/lib/utils";
 import { CreatePrDialog, StackBranchDialog } from "./components/PrDialogs";
 import { PrReviewView } from "./PrReviewView";
@@ -115,7 +115,6 @@ export function PullRequestsView({
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   /** Label of the gh operation in flight, which also blocks a second one. */
-  const [running, setRunning] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   /** Non-null while the branch-name dialog is open; the mode picks the gh verb. */
   const [stackPrompt, setStackPrompt] = useState<"init" | "add" | null>(null);
@@ -173,24 +172,7 @@ export function PullRequestsView({
    * is a subprocess plus a network round trip, so the lists refresh when the
    * user acts or asks, not on a timer.
    */
-  const act = useCallback(
-    async (label: string, fn: () => Promise<void>, done?: string) => {
-      if (running || busy) return;
-      setRunning(label);
-      try {
-        await fn();
-        toast(done ?? `${label} finished.`, { variant: "success" });
-        // gh checkout / sync move HEAD, so the panel's own status is stale too.
-        onRefresh();
-        await load();
-      } catch (e) {
-        toast(friendlyGhError(e), { variant: "error" });
-      } finally {
-        setRunning(null);
-      }
-    },
-    [running, busy, onRefresh, load],
-  );
+  const { running, busyAll, act } = usePrAction({ busy, onRefresh, load });
 
   const rows = useMemo(() => (view ? stackRows(view, prs) : []), [view, prs]);
   const loose = useMemo(() => loosePrs(view, prs), [view, prs]);
@@ -221,7 +203,6 @@ export function PullRequestsView({
     [act, gh],
   );
 
-  const busyAll = busy || running !== null;
   /** The blocked states are all fixed outside TEDI, so each one needs a way
    *  back in without making the user switch tabs to force a remount. */
   const retry = (
