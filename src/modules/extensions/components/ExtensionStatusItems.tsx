@@ -2,7 +2,7 @@
  * Status-bar slot for extension icons. Renders every `StatusItem` in
  * `statusItemsRegistry`, metered items first, then by (extensionId, itemId).
  * Icons are 16 px (size-4), no frame. Bytes cached via `loadExtensionIcon`.
- * Tone: `success` full opacity, `warning` pulses, `error` adds a red corner dot.
+ * Tone: `success` full opacity, `warning` pulses, `error` paints the icon red.
  */
 import { useState } from "react";
 
@@ -48,7 +48,7 @@ export function useStatusItemEntries(): StatusItemEntry[] {
 // The three severities ride the THEME's status triad (the same tokens the AI
 // CLI badge uses), not fixed Tailwind hues: a Claude/Codex meter in a warm or
 // monochrome preset used to sit at emerald/amber/red no matter what the rest of
-// the window looked like. `error` already matched, via the corner dot below.
+// the window looked like. `error` already matched, via its red icon below.
 const BAR_FILL: Record<NonNullable<StatusItem["tone"]>, string> = {
   error: "bg-icon-blocked",
   warning: "bg-icon-working",
@@ -267,13 +267,25 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   const { Icon, url: iconUrl, isSvg } = useExtensionIcon(extensionId, item.icon);
   const isLive = item.tone === "success";
   const isPulsing = item.tone === "warning";
-  // Only `error` gets a corner dot. `warning` pulses instead.
-  const dot = item.tone === "error" ? "bg-icon-blocked" : null;
+  // `error` paints the ICON red rather than adding a corner dot beside it.
+  //
+  // The dot was a second mark for a state the icon was already showing - and it
+  // showed it by going MUTED, so a failing extension read as a disabled one
+  // with something stuck to it. One glyph, in the colour of what it means,
+  // matches how every other state here works and how the row's own status
+  // lights work.
+  const isError = item.tone === "error";
   // Icon-only items keep the plain-icon tint. A metered item (has `label`
   // or `progress`) tints its icon by tone too so it never sits at 40% muted
   // beside a live bar.
   const hasMeter = item.progress != null || item.label != null;
   const iconLive = isLive || hasMeter;
+  /** The icon's colour class, whichever of the three shapes renders it. */
+  const iconTint = isError
+    ? "text-icon-blocked"
+    : iconLive
+      ? "text-foreground"
+      : "text-muted-foreground/40";
 
   const onClick = item.onClick;
   const interactive = typeof onClick === "function";
@@ -282,11 +294,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
     <Icon
       size={16}
       strokeWidth={1.8}
-      className={cn(
-        "transition-colors duration-200",
-        iconLive ? "text-foreground" : "text-muted-foreground/40",
-        isPulsing && "animate-pulse",
-      )}
+      className={cn("transition-colors duration-200", iconTint, isPulsing && "animate-pulse")}
     />
   ) : iconUrl ? (
     isSvg ? (
@@ -300,7 +308,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
         }}
         className={cn(
           "size-4 transition-colors duration-200",
-          iconLive ? "bg-foreground" : "bg-muted-foreground/40",
+          isError ? "bg-icon-blocked" : iconLive ? "bg-foreground" : "bg-muted-foreground/40",
           isPulsing && "animate-pulse",
         )}
       />
@@ -310,7 +318,9 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
         alt=""
         className={cn(
           "size-4 object-contain transition-opacity duration-200",
-          iconLive ? "opacity-100" : "opacity-40 grayscale",
+          // A bitmap carries its own colours and cannot be tinted, so an error
+          // shows as full opacity rather than the muted-and-grey "off" look.
+          iconLive || isError ? "opacity-100" : "opacity-40 grayscale",
           isPulsing && "animate-pulse",
         )}
         loading="lazy"
@@ -351,15 +361,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       ) : null}
     </>
   ) : (
-    <>
-      {iconEl}
-      {dot ? (
-        <span
-          aria-hidden
-          className={cn("ring-card absolute -top-0.5 -right-0.5 size-1.5 rounded-full ring-2", dot)}
-        />
-      ) : null}
-    </>
+    iconEl
   );
 
   return (
