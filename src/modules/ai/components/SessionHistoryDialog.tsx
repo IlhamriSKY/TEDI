@@ -78,7 +78,7 @@ export function SessionHistoryDialog() {
                   close();
                 }
               }}
-              placeholder="Filter sessions…"
+              placeholder="Filter sessions"
               spellCheck={false}
               className="h-8 pl-7 text-[12px]"
             />

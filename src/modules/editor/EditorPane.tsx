@@ -859,7 +859,7 @@ export function EditorPane({
   if (doc.status === "loading") {
     return (
       <div className="text-muted-foreground flex h-full items-center justify-center text-xs">
-        Loading…
+        Loading
       </div>
     );
   }
@@ -997,7 +997,7 @@ export function EditorPane({
               if (!runCommand("editor.saveAs")) void saveAsRef.current();
             }}
           >
-            Save As...
+            Save As
             <ContextMenuShortcut>{saveAsHint}</ContextMenuShortcut>
           </ContextMenuItem>
           <ContextMenuSeparator />

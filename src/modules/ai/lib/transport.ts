@@ -424,7 +424,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
             if (recovery.recovered) {
               deps.persistCompactedMessages?.(recovery.messages, recovery.info);
               requestMessages = recovery.messages;
-              deps.onStep?.("Context full - compacting and retrying…");
+              deps.onStep?.("Context full - compacting and retrying");
               continue;
             }
           }
@@ -436,7 +436,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
 
           if (attempt < MAX_RETRIES) {
             const delay = jitter(RETRY_BASE_MS * Math.pow(2, attempt));
-            deps.onStep?.(`Retrying in ${Math.round(delay / 1000)}s…`);
+            deps.onStep?.(`Retrying in ${Math.round(delay / 1000)}s`);
             await new Promise<void>((resolve) => setTimeout(resolve, delay));
             continue;
           }

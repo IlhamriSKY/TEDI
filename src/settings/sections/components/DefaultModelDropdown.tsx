@@ -153,7 +153,7 @@ export function DefaultModelDropdown({
                 e.stopPropagation();
               }
             }}
-            placeholder="Search models…"
+            placeholder="Search models"
             spellCheck={false}
             autoFocus
             className="h-7 text-[11.5px]"
@@ -222,7 +222,7 @@ export function DefaultModelDropdown({
               const dynamicNote =
                 dynamicStatus && hasKey
                   ? dynamicStatus === "loading"
-                    ? "Detecting models…"
+                    ? "Detecting models"
                     : dynamicStatus === "error"
                       ? "Detection failed - check key / URL"
                       : null

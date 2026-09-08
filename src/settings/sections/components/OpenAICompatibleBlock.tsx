@@ -406,11 +406,11 @@ export function OpenAICompatibleBlock({
               Unreachable{testError ? ` (${testError})` : ""}.
             </span>
           ) : testStatus === "testing" ? (
-            "Testing…"
+            "Testing"
           ) : !configured ? (
             "Add key & URL, then Save to detect models."
           ) : status === "loading" ? (
-            "Detecting models…"
+            "Detecting models"
           ) : status === "error" ? (
             <span className="text-destructive">Detection failed{error ? ` · ${error}` : ""}.</span>
           ) : status === "ok" ? (
@@ -442,7 +442,7 @@ export function OpenAICompatibleBlock({
             disabled={saving || !urlDraft.trim() || (!instance && !canSaveWithoutKey)}
             className="h-8 px-2 text-[11px]"
           >
-            {saving ? "Saving…" : "Save"}
+            {saving ? "Saving" : "Save"}
           </Button>
         )}
       </div>

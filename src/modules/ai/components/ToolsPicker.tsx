@@ -215,7 +215,7 @@ export function ToolsPicker() {
           <Input
             value={query}
             onChange={(e) => setQuery(e.target.value)}
-            placeholder="Filter tools…"
+            placeholder="Filter tools"
             aria-label="Filter tools"
             className="h-6 text-[11px]"
           />
@@ -235,7 +235,7 @@ export function ToolsPicker() {
           {tools === null ? (
             <div className="text-muted-foreground flex items-center gap-2 px-2.5 py-2 text-[11px]">
               <Spinner className="size-3" />
-              Loading tools…
+              Loading tools
             </div>
           ) : sections.length === 0 ? (
             <p className="text-muted-foreground px-2.5 py-2 text-[11px]">

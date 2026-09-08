@@ -94,7 +94,7 @@ export function ModelSection({
             onPointerDown={(e) => e.stopPropagation()}
             className="text-icon-working text-icon-working cursor-pointer rounded-sm px-1 text-[9px] tracking-normal normal-case underline-offset-2 hover:underline"
           >
-            Set key…
+            Set key
           </button>
         ) : null}
       </div>

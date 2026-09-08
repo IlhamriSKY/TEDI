@@ -58,7 +58,7 @@ worth keeping:
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tools.mjs`     | **The tool table**: name → pack, description, JSON Schema. The one definition, imported by both servers. Zero imports, because it ships as a bundle resource with no `node_modules` beside it. |
 | `tools.d.mts`   | Types for the above, since it must stay plain JS.                                                                                                                                              |
-| `server.mjs`    | The stdio JSON-RPC MCP server an outside CLI (Claude Code, Codex, …) spawns. Handlers only; every description and schema comes from `tools.mjs`.                                               |
+| `server.mjs`    | The stdio JSON-RPC MCP server an outside CLI (Claude Code, Codex) spawns. Handlers only; every description and schema comes from `tools.mjs`.                                               |
 | `transport.mjs` | Decides, per call, whether it goes over the local socket or CDP. `BRIDGED` is the map; everything else falls through to the driver.                                                            |
 | `socket.mjs`    | Client for the local-socket bridge: reads the handshake file, presents the token, calls capabilities by name.                                                                                  |
 | `driver.mjs`    | Drives a running TEDI window over the WebView2 DevTools Protocol. Class `Driver`. Still the only way to send trusted input or capture the window.                                              |

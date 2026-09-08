@@ -424,7 +424,7 @@ export function GitDiffPane({
       <div className="min-h-0 flex-1 overflow-hidden">
         {loading ? (
           <div className="text-muted-foreground flex h-full items-center justify-center text-xs">
-            Loading diff…
+            Loading diff
           </div>
         ) : error ? (
           <div className="text-destructive flex h-full items-center justify-center text-xs">

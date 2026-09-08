@@ -115,7 +115,7 @@ function LanguagePickerDialogImpl({
             data-slot="command-input"
             value={query}
             onValueChange={setQuery}
-            placeholder="Select language mode (search by name or extension)…"
+            placeholder="Select language mode (search by name or extension)"
             className="placeholder:text-muted-foreground w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
           />
           {query ? (

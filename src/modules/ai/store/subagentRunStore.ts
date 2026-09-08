@@ -21,7 +21,7 @@ export type SubagentRun = {
   startedAt: number;
   endedAt?: number;
   stepCount?: number;
-  /** Latest activity label while running (e.g. "Reading …", "Grepping …"). */
+  /** Latest activity label while running (e.g. "Reading agent.ts", "Grepping useEffect"). */
   currentStep?: string;
   durationMs?: number;
   error?: string;

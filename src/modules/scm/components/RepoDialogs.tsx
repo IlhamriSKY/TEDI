@@ -177,7 +177,7 @@ export function StashDialog({
       <Field label={`Saved stashes${list ? ` (${list.length})` : ""}`}>
         {list === null ? (
           <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-[11.5px]">
-            <Spinner className="size-3" /> Loading…
+            <Spinner className="size-3" /> Loading
           </div>
         ) : list.length === 0 ? (
           <p className="text-muted-foreground px-2 py-3 text-[11.5px]">No stashes yet.</p>
@@ -325,7 +325,7 @@ export function TagDialog({
       <Field label={`Existing tags${list ? ` (${list.length})` : ""}`}>
         {list === null ? (
           <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-[11.5px]">
-            <Spinner className="size-3" /> Loading…
+            <Spinner className="size-3" /> Loading
           </div>
         ) : list.length === 0 ? (
           <p className="text-muted-foreground px-2 py-3 text-[11.5px]">No tags yet.</p>
@@ -564,7 +564,7 @@ export function PublishGithubDialog({
         title="Publish to GitHub"
         description={
           checking
-            ? "Checking whether this repository is already on GitHub…"
+            ? "Checking whether this repository is already on GitHub"
             : `Already published as ${existing?.nameWithOwner}.`
         }
         footer={
@@ -582,7 +582,7 @@ export function PublishGithubDialog({
       >
         {checking ? (
           <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-[11.5px]">
-            <Spinner className="size-3" /> Asking gh…
+            <Spinner className="size-3" /> Asking gh
           </div>
         ) : null}
       </Shell>

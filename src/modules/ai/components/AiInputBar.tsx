@@ -359,11 +359,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     if (it) onPickItem(it);
   };
 
-  const voiceLabel = c.voice.recording
-    ? "Listening…"
-    : c.voice.transcribing
-      ? "Transcribing…"
-      : null;
+  const voiceLabel = c.voice.recording ? "Listening" : c.voice.transcribing ? "Transcribing" : null;
 
   // OS-level file drop onto the composer. Tauri intercepts native drag-drop
   // before the WebView sees it, so DOM onDrop never fires — we hit-test the
@@ -567,7 +563,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
                 trigger?.kind === "slash"
                   ? trigger.query
                     ? `No commands match "/${trigger.query}"`
-                    : "Type a command name…"
+                    : "Type a command name"
                   : trigger?.query
                     ? `Nothing matches ">${trigger.query}". Try a terminal number, or a snippet handle from Settings → Agents.`
                     : "Pick an open terminal, or type a snippet handle."

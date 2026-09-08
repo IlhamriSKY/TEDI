@@ -156,7 +156,7 @@ export function SshPermissionsDialog({ sessionId, path, onClose, onChanged }: Pr
             {error === null ? (
               <>
                 <Spinner className="size-3.5" />
-                Reading remote metadata…
+                Reading remote metadata
               </>
             ) : (
               <span className="text-destructive">{error}</span>

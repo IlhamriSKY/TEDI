@@ -249,7 +249,7 @@ export function ExplorerSearch({
                 if (target && !target.is_dir) openHit(target);
               }
             }}
-            placeholder="Go to file by name…"
+            placeholder="Go to file by name"
             className="h-7 pr-7 pl-6.5 text-xs"
           />
           {query ? (
@@ -269,7 +269,7 @@ export function ExplorerSearch({
         <ScrollArea className="min-h-0 flex-1">
           <div className="py-1" ref={listRef}>
             {searching && results.length === 0 ? (
-              <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching…</div>
+              <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching</div>
             ) : results.length === 0 ? (
               <div className="text-muted-foreground px-3 py-2 text-[11px]">No matches</div>
             ) : (

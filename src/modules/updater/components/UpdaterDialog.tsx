@@ -140,7 +140,7 @@ export function UpdaterDialog({
 
           {state.kind === "downloading" && (
             <>
-              <p className="text-muted-foreground">Downloading v{state.version}…</p>
+              <p className="text-muted-foreground">Downloading v{state.version}</p>
               <Progress
                 value={
                   state.total && state.total > 0
@@ -171,7 +171,7 @@ export function UpdaterDialog({
           )}
 
           {state.kind === "checking" && (
-            <p className="text-muted-foreground">Checking for updates…</p>
+            <p className="text-muted-foreground">Checking for updates</p>
           )}
 
           {state.kind === "idle" && (
@@ -198,7 +198,7 @@ export function UpdaterDialog({
           )}
           {state.kind === "downloading" && (
             <Button variant="outline" disabled>
-              Installing…
+              Installing
             </Button>
           )}
           {state.kind === "ready" && (
@@ -227,7 +227,7 @@ export function UpdaterDialog({
           ) : null}
           {state.kind === "checking" && (
             <Button variant="outline" disabled>
-              Checking…
+              Checking
             </Button>
           )}
         </DialogFooter>

@@ -110,7 +110,7 @@ export function GrepSearchBar({
                 }
               }
             }}
-            placeholder={useRegex ? "Regex" : "Find text in files…"}
+            placeholder={useRegex ? "Regex" : "Find text in files"}
             className={cn(
               "h-7 pl-7 text-xs",
               // Right padding scales with how many toggle buttons are
@@ -202,7 +202,7 @@ export function GrepSearchBar({
           <IconTooltip
             label={
               replacing
-                ? "Replacing…"
+                ? "Replacing"
                 : hits.length === 0
                   ? "No matches to replace"
                   : replaceArmed

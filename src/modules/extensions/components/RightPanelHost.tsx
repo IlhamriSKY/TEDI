@@ -235,7 +235,7 @@ export function RightPanelHost({
       {controlsSlot && dragHandle ? createPortal(dragHandle, controlsSlot) : null}
       {!renderer ? (
         <div className="text-muted-foreground pointer-events-none absolute inset-0 top-8 flex items-center justify-center text-[11px]">
-          Loading panel…
+          Loading panel
         </div>
       ) : null}
     </div>

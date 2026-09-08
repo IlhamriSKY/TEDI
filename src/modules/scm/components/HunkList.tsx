@@ -122,7 +122,7 @@ export function HunkList({ ops, change, reloadKey, onApplied, busy }: Props) {
     return (
       <div className="text-muted-foreground flex items-center gap-1.5 py-1 pl-8 text-[10.5px]">
         <Spinner className="size-3" />
-        Reading hunks…
+        Reading hunks
       </div>
     );
   }

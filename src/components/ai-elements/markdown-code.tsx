@@ -261,7 +261,7 @@ function TableSearchField({
         value={value}
         onChange={(e) => onChange(e.target.value)}
         aria-label="Search table"
-        placeholder="Search table…"
+        placeholder="Search table"
         className="bg-input/50 border-border/60 focus-visible:border-ring h-7 w-full rounded-md border py-1 pr-14 pl-7 text-[11px] outline-none"
       />
       {value.trim() ? (

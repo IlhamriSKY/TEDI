@@ -547,7 +547,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                       className="h-7 px-2 text-[11px]"
                       onClick={() => void pickKeyFile()}
                     >
-                      Import from file…
+                      Import from file
                     </Button>
                     {imported.kind === "loaded" ? (
                       <span className="text-muted-foreground truncate text-[10.5px]">
@@ -609,7 +609,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
                 className="w-[var(--radix-popover-trigger-width)] gap-0 overflow-hidden rounded-2xl p-0"
               >
                 <Command className="rounded-2xl">
-                  <CommandInput placeholder="Search saved hosts…" className="text-[12px]" />
+                  <CommandInput placeholder="Search saved hosts" className="text-[12px]" />
                   <CommandList className="max-h-56">
                     <CommandEmpty className="py-4 text-[11px]">No saved host found.</CommandEmpty>
                     <CommandGroup>
@@ -764,7 +764,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
           {error ? <p className="text-destructive text-[11px]">{error}</p> : null}
 
           {test.kind === "running" ? (
-            <p className="text-muted-foreground text-[11px]">Testing connection…</p>
+            <p className="text-muted-foreground text-[11px]">Testing connection</p>
           ) : test.kind === "ok" ? (
             <p className="text-diff-added text-[11px]">
               Connected · server key {test.fingerprint || "(unavailable)"} · {test.durationMs}ms
@@ -783,7 +783,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
             onClick={() => void runTest()}
             disabled={test.kind === "running" || saving}
           >
-            {test.kind === "running" ? "Testing…" : "Test connection"}
+            {test.kind === "running" ? "Testing" : "Test connection"}
           </Button>
           <div className="flex items-center gap-2">
             <DialogClose asChild>
@@ -792,7 +792,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
               </Button>
             </DialogClose>
             <Button size="sm" onClick={() => void save()} disabled={saving}>
-              {saving ? "Saving…" : editing ? "Save" : "Create"}
+              {saving ? "Saving" : editing ? "Save" : "Create"}
             </Button>
           </div>
         </DialogFooter>
@@ -815,7 +815,7 @@ function AgentPanel({ state, onRecheck }: { state: AgentState; onRecheck: () => 
       <div className="border-border/60 bg-muted/30 flex flex-col gap-1.5 rounded-md border px-2 py-1.5">
         <div className="flex items-center justify-between gap-2">
           {state.kind === "checking" ? (
-            <span className="text-muted-foreground text-[11px]">Checking ssh-agent…</span>
+            <span className="text-muted-foreground text-[11px]">Checking ssh-agent</span>
           ) : state.kind === "error" ? (
             <span className="text-destructive text-[11px]">{state.message}</span>
           ) : state.keys.length === 0 ? (

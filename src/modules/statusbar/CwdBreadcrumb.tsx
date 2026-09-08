@@ -235,7 +235,7 @@ function SubfolderDropdown({
             </DropdownMenuItem>
           ) : state.status !== "loaded" || !interactive ? (
             <DropdownMenuItem disabled className="text-muted-foreground text-xs">
-              Loading…
+              Loading
             </DropdownMenuItem>
           ) : state.dirs.length === 0 ? (
             <DropdownMenuItem disabled className="text-muted-foreground text-xs">
@@ -277,7 +277,7 @@ function SubfolderDropdown({
                   if (e.key === "Escape") return;
                   e.stopPropagation();
                 }}
-                placeholder="Search folders…"
+                placeholder="Search folders"
                 className="placeholder:text-muted-foreground w-full bg-transparent text-xs outline-none"
               />
             </div>

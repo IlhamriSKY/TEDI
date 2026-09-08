@@ -156,12 +156,12 @@ export function BranchMenu({
             }}
           >
             <Plus size={12} strokeWidth={2} />
-            Create new branch…
+            Create new branch
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           {loading && branches === null ? (
             <div className="text-muted-foreground flex items-center gap-2 px-2 py-3 text-[11.5px]">
-              <Spinner className="size-3" /> Loading branches…
+              <Spinner className="size-3" /> Loading branches
             </div>
           ) : locals.length === 0 && remotes.length === 0 ? (
             <div className="text-muted-foreground px-2 py-3 text-[11.5px]">No branches found.</div>

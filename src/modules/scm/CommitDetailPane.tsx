@@ -80,7 +80,7 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff, onAction }: Props)
     return (
       <div className="text-muted-foreground flex items-center justify-center gap-2 px-3 py-8 text-center text-[11px]">
         <Spinner className="size-3" />
-        Loading commit…
+        Loading commit
       </div>
     );
   }
@@ -202,7 +202,7 @@ export function CommitDetailPane({ repoPath, sha, onOpenDiff, onAction }: Props)
                   className="h-6 px-2 text-[10.5px]"
                   aria-label="Reset this branch to this commit"
                 >
-                  Reset…
+                  Reset
                 </Button>
               </DropdownMenuTrigger>
               <DropdownMenuContent align="start" className="w-64">

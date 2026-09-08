@@ -109,7 +109,7 @@ export function OsPill({ sshSessionId, sshRoute, sshHostLabel }: Props) {
               {broken ? (
                 <span className="text-destructive">Stopped at {sshHopDetail(broken)}</span>
               ) : waitingOn ? (
-                <span className="text-muted-foreground">Waiting on {sshHopDetail(waitingOn)}…</span>
+                <span className="text-muted-foreground">Waiting on {sshHopDetail(waitingOn)}</span>
               ) : null}
             </>
           ) : host ? (

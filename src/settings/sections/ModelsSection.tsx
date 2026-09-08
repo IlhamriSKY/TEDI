@@ -209,7 +209,7 @@ export function ModelsSection() {
   };
 
   if (!keys) {
-    return <div className="text-muted-foreground text-[12px]">Loading…</div>;
+    return <div className="text-muted-foreground text-[12px]">Loading</div>;
   }
 
   // Native key providers (excluding OpenAI Compatible, which has its own
@@ -320,7 +320,7 @@ export function ModelsSection() {
                         e.stopPropagation();
                       }
                     }}
-                    placeholder="Search providers…"
+                    placeholder="Search providers"
                     spellCheck={false}
                     autoFocus
                     className="h-7 text-[11.5px]"

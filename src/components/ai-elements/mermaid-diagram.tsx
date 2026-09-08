@@ -80,7 +80,7 @@ export function MermaidDiagram({ code }: { code: string }) {
     };
   }, [code, resolvedTheme, streaming, id]);
 
-  if (streaming) return <Notice>Generating diagram…</Notice>;
+  if (streaming) return <Notice>Generating diagram</Notice>;
 
   if (failed) {
     // Invalid/unsupported diagram: fall back to the raw source so nothing is lost.
@@ -96,7 +96,7 @@ export function MermaidDiagram({ code }: { code: string }) {
     );
   }
 
-  if (!svg) return <Notice>Rendering diagram…</Notice>;
+  if (!svg) return <Notice>Rendering diagram</Notice>;
 
   return (
     <div

@@ -87,6 +87,12 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   // server, so their labels are keyed on the `mcp__<server>__<tool>` key the SDK
   // reports. Without these the step line reads "Calling mcp__tedi__sh" instead
   // of naming the command, which is the whole point of this map.
+  //
+  // ALL TWENTY, not the six that were here: the agent can call every tool in
+  // `scripts/mcp/tools.mjs` whose pack is on, and an unlabelled one both showed
+  // its raw `mcp__tedi__` name and dropped the running block back to the generic
+  // gait, since `stepMotion` reads these labels. `step-motion-verify` fails if a
+  // tool is added to that table without a line here.
   mcp__tedi__sh: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
   mcp__tedi__read: (i) => `Reading ${String(i.source ?? "terminal")}`,
   mcp__tedi__state: () => `Reading the window`,
@@ -94,6 +100,21 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
     i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
   mcp__tedi__pane: (i) => `Pane ${String(i.action ?? "")}`,
   mcp__tedi__focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
+  mcp__tedi__inspect: (i) => `Inspecting ${String(i.what ?? "TEDI")}`,
+  mcp__tedi__run_command: (i) => `Running ${String(i.id ?? "command")}`,
+  mcp__tedi__set_setting: (i) => `Setting ${String(i.key ?? "")}`,
+  mcp__tedi__extension: (i) => `Extension ${String(i.action ?? "")} ${String(i.id ?? "")}`.trim(),
+  mcp__tedi__open_file: (i) => `Opening ${shortPath(i.path)}`,
+  mcp__tedi__save_editor: () => `Saving the editor`,
+  mcp__tedi__keys: (i) =>
+    `Pressing ${ellipsize(Array.isArray(i.chords) ? i.chords.join(" ") : "", 40)}`,
+  mcp__tedi__type_text: (i) => `Typing ${ellipsize(String(i.text ?? ""), 40)}`,
+  mcp__tedi__click: (i) => `Clicking ${ellipsize(String(i.selector ?? ""), 40)}`,
+  mcp__tedi__drag: (i) => `Dragging ${ellipsize(String(i.selector ?? ""), 40)}`,
+  mcp__tedi__screenshot: () => `Capturing the window`,
+  mcp__tedi__ai: (i) => `Asking TEDI to ${String(i.action ?? "")}`.trim(),
+  mcp__tedi__ssh: (i) => `SSH ${String(i.action ?? "")}`.trim(),
+  mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {

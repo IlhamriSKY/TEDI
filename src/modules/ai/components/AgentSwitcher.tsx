@@ -218,7 +218,7 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
           className="text-muted-foreground gap-2 text-[12px]"
         >
           <Settings size={12} strokeWidth={2} />
-          Manage agents…
+          Manage agents
         </DropdownMenuItem>
       </DropdownMenuContent>
     </DropdownMenu>

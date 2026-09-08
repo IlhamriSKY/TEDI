@@ -103,7 +103,7 @@ export function ExtensionCard({
               {updating ? (
                 <>
                   <Spinner className="size-3" />
-                  Updating…
+                  Updating
                 </>
               ) : (
                 "Update"

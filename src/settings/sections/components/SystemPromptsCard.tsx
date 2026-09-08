@@ -614,7 +614,7 @@ export function PromptModelDropdown({
                 e.stopPropagation();
               }
             }}
-            placeholder="Search models…"
+            placeholder="Search models"
             spellCheck={false}
             autoFocus
             className="h-7 text-[11.5px]"

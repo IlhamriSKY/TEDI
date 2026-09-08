@@ -486,7 +486,7 @@ export function SshFileExplorer({
           <div className="mb-1 flex items-center justify-between gap-2 text-[11px]">
             <span className="text-foreground/80 min-w-0 truncate">
               {transfer.count === 0
-                ? "Preparing transfer…"
+                ? "Preparing transfer"
                 : `${transfer.kind === "upload" ? "Uploading" : "Downloading"} ${transfer.name}`}
               {transfer.count > 1 ? ` (${transfer.index}/${transfer.count})` : ""}
             </span>
@@ -517,7 +517,7 @@ export function SshFileExplorer({
         </div>
       ) : rootPath === null ? (
         <div className="text-muted-foreground flex flex-1 items-center justify-center text-[11px]">
-          Resolving remote home…
+          Resolving remote home
         </div>
       ) : (
         <>
@@ -558,7 +558,7 @@ export function SshFileExplorer({
                     </div>
                   )}
                   {root?.status === "loading" && (
-                    <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
+                    <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading</div>
                   )}
                   {root?.status === "error" &&
                     (() => {
@@ -650,19 +650,19 @@ export function SshFileExplorer({
                 className={COMPACT_ITEM}
                 onSelect={() => void pickAndUpload(rootPath, "files")}
               >
-                Upload Files Here…
+                Upload Files Here
               </ContextMenuItem>
               <ContextMenuItem
                 className={COMPACT_ITEM}
                 onSelect={() => void pickAndUpload(rootPath, "folder")}
               >
-                Upload Folder Here…
+                Upload Folder Here
               </ContextMenuItem>
               <ContextMenuItem
                 className={COMPACT_ITEM}
                 onSelect={() => void pickAndDownload(rootPath)}
               >
-                Download Folder…
+                Download Folder
               </ContextMenuItem>
               <ContextMenuSeparator />
               <ContextMenuItem
@@ -675,7 +675,7 @@ export function SshFileExplorer({
                 className={COMPACT_ITEM}
                 onSelect={() => setPermissionsPath(rootPath)}
               >
-                Permissions…
+                Permissions
               </ContextMenuItem>
               <ContextMenuItem className={COMPACT_ITEM} onSelect={() => tree.refreshAllLoaded()}>
                 Refresh

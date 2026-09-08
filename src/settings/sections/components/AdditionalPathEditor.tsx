@@ -253,7 +253,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
     return (
       <span className="text-muted-foreground/70 flex items-center gap-1 text-[10px]">
         <LoaderCircle size={11} strokeWidth={2} className="animate-spin" />
-        Checking folder…
+        Checking folder
       </span>
     );
   }

@@ -107,12 +107,19 @@
   }
 }
 
-/* One lit head travelling along a row of pixels (components/ui/pixel-activity.tsx).
- * Every cell runs the same cycle and the component staggers the delay, so the
- * row reads as movement rather than as five things blinking. The floor is 0.18
- * rather than 0 because the unlit state is a TRACK, the same dim rest the
- * status-bar meters draw behind an empty bar. Honors prefers-reduced-motion via
- * the global reset above, which leaves the cells sitting at that floor. */
+/* A pixel cell lighting and going out (components/ui/pixel-activity.tsx).
+ *
+ * TWO shapes, because the component draws eleven motions and the shape is what
+ * separates the mechanical ones from the rest: `chase` fades, so a sweep reads
+ * as one lit head travelling; `blink` snaps, so a caret, a shell command and a
+ * deletion read as discrete acts rather than as a glow. WHICH cell lights when
+ * is not here - that is the per-cell delay the component computes, so a new
+ * motion needs no new keyframe.
+ *
+ * The floor is 0.18 rather than 0 because the unlit state is a TRACK, the same
+ * dim rest the status-bar meters draw behind an empty bar. Both honor
+ * prefers-reduced-motion via the global reset above, which leaves the cells
+ * sitting at that floor. */
 @keyframes pixel-chase {
   0%,
   100% {
@@ -122,6 +129,24 @@
     opacity: 1;
   }
 }
+/* Lit for a third of the cycle with hard edges, and lighting at the same point
+ * in the cycle as `pixel-chase` peaks, so a delay computed once orders both. */
+@keyframes pixel-blink {
+  0%,
+  24% {
+    opacity: 0.18;
+  }
+  25%,
+  55% {
+    opacity: 1;
+  }
+  56%,
+  100% {
+    opacity: 0.18;
+  }
+}
+/* Name, duration and delay are all set inline per cell; this carries only what
+ * every motion shares. */
 .pixel-chase {
   animation: pixel-chase 0.9s ease-in-out infinite;
 }

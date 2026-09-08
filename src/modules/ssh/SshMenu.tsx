@@ -178,7 +178,7 @@ export function SshMenu({ onConnect }: Props) {
             SSH connections
           </DropdownMenuLabel>
           {conns === null ? (
-            <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
+            <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading</div>
           ) : conns.length === 0 ? (
             <div className="text-muted-foreground px-3 py-2 text-[11px]">No saved hosts yet.</div>
           ) : (
@@ -231,7 +231,7 @@ export function SshMenu({ onConnect }: Props) {
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={openAdd} className="gap-2 text-[12px]">
             <Plus size={13} strokeWidth={1.75} />
-            <span>Add new connection…</span>
+            <span>Add new connection</span>
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem
@@ -240,11 +240,11 @@ export function SshMenu({ onConnect }: Props) {
             className="gap-2 text-[12px]"
           >
             <Download size={13} strokeWidth={1.75} />
-            <span>Export connections…</span>
+            <span>Export connections</span>
           </DropdownMenuItem>
           <DropdownMenuItem onSelect={() => void openImport()} className="gap-2 text-[12px]">
             <Upload size={13} strokeWidth={1.75} />
-            <span>Import connections…</span>
+            <span>Import connections</span>
           </DropdownMenuItem>
           {pickError ? (
             <div className="text-destructive px-3 py-1 text-[10.5px]">{pickError}</div>

@@ -138,7 +138,7 @@ export function ShortcutsSection() {
           className="text-muted-foreground absolute top-1/2 left-3 -translate-y-1/2"
         />
         <Input
-          placeholder="Search shortcuts..."
+          placeholder="Search shortcuts"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           className="h-9 pl-9 text-[12.5px]"
@@ -250,9 +250,7 @@ function ShortcutRow({
           <span className="text-muted-foreground text-[10.5px]">Built-in. Not rebindable.</span>
         ) : null}
         {clash.length > 0 ? (
-          <span className="text-destructive text-[10.5px]">
-            Also used by {clash.join(", ")}
-          </span>
+          <span className="text-destructive text-[10.5px]">Also used by {clash.join(", ")}</span>
         ) : null}
       </div>
 
@@ -392,7 +390,7 @@ function Recorder({
 
   return (
     <div className="bg-accent/50 ring-accent flex items-center gap-2 rounded px-2 py-1 text-[11px] ring-1">
-      <span className="animate-pulse font-medium">Recording…</span>
+      <span className="animate-pulse font-medium">Recording</span>
       <span className="text-muted-foreground">(Esc to cancel)</span>
     </div>
   );

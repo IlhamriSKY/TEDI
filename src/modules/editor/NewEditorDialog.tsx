@@ -96,7 +96,7 @@ export function NewEditorDialog({ open, onOpenChange, rootPath, onCreated }: Pro
           <div className="text-destructive text-xs">{error}</div>
         ) : (
           <div className="text-muted-foreground truncate text-xs">
-            {rootPath ? joinPath(rootPath, name.trim() || "…") : "-"}
+            {rootPath ? (name.trim() ? joinPath(rootPath, name.trim()) : rootPath) : "-"}
           </div>
         )}
         <DialogFooter>

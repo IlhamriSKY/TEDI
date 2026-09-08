@@ -296,7 +296,7 @@ function HeaderImpl({
             </Button>
           </IconTooltip>
 
-          <IconTooltip label="Open folder…">
+          <IconTooltip label="Open folder">
             <Button
               onClick={onOpenFolder}
               aria-label="Open folder"

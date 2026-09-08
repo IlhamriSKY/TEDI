@@ -191,7 +191,7 @@ function UnifiedDiffPreview({ original, proposed }: { original: string; proposed
         ))}
         {rest > 0 ? (
           <div className="text-muted-foreground px-2 py-1 text-[10px] italic">
-            … {rest} more changes
+            {rest} more changes
           </div>
         ) : null}
       </div>

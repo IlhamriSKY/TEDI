@@ -85,9 +85,7 @@ pub fn handle_update_command_and_exit() {
         println!(
             "{} {}",
             paint_ok("→"),
-            paint_dim(
-                "TEDI is already running. Forwarding update request to the in-app updater..."
-            ),
+            paint_dim("TEDI is already running. Forwarding update request to the in-app updater."),
         );
         let _ = std::io::stdout().flush();
         return;
@@ -177,7 +175,7 @@ fn run_update() -> Result<(), String> {
         "{} {} {}",
         paint_header("TEDI"),
         paint_id(&format!("v{current}")),
-        paint_dim("checking for updates..."),
+        paint_dim("checking for updates"),
     );
 
     let runtime = tokio::runtime::Builder::new_current_thread()
@@ -280,11 +278,11 @@ fn run_update() -> Result<(), String> {
         paint_dim(&format!("Downloaded {}.", fmt_bytes(bytes.len() as u64))),
     );
 
-    println!("{}", paint_dim("Verifying signature..."));
+    println!("{}", paint_dim("Verifying signature"));
     verify_signature(&bytes, &platform.signature)?;
     println!("{} {}", paint_ok("✓"), paint_ok("Signature OK."));
 
-    println!("{}", paint_dim("Installing..."));
+    println!("{}", paint_dim("Installing"));
     let outcome = install_bundle(&bytes, &platform.url)?;
     println!("{} {outcome}", paint_ok("✓"));
     Ok(())

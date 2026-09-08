@@ -339,7 +339,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
                 if (e.kind === "pane-leaf") onSaveEntry!(e.leafId, "saveAs");
               }}
             >
-              Save As...
+              Save As
             </ContextMenuItem>
           )}
           {canSave && <ContextMenuSeparator />}

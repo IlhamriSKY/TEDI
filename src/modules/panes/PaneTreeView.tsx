@@ -182,7 +182,7 @@ type Props = {
   onMovePaneLeaf?: (sourceLeafId: number, targetLeafId: number, edge: PaneEdge) => void;
   /** Close button in a pane header. Hidden when omitted. */
   onCloseLeaf?: (leafId: number) => void;
-  /** Open extension tabs offered in the per-pane "Split with…" header menu. */
+  /** Open extension tabs offered in the per-pane "Split with" header menu. */
   extTabs?: { id: number; title: string }[];
   /** Split this tab's pane (next to `leafId`, in `dir`) with an open extension
    *  tab, relocating it into the pane. */
@@ -413,7 +413,7 @@ function RemoteEditorPending({
       <span className="max-w-72 leading-relaxed">
         <span className="text-foreground">{fileName}</span> lives on{" "}
         <span className="text-foreground">{hostLabel}</span>.{" "}
-        {connecting ? "Connecting…" : "Not connected."}
+        {connecting ? "Connecting" : "Not connected."}
       </span>
       {!connecting && onReconnect && (
         <button

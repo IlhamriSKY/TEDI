@@ -243,11 +243,11 @@ export function statusLabel(s: SshStatus): string {
     case "idle":
       return "Idle";
     case "connecting":
-      return s.attempt > 1 ? `Connecting (attempt ${s.attempt})…` : "Connecting…";
+      return s.attempt > 1 ? `Connecting (attempt ${s.attempt})` : "Connecting";
     case "connected":
       return "Connected";
     case "reconnecting":
-      return `Reconnecting in ${Math.round(s.nextDelayMs / 1000)}s (${s.attempt}/3)…`;
+      return `Reconnecting in ${Math.round(s.nextDelayMs / 1000)}s (${s.attempt}/3)`;
     case "disconnected":
       return `Disconnected${s.reason ? ` · ${s.reason}` : ""}`;
     case "error":

@@ -294,11 +294,11 @@ async function runDownload(set: (s: CheckState) => void, ref: React.RefObject<Up
 function updaterMessage(state: CheckState): string {
   switch (state.kind) {
     case "checking":
-      return "Checking for updates…";
+      return "Checking for updates";
     case "available":
       return `v${state.version} is available - download & install below.`;
     case "downloading":
-      return `Downloading v${state.version}…`;
+      return `Downloading v${state.version}`;
     case "ready":
       return `v${state.version} is installed. Restart TEDI to apply.`;
     case "manual-available":

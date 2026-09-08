@@ -275,19 +275,19 @@ function FileTreeNodeImpl({
                 className={COMPACT_ITEM}
                 onSelect={() => onUpload(createTarget, "files")}
               >
-                Upload Files Here…
+                Upload Files Here
               </ContextMenuItem>
               <ContextMenuItem
                 className={COMPACT_ITEM}
                 onSelect={() => onUpload(createTarget, "folder")}
               >
-                Upload Folder Here…
+                Upload Folder Here
               </ContextMenuItem>
             </>
           )}
           {onDownload && (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onDownload(path)}>
-              Download…
+              Download
             </ContextMenuItem>
           )}
           <ContextMenuSeparator />
@@ -314,7 +314,7 @@ function FileTreeNodeImpl({
           </ContextMenuItem>
           {onProperties && (
             <ContextMenuItem className={COMPACT_ITEM} onSelect={() => onProperties(path)}>
-              Permissions…
+              Permissions
             </ContextMenuItem>
           )}
           <ContextMenuItem
@@ -375,7 +375,7 @@ function FileTreeNodeImpl({
           className="text-muted-foreground px-2 py-0.5 text-[11px]"
           style={{ paddingLeft: 6 + (depth + 1) * 12 + 18 }}
         >
-          Loading…
+          Loading
         </div>
       )}
       {isDir &&

@@ -100,7 +100,7 @@ export function CommitBox({
         <IconTooltip
           label={
             busy === "ai"
-              ? "Generating…"
+              ? "Generating"
               : changeCount === 0
                 ? "No changes to summarize"
                 : "Generate commit message with AI"
@@ -128,7 +128,7 @@ export function CommitBox({
         <IconTooltip
           label={
             busy === "commit"
-              ? "Committing…"
+              ? "Committing"
               : commitAll
                 ? "Commit all changes (Ctrl+Enter)"
                 : `Commit ${stagedCount} staged file${stagedCount === 1 ? "" : "s"} (Ctrl+Enter)`
@@ -208,20 +208,20 @@ export function CommitBox({
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("stashes")}>
               <Archive size={12} strokeWidth={2} />
-              Stashes…
+              Stashes
             </DropdownMenuItem>
             <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("tags")}>
               <Tag size={12} strokeWidth={2} />
-              Tags…
+              Tags
             </DropdownMenuItem>
             <DropdownMenuSeparator />
             <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("merge")}>
               <GitMerge size={12} strokeWidth={2} />
-              Merge a branch…
+              Merge a branch
             </DropdownMenuItem>
             <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("rebase")}>
               <GitPullRequestArrow size={12} strokeWidth={2} />
-              Rebase onto…
+              Rebase onto
             </DropdownMenuItem>
             {/* Only when gh can actually reach this repo. A remote (SSH) repo
                 runs its git elsewhere, so there is nothing here to publish.
@@ -233,14 +233,14 @@ export function CommitBox({
                 <DropdownMenuSeparator />
                 <DropdownMenuItem disabled={busy !== null} onSelect={() => onMore("publishGithub")}>
                   <FolderGit2 size={12} strokeWidth={2} />
-                  Publish to GitHub…
+                  Publish to GitHub
                 </DropdownMenuItem>
               </>
             ) : null}
           </DropdownMenuContent>
         </DropdownMenu>
         <IconTooltip
-          label={busy === "pull" ? "Pulling…" : `Pull from ${status.upstream ?? "origin"}`}
+          label={busy === "pull" ? "Pulling" : `Pull from ${status.upstream ?? "origin"}`}
           side="bottom"
         >
           <Button
@@ -264,7 +264,7 @@ export function CommitBox({
         <IconTooltip
           label={
             busy === "push"
-              ? "Pushing…"
+              ? "Pushing"
               : status.upstream
                 ? `Push to ${status.upstream}` +
                   (status.behind > 0 ? ` (${status.behind} behind)` : "")

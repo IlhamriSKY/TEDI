@@ -503,7 +503,7 @@ export function ExtensionSidebarSection({
             <input
               value={query}
               onChange={(e) => setQuery(e.target.value)}
-              placeholder={section.searchPlaceholder ?? "Search…"}
+              placeholder={section.searchPlaceholder ?? "Search"}
               aria-label={section.searchPlaceholder ?? "Search"}
               spellCheck={false}
               autoComplete="off"

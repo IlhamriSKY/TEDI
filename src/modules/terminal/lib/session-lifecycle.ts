@@ -554,7 +554,7 @@ export function attachSession(
     // so skip the placeholder there. Cleared by `onData` on the first byte.
     if (firstAttach && !s.sshConnectionId && !s.placeholderShown) {
       s.placeholderShown = true;
-      s.term.write("\x1b[2m[tedi] starting shell…\x1b[0m");
+      s.term.write("\x1b[2m[tedi] starting shell\x1b[0m");
     }
     const debug = isDebugPty();
     const tAttach = performance.now();

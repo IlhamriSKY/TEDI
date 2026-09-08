@@ -136,7 +136,7 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
       open={open}
       onOpenChange={onOpenChange}
       title="Command Palette"
-      description="Search for a command to run..."
+      description="Search for a command to run"
       className="sm:max-w-lg"
       showCloseButton={false}
       onCloseAutoFocus={runPending}
@@ -168,7 +168,7 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
             data-slot="command-input"
             value={query}
             onValueChange={setQuery}
-            placeholder="Type a command, or @ to find a file…"
+            placeholder="Type a command, or @ to find a file"
             className="placeholder:text-muted-foreground w-full text-sm outline-hidden disabled:cursor-not-allowed disabled:opacity-50"
           />
           {query ? (
@@ -259,7 +259,7 @@ function FileResults({
   if (hits.length === 0) {
     return (
       <div className="text-muted-foreground px-3 py-6 text-center text-sm">
-        {searching ? "Searching…" : "No matching file"}
+        {searching ? "Searching" : "No matching file"}
       </div>
     );
   }

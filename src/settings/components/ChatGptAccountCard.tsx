@@ -99,7 +99,7 @@ export function ChatGptAccountCard() {
       {loading ? (
         <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
           <Spinner className="size-3" />
-          Checking…
+          Checking
         </div>
       ) : account ? (
         <>
@@ -139,7 +139,7 @@ export function ChatGptAccountCard() {
               onClick={() => void signIn()}
             >
               {busy ? <Spinner className="size-3" /> : <LogIn size={11} strokeWidth={2} />}
-              {busy ? "Waiting for browser…" : "Sign in with ChatGPT"}
+              {busy ? "Waiting for browser" : "Sign in with ChatGPT"}
             </Button>
             {busy && authUrl ? (
               <Button

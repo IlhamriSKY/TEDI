@@ -558,7 +558,7 @@ export async function retryPty(s: Session): Promise<void> {
   s.lastPtyError = null;
   s.term.reset();
   s.term.options.disableStdin = false;
-  s.term.write("\x1b[2m[tedi] retrying…\x1b[0m\r\n");
+  s.term.write("\x1b[2m[tedi] retrying\x1b[0m\r\n");
   // Treat the retrying hint as the new placeholder so the first PTY byte
   // wipes it instead of leaving "retrying…" stuck above the prompt.
   s.placeholderShown = true;

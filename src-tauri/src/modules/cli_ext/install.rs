@@ -64,9 +64,9 @@ impl InstallProgress for CliProgress {
         // first so the line isn't appended to a half-drawn bar.
         self.finish_sticky();
         let line = match phase {
-            InstallPhase::Verifying => "Verifying...",
-            InstallPhase::Extracting => "Extracting...",
-            InstallPhase::Finalizing => "Finalizing...",
+            InstallPhase::Verifying => "Verifying",
+            InstallPhase::Extracting => "Extracting",
+            InstallPhase::Finalizing => "Finalizing",
             InstallPhase::Done => "Done.",
             InstallPhase::Downloading { .. } => unreachable!("handled above"),
         };

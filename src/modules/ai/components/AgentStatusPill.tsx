@@ -5,6 +5,7 @@ import { AnimatePresence, motion } from "motion/react";
 import { useShallow } from "zustand/react/shallow";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import { effortTextClass, useEffortLevel } from "../lib/effort";
+import { stepMotion } from "../lib/stepMotion";
 import { useChatStore, type AgentRunStatus } from "../store/chatStore";
 import { CircleAlert, ShieldUser } from "lucide-react";
 
@@ -18,6 +19,10 @@ export function AgentStatusPill({ onClick }: Props) {
       status: s.agentMeta.status,
       approvalsPending: s.agentMeta.approvalsPending,
       error: s.agentMeta.error,
+      // The pill shows only while the AI panel is CLOSED, which is exactly when
+      // the step line is not on screen anywhere else - so the block's gait is
+      // the only thing saying what the turn is doing.
+      step: s.agentMeta.step,
     })),
   );
   const panelOpen = useChatStore((s) => s.panelOpen);
@@ -47,6 +52,7 @@ export function AgentStatusPill({ onClick }: Props) {
         icon: (
           <PixelActivity
             variant={effort === "max" ? "max" : "default"}
+            motion={meta.status === "thinking" ? "wait" : stepMotion(meta.step)}
             className={effortTextClass(effort)}
             label="AI running"
           />

@@ -66,7 +66,7 @@ function GeneratingPlaceholder({ label }: { label: string }) {
     <div className="not-prose border-border/50 bg-muted/30 text-muted-foreground my-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px]">
       <span className="bg-muted-foreground/60 inline-block size-1.5 animate-pulse rounded-full" />
       <Shimmer duration={1.2}>
-        {label === "text" ? "Generating code…" : `Generating ${label}…`}
+        {label === "text" ? "Generating code" : `Generating ${label}`}
       </Shimmer>
     </div>
   );

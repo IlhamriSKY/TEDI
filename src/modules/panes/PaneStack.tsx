@@ -148,7 +148,7 @@ export function PaneStack({
   // Memoize the filter so the prune effect below sees a stable identity.
   const paneTabs = useMemo(() => tabs.filter((t): t is PaneTab => t.kind === "pane"), [tabs]);
 
-  // Open extension tabs offered in the per-pane "Split with…" context menu.
+  // Open extension tabs offered in the per-pane "Split with" context menu.
   // All tab kinds carry `id` + `title`, so no narrowing cast is needed.
   const extTabList = useMemo(
     () => tabs.filter((t) => t.kind === "ext").map((t) => ({ id: t.id, title: t.title })),

@@ -112,7 +112,7 @@ export function ExplorerTreeList({
                   </div>
                 )}
                 {root?.status === "loading" && (
-                  <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading…</div>
+                  <div className="text-muted-foreground px-3 py-2 text-[11px]">Loading</div>
                 )}
                 {root?.status === "error" && (
                   <div className="text-destructive px-3 py-2 text-[11px]">{root.message}</div>

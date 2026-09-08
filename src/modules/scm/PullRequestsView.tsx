@@ -216,7 +216,7 @@ export function PullRequestsView({
   // off a null status would announce "gh is not installed" for as long as the
   // probe takes, on every machine that has it.
   if (status === null) {
-    return <Notice text={error ?? "Reading pull requests…"} action={error ? retry : <Spinner />} />;
+    return <Notice text={error ?? "Reading pull requests"} action={error ? retry : <Spinner />} />;
   }
   if (!status.installed) {
     return (
@@ -328,13 +328,13 @@ export function PullRequestsView({
             ) : !view ? (
               <DropdownMenuItem onSelect={() => setStackPrompt("init")}>
                 <Layers size={12} strokeWidth={2} />
-                Start a stack…
+                Start a stack
               </DropdownMenuItem>
             ) : (
               <>
                 <DropdownMenuItem onSelect={() => setStackPrompt("add")}>
                   <Plus size={12} strokeWidth={2} />
-                  Add a branch on top…
+                  Add a branch on top
                 </DropdownMenuItem>
                 <DropdownMenuItem
                   onSelect={() =>
@@ -361,7 +361,7 @@ export function PullRequestsView({
                 </DropdownMenuItem>
                 <DropdownMenuItem onSelect={() => setConfirmMerge(true)}>
                   <GitMerge size={12} strokeWidth={2} />
-                  Merge the stack…
+                  Merge the stack
                 </DropdownMenuItem>
               </>
             )}

@@ -232,7 +232,7 @@ export function AutocompleteBlock({ keys }: { keys: KeysMap }) {
               Could not reach the server. Is LM Studio running?
             </span>
           ) : testStatus === "testing" ? (
-            <span className="text-muted-foreground text-[10.5px]">Testing…</span>
+            <span className="text-muted-foreground text-[10.5px]">Testing</span>
           ) : null}
         </div>
       ) : null}

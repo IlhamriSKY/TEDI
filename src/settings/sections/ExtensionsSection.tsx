@@ -439,7 +439,7 @@ export function ExtensionsSection() {
                 Pick a packaged extension `.zip`. Re-installing the same id replaces the existing
                 copy (so this is also how local zips upgrade).
               </span>
-              <UploadButton onClick={() => void pickZip()}>Choose .zip…</UploadButton>
+              <UploadButton onClick={() => void pickZip()}>Choose .zip</UploadButton>
             </div>
           ) : null}
 
@@ -504,12 +504,12 @@ export function ExtensionsSection() {
               disabled={checkingAll}
               onClick={() => void onCheckAll()}
             >
-              {checkingAll ? "Checking…" : "Check updates"}
+              {checkingAll ? "Checking" : "Check updates"}
             </Button>
           ) : null}
         </div>
         {!hydrated ? (
-          <span className="text-muted-foreground text-[11px]">Loading…</span>
+          <span className="text-muted-foreground text-[11px]">Loading</span>
         ) : sorted.length === 0 ? (
           <span className="text-muted-foreground text-[11px]">No extensions installed yet.</span>
         ) : (

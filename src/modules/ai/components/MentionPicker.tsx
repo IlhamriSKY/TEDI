@@ -85,7 +85,7 @@ export function MentionPickerContent({
       {items.length === 0 ? (
         <div className="text-muted-foreground px-3 py-2.5 text-[11px]">
           {loading
-            ? "Searching workspace…"
+            ? "Searching workspace"
             : query
               ? `No matches for "${query}"`
               : "Type to search files, folders, or selections"}

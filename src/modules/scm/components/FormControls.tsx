@@ -99,7 +99,7 @@ export function BranchCombobox({
         className="w-[var(--radix-popover-trigger-width)] gap-0 overflow-hidden rounded-2xl p-0"
       >
         <Command className="rounded-2xl">
-          <CommandInput placeholder="Search branches…" className="text-[12px]" />
+          <CommandInput placeholder="Search branches" className="text-[12px]" />
           <CommandList className="max-h-56">
             <CommandEmpty className="py-4 text-[11px]">{emptyText}</CommandEmpty>
             {noneLabel ? (

@@ -139,7 +139,7 @@ export function SshConnectOverlay({ status, connectionId }: Props) {
     : failedOut
       ? "Connection failed"
       : kind === "reconnecting"
-        ? "Reconnecting…"
+        ? "Reconnecting"
         : `Connecting to ${conn?.name || conn?.host || "remote host"}`;
   // Why it died, from whichever variant carries it.
   const failReason =

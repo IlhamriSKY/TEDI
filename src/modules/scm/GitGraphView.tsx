@@ -275,7 +275,7 @@ export function GitGraphView({
     return (
       <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center gap-2 px-3 text-center text-[11px]">
         <Spinner className="size-3" />
-        Loading history…
+        Loading history
       </div>
     );
   }
@@ -618,7 +618,7 @@ function GraphRow({ row, graphWidth, laneW, dotR, selected, anchorMode, onSelect
             heavily-tagged commit from filling the row, and dropping `shrink-0`
             is what stops the chips squeezing the subject out of existence.
             Gone entirely below 22rem: three chips sharing 45% of a narrow row
-            render as unreadable two-pixel slivers ("HE…", "m…", "v0…") AND
+            render as unreadable two-pixel slivers ("HE", "m", "v0") AND
             leave the subject one character wide. Measured, not guessed - 19rem
             was tried first and the HEAD row was still slivers at 310px. The
             hover peek still lists every ref, and the HEAD halo on the dot

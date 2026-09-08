@@ -286,7 +286,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
   const { running, busyAll, act } = usePrAction({ busy, onRefresh, load });
 
   const checks = useMemo(() => summarizeChecks(pr?.statusCheckRollup), [pr]);
-  const blocked = pr ? mergeBlockReason(pr) : "Loading…";
+  const blocked = pr ? mergeBlockReason(pr) : "Loading";
 
   /**
    * The conversation, oldest first: the description is the first message, and
@@ -324,7 +324,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
     return (
       <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center gap-2 text-[11px]">
         <Spinner className="size-3" />
-        Reading pull request #{number}…
+        Reading pull request #{number}
       </div>
     );
   }
@@ -478,7 +478,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
               </p>
             ) : files.length === 0 ? (
               <p className="text-muted-foreground px-2.5 py-2 text-[11px]">
-                {loading ? "Reading the patch…" : "This pull request changes nothing."}
+                {loading ? "Reading the patch" : "This pull request changes nothing."}
               </p>
             ) : (
               <div>
@@ -617,7 +617,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
                 }}
               >
                 <TriangleAlert size={12} strokeWidth={2} className="text-destructive" />
-                Request changes…
+                Request changes
               </DropdownMenuItem>
               <DropdownMenuItem
                 onSelect={() => {
@@ -626,7 +626,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
                 }}
               >
                 <MessageSquare size={12} strokeWidth={2} />
-                Comment…
+                Comment
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -651,7 +651,7 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
               {(Object.keys(MERGE_LABEL) as MergeMethod[]).map((m) => (
                 <DropdownMenuItem key={m} onSelect={() => setMergeMethod(m)}>
                   <GitMerge size={12} strokeWidth={2} />
-                  {MERGE_LABEL[m]}…
+                  {MERGE_LABEL[m]}
                 </DropdownMenuItem>
               ))}
             </DropdownMenuContent>

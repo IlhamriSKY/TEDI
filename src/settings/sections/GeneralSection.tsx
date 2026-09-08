@@ -288,7 +288,7 @@ export function GeneralSection() {
         <Label>Explorer</Label>
         <SettingRow
           title="Show hidden files & folders"
-          description="Reveal dot-prefixed entries (.git, .env, .vscode, …) in the file tree and search."
+          description="Reveal dot-prefixed entries (.git, .env, .vscode) in the file tree and search."
         >
           <Switch checked={showHiddenFiles} onCheckedChange={(v) => void setShowHiddenFiles(v)} />
         </SettingRow>
@@ -355,7 +355,7 @@ export function GeneralSection() {
                 onClick={() => void onInstallShim()}
               >
                 <Download size={12} strokeWidth={1.75} />
-                {shimBusy ? "Installing…" : "Install"}
+                {shimBusy ? "Installing" : "Install"}
               </Button>
             </SettingRow>
           )}
@@ -379,7 +379,7 @@ export function GeneralSection() {
         <Label>Notifications</Label>
         <SettingRow
           title="AI CLI notifications"
-          description="Show a toast and play a sound when an AI CLI (Claude, Codex, opencode, …) needs your approval or finishes a task. The status badge on the tab is unaffected."
+          description="Show a toast and play a sound when an AI CLI (Claude, Codex, opencode) needs your approval or finishes a task. The status badge on the tab is unaffected."
         >
           <Switch
             checked={aiNotificationsEnabled}

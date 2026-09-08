@@ -89,10 +89,10 @@ export function InstallReviewDialog({
   const title = isUpdate ? "Update extension?" : "Install extension?";
   const cta = busy
     ? isUpdate
-      ? "Updating…"
-      : "Installing…"
+      ? "Updating"
+      : "Installing"
     : preview?.status === "loading"
-      ? "Loading…"
+      ? "Loading"
       : isUpdate
         ? newPerms.length > 0
           ? "Approve & update"
@@ -147,7 +147,7 @@ export function InstallReviewDialog({
                     <div className="bg-muted h-3.5 w-32 animate-pulse rounded" />
                     <div className="bg-muted h-2.5 w-48 animate-pulse rounded" />
                     <div className="text-muted-foreground/80 mt-1 text-[10.5px] break-all">
-                      Reading {preview.sourceLabel}…
+                      Reading {preview.sourceLabel}
                     </div>
                   </>
                 ) : (
@@ -217,8 +217,8 @@ export function InstallReviewDialog({
           {grantsNearTotal ? (
             <div className="border-destructive/40 bg-destructive/5 text-destructive rounded-md border px-2.5 py-1.5 text-[10.5px] leading-relaxed">
               <span className="font-medium">Near-total access.</span> This extension can call almost
-              any internal command (filesystem, shell, SSH, git, …). Only install it if you trust
-              the publisher.
+              any internal command (filesystem, shell, SSH, git). Only install it if you trust the
+              publisher.
             </div>
           ) : null}
 

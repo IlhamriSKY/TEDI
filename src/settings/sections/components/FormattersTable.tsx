@@ -113,7 +113,7 @@ export function FormattersTable() {
           <PopoverTrigger asChild>
             <Button variant="outline" size="sm" className="h-8 w-fit gap-1.5 px-2 text-[11px]">
               <Plus size={12} strokeWidth={1.75} />
-              Add language…
+              Add language
             </Button>
           </PopoverTrigger>
           <PopoverContent
@@ -122,7 +122,7 @@ export function FormattersTable() {
             className="w-72 gap-0 overflow-hidden rounded-2xl p-0"
           >
             <Command className="rounded-2xl">
-              <CommandInput placeholder="Search language…" className="text-[12px]" />
+              <CommandInput placeholder="Search language" className="text-[12px]" />
               <CommandList className="max-h-64">
                 <CommandEmpty className="py-4 text-[11px]">No language found.</CommandEmpty>
                 <CommandGroup>

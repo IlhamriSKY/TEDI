@@ -122,7 +122,7 @@ export async function openSshForSession(
   emitSshStatus(s, { kind: "connecting", attempt });
   writeSshBanner(
     s,
-    `\x1b[2m[tedi] connecting to ${conn.user}@${conn.host}:${conn.port}…\x1b[0m\r\n`,
+    `\x1b[2m[tedi] connecting to ${conn.user}@${conn.host}:${conn.port}\x1b[0m\r\n`,
   );
 
   // Route the first of onExit/onError into the reconnect scheduler; russh can fire both.
@@ -392,7 +392,7 @@ export function scheduleSshReconnect(s: Session, reason: string): void {
     s,
     `\r\n\x1b[33m[tedi] connection lost (${reason}); reconnecting in ${Math.round(
       delay / 1000,
-    )}s (attempt ${attempt}/${MAX_SSH_RECONNECT_ATTEMPTS})…\x1b[0m\r\n`,
+    )}s (attempt ${attempt}/${MAX_SSH_RECONNECT_ATTEMPTS})\x1b[0m\r\n`,
   );
   s.sshReconnectTimer = setTimeout(() => {
     s.sshReconnectTimer = null;

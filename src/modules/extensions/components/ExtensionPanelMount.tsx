@@ -157,7 +157,7 @@ export function ExtensionPanelMount({
       {!renderer ? (
         <div className="text-muted-foreground pointer-events-none absolute inset-0 flex items-center justify-center px-6 text-center text-[11px]">
           {missingPanelReason(extensionId, panelId, installed, listLoaded, graceOver) ??
-            "Loading extension…"}
+            "Loading extension"}
         </div>
       ) : null}
     </div>

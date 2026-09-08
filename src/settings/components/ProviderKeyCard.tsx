@@ -92,7 +92,9 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
               type={reveal ? "text" : "password"}
               autoComplete="off"
               spellCheck={false}
-              placeholder={provider.keyPrefix ? `${provider.keyPrefix}…` : "Paste API key"}
+              placeholder={
+                provider.keyPrefix ? `Paste API key (${provider.keyPrefix})` : "Paste API key"
+              }
               value={value}
               disabled={saving}
               onChange={(e) => {

@@ -97,8 +97,8 @@ export function CreatePrDialog({
         <DialogHeader>
           <DialogTitle>New pull request</DialogTitle>
           <DialogDescription>
-            Merges {head || "HEAD"} into {value || "…"}. Pick another feature branch as the base to
-            stack this pull request on top of it.
+            Merges {head || "HEAD"} into {value || "the base branch"}. Pick another feature branch
+            as the base to stack this pull request on top of it.
           </DialogDescription>
         </DialogHeader>
         <Field label="Title">

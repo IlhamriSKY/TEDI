@@ -79,7 +79,7 @@ export function NewTabMenu({
         ) : null}
         <DropdownMenuItem onSelect={() => onOpenAgents()}>
           <Bot size={14} strokeWidth={1.75} />
-          <span className="flex-1 whitespace-nowrap">Agents...</span>
+          <span className="flex-1 whitespace-nowrap">Agents</span>
           <span className="text-muted-foreground ml-4 text-xs whitespace-nowrap">
             {fmtShortcut(MOD_KEY, "Shift", "N")}
           </span>

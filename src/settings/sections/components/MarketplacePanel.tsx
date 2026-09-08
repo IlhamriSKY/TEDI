@@ -62,13 +62,13 @@ export function MarketplacePanel({
           disabled={state.status === "loading"}
           onClick={onRefresh}
         >
-          {state.status === "loading" ? "Loading…" : "Refresh"}
+          {state.status === "loading" ? "Loading" : "Refresh"}
         </Button>
       </div>
 
       {state.status === "loading" ? (
         <div className="text-muted-foreground flex items-center gap-2 text-[11px]">
-          <Spinner className="size-3" /> Loading marketplace…
+          <Spinner className="size-3" /> Loading marketplace
         </div>
       ) : state.status === "error" ? (
         <div className="text-destructive text-[11px]">

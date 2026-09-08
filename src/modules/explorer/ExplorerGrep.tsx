@@ -445,7 +445,7 @@ export function ExplorerGrep({
                 per-row Replace buttons and file match-count badge clear the scrollbar. */}
             <div className="w-full py-1 pr-2.5" ref={listRef}>
               {searching && hits.length === 0 ? (
-                <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching…</div>
+                <div className="text-muted-foreground px-3 py-2 text-[11px]">Searching</div>
               ) : hits.length === 0 ? (
                 <div className="text-muted-foreground px-3 py-2 text-[11px]">No matches</div>
               ) : (

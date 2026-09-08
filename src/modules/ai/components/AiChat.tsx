@@ -19,6 +19,7 @@ import {
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import { effortTextClass, useEffortLevel } from "../lib/effort";
+import { stepMotion } from "../lib/stepMotion";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { humanizeChatErrorMessage } from "../lib/errors";
@@ -611,10 +612,13 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
       {/* No frame around it. The block IS the indicator, and a border made it
           read as a button you could press. The cells take the reasoning level's
           own colour - foil at max - so the depth the turn is running at is
-          visible while it runs and not only in the picker that set it. */}
+          visible while it runs and not only in the picker that set it, and the
+          gait comes from the RAW step, not `label`: the readable translation
+          below rewrites the verb the motion is keyed on. */}
       <PixelActivity
         label="AI working"
         variant={effort === "max" ? "max" : "default"}
+        motion={waiting ? "wait" : stepMotion(activity)}
         className={effortTextClass(effort)}
       />
       <span className="min-w-0 flex-1 truncate leading-none" title={label}>

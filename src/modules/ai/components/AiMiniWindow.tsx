@@ -282,7 +282,7 @@ function EmptyShell({ onClose, dragHandle }: { onClose: () => void; dragHandle?:
     <>
       <Header onClose={onClose} dragHandle={dragHandle} />
       <div className="text-muted-foreground flex flex-1 items-center justify-center text-[11px]">
-        Loading sessions…
+        Loading sessions
       </div>
     </>
   );

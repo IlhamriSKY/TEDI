@@ -112,7 +112,7 @@ export const SHORTCUTS: Shortcut[] = [
     // hitting this by mistake even though the bare-Ctrl form still reaches the
     // shell.
     id: "tab.newAgent",
-    label: "Run AI agents...",
+    label: "Run AI agents",
     group: "Tabs",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "n" }],
   },
@@ -302,7 +302,7 @@ export const SHORTCUTS: Shortcut[] = [
     // Save As. Mod+S is CodeMirror keymap (see EditorPane), not a catalog
     // entry, so this is the only save chord listed here.
     id: "editor.saveAs",
-    label: "Save file as...",
+    label: "Save file as",
     group: "Editor",
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "s" }],
   },

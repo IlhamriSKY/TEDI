@@ -259,7 +259,7 @@ export function ModelDropdown() {
                 e.stopPropagation();
               }
             }}
-            placeholder="Search models…"
+            placeholder="Search models"
             spellCheck={false}
             autoFocus
             className="h-7 text-[11.5px]"
@@ -305,7 +305,7 @@ export function ModelDropdown() {
             const note =
               gateway && hasKey
                 ? gateway.status === "loading"
-                  ? "Detecting models…"
+                  ? "Detecting models"
                   : gateway.status === "error"
                     ? // The message, not a bare "Detection failed": AgentRouter's
                       // two 401s (rejected client vs rejected key) need opposite
@@ -318,7 +318,7 @@ export function ModelDropdown() {
                   ? (() => {
                       const st = getOpenAICompatibleModelsState(s.instanceId).status;
                       return st === "loading"
-                        ? "Detecting models…"
+                        ? "Detecting models"
                         : st === "error"
                           ? "Detection failed"
                           : s.filtered.length === 0

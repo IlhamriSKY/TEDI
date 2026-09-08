@@ -417,7 +417,7 @@ pub(super) fn cmd_update(args: &[String]) -> Result<(), String> {
             "{} {} {}",
             paint_header("Updating"),
             paint_id(&id),
-            paint_dim(&format!("(github:{owner_repo})...")),
+            paint_dim(&format!("(github:{owner_repo})")),
         );
         if let Err(e) = install_github(&runtime, &owner_repo, &root, &state_path) {
             failed += 1;
