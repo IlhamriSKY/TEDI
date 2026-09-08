@@ -56,6 +56,7 @@ export type RenderEntryArgs = {
   onMoveLeafToGroup?: (leafId: number, targetTabId: number) => void;
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   onRotateLeafSplit?: (leafId: number) => void;
+  onSaveEntry?: (leafId: number, mode: "save" | "saveAs") => void;
   onTogglePrivate?: (leafId: number) => void;
   /**
    * Pin or unpin the whole owning TAB. Deliberately not a per-leaf action -
@@ -96,6 +97,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     onMoveLeafToGroup,
     onMoveLeafToNewTab,
     onRotateLeafSplit,
+    onSaveEntry,
     onTogglePrivate,
     onSetTabPinned,
     paneGroupsForMove,
@@ -267,6 +269,9 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   const canLeaveGroup = isPaneLeaf && isSplit && !!onMoveLeafToNewTab;
   const canMove = moveTargets.length > 0;
   const canTogglePrivate = isPaneLeaf && !!onTogglePrivate;
+  // Nothing in TEDI writes an editor to disk on its own, so every editor tab
+  // carries its own save - the right-click is the discoverable half of Ctrl+S.
+  const canSave = isPaneLeaf && e.leafKind === "editor" && !!onSaveEntry;
   const canPin = !!onSetTabPinned;
   /**
    * A split group is several chips in the strip but ONE tab, so pinning any
@@ -284,8 +289,10 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     canMove ||
     canTogglePrivate ||
     canPin ||
-    canCloseToRight;
-  const hasLeafActions = canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate;
+    canCloseToRight ||
+    canSave;
+  const hasLeafActions =
+    canSave || canRename || canRotate || canLeaveGroup || canMove || canTogglePrivate;
   // Private tabs always get a tooltip explaining the AI-visibility implication;
   // SSH / AI-CLI tooltips win the slot when both apply and append the private
   // note as an extra line.
@@ -316,6 +323,26 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       <ContextMenu>
         {wrapped}
         <ContextMenuContent className="min-w-44">
+          {canSave && (
+            <ContextMenuItem
+              onSelect={() => {
+                if (e.kind === "pane-leaf") onSaveEntry!(e.leafId, "save");
+              }}
+            >
+              <span className="flex-1">Save</span>
+              {e.dirty ? <span className="text-muted-foreground ml-2 text-xs">Unsaved</span> : null}
+            </ContextMenuItem>
+          )}
+          {canSave && (
+            <ContextMenuItem
+              onSelect={() => {
+                if (e.kind === "pane-leaf") onSaveEntry!(e.leafId, "saveAs");
+              }}
+            >
+              Save As...
+            </ContextMenuItem>
+          )}
+          {canSave && <ContextMenuSeparator />}
           {canRename && (
             <ContextMenuItem
               onSelect={() => {

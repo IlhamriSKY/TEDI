@@ -59,7 +59,32 @@ for (const [label, src] of [
     !/"\.cm-content":\s*\{[^}]*\bpadding:\s*"(?!0")/.test(src),
     src.match(/"\.cm-content":\s*\{[^}]*\}/s)?.[0]?.replace(/\s+/g, " "),
   );
-  check(`${label}: .cm-line indents by 4px`, /"\.cm-line":\s*\{[^}]*paddingLeft:\s*"4px"/s.test(src));
+  check(
+    `${label}: .cm-line indents by 4px`,
+    /"\.cm-line":\s*\{[^}]*paddingLeft:\s*"4px"/s.test(src),
+  );
+}
+
+// Word wrap at a column puts `maxWidth: Nch` on the content box, so anything
+// else padding that box makes the column count fewer characters than it says.
+// The wrapping rule zeroes `.cm-line`'s horizontal padding and re-adds it as a
+// margin on the content instead - which only keeps the text where it was while
+// those two numbers agree.
+{
+  const lineIndent = pane.match(/"\.cm-line":\s*\{[^}]*paddingLeft:\s*"(\d+px)"/s)?.[1];
+  const wrapRule = pane.match(/"\.cm-content\.cm-lineWrapping":\s*\{[\s\S]*?\n {2}\},/)?.[0] ?? "";
+  check("wrap column: the content box is what carries maxWidth", /maxWidth:/.test(wrapRule));
+  check(
+    "wrap column: the content margin re-adds exactly the line indent it removed",
+    lineIndent !== undefined && new RegExp(`marginLeft:\\s*"${lineIndent}"`).test(wrapRule),
+    { lineIndent, wrapRule: wrapRule.replace(/\s+/g, " ") },
+  );
+  check(
+    "wrap column: wrapped lines drop their own horizontal padding",
+    /"\.cm-content\.cm-lineWrapping \.cm-line":\s*\{\s*paddingLeft:\s*"0",\s*paddingRight:\s*"0",?\s*\}/s.test(
+      pane,
+    ),
+  );
 }
 
 console.log("\n2. typography: the same font, size, ligatures and line height");
@@ -74,11 +99,10 @@ const TYPO = [
 for (const re of TYPO) {
   const want = pane.match(re)?.[1];
   const got = ext.match(re)?.[1];
-  check(
-    `${re.source.split(":")[0]} matches the editor pane`,
-    want !== undefined && want === got,
-    { pane: want, ext: got },
-  );
+  check(`${re.source.split(":")[0]} matches the editor pane`, want !== undefined && want === got, {
+    pane: want,
+    ext: got,
+  });
 }
 
 console.log("\n3. gutters: scrolled code cannot bleed through the line numbers");
@@ -89,9 +113,15 @@ for (const [label, src] of [
   ["ctx.ui.codeEditor", ext],
 ] as const) {
   const gutters = src.match(/"\.cm-gutters":\s*\{[^}]*\}/s)?.[0] ?? "";
-  check(`${label}: .cm-gutters paints a solid background`, /backgroundColor:\s*"var\(--background\) !important"/.test(gutters));
+  check(
+    `${label}: .cm-gutters paints a solid background`,
+    /backgroundColor:\s*"var\(--background\) !important"/.test(gutters),
+  );
   check(`${label}: .cm-gutters sits above the scrolled content`, /zIndex:\s*"3"/.test(gutters));
-  check(`${label}: .cm-gutter itself stays transparent`, /"\.cm-gutter":\s*\{\s*backgroundColor:\s*"transparent !important"/.test(src));
+  check(
+    `${label}: .cm-gutter itself stays transparent`,
+    /"\.cm-gutter":\s*\{\s*backgroundColor:\s*"transparent !important"/.test(src),
+  );
 }
 
 if (failed > 0) throw new Error(`editor-style-consistency-verify: ${failed} check(s) failed`);

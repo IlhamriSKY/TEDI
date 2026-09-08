@@ -38,6 +38,7 @@ type SortableTabGroupProps = {
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split containing this leaf. */
   onRotateLeafSplit?: (leafId: number) => void;
+  onSaveEntry?: (leafId: number, mode: "save" | "saveAs") => void;
   /** Toggle privacy on a single leaf. */
   onTogglePrivate?: (leafId: number) => void;
   /** Pin or unpin the whole tab this group belongs to. */
@@ -74,6 +75,7 @@ export function SortableTabGroup({
   onMoveLeafToGroup,
   onMoveLeafToNewTab,
   onRotateLeafSplit,
+  onSaveEntry,
   onTogglePrivate,
   onSetTabPinned,
   renamingLeafId,
@@ -130,6 +132,7 @@ export function SortableTabGroup({
           onMoveLeafToGroup={onMoveLeafToGroup}
           onMoveLeafToNewTab={onMoveLeafToNewTab}
           onRotateLeafSplit={onRotateLeafSplit}
+          onSaveEntry={onSaveEntry}
           onTogglePrivate={onTogglePrivate}
           onSetTabPinned={onSetTabPinned}
           renamingLeafId={renamingLeafId}
@@ -160,6 +163,7 @@ export function SortableTabGroup({
       onMoveLeafToGroup,
       onMoveLeafToNewTab,
       onRotateLeafSplit,
+      onSaveEntry,
       onTogglePrivate,
       onSetTabPinned,
       renamingLeafId,

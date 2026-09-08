@@ -5,6 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { NumberInput } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
 import { cn } from "@/lib/utils";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -12,10 +13,13 @@ import {
   EDITOR_FONT_SIZES,
   EDITOR_THEME_LABELS,
   EDITOR_THEMES,
+  LINE_WRAP_COLUMN_MAX,
   setEditorFontSize,
   setEditorLigatures,
   setEditorTheme,
   setFormatOnSave,
+  setLineWrap,
+  setLineWrapColumn,
   setShowMinimap,
   setVimMode,
   type EditorThemeId,
@@ -31,6 +35,8 @@ export function CodeEditorSection() {
   const editorTheme = usePreferencesStore((s) => s.editorTheme);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
+  const lineWrap = usePreferencesStore((s) => s.lineWrap);
+  const lineWrapColumn = usePreferencesStore((s) => s.lineWrapColumn);
   const editorLigatures = usePreferencesStore((s) => s.editorLigatures);
   const formatOnSave = usePreferencesStore((s) => s.formatOnSave);
   const editorFontSize = usePreferencesStore((s) => s.editorFontSize);
@@ -114,6 +120,27 @@ export function CodeEditorSection() {
         <SettingRow title="Vim mode" description="Enable Vim keybindings in the code editor.">
           <Switch checked={vimMode} onCheckedChange={(v) => void setVimMode(v)} />
         </SettingRow>
+        <SettingRow
+          title="Word wrap"
+          description="Break long lines instead of scrolling sideways. Also on the editor pane header and its keyboard shortcut."
+        >
+          <Switch checked={lineWrap} onCheckedChange={(v) => void setLineWrap(v)} />
+        </SettingRow>
+        {lineWrap && (
+          <SettingRow
+            title="Wrap column"
+            description={`Character column wrapped lines break at. 0 wraps at the pane edge instead, which is what word wrap did before this setting. Max ${LINE_WRAP_COLUMN_MAX}.`}
+          >
+            <NumberInput
+              className="h-9 w-24 text-[12px]"
+              value={lineWrapColumn}
+              onValueChange={(n) => void setLineWrapColumn(n)}
+              min={0}
+              max={LINE_WRAP_COLUMN_MAX}
+              aria-label="Wrap column"
+            />
+          </SettingRow>
+        )}
       </div>
 
       <div className="flex flex-col gap-2">

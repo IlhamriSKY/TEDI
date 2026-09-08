@@ -68,6 +68,7 @@ type Props = {
   onMoveLeafToNewTab?: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split containing `leafId`. Rendered only on entries inside a split. */
   onRotateLeafSplit?: (leafId: number) => void;
+  onSaveEntry?: (leafId: number, mode: "save" | "saveAs") => void;
   /** Split the active pane. Wired into the `+` dropdown next to New Terminal. */
   onSplit?: (dir: "row" | "col") => void;
   /** Disable the split-pane items when the active tab is at its split cap. */
@@ -154,6 +155,7 @@ export function TabBar({
   onMoveLeafToGroup,
   onMoveLeafToNewTab,
   onRotateLeafSplit,
+  onSaveEntry,
   onSplit,
   canSplit = false,
   sshStatuses,
@@ -461,6 +463,7 @@ export function TabBar({
                       onMoveLeafToGroup={onMoveLeafToGroup}
                       onMoveLeafToNewTab={onMoveLeafToNewTab}
                       onRotateLeafSplit={onRotateLeafSplit}
+                      onSaveEntry={onSaveEntry}
                       onTogglePrivate={onTogglePrivate}
                       onSetTabPinned={onSetTabPinned}
                       renamingLeafId={renamingLeafId}

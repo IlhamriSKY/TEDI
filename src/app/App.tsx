@@ -81,7 +81,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
 import { togglePanelOpen } from "@/app/lib/panelSize";
-import { buildShortcutHandlers } from "./lib/shortcutHandlers";
+import { buildShortcutHandlers, saveEditorLeaf } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
 import { useDockedSectionAutoOpen } from "./hooks/useDockedSectionAutoOpen";
@@ -846,6 +846,15 @@ export default function App() {
     setCommandPaletteOpen((prev) => !prev);
   }, []);
 
+  // Save / Save As on a tab's context menu. Shares one implementation with the
+  // Ctrl+S and Save As shortcuts; the only difference is that this one is told
+  // WHICH leaf, because a right-click can land on a tab that is not focused.
+  const handleSaveEntry = useCallback(
+    (leafId: number, mode: "save" | "saveAs") =>
+      saveEditorLeaf({ editorRefs, setEditorLeafPath }, leafId, mode),
+    [setEditorLeafPath],
+  );
+
   const shortcutHandlers = useMemo<ShortcutHandlers>(
     () =>
       buildShortcutHandlers({
@@ -1125,6 +1134,7 @@ export default function App() {
             onNewTerminal={openNewTab}
             onNewPrivateTerminal={openNewPrivateTab}
             onTogglePrivate={togglePrivate}
+            onSaveEntry={handleSaveEntry}
             onSetTabPinned={setTabPinned}
             onRenameLeaf={renameLeaf}
             onNewPreview={handleHeaderNewPreview}

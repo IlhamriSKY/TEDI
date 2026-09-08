@@ -84,6 +84,7 @@ type Props = {
   onMoveLeafToNewTab: (leafId: number) => "ok" | "invalid";
   /** Flip the orientation of the split that contains `leafId`. */
   onRotateLeafSplit: (leafId: number) => void;
+  onSaveEntry?: (leafId: number, mode: "save" | "saveAs") => void;
   /** Per-leaf SSH status for the tab-strip dot. */
   sshStatuses?: Map<number, SshStatus>;
   /** Per-leaf AI CLI status for the tab-strip dot. */
@@ -197,6 +198,7 @@ function HeaderImpl({
   onMoveLeafToGroup,
   onMoveLeafToNewTab,
   onRotateLeafSplit,
+  onSaveEntry,
   sshStatuses,
   aiCliStatuses,
   searchTarget,
@@ -379,6 +381,7 @@ function HeaderImpl({
             onMoveLeafToGroup={onMoveLeafToGroup}
             onMoveLeafToNewTab={onMoveLeafToNewTab}
             onRotateLeafSplit={onRotateLeafSplit}
+            onSaveEntry={onSaveEntry}
             onSplit={onSplit}
             canSplit={canSplit}
             sshStatuses={sshStatuses}

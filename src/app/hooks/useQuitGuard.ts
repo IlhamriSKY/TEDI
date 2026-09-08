@@ -3,7 +3,6 @@ import { exit } from "@tauri-apps/plugin-process";
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { disconnectAllMcpClients } from "@/modules/ai/lib/mcpClient";
-import { flushNotes } from "@/modules/editor/lib/notes";
 import { killAllDaemonSessions } from "@/modules/terminal/lib/pty-bridge";
 import { busyTerminalCount } from "@/modules/terminal/lib/sessionState";
 
@@ -91,12 +90,7 @@ export function useQuitGuard(flush: () => Promise<void>, enabled: boolean): Quit
       console.warn("quit: MCP disconnect failed, closing regardless:", e);
     }
     try {
-      // `flushNotes` rides the same cap: a quick note autosaves on a debounce,
-      // and this is the one moment that debounce would otherwise lose.
-      await Promise.race([
-        Promise.all([flushNotes(), flushRef.current()]),
-        new Promise((r) => setTimeout(r, FLUSH_TIMEOUT_MS)),
-      ]);
+      await Promise.race([flushRef.current(), new Promise((r) => setTimeout(r, FLUSH_TIMEOUT_MS))]);
     } catch {
       /* flush failed; close anyway */
     } finally {

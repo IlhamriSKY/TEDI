@@ -23,6 +23,37 @@ export const wrapCompartment = new Compartment();
 export const vimCompartment = new Compartment();
 export const minimapCompartment = new Compartment();
 
+// Word wrap. Without a column the text wraps at the pane edge, which is all
+// CodeMirror's own `lineWrapping` does; a column pins it to N characters.
+//
+// The width has to land on `.cm-content`, and `ch` only means one character if
+// nothing else eats into that box - so the column case moves `.cm-line`'s own
+// horizontal padding out to the content's margin. Identical pixels on screen,
+// but the column now counts characters instead of characters-minus-4px.
+const WRAP_COLUMN_VAR = "--tedi-editor-wrap-column";
+const WRAP_COLUMN_THEME = EditorView.theme({
+  ".cm-content.cm-lineWrapping": {
+    maxWidth: `var(${WRAP_COLUMN_VAR})`,
+    marginLeft: "4px",
+    marginRight: "2px",
+  },
+  ".cm-content.cm-lineWrapping .cm-line": {
+    paddingLeft: "0",
+    paddingRight: "0",
+  },
+});
+
+/** `column <= 0` wraps at the pane edge. */
+export function wrapExtension(enabled: boolean, column: number): Extension {
+  if (!enabled) return [];
+  if (column <= 0) return EditorView.lineWrapping;
+  return [
+    EditorView.lineWrapping,
+    WRAP_COLUMN_THEME,
+    EditorView.contentAttributes.of({ style: `${WRAP_COLUMN_VAR}: ${column}ch` }),
+  ];
+}
+
 export function minimapExtension(): Extension {
   // Deps: "doc" re-parses on edits; "language" recomputes after async
   // `resolveLanguage` reconfigures the compartment, so the first paint

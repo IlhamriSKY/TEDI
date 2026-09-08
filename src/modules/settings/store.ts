@@ -170,6 +170,9 @@ export type Preferences = {
   openaiCompatibleInstances: OpenAICompatibleInstance[];
   vimMode: boolean;
   lineWrap: boolean;
+  /** Column word wrap breaks at while {@link lineWrap} is on. `0` wraps at the
+   *  pane edge, which is what wrapping did before this setting existed. */
+  lineWrapColumn: number;
   /** Show the code editor minimap. Default true. */
   showMinimap: boolean;
   /** Render the coding font's ligatures in the editor (`=>` as an arrow, `!=`
@@ -425,6 +428,7 @@ const KEY_OPENAI_COMPATIBLE_BASE_URL = "openaiCompatibleBaseURL";
 const KEY_OPENAI_COMPATIBLE_INSTANCES = "openaiCompatibleInstances";
 const KEY_VIM_MODE = "vimMode";
 const KEY_LINE_WRAP = "lineWrap";
+const KEY_LINE_WRAP_COLUMN = "lineWrapColumn";
 const KEY_SHOW_MINIMAP = "showMinimap";
 const KEY_EDITOR_LIGATURES = "editorLigatures";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
@@ -476,6 +480,11 @@ export const EDITOR_FONT_SIZE_DEFAULT = 13;
 export const EDITOR_FONT_SIZE_MIN = 8;
 export const EDITOR_FONT_SIZE_MAX = 28;
 export const EDITOR_FONT_SIZES = [11, 12, 13, 14, 15, 16, 18, 20] as const;
+
+// 0 is "wrap at the pane edge", so there is no minimum to defend - a 10-column
+// wrap is silly but harmless, and forbidding it would strand the stepper on the
+// way down to 0.
+export const LINE_WRAP_COLUMN_MAX = 500;
 
 export const APP_OPACITY_DEFAULT = 1;
 // 0 = fully transparent (app dissolves into the wallpaper / desktop), 1 = solid.
@@ -557,6 +566,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   openaiCompatibleInstances: [],
   vimMode: false,
   lineWrap: false,
+  lineWrapColumn: 0,
   showMinimap: true,
   editorLigatures: false,
   terminalWebglEnabled: true,
@@ -687,6 +697,9 @@ export async function loadPreferences(): Promise<Preferences> {
     ),
     vimMode: get<boolean>(KEY_VIM_MODE) ?? DEFAULT_PREFERENCES.vimMode,
     lineWrap: get<boolean>(KEY_LINE_WRAP) ?? DEFAULT_PREFERENCES.lineWrap,
+    lineWrapColumn: clampLineWrapColumn(
+      get<number>(KEY_LINE_WRAP_COLUMN) ?? DEFAULT_PREFERENCES.lineWrapColumn,
+    ),
     showMinimap: get<boolean>(KEY_SHOW_MINIMAP) ?? DEFAULT_PREFERENCES.showMinimap,
     editorLigatures: get<boolean>(KEY_EDITOR_LIGATURES) ?? DEFAULT_PREFERENCES.editorLigatures,
     terminalWebglEnabled:
@@ -892,6 +905,11 @@ export function clampScrollback(value: number): number {
   return Math.min(TERMINAL_SCROLLBACK_MAX, Math.max(TERMINAL_SCROLLBACK_MIN, Math.round(value)));
 }
 
+export function clampLineWrapColumn(value: number): number {
+  if (!Number.isFinite(value)) return 0;
+  return Math.min(LINE_WRAP_COLUMN_MAX, Math.max(0, Math.round(value)));
+}
+
 export function clampEditorFontSize(value: number): number {
   if (!Number.isFinite(value)) return EDITOR_FONT_SIZE_DEFAULT;
   return Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(value)));
@@ -1015,6 +1033,10 @@ export async function setVimMode(value: boolean): Promise<void> {
 
 export async function setLineWrap(value: boolean): Promise<void> {
   await writePref(KEY_LINE_WRAP, value);
+}
+
+export async function setLineWrapColumn(value: number): Promise<void> {
+  await writePref(KEY_LINE_WRAP_COLUMN, clampLineWrapColumn(value));
 }
 
 export async function setShowMinimap(value: boolean): Promise<void> {
@@ -1511,6 +1533,7 @@ export async function onPreferencesChange(
     openaiCompatibleInstances: KEY_OPENAI_COMPATIBLE_INSTANCES,
     vimMode: KEY_VIM_MODE,
     lineWrap: KEY_LINE_WRAP,
+    lineWrapColumn: KEY_LINE_WRAP_COLUMN,
     showMinimap: KEY_SHOW_MINIMAP,
     editorLigatures: KEY_EDITOR_LIGATURES,
     terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,

@@ -32,9 +32,9 @@ import {
   languageCompartment,
   vimCompartment,
   wrapCompartment,
+  wrapExtension,
 } from "./lib/extensions";
 import { initVimGlobals, vimHandlersExtension } from "./lib/vim";
-import { isNotePath, notesReady, registerNoteFlush } from "./lib/notes";
 
 initVimGlobals();
 import { resolveLanguage } from "./lib/languageResolver";
@@ -277,6 +277,7 @@ export function EditorPane({
   } | null>(null);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
+  const lineWrapColumn = usePreferencesStore((s) => s.lineWrapColumn);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
   const languageRef = useRef<string | null>(null);
   // The key is fetched asynchronously but the provider is read synchronously from
@@ -348,46 +349,10 @@ export function EditorPane({
   const saveRef = useRef(save);
   saveRef.current = save;
 
-  /**
-   * Quick notes (scratch files in the app data dir) save themselves: they
-   * exist so a throwaway thought survives quitting TEDI, and nobody presses
-   * Ctrl+S on a throwaway thought. Plain `save`, never the format-on-save
-   * wrapper - reformatting under the cursor mid-typing is not a save.
-   */
-  const autosaveRef = useRef(false);
-  useEffect(() => {
-    void notesReady.then(() => (autosaveRef.current = isNotePath(path)));
-  }, [path]);
-  const autosaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const handleChange = useCallback(
-    (next: string) => {
-      onChange(next);
-      if (!autosaveRef.current) return;
-      if (autosaveTimer.current) clearTimeout(autosaveTimer.current);
-      autosaveTimer.current = setTimeout(() => {
-        autosaveTimer.current = null;
-        void saveRef.current();
-      }, 600);
-    },
-    [onChange],
-  );
-  /** Write a debounced autosave out now. No-op when none is pending. */
-  const flushAutosave = useCallback(async () => {
-    if (!autosaveTimer.current) return;
-    clearTimeout(autosaveTimer.current);
-    autosaveTimer.current = null;
-    await saveRef.current();
-  }, []);
-  // Two ways the last few keystrokes could be dropped: the pane going away (tab
-  // closed, workspace switched), and the window closing - which never unmounts
-  // React, hence the registry the quit guard drains.
-  useEffect(() => {
-    const off = registerNoteFlush(flushAutosave);
-    return () => {
-      off();
-      void flushAutosave();
-    };
-  }, [flushAutosave]);
+  // No editor in TEDI writes to disk on its own, quick notes included: a save
+  // is Ctrl+S, the tab's context menu, or Save As. A note still differs from
+  // any other file only by WHERE it lives, which is what makes `+` -> Note a
+  // one-click scratch file with no folder to pick.
   const onSavedRef = useRef(onSaved);
   onSavedRef.current = onSaved;
   const onCloseRef = useRef(onClose);
@@ -511,7 +476,12 @@ export function EditorPane({
       ...buildSharedExtensions({
         showMinimap: usePreferencesStore.getState().showMinimap,
       }),
-      wrapCompartment.of(usePreferencesStore.getState().lineWrap ? EditorView.lineWrapping : []),
+      wrapCompartment.of(
+        wrapExtension(
+          usePreferencesStore.getState().lineWrap,
+          usePreferencesStore.getState().lineWrapColumn,
+        ),
+      ),
       languageCompartment.of([]),
       inlineCompletion({
         getPrefs: () => {
@@ -606,9 +576,9 @@ export function EditorPane({
     const view = cmRef.current?.view;
     if (!view) return;
     view.dispatch({
-      effects: wrapCompartment.reconfigure(lineWrap ? EditorView.lineWrapping : []),
+      effects: wrapCompartment.reconfigure(wrapExtension(lineWrap, lineWrapColumn)),
     });
-  }, [lineWrap]);
+  }, [lineWrap, lineWrapColumn]);
 
   useEffect(() => {
     const view = cmRef.current?.view;
@@ -964,7 +934,7 @@ export function EditorPane({
             <CodeMirror
               ref={cmRef}
               value={doc.content}
-              onChange={handleChange}
+              onChange={onChange}
               theme={themeExt ?? undefined}
               extensions={extensions}
               height="100%"

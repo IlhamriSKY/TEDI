@@ -53,6 +53,32 @@ export interface ShortcutHandlerDeps {
   commandPaletteOpen: () => void;
 }
 
+/**
+ * Save an editor leaf by id. `saveAs` picks a path in the native dialog and
+ * retargets the leaf onto it, so the tab title, the language mode and the next
+ * Ctrl+S all follow the new file (VSCode behaviour).
+ *
+ * Takes a leaf id rather than reading the active one, because the tab context
+ * menu acts on the tab you right-clicked, which is not necessarily the focused
+ * one. Silent when that leaf is not an editor - same fall-through as Format
+ * Document.
+ */
+export function saveEditorLeaf(
+  deps: Pick<ShortcutHandlerDeps, "editorRefs" | "setEditorLeafPath">,
+  leafId: number,
+  mode: "save" | "saveAs",
+): void {
+  const handle = deps.editorRefs.current.get(leafId);
+  if (!handle) return;
+  if (mode === "save") {
+    void handle.save();
+    return;
+  }
+  void handle.saveAs().then((saved) => {
+    if (saved) deps.setEditorLeafPath(leafId, saved);
+  });
+}
+
 export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandlers {
   const {
     openNewTab,
@@ -70,7 +96,6 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     requestCloseLeaf,
     setNewEditorOpen,
     setAgentDialogOpen,
-    setEditorLeafPath,
     searchInlineRef,
     editorRefs,
     terminalRefs,
@@ -160,17 +185,8 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       void setLineWrap(!usePreferencesStore.getState().lineWrap);
     },
     "editor.saveAs": () => {
-      // Same silent fall-through as Format Document when the focused leaf is
-      // not an editor. The leaf follows the file it was saved as, so the tab
-      // title, the language mode and the next Ctrl+S all track the new path.
       if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
-      const leafId = activeLeafIdInTab;
-      void editorRefs.current
-        .get(leafId)
-        ?.saveAs()
-        .then((saved) => {
-          if (saved) setEditorLeafPath(leafId, saved);
-        });
+      saveEditorLeaf(deps, activeLeafIdInTab, "saveAs");
     },
     "editor.formatDocument": () => {
       // Falls through silently when the focused leaf isn't an editor —
