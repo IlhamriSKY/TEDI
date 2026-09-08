@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.46] - 08-09-2026
+
+### Added
+
+- **Source Control can be pointed at a repository the workspace is not rooted at.** The panel follows the workspace root, which is right until the workspace holds more than one repository - a submodule, a vendored checkout, two services side by side - and then every count, branch and button belongs to a repo you are not looking at. "Open in Source Control" on any folder in the Explorer targets whatever repository contains it, and the graph, the PRs and the diffs all follow, because they read the resolved root rather than the prop. Git does the resolving: every command already goes through `--show-toplevel`, so a folder deep inside a repo and its root are the same target, and a folder in no repo resolves back to the workspace's own. Nothing scans, watches or discovers - the target is only ever an explicit menu pick, stored against the workspace it was made under, so opening another tree drops it with nothing having to clear it. The panel names the repository it is on and offers "Follow workspace", because a Source Control quietly disagreeing with the Explorer beside it is worse than not having the feature. See [repoTarget.ts](src/modules/scm/repoTarget.ts), [SourceControlPanel.tsx](src/modules/scm/SourceControlPanel.tsx).
+- **Word wrap can break at a column, not only at the pane edge.** The pane edge is all CodeMirror's `lineWrapping` does; `lineWrapColumn` pins the break to N characters, and `0` keeps the old behaviour. The width has to land on `.cm-content` for `ch` to mean one character, so the column case moves `.cm-line`'s horizontal padding out to the content's margin - identical pixels on screen, but the column now counts characters instead of characters-minus-4px. `editor-style-consistency-verify` asserts those two numbers agree, because that is the only thing making them equivalent. The word wrap switch moves into Settings beside it, where the pane header and the keyboard shortcut already pointed. See [extensions.ts](src/modules/editor/lib/extensions.ts), [CodeEditorSection.tsx](src/settings/sections/CodeEditorSection.tsx).
+- **Save and Save As on every editor tab's context menu.** The discoverable half of Ctrl+S, marked "Unsaved" when the buffer is dirty. It takes a leaf id rather than reading the active one, because a right-click lands on the tab you clicked and not necessarily the focused one, and it shares its implementation with the shortcuts rather than being a second path to the same write. See [shortcutHandlers.ts](src/app/lib/shortcutHandlers.ts), [renderEntryBody.tsx](src/modules/tabs/components/renderEntryBody.tsx).
+
+### Changed
+
+- **Nothing in TEDI writes an editor to disk on its own any more.** Quick notes autosaved on a 600ms debounce, and that debounce then needed a flush registry drained by the quit guard so the last keystrokes before the window closed were not lost - machinery whose only purpose was making the autosave safe. A note still differs from any other file only by WHERE it lives, which is the whole point of the feature: `+` -> Note is a scratch file with no folder to pick and no name to invent. It is saved the way everything else is. See [notes.ts](src/modules/editor/lib/notes.ts), [EditorPane.tsx](src/modules/editor/EditorPane.tsx).
+
+### Removed
+
+- **The note autosave, its flush registry, and the path predicates that gated it.** `isUnder`, `isNotePath`, `registerNoteFlush` and `flushNotes` all existed to decide which buffer wrote itself and to rescue the write the debounce would otherwise drop. `notes-verify` swaps its autosave checks for the ones that matter now: that nothing debounces a write, that no flush registry survives, and that both menu items are still wired - because with the autosave gone, the ways to ask for a save are load-bearing. See [notes-verify.ts](scripts/editor/notes-verify.ts).
+
 ## [0.4.45] - 08-09-2026
 
 ### Added
