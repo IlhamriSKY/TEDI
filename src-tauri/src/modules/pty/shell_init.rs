@@ -110,9 +110,9 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
 /// PATH". Read straight from the `tauri-plugin-store` settings file rather than
 /// threaded through the daemon protocol: `apply_common` runs in whichever
 /// process owns the PTY (the GUI for the in-process backend, the sidecar for
-/// the daemon backend), and both resolve the same
-/// `<data_dir>/<BUNDLE_ID>/tedi-settings.json`. Reading per spawn keeps the
-/// setting live - a newly opened terminal sees edits without a daemon restart.
+/// the daemon backend), and `ids::settings_file()` resolves the same file in
+/// both. Reading per spawn keeps the setting live - a newly opened terminal
+/// sees edits without a daemon restart.
 ///
 /// The plugin-store writes via a non-atomic `fs::write` (truncate-in-place), so
 /// a spawn's read can rarely land between the truncate and the rewrite and see
@@ -121,10 +121,9 @@ fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
 /// missing-file / parse error yields no extra entries so the shell still
 /// launches with the inherited PATH.
 pub(crate) fn user_extra_path_dirs() -> Vec<String> {
-    let Some(dir) = crate::modules::ids::app_data_dir() else {
+    let Some(path) = crate::modules::ids::settings_file() else {
         return Vec::new();
     };
-    let path = dir.join("tedi-settings.json");
     for attempt in 0..3 {
         if let Ok(raw) = std::fs::read_to_string(&path) {
             if !raw.trim().is_empty() {

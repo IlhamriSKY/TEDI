@@ -24,27 +24,13 @@
 
 use std::sync::OnceLock;
 
-use crate::modules::ids::BUNDLE_ID;
+use crate::modules::ids::settings_candidates;
 
 /// Key in `tedi-settings.json`. Written only by the Install MCP flow
 /// (`setAutomationPort` in `src/modules/settings/store.ts`); deliberately NOT a
 /// member of `Preferences`, so the MCP `set_setting` tool cannot reach it and an
 /// agent cannot make its own access permanent.
 const KEY: &str = "automationPort";
-
-/// The settings file, without an `AppHandle`.
-///
-/// Both candidates are checked rather than picked: `tauri-plugin-store` resolves
-/// a bare filename against the app CONFIG dir, which on Windows is the same
-/// Roaming folder as the data dir but on Linux is not (`~/.config` vs
-/// `~/.local/share`). Trying both costs one `exists()` and removes the guess.
-fn settings_files() -> Vec<std::path::PathBuf> {
-    [dirs::config_dir(), dirs::data_dir()]
-        .into_iter()
-        .flatten()
-        .map(|d| d.join(BUNDLE_ID).join("tedi-settings.json"))
-        .collect()
-}
 
 /// Port the automation channel should listen on, or `None` for off.
 ///
@@ -60,7 +46,7 @@ pub fn debug_port() -> Option<u16> {
         if let Ok(raw) = std::env::var("TEDI_DEBUG_PORT") {
             return raw.trim().parse::<u16>().ok().filter(|p| *p != 0);
         }
-        for path in settings_files() {
+        for path in settings_candidates() {
             let Ok(text) = std::fs::read_to_string(&path) else {
                 continue;
             };
@@ -124,6 +110,7 @@ pub fn apply_webview2_browser_args_env() {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::modules::ids::BUNDLE_ID;
 
     #[test]
     fn a_port_of_zero_is_off_not_a_port() {
@@ -135,7 +122,7 @@ mod tests {
 
     #[test]
     fn settings_path_is_under_the_bundle_id() {
-        let files = settings_files();
+        let files = settings_candidates();
         assert!(!files.is_empty(), "no OS config or data dir resolved");
         for f in files {
             assert!(f.ends_with("tedi-settings.json"));

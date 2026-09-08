@@ -38,10 +38,7 @@ use crate::modules::cli_paint::{
     color_enabled, paint_active, paint_bold, paint_dim, paint_header, paint_id, paint_ok,
     paint_warn,
 };
-use crate::modules::ids::BUNDLE_ID;
-
-/// Store file managed by `tauri-plugin-store` (see `store.ts`).
-const STORE_FILE: &str = "tedi-settings.json";
+use crate::modules::ids;
 
 /// One preset row. The CLI writes `customThemePresetRequest = <id>`; the TS
 /// side resolves the id back to its full color set on the next app boot.
@@ -556,10 +553,9 @@ fn mutate_bg_field<F: FnOnce(&mut serde_json::Map<String, Value>)>(
 }
 
 fn read_store() -> Result<serde_json::Map<String, Value>, String> {
-    let path = store_path();
-    if !path.exists() {
+    let Some(path) = ids::settings_file() else {
         return Ok(serde_json::Map::new());
-    }
+    };
     let raw = fs::read_to_string(&path).map_err(|e| format!("read settings: {e}"))?;
     let v: Value = serde_json::from_str(&raw).map_err(|e| format!("parse settings: {e}"))?;
     v.as_object()
@@ -571,7 +567,7 @@ fn read_store() -> Result<serde_json::Map<String, Value>, String> {
 /// the file is untouched. Pretty-printed JSON matches what the plugin
 /// would emit, so a diff stays readable.
 fn update_store<F: FnOnce(&mut serde_json::Map<String, Value>)>(f: F) -> Result<(), String> {
-    let path = store_path();
+    let path = ids::settings_write_target().ok_or("no OS config or data dir")?;
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|e| format!("create app data dir: {e}"))?;
     }
@@ -582,13 +578,6 @@ fn update_store<F: FnOnce(&mut serde_json::Map<String, Value>)>(f: F) -> Result<
     crate::modules::fs::atomic::atomic_write(&path, &bytes)
         .map_err(|e| format!("commit write: {e}"))?;
     Ok(())
-}
-
-fn store_path() -> PathBuf {
-    dirs::data_dir()
-        .unwrap_or_else(|| PathBuf::from("."))
-        .join(BUNDLE_ID)
-        .join(STORE_FILE)
 }
 
 fn is_url(s: &str) -> bool {
