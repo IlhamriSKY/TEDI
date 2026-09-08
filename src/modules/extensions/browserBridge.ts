@@ -1,52 +1,44 @@
 import { runExtensionCommand, useExtensionsStore } from "./store";
 
 /**
- * The one place core knows the browser extension by name.
+ * The one place core knows the browser extension by name, and deliberately the
+ * whole of that coupling: one id, two calls, nothing exported but the two
+ * helpers below.
  *
- * WHY CORE KNOWS AN EXTENSION AT ALL. Two core affordances legitimately mean
- * "show me this page": the preview pill that appears when a terminal prints a
- * dev-server URL, and the `+` menu. Both are terminal and workspace features,
- * and the only surface that can answer them is the browser extension.
- *
- * So core offers them ONLY when that extension is installed and enabled, and is
- * otherwise silent - a user who has not installed a browser is never shown a
- * control that opens nothing. This module is the whole of that coupling: one
- * id, two calls.
+ * Two core affordances legitimately mean "show me this page": the preview pill
+ * that appears when a terminal prints a dev-server URL, and the `+` menu. Both
+ * are terminal and workspace features, and the only surface that can answer
+ * them is the browser extension. So core offers them ONLY while that extension
+ * is installed and enabled, and is otherwise silent, rather than showing a
+ * control that opens nothing.
  */
-export const BROWSER_EXTENSION_ID = "tedi.browser";
+const BROWSER_EXTENSION_ID = "tedi.browser";
 
-/** The extension's pane-opening command, and its agent tool. Both are part of
- *  its published surface, so neither is a private hook into it. */
+/** Part of the extension's published surface, so neither is a private hook. */
 const OPEN_PANE_COMMAND = "tedi.browser.open";
 const BROWSER_TOOL = "browser";
 
-/**
- * Is the browser extension installed AND enabled right now?
- *
- * Read live rather than cached: an extension can be installed, enabled or
- * disabled mid-session, and a stale answer means either a pill that opens
- * nothing or a hidden pill for a browser the user just installed.
- */
+/** Read live, never cached: an extension can be installed, enabled or disabled
+ *  mid-session, and a stale answer means either a pill that opens nothing or a
+ *  hidden pill for a browser the user just installed. */
 function browserExtensionReady(): boolean {
   return useExtensionsStore.getState().list.some((e) => e.id === BROWSER_EXTENSION_ID && e.enabled);
 }
 
-/** React-subscribed twin of {@link browserExtensionReady}, for components that
- *  show or hide a control based on it. */
+/** React-subscribed twin of {@link browserExtensionReady}. */
 export function useBrowserExtensionReady(): boolean {
   return useExtensionsStore((s) => s.list.some((e) => e.id === BROWSER_EXTENSION_ID && e.enabled));
 }
 
 /**
- * Open `url` in the extension's browser and bring its pane up.
+ * Open `url` in the extension's browser and bring its pane up. Resolves false
+ * when the extension is not there, so a caller can fall back or stay quiet
+ * instead of reporting a success that did not happen.
  *
- * Two calls because they answer two different questions: the tool opens the tab
+ * Two calls, because they answer different questions: the tool opens the tab
  * and owns the url, the command opens the pane the user then looks at. The tool
  * runs FIRST so the pane paints an already-loading page rather than a blank one
  * that jumps a moment later.
- *
- * Resolves false when the extension is not there, so a caller can fall back or
- * stay quiet instead of reporting a success that did not happen.
  */
 export async function openUrlInBrowser(url: string): Promise<boolean> {
   if (!browserExtensionReady()) return false;

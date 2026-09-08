@@ -183,7 +183,7 @@ develop TEDI itself, keep your extension working copy under the repo's
 pnpm tauri:dev:ext      # link every extensions/<id> into the dev app, then run dev
 ```
 
-This runs [`scripts/link-dev-extensions.mjs`](../scripts/link-dev-extensions.mjs),
+This runs [`scripts/ext/link-dev-extensions.mjs`](../scripts/ext/link-dev-extensions.mjs),
 which creates a **directory junction (Windows) / symlink (Unix)** from the dev
 build's app-data extensions folder (`<appData>/id.ilhamrisky.tedi.dev/extensions/<id>`)
 to your repo working copy, no copying. `ext_list` follows the link and, with no
@@ -443,16 +443,16 @@ Bindings are matched on a capture-phase `keydown` listener. User overrides
 
 #### `contributes.panels[]` (`passthrough`)
 
-| Field            | Required | Notes                                                                                                                                                                                                 |
-| ---------------- | -------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `id`             | yes      | Bound to a renderer via `ctx.registerPanelRenderer(id, fn)`; controlled via `ctx.panel.*`.                                                                                                            |
-| `title`          | yes      | Shown in the host header strip (unless `hideHostHeader`).                                                                                                                                             |
-| `surface`        | yes      | `"sidebar-bottom" \| "statusbar-right" \| "right" \| "tab"`. Only **`right`** (slide-out slot) and **`tab`** (full workspace tab) are wired. `sidebar-bottom` / `statusbar-right` are reserved/inert. |
-| `icon`           | no       | Path inside the package. Required if `compact:true`.                                                                                                                                                  |
-| `defaultOpen`    | no       | `boolean`. Opens the panel once per session at launch (tracked so a user-close is not undone on re-render).                                                                                           |
-| `toggleCommand`  | no       | A `commands[]` id; surfaces as a keyboard chip on the toggle button.                                                                                                                                  |
-| `hideHostHeader` | no       | `boolean`. Hides the host title+close strip; the extension paints the whole panel and must call `ctx.panel.close` itself.                                                                             |
-| `compact`        | no       | `boolean` (added in v0.2.20). Only governs status-bar toggle ordering (compact icon cluster vs text-toggle group). Tolerated on all hosts because the schema is `passthrough`.                        |
+| Field            | Required | Notes                                                                                                                                                                          |
+| ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `id`             | yes      | Bound to a renderer via `ctx.registerPanelRenderer(id, fn)`; controlled via `ctx.panel.*`.                                                                                     |
+| `title`          | yes      | Shown in the host header strip (unless `hideHostHeader`).                                                                                                                      |
+| `surface`        | yes      | `"right"` (the slide-out slot, with an auto-rendered status-bar toggle) or `"tab"` (a full workspace tab or split pane).                                                       |
+| `icon`           | no       | `lucide:<Name>`, a path inside the package, or a `data:` URL. Required if `compact:true`.                                                                                      |
+| `defaultOpen`    | no       | `boolean`. Opens the panel once per session at launch (tracked so a user-close is not undone on re-render).                                                                    |
+| `toggleCommand`  | no       | A `commands[]` id; surfaces as a keyboard chip on the toggle button.                                                                                                           |
+| `hideHostHeader` | no       | `boolean`. Hides the host title+close strip; the extension paints the whole panel and must call `ctx.panel.close` itself.                                                      |
+| `compact`        | no       | `boolean` (added in v0.2.20). Only governs status-bar toggle ordering (compact icon cluster vs text-toggle group). Tolerated on all hosts because the schema is `passthrough`. |
 
 `right` example (Secondary Folder Tree):
 
@@ -757,6 +757,25 @@ such method, and `undefined` is correctly falsy.
 
 Prefer this over raising `engines.tedi`. Feature detection degrades on an old
 host; an engine bump locks you out of it entirely.
+
+### Staying readable in glass mode
+
+The user can make the window translucent. That works by driving `--background`
+toward fully transparent, which is what lets the editor and terminal show the
+wallpaper. **A panel that paints `--background` therefore dissolves** - not just
+its backdrop, so its rows and trees end up sitting on the wallpaper unreadable.
+
+You cannot fix this from your own stylesheet: the floors involved are computed
+from the user's opacity slider, which only the host knows. Name one of these
+classes instead and the host applies the right one:
+
+| Class                 | Put it on                                                                                                                        |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------------------- |
+| `.tedi-glass-surface` | your panel's outermost element. Translucent but floored, so it stays legible.                                                    |
+| `.tedi-glass-solid`   | anything **sticky** that content scrolls under: a table header, a toolbar, a tree head. Fully opaque, or the rows bleed through. |
+| `.tedi-glass-float`   | a modal or menu you draw over your own content.                                                                                  |
+
+They are inert when glass is off, so they are always safe to add.
 
 ### `ctx.has`: none
 
@@ -1094,8 +1113,23 @@ type StatusItem = {
   tone?: "default" | "success" | "warning" | "error"; // warning pulses, error adds a red dot
   label?: string; // optional tiny text after the icon (e.g. "62%")
   progress?: number; // optional 0..1 fill: renders a compact progress bar coloured by tone (error red, warning amber, success green, else accent)
-  detail?: { title?: string; rows: StatusItemDetailRow[] }; // structured tooltip: one themed progress bar per row; `tooltip` stays the aria-label and the fallback
+  detail?: {
+    title?: string;
+    rows: StatusItemDetailRow[];
+    chart?: StatusItemDetailChart;
+  }; // structured tooltip: one themed progress bar per row, with an optional pixel grid above them; `tooltip` stays the aria-label and the fallback
   onClick?: () => void; // renders the item as a real <button> (focusable, Enter/Space) instead of a decorative <span role="img">
+};
+
+type StatusItemDetailChart = {
+  values: number[]; // oldest first, each 0..1; the host does no scaling, you own your axis
+  mode?: "columns" | "cells"; // "columns" (default) is a trend, one column per value filled from the bottom; "cells" is a calendar, one shaded cell per value filling each column top to bottom (rows: 7 + a value per day = a GitHub contribution grid)
+  columnLabels?: (string | null)[]; // cells mode: one label per column, drawn above the grid (a month name over the week it opens); null leaves a column unlabelled
+  cellLabels?: (string | null)[]; // cells mode: one label per value ("Mon, 8 Sep - 14 prompts"), shown in place of `note` while the pointer is on that cell
+  tone?: "default" | "success" | "warning" | "error";
+  rows?: number; // grid height in cells, clamped 3..16, default 8
+  label?: string; // caption under the grid, left (e.g. "last 12 months")
+  note?: string; // caption under the grid, right (e.g. "5,517 prompts, 127 active days")
 };
 
 type StatusItemDetailRow = {

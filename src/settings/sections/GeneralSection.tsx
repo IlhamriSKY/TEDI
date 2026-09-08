@@ -9,7 +9,6 @@ import { Slider } from "@/components/ui/slider";
 import { Switch } from "@/components/ui/switch";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { useExtensionsStore } from "@/modules/extensions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   UI_ZOOM_DEFAULT,
@@ -60,11 +59,6 @@ export function GeneralSection() {
   const terminalScrollback = usePreferencesStore((s) => s.terminalScrollback);
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
-  // SQL Explorer "show/hide" maps to enabling/disabling the extension (which
-  // adds/removes its Databases panel everywhere). Only offered when installed.
-  const sqlExplorerExt = useExtensionsStore((s) => s.list).find(
-    (e) => e.id === "tedi.sql-explorer",
-  );
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
   const aiBlockingSound = usePreferencesStore((s) => s.aiBlockingSound);
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
@@ -315,6 +309,9 @@ export function GeneralSection() {
 
       <div className="flex flex-col gap-2">
         <Label>Sidebar panels</Label>
+        {/* Core sections only. An extension's sidebar panel is shown or hidden
+            by enabling or disabling the extension, in Settings -> Extensions,
+            so it needs no second switch here that only some extensions get. */}
         <SettingRow
           title="Show Source Control"
           description="Display the Source Control panel in the sidebar."
@@ -324,19 +321,6 @@ export function GeneralSection() {
             onCheckedChange={(v) => void setShowSourceControl(v)}
           />
         </SettingRow>
-        {sqlExplorerExt ? (
-          <SettingRow
-            title="Show SQL Explorer"
-            description="Display the SQL Explorer (Databases) panel in the sidebar."
-          >
-            <Switch
-              checked={sqlExplorerExt.enabled}
-              onCheckedChange={(v) =>
-                void useExtensionsStore.getState().setEnabled("tedi.sql-explorer", v)
-              }
-            />
-          </SettingRow>
-        ) : null}
       </div>
 
       <SettingsAccordion

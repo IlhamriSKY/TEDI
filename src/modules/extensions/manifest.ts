@@ -122,13 +122,13 @@ const PanelSchema = z
       .min(1)
       .meta({ description: "Panel id, passed to `ctx.registerPanelRenderer(id, fn)`." }),
     title: z.string().min(1).meta({ description: "Panel header text and tab label." }),
-    // `right` is the slide-out slot next to the workspace, mutually
-    // exclusive with the AI sidebar. `tab` mounts the panel renderer as
-    // a full workspace tab (open via `ctx.tabs.openExtensionTab`), no
-    // auto-rendered status-bar toggle. The other surfaces are reserved.
-    surface: z.enum(["sidebar-bottom", "statusbar-right", "right", "tab"]).meta({
+    // Only surfaces the host actually mounts. `sidebar-bottom` and
+    // `statusbar-right` used to be accepted here and were wired to nothing, so
+    // a panel declaring one validated, installed, and then rendered nowhere
+    // with no error to go on. Rejecting them says so at `tedi ext validate`.
+    surface: z.enum(["right", "tab"]).meta({
       description:
-        "`right` is the slide-out slot beside the workspace, with an auto-rendered status-bar toggle. `tab` mounts the renderer as a full workspace tab or split pane, opened via `ctx.tabs.openExtensionTab` / `openExtensionPane`. `sidebar-bottom` and `statusbar-right` are reserved and currently inert.",
+        "`right` is the slide-out slot beside the workspace, with an auto-rendered status-bar toggle. `tab` mounts the renderer as a full workspace tab or split pane, opened via `ctx.tabs.openExtensionTab` / `openExtensionPane`.",
     }),
     icon: z
       .string()

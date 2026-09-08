@@ -952,24 +952,41 @@ html[data-tedi-glass="on"] footer {
   background-color: var(--tedi-glass-header) !important;
 }
 
-/* SQL Explorer (first-party extension) renders into a `.tsql-host` container
- * whose BASE paints `--background`, the same token we force fully transparent
- * under glass for the editor/terminal canvas. That made the WHOLE panel (schema
- * tree, grid rows, query box, gaps) dissolve into the wallpaper instead of
- * staying a readable surface like the file-tree sidebar does. Floor the host to
- * the chrome surface (`--tedi-glass-surface`, the same 0.5..1 floor that
- * cards/sidebar ride) so the tool stays translucent but legible: data + tree
- * keep a readable backing while the panel still shows the wallpaper through it.
- * The chrome bars below ride `--card` (also floored) and stack on top for the
- * usual header/body depth. */
+/* GLASS CONTRACT FOR EXTENSION PANELS.
+ *
+ * Glass mode drives `--background` toward fully transparent, because that is
+ * what makes the editor and terminal canvas show the wallpaper. Any panel that
+ * paints `--background` therefore dissolves - not just its backdrop but the
+ * whole surface, so its rows and trees end up sitting directly on the
+ * wallpaper and become unreadable.
+ *
+ * An extension cannot fix that from its own stylesheet: the floors it needs
+ * (`--tedi-glass-surface`, `--tedi-canvas-bg`) are computed from the user's
+ * opacity slider, which only the host knows. So the host offers these two
+ * classes and an extension opts in by naming them.
+ *
+ *   .tedi-glass-surface  the panel's own backing. Translucent but floored, so
+ *                        the wallpaper still reads through and the content
+ *                        still reads on top. Put it on the outermost element.
+ *   .tedi-glass-solid    anything STICKY that scrolling content passes under -
+ *                        a table header, a toolbar, a tree head. Fully opaque,
+ *                        or the rows bleed through it.
+ *
+ * Documented in extensions/README.md. */
+html[data-tedi-glass="on"] .tedi-glass-surface {
+  background: var(--tedi-glass-surface) !important;
+}
+html[data-tedi-glass="on"] .tedi-glass-solid {
+  background: var(--tedi-canvas-bg) !important;
+}
+
+/* COMPATIBILITY SHIM: the same two rules, keyed to SQL Explorer's private class
+ * names, for installed copies that predate the contract above. Delete once that
+ * extension ships a release adopting `.tedi-glass-surface` / `.tedi-glass-solid`;
+ * nothing else in the host may name an extension's internals. */
 html[data-tedi-glass="on"] .tsql-host {
   background: var(--tedi-glass-surface) !important;
 }
-/* SQL Explorer's STICKY bars (table header, result toolbar, schema-tree head)
- * paint `--card`; under glass that lets the rows / tree scrolling beneath them
- * bleed through. Pin those sticky bars to the SOLID canvas colour so they read
- * as clean header bars (the rows/tree themselves stay glass). The hover tint
- * mixes against the same solid. Non-sticky SQL surfaces keep translucent `--card`. */
 html[data-tedi-glass="on"] .tsql-grid thead th,
 html[data-tedi-glass="on"] .tsql-meta--sticky,
 html[data-tedi-glass="on"] .tsql-tree-head {
@@ -987,11 +1004,11 @@ html[data-tedi-glass="on"] .tsql-grid thead th.tsql-grid-th:hover {
 html[data-tedi-glass="on"] [data-streamdown="table-header"] {
   background: var(--tedi-canvas-bg) !important;
 }
-/* The floating connection-form modal also hard-codes the `--background` canvas,
- * so under glass it went fully see-through while floating OVER the tree/grid,
- * colliding the form fields with the rows behind it. Floor it to the
- * floating-menu surface (`--popover`, same as `.tsql-dialog`) so the form that
- * the user has to read and type into stays legible. */
+/* A panel's own floating layer - a modal or menu it draws over its content.
+ * `--popover` rather than the surface floor: a form the user reads and types
+ * into cannot have the rows behind it showing through. Same shim note as above
+ * for `.tsql-conn-modal`. */
+html[data-tedi-glass="on"] .tedi-glass-float,
 html[data-tedi-glass="on"] .tsql-conn-modal {
   background: var(--popover) !important;
 }

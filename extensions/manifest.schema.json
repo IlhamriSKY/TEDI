@@ -294,12 +294,10 @@
               "surface": {
                 "type": "string",
                 "enum": [
-                  "sidebar-bottom",
-                  "statusbar-right",
                   "right",
                   "tab"
                 ],
-                "description": "`right` is the slide-out slot beside the workspace, with an auto-rendered status-bar toggle. `tab` mounts the renderer as a full workspace tab or split pane, opened via `ctx.tabs.openExtensionTab` / `openExtensionPane`. `sidebar-bottom` and `statusbar-right` are reserved and currently inert."
+                "description": "`right` is the slide-out slot beside the workspace, with an auto-rendered status-bar toggle. `tab` mounts the renderer as a full workspace tab or split pane, opened via `ctx.tabs.openExtensionTab` / `openExtensionPane`."
               },
               "icon": {
                 "description": "`lucide:<Name>`, `ext-asset:<relPath>` from your package, or a `data:` URL.",
