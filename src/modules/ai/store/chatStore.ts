@@ -10,15 +10,6 @@ import {
   type DynamicModelId,
   type ProviderId,
 } from "../config";
-
-/** Treat unknown model ids as SumoPod. They surface when the user picked a
- *  runtime-detected SumoPod model and the registry hasn't re-hydrated yet. */
-// `explicit` is the provider the user picked alongside the model id; it wins
-// over id-based lookup so an id shared by two providers (e.g. `deepseek-v4-pro`
-// on both DeepSeek and SumoPod) resolves to the one actually selected.
-function resolveProvider(modelId: DynamicModelId, explicit?: ProviderId): ProviderId {
-  return explicit ?? tryGetModel(modelId)?.provider ?? "sumopod";
-}
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
 import {
@@ -49,75 +40,58 @@ import {
 } from "../lib/sessions";
 import type { CompactStages } from "../lib/compact";
 import { disposeSessionShell } from "../tools/shell";
-import type { TerminalInfo, TerminalTarget } from "@/modules/scheduler/types";
 import { createContextAwareTransport } from "../lib/transport";
 import type { ToolContext } from "../tools/tools";
 
 const OVERFLOW_RECOVERY_KEEP_TAIL = 12;
 
-type Live = {
-  getCwd: () => string | null;
-  injectIntoActivePty: (text: string) => boolean;
-  getWorkspaceRoot: () => string | null;
+/**
+ * Provider that owns `modelId`. `explicit` is the provider the user picked
+ * alongside the id and wins over an id lookup, so an id served by two providers
+ * (`deepseek-v4-pro` on both DeepSeek and SumoPod) resolves to the chosen one.
+ * An unknown id falls back to SumoPod: those are runtime-detected SumoPod models
+ * whose registry has not re-hydrated yet.
+ */
+function resolveProvider(modelId: DynamicModelId, explicit?: ProviderId): ProviderId {
+  return explicit ?? tryGetModel(modelId)?.provider ?? "sumopod";
+}
+
+/**
+ * What App.tsx wires into the store each render: the live workspace, and the
+ * pane and terminal controls the agent drives.
+ *
+ * DERIVED from ToolContext rather than restated. These are the same functions,
+ * supplied once by App and handed to the tool layer, so writing the signatures
+ * out twice meant two places to change and no way to notice when only one was
+ * changed. The `Pick` names WHICH of them cross this boundary: the
+ * session-scoped members (keys, abort signal, read cache) belong to a turn,
+ * not to the app.
+ */
+type Live = Pick<
+  ToolContext,
+  | "getCwd"
+  | "getWorkspaceRoot"
+  | "injectIntoActivePty"
+  | "openSshTab"
+  | "openTerminal"
+  | "openTerminalAdvanced"
+  | "consolidateTerminalsIntoGroup"
+  | "groupLeavesIntoTab"
+  | "rotatePaneSplit"
+  | "closeTerminalLeaf"
+  | "runInActiveTerminal"
+  | "listTerminals"
+  | "injectIntoTerminal"
+  | "runInTerminal"
+  | "isTerminalBusy"
+> & {
+  /** Path of the file in the active editor, for the per-turn <env> block. Not
+   *  a ToolContext member: no tool reads it. */
   getActiveFile: () => string | null;
-  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
-  /** Open a new terminal tab. Optional cwd overrides the inherited cwd.
-   *  Returns true if a new tab was created. */
-  openTerminal: (cwd?: string | null) => boolean;
-  /** Open a new terminal with placement options. `mode="tab"` makes a fresh
-   *  top-level tab; `mode="split"` splits the focused leaf of `targetTabId`
-   *  (or the active tab) with `splitDir` "row" (right) or "col" (down).
-   *  Result variant surfaces specific errors to the tool layer. */
-  openTerminalAdvanced: (opts: {
-    cwd?: string | null;
-    mode?: "tab" | "split";
-    splitDir?: "row" | "col";
-    targetTabId?: number | null;
-  }) =>
-    | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
-    | { ok: false; error: string };
-  /** Move every terminal leaf into one tab. Refuses if the total exceeds
-   *  the per-tab pane cap. */
-  consolidateTerminalsIntoGroup: (
-    targetTabId: number,
-  ) =>
-    | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
-    | { ok: false; error: string; movedBeforeFailure?: number };
-  /** Merge given pane leaves (any kind: terminal/editor/browser) into one tab
-   *  as splits. Refuses past the per-tab pane cap. */
-  groupLeavesIntoTab: (
-    leafIds: number[],
-    targetTabId?: number,
-  ) =>
-    | { ok: true; targetTabId: number; moved: number; alreadyInGroup: number }
-    | { ok: false; error: string };
-  /** Change a pane's split orientation in its group (row = beside, col =
-   *  stacked). With `direction` it sets that orientation; without it, toggles. */
-  rotatePaneSplit: (
-    leafId: number,
-    direction?: "row" | "col",
-  ) => { ok: true; orientation: "row" | "col"; changed: boolean } | { ok: false; error: string };
-  /** Close one terminal leaf. Refuses the last leaf so at least one tab remains. */
-  closeTerminalLeaf: (
-    leafId: number,
-  ) => { ok: true; closedTab: boolean } | { ok: false; error: string };
-  /** Inject `command` into the active terminal and submit (CR). Returns
-   *  false when no active terminal exists. Used when the user asks the AI
-   *  to "run X in the terminal" so output stays in the visible terminal. */
-  runInActiveTerminal: (command: string) => boolean;
-  /** Snapshot every terminal leaf with ordinal/title/cwd. */
-  listTerminals: () => TerminalInfo[];
-  /** Activate the tab owning that terminal ordinal and focus its leaf.
-   *  False when no live terminal carries the ordinal. */
+  /** Activate the tab owning that terminal ordinal and focus its leaf. False
+   *  when no live terminal carries it. Drives the clickable #N chips in chat,
+   *  which is a UI affordance rather than a tool. */
   focusTerminal: (ordinal: number) => boolean;
-  /** Inject text into a specific terminal (no Enter). */
-  injectIntoTerminal: (target: TerminalTarget, text: string) => boolean;
-  /** Submit a command (Enter appended) to a specific terminal. */
-  runInTerminal: (target: TerminalTarget, command: string) => boolean;
-  /** True when the target (default = active) terminal is running a command
-   *  or on the alt-screen (TUI). False when the cursor sits on a shell PS1
-   *  on the normal screen, i.e. safe for the AI to inject a command. */
-  isTerminalBusy: (target?: TerminalTarget) => boolean;
 };
 
 export type AgentRunStatus = "idle" | "thinking" | "streaming" | "awaiting-approval" | "error";

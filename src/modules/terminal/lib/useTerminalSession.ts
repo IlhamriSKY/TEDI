@@ -3,11 +3,9 @@ import { resolveTerminalPreset } from "@/modules/settings/terminalPalette";
 import { buildTerminalTheme } from "@/styles/terminalTheme";
 import { buildContentFontFamily } from "@/lib/fonts";
 import { useCallback, useEffect, useLayoutEffect, useRef } from "react";
-import type { SearchAddon } from "@xterm/addon-search";
 import { type TediOpenInput, type TediSpawnTabInput } from "./osc-handlers";
-import type { SshStatus } from "@/modules/ssh/status";
 import { cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
-import type { AiCliKind, AiCliStatus } from "./aiCliStatus";
+import type { AiCliKind } from "./aiCliStatus";
 import { isSessionBusy, sessions, type Callbacks, type Session } from "./sessionState";
 import { STUCK_RECOVERY_MS, effectiveTerminalFontSize, describeError } from "./session-helpers";
 import { respawnSession, retryPty, syncPtySize, writePtyError } from "./pty-lifecycle";
@@ -75,23 +73,12 @@ type Options = {
    * resolution and misplace the cursor.
    */
   paneZoom?: number;
-  onSearchReady?: (addon: SearchAddon) => void;
-  onExit?: (code: number) => void;
-  onCwd?: (cwd: string) => void;
-  onDetectedLocalUrl?: (url: string) => void;
-  onTediOpen?: (input: TediOpenInput) => void;
-  onTediSpawnTab?: (input: TediSpawnTabInput) => void;
-  /** Fires on SSH connection state change. */
-  onSshStatus?: (status: SshStatus) => void;
-  /** Fires when an AI CLI starts, changes state, or exits. */
-  onAiCliStatus?: (status: AiCliStatus) => void;
-  /**
-   * Fires once whenever the session acquires a daemon-side UUID
-   * (`pty_open` / `pty_attach` returning a non-empty `sessionId`).
-   * Stamp it onto the leaf so the workspace serializer persists it.
-   */
-  onPtyId?: (ptyId: string) => void;
-};
+  // Every `on*` handler comes from `Callbacks`, which is what the session
+  // object stores and what `sessionState` hands back on reattach. Spread rather
+  // than restated: these are one set of callbacks passed straight through, and
+  // two copies of the list meant a new one could be added to the session and
+  // silently be unreachable from the hook.
+} & Callbacks;
 
 export function useTerminalSession({
   leafId,
