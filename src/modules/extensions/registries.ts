@@ -16,19 +16,6 @@ import type {
 type Listener = () => void;
 
 /**
- * Status-bar item. Unlike `contribute.*` registries (declarative snapshot
- * per category), status items are runtime-only; extensions set/remove them
- * as their state changes. Rendered in the bottom-right of the StatusBar.
- * Icon resolution:
- *   `lucide:<Name>` renders a Lucide icon (e.g. `lucide:Globe`); legacy
- *   `hugeicon:<Name>` refs still resolve to their nearest Lucide equivalent.
- *   `ext-asset:<relPath>` reads `<ext-root>/<relPath>` via `ext_read_asset_bytes`.
- *   `data:image/...;base64,...` renders as a data URL.
- */
-/** One row of a `StatusItem.detail` tooltip. Renders as: label, an optional
- *  real progress bar, an optional value, and muted trailing note. A row with an
- *  empty `label` and no `progress` is a plain footer line. */
-/**
  * A pixel chart drawn above a `StatusItem.detail`'s rows: one column per
  * sample, oldest first, on the same 4 px grid `PixelBar` uses. The host does no
  * scaling - each value is already 0..1 - because only the extension knows
@@ -36,12 +23,35 @@ type Listener = () => void;
  * budget.
  *
  * At most the newest 48 columns are drawn: 48 * 6 px is the widest grid the
- * tooltip's popover can hold without wrapping.
+ * tooltip's popover can hold without wrapping. A `cells` grid gets 53, a full
+ * year of weeks, which the wider `detail` popover affords.
  */
 export type StatusItemDetailChart = {
   /** Oldest first, newest last. Each 0..1; 0 draws an empty column, so a gap in
    *  the data and a value at the floor stay distinguishable. */
   values: number[];
+  /** How `values` are laid out.
+   *
+   *  `"columns"` (the default) is a trend: one column per value, filled from
+   *  the bottom, so the shape reads as a line.
+   *
+   *  `"cells"` is a calendar: one CELL per value, filling each column top to
+   *  bottom before moving right, its shade set by the value. That is the
+   *  GitHub contribution grid - `rows: 7` and a value per day draws a year of
+   *  activity. Send a multiple of `rows` values, oldest cell first, or the
+   *  columns come out misaligned. */
+  mode?: "columns" | "cells";
+  /** Cells mode: one label per COLUMN, in a caption row above the grid. Null
+   *  or empty leaves a column unlabelled, which is how a month name sits over
+   *  the week it starts in instead of repeating 53 times. Labels are placed on
+   *  the column pitch and may overhang to the right, so leave a few columns
+   *  between them. */
+  columnLabels?: (string | null)[];
+  /** Cells mode: one label per VALUE, e.g. `"Mon, 8 Sep - 14 prompts"`. Shown
+   *  in place of `note` while the pointer is over that cell. A grid of 371
+   *  squares has no room for a date axis; this is how it answers "which day is
+   *  that?" anyway. */
+  cellLabels?: (string | null)[];
   /** Fill colour, same palette as `StatusItem.tone`. */
   tone?: "default" | "success" | "warning" | "error";
   /** Grid height in cells. Clamped to 3..16, default 8. */
@@ -52,6 +62,9 @@ export type StatusItemDetailChart = {
   note?: string;
 };
 
+/** One row of a `StatusItem.detail` tooltip: label, an optional progress bar, an
+ *  optional value, a muted trailing note. An empty `label` with no `progress`
+ *  is a plain footer line. */
 export type StatusItemDetailRow = {
   label: string;
   /** 0..1 fill; when set the row draws a real themed progress bar. */
@@ -64,8 +77,15 @@ export type StatusItemDetailRow = {
   note?: string;
 };
 
+/**
+ * Status-bar item, bottom-right. Unlike the `contribute.*` registries (one
+ * declarative snapshot per category), these are runtime-only: an extension
+ * sets and removes them as its state changes.
+ */
 export type StatusItem = {
   id: string;
+  /** `lucide:<Name>`, an `ext-asset:` path or a `data:` URL. Resolved by
+   *  `useExtensionIcon`, which every icon surface shares. */
   icon: string;
   tooltip: string;
   /** Tone for active / warning / error tinting. */

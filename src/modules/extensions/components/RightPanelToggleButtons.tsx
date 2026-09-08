@@ -1,25 +1,15 @@
 /**
- * Status-bar toggle buttons for extension right panels.
- * Renders one button per `panelsRegistry` entry with `surface === "right"`.
- * Click calls `rightPanelStore.toggle`. All variants render icon-only —
- * the title + optional shortcut chip live in the tooltip, so the status
- * bar stays a uniform row of glyphs (Discord/Screenshot-style) instead of
- * a mix of bordered "Open X" pills. Shortcut chips resolve from
- * `panel.toggleCommand` against `keybindingsRegistry` plus user overrides
- * in `preferences.extensionShortcuts`.
+ * Status-bar toggle buttons for extension right panels: one button per
+ * `panelsRegistry` entry with `surface === "right"`, click toggles the panel.
  *
- * Icon source: well-known first-party extensions render a curated Lucide icon
- * from `ICON_MAP` so the status bar stays visually homogeneous with core
- * buttons like `ScmRightOpenButton` (`GitBranch`) and `AiOpenButton`
- * (`Sparkles`). Third-party extensions fall back to their manifest
- * `icon` rendered as an `<img>`.
+ * Icon-only, always. The title and shortcut chip live in the tooltip so the bar
+ * stays a uniform row of glyphs rather than a mix of bordered "Open X" pills,
+ * and the button keeps its slot while the panel is open (an active tint instead
+ * of a reflow). Shortcut chips resolve from `panel.toggleCommand` against
+ * `keybindingsRegistry`, with `preferences.extensionShortcuts` winning.
  *
- * The button stays in place while its panel is open (showing an active
- * state) so the status-bar row never reflows.
- *
- * Compact mode (`panel.compact === true`): same icon-only chrome as the
- * default variant; the flag now only governs ordering (compact toggles
- * cluster with `ExtensionStatusItems` at the left of the right group).
+ * `panel.compact` no longer changes the chrome; it only clusters the toggle
+ * with `ExtensionStatusItems` at the left of the right group.
  */
 import { Kbd } from "@/components/ui/kbd";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -31,22 +21,11 @@ import {
   parseKeybindingString,
   type KeyBinding,
 } from "@/modules/shortcuts/shortcuts";
-import { Camera, Folder, type LucideIcon } from "lucide-react";
 
-import { useResolvedExtensionIcon } from "../icon";
+import { useExtensionIcon } from "../icon";
 import { commandsRegistry, keybindingsRegistry, panelsRegistry } from "../registries";
 import { useRegistry } from "../useRegistry";
 import { isRightPanelOpen, useRightPanelStore } from "../rightPanelStore";
-
-/**
- * Per-extension icon overrides for the status-bar toggle. Keeps the icon
- * choice in sync with the rest of the status bar (all Lucide line-art)
- * without forcing each extension to bundle a matching SVG.
- */
-const ICON_MAP: Record<string, LucideIcon> = {
-  "tedi.screenshot": Camera,
-  "tedi.secondary-folder-tree": Folder,
-};
 
 /** One right-panel toggle, as the status bar's zone layout sees it. */
 export type PanelToggleEntry = { id: string; node: React.ReactNode };
@@ -168,61 +147,38 @@ function ToggleButton({
             : "text-muted-foreground hover:text-foreground",
         )}
       >
-        <PanelIcon extensionId={extensionId} icon={icon} alt={title} size={16} />
+        <PanelIcon extensionId={extensionId} icon={icon} size={16} />
       </button>
     </IconTooltip>
   );
 }
 
 /**
- * Renders the toggle icon. Curated Lucide icons take priority via `ICON_MAP`
- * so first-party extensions stay visually consistent with core's
- * `GitBranch` / `Sparkles` line-art. Third-party extensions fall
- * back to their manifest `icon` rendered as a raster `<img>`.
+ * A `lucide:<Name>` icon renders as line-art, so a panel can match core's own
+ * `GitBranch` / `Sparkles` buttons; anything else is the extension's asset.
+ * Decorative either way: the wrapping button already carries the aria-label.
  */
 function PanelIcon({
   extensionId,
   icon,
-  alt,
   size,
 }: {
   extensionId: string;
   icon: string | null;
-  alt: string;
   size: number;
 }) {
-  const Icon = ICON_MAP[extensionId];
+  const { Icon, url } = useExtensionIcon(extensionId, icon);
+  const style = { width: `${size}px`, height: `${size}px` } as const;
   if (Icon) {
     return (
-      <Icon
-        size={size}
-        strokeWidth={size >= 16 ? 1.75 : 2}
-        className="shrink-0"
-        aria-label={alt || undefined}
-      />
+      <Icon size={size} strokeWidth={size >= 16 ? 1.75 : 2} className="shrink-0" aria-hidden />
     );
   }
-  return <PanelImageIcon extensionId={extensionId} icon={icon} size={size} />;
-}
-
-function PanelImageIcon({
-  extensionId,
-  icon,
-  size,
-}: {
-  extensionId: string;
-  icon: string | null;
-  size: number;
-}) {
-  const url = useResolvedExtensionIcon(extensionId, icon);
-  const style = { width: `${size}px`, height: `${size}px` } as const;
   if (!url) {
-    // Manifest didn't ship an icon (or it failed to load) - fall back to
-    // a muted square so the button is still visible.
+    // No icon shipped, or it failed to load: a muted square keeps the button
+    // findable instead of leaving a hole in the row.
     return <span className="bg-muted shrink-0 rounded-sm" style={style} aria-hidden />;
   }
-  // Decorative: the wrapping toggle button already carries aria-label={title},
-  // so an empty alt avoids screen readers announcing the name twice.
   return (
     <img
       src={url}

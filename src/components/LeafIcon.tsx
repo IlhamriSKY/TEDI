@@ -30,7 +30,6 @@ export type LeafIconInfo = {
   editorFileName?: string;
   /** Editor backed by SFTP: recolor the file icon (remote variant). */
   editorRemote?: boolean;
-  /** Browser page URL. Drives the site favicon. */
   /** Terminal AI CLI status: tints the glyph idle/working/blocking. */
   aiCliStatus?: AiCliStatus | null;
   /** Run state of an `ai` leaf's chat. Tints the sparkles with the same palette

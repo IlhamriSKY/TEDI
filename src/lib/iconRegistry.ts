@@ -72,6 +72,17 @@ function toIconsKey(name: string): string {
 }
 
 /**
+ * Is this an icon NAME (`lucide:` / `hugeicon:`) rather than an asset path or a
+ * `data:` URL? Distinct from `resolveExtIcon`, which also answers null while the
+ * lucide chunk is still in flight - a caller that fell back to the asset loader
+ * on that null would fetch `lucide:Camera` as a file path and log a failure on
+ * every launch.
+ */
+export function isIconNameRef(ref: string | undefined | null): boolean {
+  return !!ref && (ref.startsWith("lucide:") || ref.startsWith("hugeicon:"));
+}
+
+/**
  * Resolve an extension icon reference to a Lucide component. Returns null for
  * non-icon-name refs, an unknown name, or while the chunk is still loading
  * (kicks off the load on first call).

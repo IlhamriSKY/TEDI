@@ -9,9 +9,8 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import { PANE_HEADER_HOVER, TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
 
-import { useResolvedExtensionIcon } from "../icon";
+import { useExtensionIcon } from "../icon";
 import { headerItemsRegistry, type HeaderItem } from "../registries";
 import { useRegistry } from "../useRegistry";
 
@@ -20,8 +19,6 @@ export function ExtensionHeaderItems({
   compact = false,
 }: { placement?: "left" | "right"; compact?: boolean } = {}) {
   const items = useRegistry(headerItemsRegistry);
-  // Subscribe so the icon row re-renders once the lazy icon chunk arrives.
-  useIconsReady();
   const matching = items.filter(({ item }) => (item.placement ?? "right") === placement);
   if (matching.length === 0) return null;
   const sorted = [...matching].sort((a, b) => {
@@ -53,14 +50,7 @@ function HeaderItemView({
   item: HeaderItem;
   compact: boolean;
 }) {
-  // `lucide:<Name>` / legacy `hugeicon:<Name>` short-circuits the asset loader
-  // and renders a Lucide icon (line-art, current-color, parity with the host's
-  // SSH / Extensions / Settings buttons). Falls back to file / data: URL
-  // loading via `loadExtensionIcon` otherwise.
-  const Icon = resolveExtIcon(item.icon);
-  const iconUrl = useResolvedExtensionIcon(extensionId, Icon ? "" : item.icon);
-  const isSvg =
-    iconUrl !== null && (iconUrl.startsWith("data:image/svg+xml") || iconUrl.endsWith(".svg"));
+  const { Icon, url: iconUrl, isSvg } = useExtensionIcon(extensionId, item.icon);
   const tone = item.tone ?? "default";
   const toneColorClass =
     tone === "success"

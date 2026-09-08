@@ -1,11 +1,15 @@
 /**
- * Resolves `manifest.icon` (relative path) to a `data:` URL for `<img>`.
- * Reads bytes through Rust's `ext_read_asset_bytes` (base64) to avoid
- * widening the Tauri asset-protocol scope. 5 MiB cap enforced in Rust.
- * Cached by `${extId}:${relPath}` at module scope; cleared on page reload.
+ * Turning a contributed `icon` string into something renderable.
+ * {@link useExtensionIcon} is the entry point every surface uses; the rest of
+ * this file is the asset half it delegates to.
+ *
+ * An asset path is read through Rust's `ext_read_asset_bytes` (base64) rather
+ * than the Tauri asset protocol, which would have to be widened. 5 MiB cap
+ * enforced in Rust; cached at module scope by `${extId}:${relPath}`.
  */
 import { useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { isIconNameRef, resolveExtIcon, useIconsReady, type LucideIcon } from "@/lib/iconRegistry";
 
 const cache = new Map<string, string>();
 const inflight = new Map<string, Promise<string | null>>();
@@ -62,8 +66,7 @@ export function evictExtensionIcon(extId: string): void {
  * (and empty string) short-circuit to `null`; a `data:` URL passes through;
  * anything else is loaded via `loadExtensionIcon` relative to the extension's
  * install root, with an `alive` guard so a resolved-after-unmount promise is
- * ignored. Shared by the header, status-bar, sidebar-section, and right-panel
- * icon renderers.
+ * ignored. Prefer {@link useExtensionIcon}, which also covers `lucide:` names.
  */
 export function useResolvedExtensionIcon(
   extensionId: string,
@@ -90,4 +93,42 @@ export function useResolvedExtensionIcon(
     };
   }, [extensionId, icon]);
   return url;
+}
+
+/** One resolved extension icon: a Lucide component, or an asset URL. */
+export type ExtensionIconSource = {
+  /** Set when `icon` was a `lucide:`/`hugeicon:` name and the chunk has landed. */
+  Icon: LucideIcon | null;
+  /** Set when `icon` was an asset path or `data:` URL. */
+  url: string | null;
+  /** `url` is an SVG, so render it as a CSS mask to pick up `color`; a raster
+   *  `<img>` ignores the parent's color and has to be tinted with opacity. */
+  isSvg: boolean;
+};
+
+/**
+ * The one way to turn a contributed `icon` string into something renderable.
+ * Every surface that draws an extension icon (header, status bar, sidebar,
+ * right-panel toggle) resolves it here so they all accept the same forms, and
+ * an extension can pick a `lucide:` glyph anywhere instead of the host holding
+ * a per-extension override table for the surfaces that lagged.
+ *
+ * Callers keep their own markup: the three surfaces size, tint and animate the
+ * glyph differently, and only the RESOLUTION is common.
+ */
+export function useExtensionIcon(
+  extensionId: string,
+  icon: string | null | undefined,
+): ExtensionIconSource {
+  useIconsReady(); // re-render once the lazy lucide chunk lands
+  const Icon = resolveExtIcon(icon);
+  // Gate the asset loader on the REF, not on `Icon`: until the lucide chunk
+  // lands `resolveExtIcon` answers null for a perfectly good `lucide:` name,
+  // and loading that as a relative path fails and warns on every launch.
+  const url = useResolvedExtensionIcon(extensionId, isIconNameRef(icon) ? "" : icon);
+  return {
+    Icon,
+    url,
+    isSvg: url !== null && (url.startsWith("data:image/svg+xml") || url.endsWith(".svg")),
+  };
 }

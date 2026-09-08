@@ -56,10 +56,7 @@ check(
 );
 
 /** Every place that turns an extension icon ref into something on screen. */
-const CALL_SITES = [
-  "src/components/LeafIcon.tsx",
-  "src/modules/tabs/components/EntryIcon.tsx",
-];
+const CALL_SITES = ["src/components/LeafIcon.tsx", "src/modules/tabs/components/EntryIcon.tsx"];
 
 for (const path of CALL_SITES) {
   const src = read(path);
@@ -94,7 +91,39 @@ check(
   /patch\.icon !== undefined/.test(read(PANES)),
 );
 
+console.log("\ncore holds no per-extension icon table\n");
+
+/**
+ * The contributed-icon surfaces. Each resolves through the one hook, so all of
+ * them accept the same forms.
+ *
+ * `RightPanelToggleButtons` did not, and that is what this guards. It rendered
+ * the manifest `icon` as an `<img>` and nothing else, so a `lucide:` name was
+ * unusable there - which is why core carried an `ICON_MAP` keyed by extension
+ * ID, hard-coding a glyph for `tedi.screenshot` and `tedi.secondary-folder-tree`
+ * because they wanted line-art and the renderer could not give it to them. A
+ * host table naming individual extensions is the thing to keep out; the fix is
+ * to close the capability gap, not to add a row.
+ */
+const ICON_SURFACES = [
+  "src/modules/extensions/components/RightPanelToggleButtons.tsx",
+  "src/modules/extensions/components/ExtensionHeaderItems.tsx",
+  "src/modules/extensions/components/ExtensionStatusItems.tsx",
+];
+
+for (const path of ICON_SURFACES) {
+  const src = read(path);
+  check(`${path}: resolves through useExtensionIcon`, src.includes("useExtensionIcon("));
+  // A `Record<string, …>` literal whose keys are extension ids. Any of these is
+  // core deciding for one named extension what it should have declared itself.
+  check(`${path}: no extension id hard-coded`, !/"tedi\.[a-z-]+"\s*:/.test(src), {
+    hit: /"tedi\.[a-z-]+"\s*:/.exec(src)?.[0],
+  });
+}
+
 console.log(
-  failed === 0 ? "\next-icon-data-url-verify: OK\n" : `\next-icon-data-url-verify: ${failed} FAILED\n`,
+  failed === 0
+    ? "\next-icon-data-url-verify: OK\n"
+    : `\next-icon-data-url-verify: ${failed} FAILED\n`,
 );
 process.exit(failed === 0 ? 0 : 1);
