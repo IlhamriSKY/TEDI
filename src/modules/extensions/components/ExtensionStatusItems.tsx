@@ -2,7 +2,9 @@
  * Status-bar slot for extension icons. Renders every `StatusItem` in
  * `statusItemsRegistry`, metered items first, then by (extensionId, itemId).
  * Icons are 16 px (size-4), no frame. Bytes cached via `loadExtensionIcon`.
- * Tone: `success` full opacity, `warning` pulses, `error` paints the icon red.
+ * Tone: `success` full opacity, `warning` pulses, `error` paints the icon red -
+ * unless the item sets `iconColored`, which opts out of every tint because the
+ * icon's own fills are the state.
  */
 import { useState } from "react";
 
@@ -290,6 +292,12 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   const onClick = item.onClick;
   const interactive = typeof onClick === "function";
 
+  // A self-painting icon skips the mask, and with it every tint: masking it
+  // would throw its colours away, and dimming or desaturating it would delete
+  // exactly the state it was set to show. It still pulses, because that is an
+  // opacity animation and carries no colour of its own.
+  const paintsItself = item.iconColored === true;
+
   const iconEl = Icon ? (
     <Icon
       size={16}
@@ -297,7 +305,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       className={cn("transition-colors duration-200", iconTint, isPulsing && "animate-pulse")}
     />
   ) : iconUrl ? (
-    isSvg ? (
+    isSvg && !paintsItself ? (
       <span
         aria-hidden
         // CSS mask paints `background-color` where the SVG is opaque.
@@ -320,7 +328,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
           "size-4 object-contain transition-opacity duration-200",
           // A bitmap carries its own colours and cannot be tinted, so an error
           // shows as full opacity rather than the muted-and-grey "off" look.
-          iconLive || isError ? "opacity-100" : "opacity-40 grayscale",
+          paintsItself || iconLive || isError ? "opacity-100" : "opacity-40 grayscale",
           isPulsing && "animate-pulse",
         )}
         loading="lazy"

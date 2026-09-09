@@ -4,6 +4,12 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.53] - 09-09-2026
+
+### Added
+
+- **A status-bar icon can paint itself.** An extension's SVG icon is drawn as a CSS mask, which is one shape in one `background-color`: everything inside the file collapses to whichever colour the tone picked, so an icon whose own fills ARE the state could only ever say one thing at a time. `StatusItem.iconColored` opts out of the mask and renders the file as an image, with no tone colour, no muted dim and no grayscale, which is what lets a single 16 px glyph show four services at once with some of them green and some red. The extension then owns every pixel, including how "off" looks, and `tone` still drives the tooltip, the pulse and the ordering. The cost of being an image is that the file is its own document, so it cannot read the app's CSS: an extension using this has to resolve the theme tokens itself and bake them in. See [ExtensionStatusItems.tsx](src/modules/extensions/components/ExtensionStatusItems.tsx), [registries.ts](src/modules/extensions/registries.ts).
+
 ## [0.4.52] - 09-09-2026
 
 ### Added

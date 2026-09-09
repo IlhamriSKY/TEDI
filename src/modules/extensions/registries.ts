@@ -87,6 +87,22 @@ export type StatusItem = {
   /** `lucide:<Name>`, an `ext-asset:` path or a `data:` URL. Resolved by
    *  `useExtensionIcon`, which every icon surface shares. */
   icon: string;
+  /**
+   * The icon paints itself: render it as an image, untouched.
+   *
+   * An SVG icon is normally drawn as a CSS MASK, which is the whole reason a
+   * monochrome glyph can follow the theme and take the tone's colour. That is
+   * exactly wrong for an icon whose own fills ARE the state - a chassis with
+   * one indicator per service, some green and some red at the same time -
+   * because a mask is one shape in one `background-color` and everything
+   * inside it collapses to that colour.
+   *
+   * With this set the host stops tinting: no tone colour, no muted dim, no
+   * grayscale. The extension owns every pixel, including how "off" looks,
+   * which is the only way several independent lights can be told apart in a
+   * 16 px glyph. `tone` still drives the tooltip, the pulse and the ordering.
+   */
+  iconColored?: boolean;
   tooltip: string;
   /** Tone for active / warning / error tinting. */
   tone?: "default" | "success" | "warning" | "error";
