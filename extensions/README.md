@@ -35,18 +35,24 @@ A public registry browser is also available from the CLI
 
 ### Reference extensions
 
-These ship as standalone repos and exercise nearly every capability. When in
-doubt, copy the one closest to what you are building.
+All twelve first-party extensions are standalone repos, and between them they
+exercise every capability in this guide. Copy the one closest to what you are
+building; the install string is what `tedi ext install <slug>` takes.
 
-| Extension                 | Install string                          | Demonstrates                                                                                                                                                                                                                                      |
-| ------------------------- | --------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Beautify**              | `IlhamriSKY/TEDI.beautify`              | `headerbar:write` with `placement:"left"`, `editor:read`/`editor:write` live-buffer round-trip, native sidecar via `shell_bg_spawn_direct` + `READY {port,token}` handshake, multi-language formatting in a Rust binary.                          |
-| **Discord Rich Presence** | `IlhamriSKY/TEDI.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, permission-gated `invoke`, idempotent `deactivate`, native sidecar binary.                                                                                                                              |
-| **SQL Explorer**          | `IlhamriSKY/TEDI.sql-explorer`          | `panels[]` with `surface:"tab"` + `tabs:open`, `headerbar:write`, `settings:*`, `secrets:*`, sidecar HTTP server, `ctx.ui.codeEditor` (SQL).                                                                                                      |
-| **Secondary Folder Tree** | `IlhamriSKY/TEDI.secondary-folder-tree` | `panels[]` `surface:"right"`, `commands` + `keybindings`, `ctx.registerCommandHandler`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                                             |
-| **API Client**            | `IlhamriSKY/TEDI.api-client`            | `invoke:http_stream` / `invoke:http_abort` as the entire backend (no sidecar), two `ctx.sidebar` sections at once, `ctx.storage` for bulk data with `ctx.secrets` for the values that must not hit disk, `ctx.ui.codeEditor` (JSON + JavaScript). |
-| **Screenshot**            | `IlhamriSKY/TEDI.screenshot`            | `panels[]` used only to mint a status-bar toggle, then a capture-phase click interception, native sidecar.                                                                                                                                        |
-| **RTK Bridge**            | `IlhamriSKY/TEDI.rtk-bridge`            | `shell:transform` rewriting every AI shell command (RTK pattern).                                                                                                                                                                                 |
+| Extension                 | Install string                          | Demonstrates                                                                                                                                   |
+| ------------------------- | --------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------- |
+| **AI Usage**              | `IlhamriSKY/TEDI.ai-usage`              | `statusbar:write` meters, the core `chart` widget in `cells` mode.                                                                             |
+| **API Client**            | `IlhamriSKY/TEDI.api-client`            | `invoke:http_stream` as the whole backend (no sidecar), two sidebar sections, `ctx.storage` + `ctx.secrets`, `ctx.ui.codeEditor`, 12 AI tools. |
+| **Beautify**              | `IlhamriSKY/TEDI.beautify`              | Rust sidecar over `shell_bg_spawn_direct` + a `READY {port,token}` handshake, `headerbar:write`, `editor:read`/`editor:write`.                 |
+| **Browser**               | `IlhamriSKY/tedi.browser`               | A real Chromium adopted into a pane and driven over the DevTools Protocol.                                                                     |
+| **Dev Environment**       | `IlhamriSKY/tedi.dev-environment`       | `terminal:path` shims, long-running services, a cron scheduler, 5 AI tools.                                                                    |
+| **Discord Rich Presence** | `IlhamriSKY/TEDI.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`, native sidecar.                                             |
+| **Process Monitor**       | `IlhamriSKY/tedi.process-monitor`       | A live chart in a panel, refreshed on a poll.                                                                                                  |
+| **Remote Access**         | `IlhamriSKY/TEDI.remote-access`         | An extension that ships its own relay, for infrastructure you host.                                                                            |
+| **RTK Bridge**            | `IlhamriSKY/TEDI.rtk-bridge`            | `shell:transform`, rewriting every shell command the agent runs.                                                                               |
+| **Screenshot**            | `IlhamriSKY/TEDI.screenshot`            | `panels[]` used only to mint a status-bar toggle, capture-phase click interception, native sidecar.                                            |
+| **Secondary Folder Tree** | `IlhamriSKY/TEDI.secondary-folder-tree` | `panels[]` on `surface:"right"`, `commands` + `keybindings`, `ctx.ui.mountFolderTree`.                                                         |
+| **SQL Explorer**          | `IlhamriSKY/TEDI.sql-explorer`          | `panels[]` on `surface:"tab"`, `secrets:*`, an HTTP sidecar, `ctx.ui.codeEditor`, 3 AI tools.                                                  |
 
 ---
 
