@@ -24,6 +24,8 @@ export const STEP_MOTIONS: Record<string, PixelMotion> = {
   Replacing: "edit",
   Moving: "edit",
   Copying: "edit",
+  // Renaming a workspace changes a name in place, which is the same family.
+  Renaming: "edit",
   // Driving TEDI's own window over its in-process MCP server. All four are the
   // same act - a discrete input landing somewhere - so they share the caret,
   // which is the gait that already stands for a keystroke.
@@ -56,6 +58,10 @@ export const STEP_MOTIONS: Record<string, PixelMotion> = {
   Opening: "spawn",
   Extension: "spawn",
   Asking: "spawn",
+  // Switching workspace tears down every pane and rebuilds another set, so what
+  // the user sees is panes appearing - the same thing this gait already draws
+  // for one pane opening, at the scale of a whole workspace.
+  Switching: "spawn",
   // `screenshot`: capturing the window is reading it.
   Capturing: "read",
   // "Updating plan (N items)".

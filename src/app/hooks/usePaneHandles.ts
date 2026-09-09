@@ -38,6 +38,25 @@ function tailLines(s: string, n: number): string {
   return s.trimEnd().split("\n").slice(-n).join("\n");
 }
 
+/**
+ * Collapse a run of one repeated separator to three of it.
+ *
+ * A TUI draws horizontal rules, and a wide pane makes them wide: an AI CLI's
+ * composer border is ~160 box-drawing characters, and it appears in the `tail`
+ * of every `state` call and in the text every `sh` and `read` returns - then it
+ * is replayed with the history on every later request of the turn. Three
+ * characters say "a rule is here" as well as a hundred and sixty do. Measured on
+ * one real session: a third off `state`, half off `read terminal`.
+ *
+ * Only runs of the SAME non-alphanumeric, non-space character. Spaces are left
+ * alone on purpose - they are column alignment in `ls -l`, `git log --graph` and
+ * every other table, so squeezing them would corrupt data rather than trim
+ * decoration.
+ */
+function squeezeRules(s: string): string {
+  return s.replace(/([^\w\s])\1{7,}/gu, (_m, c: string) => c.repeat(3));
+}
+
 /** 32-bit FNV-1a. Small, stable, and enough to answer "did this change?". */
 function fnv1a(s: string): number {
   let h = 2166136261;
@@ -209,7 +228,7 @@ export function usePaneHandles({
             leafId,
             atPrompt: h.isAtPrompt(),
             running: h.isProcessRunning(),
-            text: h.getBuffer(maxLines) ?? "",
+            text: squeezeRules(h.getBuffer(maxLines) ?? ""),
           })),
       termWrite: (leafId: number, data: string) => {
         const h = isPublic(leafId) ? terminalRefs.current.get(leafId) : undefined;
@@ -272,15 +291,27 @@ export function usePaneHandles({
        * ~20 KB buffer of every open pane across the transport just to keep three
        * lines. `sh` and `wait_for_terminal` poll this several times a second.
        */
-      termTails: (lines = 200) =>
+      termTails: (lines = 200, onlyLeafId: number | null = null) =>
         [...terminalRefs.current.entries()]
           .filter(([leafId]) => isPublic(leafId))
-          .map(([leafId, h]) => ({
-            leafId,
-            atPrompt: h.isAtPrompt(),
-            running: h.isProcessRunning(),
-            text: tailLines(h.getBuffer(TERMINAL_BUFFER_ROWS) ?? "", lines),
-          })),
+          .map(([leafId, h]) => {
+            // `onlyLeafId` scopes the EXPENSIVE half, exactly as it does in
+            // `termProbe` below. Every in-process caller of this - `read
+            // terminal`, the tail `sh` returns, `wait_for_terminal` - picks ONE
+            // row out of the answer by a leafId it has already resolved, then
+            // throws the rest away. Unscoped, opening a fourth terminal made
+            // every one of those calls four times the work: each row costs a
+            // 200-row buffer walk that rejoins wrapped lines.
+            const wantsText = onlyLeafId === null || onlyLeafId === leafId;
+            return {
+              leafId,
+              atPrompt: h.isAtPrompt(),
+              running: h.isProcessRunning(),
+              text: wantsText
+                ? squeezeRules(tailLines(h.getBuffer(TERMINAL_BUFFER_ROWS) ?? "", lines))
+                : "",
+            };
+          }),
       /**
        * The poll projection for `sh` and `wait_for_terminal`: flags, optionally
        * a 32-bit FNV-1a of each buffer, and optionally whether `needle` appears.
@@ -316,6 +347,12 @@ export function usePaneHandles({
               leafId,
               atPrompt: h.isAtPrompt(),
               running: h.isProcessRunning(),
+              // The other half of `!atPrompt`. A poller waiting for a prompt
+              // needs to know when no prompt is coming: a command that opened a
+              // full-screen program (an AI CLI, vim, a pager) has succeeded, not
+              // stalled, and without this the wait can only run out its clock.
+              // A property read on the buffer, so it costs nothing per poll.
+              alt: h.isAltScreen(),
               hash: wantHash && wantsText ? fnv1a(text) : 0,
               hit: needle && wantsText ? text.includes(needle) : false,
             };
@@ -447,7 +484,7 @@ export function usePaneHandles({
         }
       }
 
-      const tabId = newTab(cwd);
+      const { tabId } = newTab(cwd);
       lastSpawnedTabIdRef.current = tabId;
       if (!cmd) return;
       // Wait for the new PTY to be ready before injecting the command.

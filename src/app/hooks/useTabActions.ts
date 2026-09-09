@@ -244,7 +244,7 @@ export function useTabActions({
 
   const cdInNewTab = useCallback(
     (path: string) => {
-      const tabId = newTab(path);
+      const { tabId } = newTab(path);
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
         if (!tab || tab.kind !== "pane") return;

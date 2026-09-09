@@ -114,11 +114,21 @@ export function useHeaderActions({
           user: c.user,
           authMode: c.authMode,
         })),
+      // Answers with the new pane's leafId, not `true`. Opening the tab is not
+      // the job, working in it is, and both servers used to spend up to two
+      // seconds polling `termList` to rediscover an id allocated right here.
+      //
+      // A PRIVATE pane is the exception and keeps its id: the flag means the AI
+      // never learns the leaf's existence, and every other capability drops such
+      // a leaf from its answer, so handing the number out here would be the one
+      // hole in that. `true` says the session opened without naming it. Enforced
+      // at this boundary rather than in each server, because there are two of
+      // them and only one rule.
       sshConnect: async (id: string, isPrivate = false) => {
         const conn = (await listConnections()).find((c) => c.id === id);
         if (!conn) return `No saved SSH connection "${id}"`;
-        newSshTab(conn.id, conn.name, isPrivate ? { private: true } : undefined);
-        return true;
+        const { leafId } = newSshTab(conn.id, conn.name, isPrivate ? { private: true } : undefined);
+        return isPrivate ? true : leafId;
       },
     });
   }, [newSshTab]);

@@ -1,5 +1,10 @@
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { registerBridge } from "@/modules/automation/bridge";
+import {
+  createWorkspace,
+  renameWorkspace,
+  setActiveWorkspace,
+} from "@/modules/extensions/workspaceMgmtBridge";
 import { sortPinnedFirst } from "@/lib/pinned";
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { create } from "zustand";
@@ -498,8 +503,15 @@ export function newWorkspaceId(): string {
  *
  * Names and counts only, never `tabs`: the saved tab tree is the biggest object
  * in the store and an agent asking "which workspace am I in" does not want it.
- * Read-only on purpose - switching workspaces tears down and rebuilds every
- * pane, which is not something to hand over without a user asking for it.
+ *
+ * This READ was once the whole agent-facing surface, on the grounds that
+ * switching tears down and rebuilds every pane and is "not something to hand
+ * over without a user asking for it". The concern is right; the conclusion no
+ * longer follows. Every MCP call raises an approval card unless this repo's own
+ * table marks it `auto`, and `workspace` is not marked - so the user is asked,
+ * every time, exactly as they are for `pane close all`, which is worse. What the
+ * read-only rule actually bought was a feature an agent could SEE and not act
+ * on: it could list every workspace and then had to tell the user to click.
  */
 export function listWorkspacesForAgent(): Array<{
   id: string;
@@ -520,4 +532,18 @@ export function listWorkspacesForAgent(): Array<{
   }));
 }
 
-registerBridge({ workspaces: listWorkspacesForAgent });
+/**
+ * The read, plus the three mutators, in one place.
+ *
+ * The mutators live in `extensions/workspaceMgmtBridge` because an extension
+ * reaches them too; they are registered HERE so both MCP transports get them
+ * from the same registration the read already used, rather than growing a second
+ * wiring path for the same three functions.
+ */
+registerBridge({
+  workspaces: listWorkspacesForAgent,
+  workspaceSwitch: (wsId: string) => setActiveWorkspace(String(wsId)),
+  workspaceCreate: (name: string) => createWorkspace(String(name ?? "")),
+  workspaceRename: (wsId: string, name: string) =>
+    renameWorkspace(String(wsId), String(name ?? "")),
+});

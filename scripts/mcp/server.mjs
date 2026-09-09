@@ -341,29 +341,46 @@ const HANDLERS = {
     }
   },
 
+  workspace: async (d, a) => {
+    if (a.action === "create") {
+      const r = await d.workspaceCreate(a.name ?? "");
+      if (!r?.ok) throw new Error(String(r?.error ?? "could not create the workspace"));
+      return `created workspace ${r.wsId} and switched to it`;
+    }
+    if (!a.id)
+      throw new Error(`workspace "${a.action}" needs \`id\` (from \`inspect workspaces\`).`);
+    if (a.action === "switch") {
+      const r = await d.workspaceSwitch(a.id);
+      if (!r?.ok) throw new Error(String(r?.error ?? "could not switch"));
+      return `switched to workspace ${a.id}`;
+    }
+    if (a.action === "rename") {
+      if (!a.name) throw new Error('workspace "rename" needs `name`.');
+      const r = await d.workspaceRename(a.id, a.name);
+      if (!r?.ok) throw new Error(String(r?.error ?? "could not rename"));
+      return `renamed workspace ${a.id} to ${a.name}`;
+    }
+    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename.`);
+  },
+
   ssh: async (d, a) => {
     if (a.action === "list") return json(await d.sshConnections());
     if (a.action !== "connect")
       throw new Error(`Unknown action: ${a.action}. Have: list, connect.`);
     if (!a.id) throw new Error("connect needs `id` (from `ssh list`).");
-    // Snapshot first, so the new pane can be told from the ones already open.
-    const before = new Set((await d.termList()).map((t) => t.leafId));
-    const r = await d.sshConnect(a.id, a.private === true);
-    if (r !== true) throw new Error(String(r));
     // Opening the tab is not the job - working in it is. Without the leafId the
-    // caller has a live session it cannot address, and `state` on this same turn
-    // races the mount. A private pane is absent from every listing by design, so
-    // it stays unresolved and says so.
+    // caller has a live session it cannot address. The opener answers with it
+    // now; this used to snapshot `termList`, open, then poll it twenty times at
+    // 100ms for a leaf that was new - two seconds on the slow path, and a "did
+    // not appear in time" on a session that was in fact open.
+    const r = await d.sshConnect(a.id, a.private === true);
+    // A number is the new pane's leafId; `true` is a private open, whose id the
+    // app withholds by design; anything else is the failure sentence.
+    if (typeof r !== "number" && r !== true) throw new Error(String(r));
     if (a.private === true) {
       return `opened SSH connection ${a.id} as a private pane (no tool can see or address it)`;
     }
-    for (let i = 0; i < 20; i++) {
-      await d.wait(100);
-      const fresh = (await d.termList()).find((t) => !before.has(t.leafId));
-      if (fresh)
-        return `opened SSH connection ${a.id} as leaf ${fresh.leafId} - run commands on it with sh({ command, leafId: ${fresh.leafId} })`;
-    }
-    return `opened SSH connection ${a.id}, but its pane did not appear in time - call \`state\` for its leafId`;
+    return `opened SSH connection ${a.id} as leaf ${r} - run commands on it with sh({ command, leafId: ${r} })`;
   },
 
   schedule: async (d, a) => {

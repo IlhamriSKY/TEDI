@@ -18,7 +18,7 @@ type Params = {
   openExtensionPane: (opts: OpenExtensionTabOpts) => number | null;
   /** `useTabs().newTab`, so `ctx.tabs.openTerminal({ cwd })` opens the app's
    *  own terminal rather than an extension surface pretending to be one. */
-  newTerminalTab: (cwd?: string) => number;
+  newTerminalTab: (cwd?: string) => { tabId: number; leafId: number };
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
@@ -85,7 +85,7 @@ export function useExtensionSidebarBridges({
   // own terminal in a directory it names - the same shell, PATH and AI-CLI
   // detection the user already has, rather than a shell of the extension's own.
   useEffect(() => {
-    setOpenTerminalTab((opts) => newTerminalTab(opts.cwd));
+    setOpenTerminalTab((opts) => newTerminalTab(opts.cwd).tabId);
     return () => setOpenTerminalTab(null);
   }, [newTerminalTab]);
 

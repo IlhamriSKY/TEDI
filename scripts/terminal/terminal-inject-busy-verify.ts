@@ -53,6 +53,44 @@ check(
   { busyAt, injectAt },
 );
 
+console.log("\n[sh alt-screen] a full-screen program is the half a write may land in");
+// "Busy" covers two opposite situations. A command on the NORMAL screen is not
+// reading stdin, so a write corrupts whatever the user was typing. A TUI IS
+// reading it, and a write is the only way to reach one - refusing both left no
+// tool in this server able to type into an AI CLI, and the agent's workaround
+// was a third terminal, `Set-Clipboard` and `terminal.paste`.
+const altAt = handler.indexOf('bridge<boolean>("termAltScreen"');
+const refusalAt = handler.indexOf("is busy (");
+check("it asks whether a full-screen program owns the pane", altAt !== -1);
+// Ordering IS the test again: asked AFTER the refusal, the answer changes nothing.
+check("it asks before refusing", altAt !== -1 && refusalAt !== -1 && altAt < refusalAt, {
+  altAt,
+  refusalAt,
+});
+check(
+  "the refusal is conditional on it NOT being a TUI",
+  /if \(!intoTui\) \{\s*\n\s*return fail\(/.test(handler),
+);
+// A TUI never returns to a shell prompt, so the prompt-wait loop can only run
+// out the clock - 20s of dead time on every keystroke sent to an AI CLI.
+check("the TUI path skips the prompt wait", /if \(intoTui\) \{\s*\n\s*await sleep\(/.test(handler));
+check("the reply says where the bytes went", handler.includes("intoTui: true"));
+
+console.log("\n[sh launch] a command that opens a TUI ends the wait, it does not time out");
+// `sh "claude"` starts a full-screen program: it worked, and no prompt is ever
+// coming back. Polling on regardless spent the entire timeout and then reported
+// `timedOut` on a successful launch, which is what made the caller take an extra
+// `read` round trip to find out the CLI was in fact up.
+check("the poll breaks when the pane goes full-screen", /if \(now\.alt\) \{/.test(handler));
+check("and says so in the reply", handler.includes("startedTui: true"));
+
+console.log("\n[sh timeout] the prompt wait has a floor");
+// `timeout` is milliseconds, and `10` meaning ten seconds is the obvious
+// misread. The poll sleeps 150ms, so a 10ms deadline expires before the first
+// look and every launch came back `timedOut: true` having actually worked -
+// costing the caller a whole extra `read` round trip to discover that.
+check("the deadline is floored", /Math\.max\(1000, Number\(timeout\)/.test(handler));
+
 console.log("\n[sh capture] the off-screen run is NOT gated by the busy check");
 // Ordering again, in the opposite direction this time. `capture` opens its own
 // SSH channel and never touches the pane, so a long foreground command is no

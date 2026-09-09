@@ -83,7 +83,10 @@ import { TEDI_MCP_SERVER_NAME } from "./mcpConfig";
  *  rather than imported: this module must not pull in React or the chat store,
  *  which would close an import cycle back through the tool builder. */
 export type TediMcpDeps = {
-  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
+  /** Answers with the new pane's leafId, or null when the tab could not be
+   *  made. Not a boolean: every other terminal tool takes a leafId, so a caller
+   *  told only "it worked" holds a live session it cannot address. */
+  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => number | null;
   /** Resolved pack switches, from `getMcpSurface().disabledTools`. Same list the
    *  stdio server filters on. Absent means nothing is switched off. */
   disabledTools?: readonly string[];
@@ -151,8 +154,17 @@ function bridge<T>(name: string, ...args: unknown[]): Promise<T> {
   return callBridge(name, args) as Promise<T>;
 }
 
-/** One row of `termProbe`; `hash`/`hit` are only filled for the scoped leaf. */
-type TermRow = { leafId: number; atPrompt: boolean; running: boolean; hash: number; hit: boolean };
+/** One row of `termProbe`; `hash`/`hit` are only filled for the scoped leaf.
+ *  `alt` says a full-screen program owns the pane, which is the other half of
+ *  `!atPrompt` and the only "no prompt is coming" signal there is. */
+type TermRow = {
+  leafId: number;
+  atPrompt: boolean;
+  running: boolean;
+  alt: boolean;
+  hash: number;
+  hit: boolean;
+};
 /** One row of `termTails`. */
 type TailRow = { leafId: number; atPrompt: boolean; running: boolean; text: string };
 type EditorRow = { leafId: number; path: string; truncated: boolean; text: string };
@@ -230,7 +242,7 @@ async function waitTerminal(
 ): Promise<{ leafId: number; done: boolean; reason: string; tail: string }> {
   const deadline = Date.now() + timeout;
   const finish = async (done: boolean, reason: string) => {
-    const t = (await bridge<TailRow[]>("termTails", lines)).find((x) => x.leafId === leaf);
+    const t = (await bridge<TailRow[]>("termTails", lines, leaf)).find((x) => x.leafId === leaf);
     return { leafId: leaf, done, reason, tail: t?.text ?? "" };
   };
   for (;;) {
@@ -251,18 +263,34 @@ async function waitTerminal(
 /**
  * Handlers, keyed by the name in `TOOL_DEFS`.
  *
- * Anything in that table with no handler here is stdio-only, and stays that way
- * on purpose: `keys`, `type_text`, `click` and `drag` synthesise real input
- * events for an agent that has no other way to reach the UI, `eval_js` is an
- * arbitrary-code escape hatch, and `inspect logs` reads the DevTools console.
- * The agent running INSIDE the window needs none of them and would pay for all
- * of them on every request.
+ * Anything in that table with no handler here is stdio-only, and each omission
+ * needs its own reason - `open_file` had none, and the result was that the one
+ * agent whose whole job is showing the user what it is talking about could not
+ * open a file in the editor at all.
  *
- * `schedule` is absent for the opposite reason: the in-app agent already has
- * `schedule_command` / `list_schedules` / `cancel_schedule` natively, on the
- * same engine. Adding it here would advertise the same capability twice and
- * charge for both. The MCP tool exists so that an OUTSIDE CLI, which has no
- * native equivalent, can reach the queue at all.
+ * `keys`, `type_text`, `click` and `drag` synthesise real DOM input for a driver
+ * that has no other way to reach the UI. This agent does: `run_command` for
+ * anything the registry names, the file tools for an editor's content, and `sh`
+ * for a terminal - including one with a full-screen program in it, which is the
+ * case that used to need `type_text`. Porting them would also mean a second,
+ * in-realm implementation of key synthesis that cannot behave identically to the
+ * CDP one, which is the drift this whole file exists to prevent.
+ *
+ * `eval_js` is an arbitrary-code escape hatch and `inspect logs` reads the
+ * DevTools console; neither has an in-realm twin worth inventing.
+ *
+ * `screenshot` captures the window this agent is already inside, and it can read
+ * any of it with `read dom`.
+ *
+ * `save_editor` writes an editor's buffer to disk. Its own description says "use
+ * after `type_text` into an editor", which is not a thing that happens here: this
+ * agent edits files with `edit`/`write_file`, and flushing the USER's buffer over
+ * its own disk write is the wrong way round.
+ *
+ * `schedule` and `ai` are absent for the opposite reason - the capability is
+ * already here. `schedule_command` / `list_schedules` / `cancel_schedule` are
+ * native tools on the same engine, and `ai` reads and drives the built-in agent,
+ * which IS the caller. Advertising either would charge for the same thing twice.
  */
 const HANDLERS: Record<string, Handler> = {
   inspect: async ({ what }) => {
@@ -297,6 +325,45 @@ const HANDLERS: Record<string, Handler> = {
       : fail(`No handler is registered for "${id}" right now.`);
   },
 
+  /** Open a file in the editor, the same way clicking it in the tree does. The
+   *  agent can already READ any path, but this is the only way to put one in
+   *  front of the user - the tree only reaches paths already expanded into view,
+   *  and no command id takes a path. */
+  open_file: async ({ path }) => {
+    const p = String(path ?? "");
+    if (!p) return fail("open_file needs an absolute `path`.");
+    const ok = await bridge<boolean>("openFile", p);
+    return ok === true ? json({ ok: true, opened: p }) : fail(`Could not open "${p}".`);
+  },
+
+  workspace: async ({ action, id, name }) => {
+    // The action first, so an unrecognised one is named as such rather than
+    // falling through to "needs `id`", which sends the caller to fix the wrong
+    // argument.
+    if (action !== "switch" && action !== "create" && action !== "rename") {
+      return fail(`Unknown action "${String(action)}". Have: switch, create, rename.`);
+    }
+    if (action === "create") {
+      const r = await bridge<{ ok: boolean; wsId?: string; error?: string }>(
+        "workspaceCreate",
+        String(name ?? ""),
+      );
+      return r.ok ? json({ ok: true, wsId: r.wsId, active: true }) : fail(String(r.error));
+    }
+    if (!id) return fail(`workspace "${action}" needs \`id\` (from \`inspect workspaces\`).`);
+    if (action === "switch") {
+      const r = await bridge<{ ok: boolean; error?: string }>("workspaceSwitch", String(id));
+      return r.ok ? json({ ok: true, active: id }) : fail(String(r.error));
+    }
+    if (!name) return fail('workspace "rename" needs `name`.');
+    const r = await bridge<{ ok: boolean; error?: string }>(
+      "workspaceRename",
+      String(id),
+      String(name),
+    );
+    return r.ok ? json({ ok: true, id, name }) : fail(String(r.error));
+  },
+
   set_setting: async ({ key, value }) => {
     const r = await writeSetting(String(key), value);
     return r === true ? json({ ok: true, key, value }) : fail(String(r));
@@ -324,50 +391,34 @@ const HANDLERS: Record<string, Handler> = {
     if (!id) return fail('ssh "connect" needs `id` (from `ssh list`).');
     const conn = conns.find((c) => c.id === id);
     if (!conn) return fail(`No saved SSH connection "${id}".`);
-    // Snapshot BEFORE, so the new pane can be told from the ones already open.
-    const before = new Set(
-      (await bridge<Array<{ leafId: number }>>("termList")).map((t) => t.leafId),
-    );
-    // The boolean was being DISCARDED, so a refused open still answered
-    // `{ok:true, opened}`. That is how a stub `openSshTab` (the default deps
-    // when a caller forgets to pass them) reported success on a tab that was
-    // never created.
-    if (!deps.openSshTab(conn.id, conn.name, isPrivate === true)) {
-      return fail(`Could not open a tab for "${conn.name}".`);
-    }
-    // Resolve the new pane's leafId before answering. Opening the tab is not the
-    // job - working in it is - and every other tool addresses a pane by leafId,
-    // so without this the caller holds a live session it cannot use. A `state`
-    // call on the same turn does not substitute: it races the mount.
-    //
-    // A private pane is deliberately NOT resolvable. It is absent from every
-    // listing by design, so `leafId` stays null and the reply says why, rather
-    // than reporting a pane that cannot be found.
-    let leafId: number | null = null;
-    if (isPrivate !== true) {
-      for (let i = 0; i < 20; i++) {
-        await sleep(100);
-        const fresh = (await bridge<Array<{ leafId: number }>>("termList")).find(
-          (t) => !before.has(t.leafId),
-        );
-        if (fresh) {
-          leafId = fresh.leafId;
-          break;
-        }
-      }
-    }
+    /**
+     * Resolve the new pane's leafId before answering. Opening the tab is not the
+     * job - working in it is - and every other tool addresses a pane by leafId,
+     * so without this the caller holds a live session it cannot use.
+     *
+     * It comes straight back from the opener now. This used to snapshot
+     * `termList`, open, then poll it up to twenty times at 100ms for a leaf that
+     * had not been there before: two seconds of nothing on the slow path, and a
+     * "did not appear in time" answer on a session that was in fact open. The id
+     * was allocated synchronously inside `newSshTab` the whole time.
+     *
+     * The boolean it used to return was being DISCARDED, so a refused open still
+     * answered `{ok:true, opened}`. That is how a stub `openSshTab` (the default
+     * deps when a caller forgets to pass them) reported success on a tab that was
+     * never created; null now says so.
+     */
+    const opened = deps.openSshTab(conn.id, conn.name, isPrivate === true);
+    if (opened === null) return fail(`Could not open a tab for "${conn.name}".`);
+    // A private pane is deliberately NOT addressable. It is absent from every
+    // listing by design, so the id is withheld and the reply says why.
+    const leafId = isPrivate === true ? null : opened;
     return json({
       ok: true,
       opened: conn.name,
       host: conn.host,
       leafId,
       ...(leafId === null
-        ? {
-            note:
-              isPrivate === true
-                ? "Opened as a private pane, which no tool can see or address."
-                : "The pane did not appear in time; call `state` next turn for its leafId.",
-          }
+        ? { note: "Opened as a private pane, which no tool can see or address." }
         : { hint: `Run commands on it with sh({ command, leafId: ${leafId} }).` }),
     });
   },
@@ -379,7 +430,7 @@ const HANDLERS: Record<string, Handler> = {
     const cap = Number(maxChars ?? MAX_RESULT_CHARS);
     if (source === "terminal") {
       const leaf = await resolveTerminal(leafId);
-      const row = (await bridge<TailRow[]>("termTails", Number(lines ?? 200))).find(
+      const row = (await bridge<TailRow[]>("termTails", Number(lines ?? 200), leaf)).find(
         (t) => t.leafId === leaf,
       );
       return json({
@@ -440,17 +491,34 @@ const HANDLERS: Record<string, Handler> = {
           )
         : json({ leafId: leaf, command: vetted.command, captured: true, text: out });
     }
-    // Refuse a busy pane for BOTH paths. A write into a running command or a
-    // full-screen TUI lands in THAT program's input buffer, appended to whatever
-    // the user was already typing - two prompts silently merged into one line.
+    /**
+     * "Busy" is two opposite situations and they were getting one answer.
+     *
+     * A command running on the NORMAL screen is not reading stdin, so a write
+     * lands in whatever the user was half-typing - two prompts silently merged
+     * into one line, which is what this guard has always been for.
+     *
+     * A full-screen program on the ALT-SCREEN is the opposite: it is reading its
+     * input right now, and writing to it is the only way to reach it. Refusing
+     * that left no tool in this server able to type into an AI CLI at all - the
+     * `sh` description pointed at `type_text`/`keys`, which are stdio-only and
+     * are not in this agent's tool list. Watched live, the agent worked around
+     * it by opening a THIRD terminal, running `Set-Clipboard`, focusing the
+     * target pane and firing `terminal.paste`: eight tool calls, two junk tabs
+     * and the user's clipboard, to send four characters.
+     */
+    let intoTui = false;
     if (await bridge<boolean>("termBusy", leaf)) {
+      intoTui = await bridge<boolean>("termAltScreen", leaf);
       // The refusal names `read` and `wait_for_terminal` because both work on a
       // busy pane - they only look at it. Told merely "it is busy", a caller
       // opens a second pane, or for SSH a second connection, to see output that
       // is already on screen.
-      return fail(
-        `Terminal ${leaf} is busy (a command is running, or a full-screen TUI is on the alt-screen); writing to it would land in that program's input. To SEE what it is doing use read({source:"terminal", leafId:${leaf}}), or wait_for_terminal({leafId:${leaf}}) to block until it finishes. Only open another pane if you need to run something ALONGSIDE it.`,
-      );
+      if (!intoTui) {
+        return fail(
+          `Terminal ${leaf} is busy (a command is running on the normal screen, so it is not reading input); writing to it would land in that program's input. To SEE what it is doing use read({source:"terminal", leafId:${leaf}}), or wait_for_terminal({leafId:${leaf}}) to block until it finishes. Only open another pane if you need to run something ALONGSIDE it.`,
+        );
+      }
     }
 
     // `submit: false` types without running, which is a RAW PTY write with no
@@ -480,23 +548,46 @@ const HANDLERS: Record<string, Handler> = {
     // back". Submitting returns before the shell has echoed anything, so a bare
     // prompt check passes instantly against the PREVIOUS prompt and the output
     // gets read before it exists.
-    const deadline = Date.now() + Number(timeout ?? 20000);
+    //
+    // `timeout` is MILLISECONDS and the schema says so, but `10` meaning ten
+    // seconds is the obvious misread and nothing rejected it: the poll sleeps
+    // 150ms, so a 10ms deadline expired before the first look and every launch
+    // came back `timedOut: true` with nothing but the echoed command - costing
+    // the caller an extra `read` round trip to find out it had actually worked.
+    // A floor is the whole fix; there is no legitimate sub-second wait here.
+    const deadline = Date.now() + Math.max(1000, Number(timeout) || 20000);
     let changed = false;
     let timedOut = false;
-    for (;;) {
-      await sleep(150);
-      const now = (await bridge<TermRow[]>("termProbe", null, true, leaf)).find(
-        (r) => r.leafId === leaf,
-      );
-      if (!now) return fail(`Terminal ${leaf} disappeared mid-command.`);
-      if (!changed && now.hash !== before?.hash) changed = true;
-      if (changed && now.atPrompt && !now.running) break;
-      if (Date.now() > deadline) {
-        timedOut = true;
-        break;
+    let startedTui = false;
+    // A full-screen program never returns to a shell prompt, so the loop below
+    // could only ever run out the clock. One settle is what "it landed" looks
+    // like when the destination is a TUI's own input.
+    if (intoTui) {
+      await sleep(400);
+    } else {
+      for (;;) {
+        await sleep(150);
+        const now = (await bridge<TermRow[]>("termProbe", null, true, leaf)).find(
+          (r) => r.leafId === leaf,
+        );
+        if (!now) return fail(`Terminal ${leaf} disappeared mid-command.`);
+        if (!changed && now.hash !== before?.hash) changed = true;
+        // The command opened a full-screen program. It worked, and there will
+        // be no prompt - waiting for one would burn the whole timeout and then
+        // report `timedOut` on a launch that succeeded, which is what made
+        // starting an AI CLI look broken.
+        if (now.alt) {
+          startedTui = true;
+          break;
+        }
+        if (changed && now.atPrompt && !now.running) break;
+        if (Date.now() > deadline) {
+          timedOut = true;
+          break;
+        }
       }
     }
-    const tail = (await bridge<TailRow[]>("termTails", Number(lines ?? 60))).find(
+    const tail = (await bridge<TailRow[]>("termTails", Number(lines ?? 60), leaf)).find(
       (t) => t.leafId === leaf,
     );
     return json({
@@ -506,6 +597,13 @@ const HANDLERS: Record<string, Handler> = {
       // thrown: opening one on purpose is legitimate and the buffer is still
       // the answer.
       timedOut,
+      // Says the bytes went to a full-screen program's input rather than to a
+      // shell, so a caller reading `text` knows it is looking at that program's
+      // redraw and not at command output.
+      ...(intoTui ? { intoTui: true } : {}),
+      // The pane is now a live full-screen program, so `text` is its first
+      // screen and the way to say anything else to it is another `sh` here.
+      ...(startedTui ? { startedTui: true } : {}),
       text: tail?.text ?? "",
     });
   },

@@ -29,6 +29,14 @@ import {
  *  because this is a .ts hook file, not JSX. */
 const agentMark = (tool: AiCliKind) => createElement(CliAgentIcon, { agentId: tool, size: 14 });
 
+/** True when `leafId` is a leaf of `tab` and carries the private flag. Local to
+ *  this file because `terminalSnapshot.isLeafPrivate` wants the whole live
+ *  context object, and this hook holds only the tab list. */
+function isLeafPrivateInTabs(tab: Tab, leafId: number): boolean {
+  if (tab.kind !== "pane") return false;
+  return leaves(tab.paneTree).some((l) => l.id === leafId && l.private === true);
+}
+
 type Params = {
   activePaneTab: Tab | null;
   tabs: Tab[];
@@ -56,6 +64,11 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
   // rerender on transitions. Keyed by leafId; pruned with dead terminal
   // handles below.
   const [sshStatuses, setSshStatuses] = useState<Map<number, SshStatus>>(() => new Map());
+  // The live tab tree, for the private-leaf gate on `sshExec` below. A ref, not
+  // a dependency: `tabs` changes on every cwd update, and re-registering the
+  // capability that often would be pure churn for a value only read on call.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
   // Per-leaf AI CLI status (claude, codex, opencode, copilot, pi). Drives
   // the tab dot and the toast/beep on transition to "blocking". Pruned
   // with `sshStatuses`.
@@ -108,11 +121,27 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
    * capability on the bridge: a transport reads a bare null as "this build has
    * no such capability", which is a different answer from "that pane is not
    * connected".
+   *
+   * THE PRIVATE GATE IS SPELLED OUT HERE, like every other leaf-addressed
+   * capability carries its own. This one had none. It lives in this file rather
+   * than in `usePaneHandles.ts`, and the structural check that enforces the rule
+   * only ever read that one file - so the single capability that runs a command
+   * on a REMOTE HOST was the single one missing the filter. Nothing could reach
+   * it in practice, because `resolveTerminal` rejects a leaf absent from
+   * `termProbe` and a private one always is; but that is a guard in the caller,
+   * and the rule exists precisely because the next caller will not have it.
    */
   useEffect(() => {
     registerBridge({
       sshExec: async (leafId: number, command: string) => {
-        const st = sshStatuses.get(Number(leafId));
+        const leaf = Number(leafId);
+        // Same shape of answer as "not connected": a private pane is one the AI
+        // never learns the existence of, so it must not be told it exists here
+        // either.
+        if (tabsRef.current.some((t) => t.kind === "pane" && isLeafPrivateInTabs(t, leaf))) {
+          return `Leaf ${leafId} is not a connected SSH pane.`;
+        }
+        const st = sshStatuses.get(leaf);
         if (!st || st.kind !== "connected") {
           return `Leaf ${leafId} is not a connected SSH pane.`;
         }

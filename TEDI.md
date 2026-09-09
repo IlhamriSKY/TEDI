@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.50.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.51.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -352,11 +352,20 @@ TEDI's own in-process server (`lib/tediMcpServer.ts`), served from the shared
 table in `scripts/mcp/tools.mjs` and reaching the app through the capability
 bridge (`modules/automation/bridge.ts`) - the same functions the stdio server
 drives from outside. The agent calls them as `mcp__tedi__*`: `sh` (run in the
-user's visible terminal; `submit:false` types without running), `read`
+user's visible terminal; `submit:false` types without running, and a write into
+a pane running a FULL-SCREEN program is how you type into an AI CLI), `read`
 (terminal scrollback / open editors / DOM text), `state`, `wait_for_terminal`,
-`focus_pane` and `pane` (open, close, group, rotate, consolidate). What stays
-native is file IO and the agent's own hidden shell: `bash_*` because sub-agents
-get it and get no MCP tools at all.
+`focus_pane`, `pane` (open, close, group, rotate, consolidate - `open` answers
+with the `leafId` it made), `open_file` and `workspace` (switch, create,
+rename; `inspect workspaces` is the read). What stays native is file IO and the
+agent's own hidden shell: `bash_*` because sub-agents get it and get no MCP
+tools at all.
+
+The tools with no in-process handler are stdio-only on purpose, and
+`tediMcpServer.ts` names a reason for each: `keys`/`type_text`/`click`/`drag`
+synthesise DOM input this agent does not need, `eval_js` and `inspect logs` have
+no in-realm twin, `screenshot` captures the window it is already inside, and
+`schedule`/`ai`/`save_editor` are capabilities it already has another way.
 
 An installed extension adds its own tools to the same surface: they reach the
 in-app agent through `tools/extensions.ts` and are re-advertised to outside CLIs
@@ -519,7 +528,7 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   on launch.
 - **MCP server** (`scripts/mcp/`): how an outside AI CLI drives a RUNNING TEDI.
   `server.mjs` speaks JSON-RPC over stdio and reaches the window through one of
-  **two transports** (`transport.mjs` picks per call) - **21 tools**, or
+  **two transports** (`transport.mjs` picks per call) - **22 tools**, or
   `pnpm mcp <verb>` by hand.
   - **The local socket is the default** (`mcp_bridge.rs` <-> `socket.mjs`): a
     named pipe on Windows, a unix socket elsewhere. Every platform, many clients

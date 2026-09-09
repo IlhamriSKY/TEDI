@@ -58,7 +58,7 @@ export class McpClient {
     if (this._connected) return;
 
     const transport = this.config.builtin
-      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => false })).clientTransport
+      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => null })).clientTransport
       : new TauriStdioTransport({
           id: this.id,
           command: this.config.command,

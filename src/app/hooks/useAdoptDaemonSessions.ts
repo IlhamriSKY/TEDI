@@ -18,7 +18,10 @@ type Params = {
   /** All in-memory workspaces, so we don't adopt a session another workspace owns. */
   liveTabsByWorkspace: { readonly current: Map<string, WorkspaceTabs> };
   /** Creates a terminal tab; `savedPtyId` adopts an existing daemon session. */
-  newTab: (cwd?: string, opts?: { private?: boolean; savedPtyId?: string }) => number;
+  newTab: (
+    cwd?: string,
+    opts?: { private?: boolean; savedPtyId?: string },
+  ) => { tabId: number; leafId: number };
   /** True once workspace restore has run (so we don't double-adopt restored leaves). */
   restoreDone: boolean;
   enabled?: boolean;

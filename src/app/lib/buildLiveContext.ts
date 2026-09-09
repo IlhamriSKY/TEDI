@@ -9,6 +9,7 @@ import {
   leaves,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
+import { matchTool } from "@/modules/terminal/lib/aiCliDetector";
 import type { TerminalTarget } from "@/modules/scheduler/types";
 import { isLeafPrivate, resolveTerminalLeaf, snapshotTerminals } from "./terminalSnapshot";
 
@@ -48,6 +49,28 @@ export interface LiveContext {
 export interface LiveContextDeps {
   liveContextRef: RefObject<LiveContext>;
   terminalRefs: RefObject<Map<number, TerminalPaneHandle>>;
+}
+
+/**
+ * Type a command into a pane and press Enter, tagging the pane when the command
+ * IS an AI CLI.
+ *
+ * A submit from here goes straight to the PTY, so it never passes through
+ * xterm's `onData` and the detector's type-a-command activation cannot fire.
+ * The result was that `sh "claude"` started Claude for real but left the pane
+ * unbadged and its status missing from `<env>`, while the same command typed by
+ * hand, or picked from `+` -> Agent, lit up correctly. `launchAgent` is the
+ * existing fix for exactly that (it is what the Agent picker calls); this just
+ * routes the agent's own submits through it.
+ *
+ * Only from a shell prompt. The same word sent INTO a running TUI is that
+ * program's input, not a launch, and tagging on it would relabel the pane every
+ * time someone typed "codex" at an AI CLI.
+ */
+function submitToTerminal(term: TerminalPaneHandle, command: string): void {
+  const tool = term.isAtPrompt() ? matchTool(command) : null;
+  if (tool) term.launchAgent(command, tool);
+  else term.write(`${command}\r`);
 }
 
 export function buildLiveContext(deps: LiveContextDeps) {
@@ -112,14 +135,12 @@ export function buildLiveContext(deps: LiveContextDeps) {
     // Saved SSH connections are the one main feature with no command id, so
     // this is the only in-realm route to one. Same call the header's SSH menu
     // makes, so an agent-opened session is indistinguishable from a clicked one.
-    openSshTab: (connectionId: string, name: string, isPrivate = false): boolean => {
+    openSshTab: (connectionId: string, name: string, isPrivate = false): number | null =>
       liveContextRef.current.newSshTab(
         connectionId,
         name,
         isPrivate ? { private: true } : undefined,
-      );
-      return true;
-    },
+      ).leafId,
     openTerminal: (cwd?: string | null) => {
       const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;
       const target = cwd ?? explorerRoot ?? inheritedCwdForNewTab();
@@ -138,8 +159,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       if (!term) return false;
       // Strip trailing newlines, submit with CR. Windows ConPTY + pwsh
       // require \r, not \n. Matches sendCd / cdInNewTab above.
-      const trimmed = command.replace(/[\r\n]+$/, "");
-      term.write(`${trimmed}\r`);
+      submitToTerminal(term, command.replace(/[\r\n]+$/, ""));
       term.focus();
       return true;
     },
@@ -172,8 +192,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       if (isLeafPrivate(liveContextRef.current, leafId)) return false;
       const term = terminalRefs.current.get(leafId);
       if (!term) return false;
-      const trimmed = command.replace(/[\r\n]+$/, "");
-      term.write(`${trimmed}\r`);
+      submitToTerminal(term, command.replace(/[\r\n]+$/, ""));
       return true;
     },
     openTerminalAdvanced: (opts: {
@@ -182,7 +201,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
       splitDir?: "row" | "col";
       targetTabId?: number | null;
     }):
-      | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
+      | { ok: true; tabId: number; leafId: number; mode: "tab" | "split" }
       | { ok: false; error: string } => {
       const {
         tabs,
@@ -221,8 +240,11 @@ export function buildLiveContext(deps: LiveContextDeps) {
       }
       const targetCwd = cwd ?? explorerRoot ?? inheritedCwdForNewTab();
       try {
-        const newTabId = newTab(targetCwd ?? undefined);
-        return { ok: true, tabId: newTabId, leafId: null, mode: "tab" };
+        // Both ids, always. Answering `leafId: null` here charged every MCP
+        // caller a `state` round trip after each open, purely to rediscover an
+        // id this call had already allocated.
+        const { tabId: newTabId, leafId } = newTab(targetCwd ?? undefined);
+        return { ok: true, tabId: newTabId, leafId, mode: "tab" };
       } catch (e) {
         return { ok: false, error: e instanceof Error ? e.message : String(e) };
       }
@@ -372,6 +394,25 @@ export function buildLiveContext(deps: LiveContextDeps) {
       const term = terminalRefs.current.get(leafId);
       if (!term) return true;
       return !term.isAtPrompt();
+    },
+    /** Resolved exactly like `isTerminalBusy`, but every "cannot tell" answer is
+     *  the OPPOSITE boolean: unknown means "not a TUI", so a caller that treats
+     *  this as permission to write still hits the busy refusal. */
+    isTerminalAltScreen: (target?: TerminalTarget) => {
+      const leafId =
+        target === undefined
+          ? (() => {
+              const { tabs, activeId } = liveContextRef.current;
+              const t = tabs.find((x) => x.id === activeId);
+              if (!t || t.kind !== "pane") return null;
+              const leaf = activeLeaf(t);
+              if (!leaf || leaf.leafKind !== "terminal" || leaf.private) return null;
+              return leaf.id;
+            })()
+          : resolveTerminalLeaf(target, liveContextRef.current);
+      if (leafId === null) return false;
+      if (isLeafPrivate(liveContextRef.current, leafId)) return false;
+      return terminalRefs.current.get(leafId)?.isAltScreen() ?? false;
     },
   };
 }

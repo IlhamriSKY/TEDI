@@ -440,6 +440,27 @@ export function useTerminalSession({
     }
   }, [leafId]);
 
+  /**
+   * True when a full-screen program owns the pane: an AI CLI, vim, htop.
+   *
+   * Splits the two halves of `isAtPrompt() === false`, which are opposite cases
+   * for anything that wants to WRITE here. A command running on the normal
+   * screen is not reading stdin, so a write lands in whatever the user was
+   * half-typing. A full-screen program is reading it: that is how you reach an
+   * AI CLI's composer or send `:wq` to vim. Refusing both left the agent no way
+   * into a TUI at all, and its only route in was a third terminal, the system
+   * clipboard and `terminal.paste`.
+   */
+  const isAltScreen = useCallback((): boolean => {
+    const s = sessions.get(leafId);
+    if (!s) return false;
+    try {
+      return s.term.buffer.active.type === "alternate";
+    } catch {
+      return false;
+    }
+  }, [leafId]);
+
   // True when a foreground command is actually running - see `isSessionBusy`,
   // shared with the quit prompt. Unlike `isAtPrompt` it does not guess from the
   // PS1 text, so an idle terminal with a custom prompt never reads as busy.
@@ -467,6 +488,7 @@ export function useTerminalSession({
     clearSelection,
     paste,
     isAtPrompt,
+    isAltScreen,
     isProcessRunning,
     applyTheme,
   };

@@ -640,7 +640,7 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     inline: true,
     sections: [
       {
-        text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, and a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there). The LAST \`<env>\` is ground truth; earlier ones are the state at that past turn, so never act on a stale path from one.`,
+        text: `\`Host:\` at top gives OS + shell; match syntax. Every user message is prefixed with an \`<env>\` block: \`workspace_root\`, \`active_terminal_cwd\`, optional \`active_file\`, and a \`terminals:\` list (ordinal matches the user's tab badge; name a terminal as \`#<ordinal>\` in your replies, the user can click it to jump there). The block is REBUILT on every request, including between your own tool calls, so the last one is always current - a pane you opened earlier in this same turn is already listed there. Earlier blocks are that past turn's state, so never act on a stale path from one.`,
       },
       { needs: [TERMINAL_READ], text: `Use \`read\` for scrollback, open editors and DOM text.` },
     ],
@@ -713,7 +713,7 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
     sections: [
       {
         needs: TERMINAL_TOOLS,
-        text: `- \`sh\` runs a command in the USER'S visible terminal and waits for the prompt; it refuses a busy pane, so pass another \`leafId\` or open one. \`bash_run\` stays the tool for your own work - \`sh\` is for the user's shell, cwd, env and SSH session. \`wait_for_terminal\` instead of polling: no \`text\` waits for the prompt, \`text\` waits for a string, which is the only signal for something that never returns.`,
+        text: `- \`sh\` runs a command in the USER'S visible terminal and waits for the prompt. It writes into a full-screen program too (an AI CLI, vim), which is how you type into one; it refuses only a command running on the normal screen, and opening a second pane is for running something ALONGSIDE, never for reaching a TUI. \`bash_run\` stays the tool for your own work - \`sh\` is for the user's shell, cwd, env and SSH session. \`wait_for_terminal\` instead of polling: no \`text\` waits for the prompt, \`text\` waits for a string, which is the only signal for something that never returns.`,
       },
       {
         needs: ["mcp__tedi__pane"],
@@ -721,7 +721,7 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
       },
       {
         needs: ["mcp__tedi__state"],
-        text: `- \`state\` names the \`leafId\` every pane tool takes, for EVERY tab rather than just the active one. \`<env>\` already lists the terminals and browsers of the current tab, so call \`state\` when you need a pane it does not mention.`,
+        text: `- \`state\` names the \`leafId\` every pane tool takes, for EVERY tab rather than just the active one. Reach for it only when you need a pane neither \`<env>\` nor the call that made it already named: \`<env>\` is rebuilt every request and lists every terminal, and \`pane open\` returns its own \`leafId\`.`,
       },
       { needs: ["schedule_command"], text: `- \`schedule_command\` defers work.` },
     ],

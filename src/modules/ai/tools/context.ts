@@ -20,10 +20,12 @@ export type ToolContext = {
   /** Type text into the active terminal without executing. Returns false when
    *  there's no active terminal. */
   injectIntoActivePty: (text: string) => boolean;
-  /** Open a SAVED ssh connection as a new terminal tab. Saved connections have
-   *  no command id, so this is the only in-realm route to one. Keys and
-   *  passphrases stay in the keyring; nothing here can read them. */
-  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => boolean;
+  /** Open a SAVED ssh connection as a new terminal tab, and answer with the new
+   *  pane's leafId - opening the tab is not the job, working in it is, and every
+   *  other terminal tool takes a leafId. Null when the app cannot make the tab.
+   *  Saved connections have no command id, so this is the only in-realm route to
+   *  one. Keys and passphrases stay in the keyring; nothing here can read them. */
+  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => number | null;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd. */
   openTerminal: (cwd?: string | null) => boolean;
   /** Advanced terminal-open: tab vs split, target tab, split direction. */
@@ -33,7 +35,7 @@ export type ToolContext = {
     splitDir?: "row" | "col";
     targetTabId?: number | null;
   }) =>
-    | { ok: true; tabId: number; leafId: number | null; mode: "tab" | "split" }
+    | { ok: true; tabId: number; leafId: number; mode: "tab" | "split" }
     | { ok: false; error: string };
   /** Move every terminal leaf into one tab. Refuses if total exceeds the
    *  per-tab pane cap. */
@@ -76,6 +78,11 @@ export type ToolContext = {
   /** True when the resolved terminal is busy (running a command or in a TUI
    *  alt-screen). Empty/missing target falls back to the active terminal. */
   isTerminalBusy: (target?: TerminalTarget) => boolean;
+  /** True when a full-screen program owns the resolved terminal. Splits the two
+   *  halves of `isTerminalBusy`: a TUI is READING its input, so a write is the
+   *  interaction, while a normal-screen command is not. False for a private or
+   *  missing leaf, which keeps the busy refusal in force for both. */
+  isTerminalAltScreen: (target?: TerminalTarget) => boolean;
   /** Absolute paths read this session via `read_file`. `edit`/`multi_edit`
    *  enforce read-before-edit by checking membership. */
   readCache: Set<string>;

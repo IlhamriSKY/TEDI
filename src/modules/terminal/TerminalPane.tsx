@@ -29,6 +29,9 @@ export type TerminalPaneHandle = {
    *  normal screen, i.e. safe for the AI to inject a command. False on the
    *  alt-screen (TUI app) or mid-command-output. */
   isAtPrompt: () => boolean;
+  /** True when a full-screen program (an AI CLI, vim, htop) owns the pane, i.e.
+   *  the half of `!isAtPrompt()` where a write IS the intended interaction. */
+  isAltScreen: () => boolean;
   /** True when a foreground command is genuinely running (alt-screen TUI or
    *  an in-flight OSC 133 command). Prompt-text independent, so an idle
    *  terminal never reports busy. Backs the close-confirmation modal. */
@@ -188,6 +191,7 @@ export function TerminalPane({
       paste: (data: string) => session.paste(data),
       launchAgent: session.launchAgent,
       isAtPrompt: () => session.isAtPrompt(),
+      isAltScreen: () => session.isAltScreen(),
       isProcessRunning: () => session.isProcessRunning(),
     }),
     [session],

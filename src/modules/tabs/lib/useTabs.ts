@@ -167,6 +167,16 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [peekMaxOrdinal],
   );
 
+  /**
+   * A new tab holding one terminal. Returns BOTH ids.
+   *
+   * The leaf id is allocated here and is the handle every terminal API takes
+   * (`sh`, `read`, `focus_pane`), but it only becomes discoverable from outside
+   * once React commits the tree - so a caller that got the tab id alone had to
+   * poll for it. Two call sites did that in a `setTimeout`, and the `pane` MCP
+   * tool answered `leafId: null`, which cost its caller a whole extra `state`
+   * round trip after every open. It was never unknown, only unreturned.
+   */
   const newTab = useCallback(
     (cwd?: string, opts?: { private?: boolean; savedPtyId?: string }) => {
       const tabId = nextIdRef.current++;
@@ -196,7 +206,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         ];
       });
       setActiveId(tabId);
-      return tabId;
+      return { tabId, leafId };
     },
     [allocOrdinal],
   );
@@ -237,6 +247,11 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   );
 
   /** Open a tab whose initial terminal leaf is bound to a saved SSH connection. Routes through `ssh_open`. */
+  /** A new tab holding one SSH terminal. Returns BOTH ids, for the reason
+   *  `newTab` above does: the leaf id is allocated here, and a caller that got
+   *  only the tab id had to poll `termList` for up to two seconds to find the
+   *  pane it had just asked for - and give up with a "did not appear in time"
+   *  on a session that was in fact open. */
   const newSshTab = useCallback(
     (sshConnectionId: string, title: string, opts?: { private?: boolean }) => {
       const tabId = nextIdRef.current++;
@@ -262,7 +277,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
         ];
       });
       setActiveId(tabId);
-      return tabId;
+      return { tabId, leafId };
     },
     [allocOrdinal],
   );

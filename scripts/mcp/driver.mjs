@@ -629,13 +629,28 @@ export class Driver {
     return this.#tedi("sshExec", Number(leafId), String(command));
   }
 
+  /** Workspaces: the read is `inspect workspaces`, these are the three writes.
+   *  Each answers `{ok}` or `{ok:false, error}`. */
+  workspaceSwitch(wsId) {
+    return this.#tedi("workspaceSwitch", String(wsId));
+  }
+  workspaceCreate(name) {
+    return this.#tedi("workspaceCreate", String(name ?? ""));
+  }
+  workspaceRename(wsId, name) {
+    return this.#tedi("workspaceRename", String(wsId), String(name ?? ""));
+  }
+
   /** Saved SSH connections. Never their keys or passphrases: those stay in the
    *  keyring, and nothing here reads them. */
   sshConnections() {
     return this.#tedi("sshConnections");
   }
 
-  /** Open a saved SSH connection in a new tab. `true`, or a sentence. */
+  /** Open a saved SSH connection in a new tab. The new pane's leafId, `true`
+   *  for a private one (whose id the app withholds on purpose), or a sentence.
+   *  The id comes back from the opener, so nothing has to poll `termList` for a
+   *  pane it just asked for. */
   sshConnect(id, isPrivate = false) {
     return this.#tedi("sshConnect", String(id), Boolean(isPrivate));
   }

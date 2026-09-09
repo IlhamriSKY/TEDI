@@ -88,7 +88,7 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   // reports. Without these the step line reads "Calling mcp__tedi__sh" instead
   // of naming the command, which is the whole point of this map.
   //
-  // ALL TWENTY, not the six that were here: the agent can call every tool in
+  // ALL OF THEM, not the six that were here: the agent can call every tool in
   // `scripts/mcp/tools.mjs` whose pack is on, and an unlabelled one both showed
   // its raw `mcp__tedi__` name and dropped the running block back to the generic
   // gait, since `stepMotion` reads these labels. `step-motion-verify` fails if a
@@ -114,6 +114,10 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   mcp__tedi__screenshot: () => `Capturing the window`,
   mcp__tedi__ai: (i) => `Asking TEDI to ${String(i.action ?? "")}`.trim(),
   mcp__tedi__ssh: (i) => `SSH ${String(i.action ?? "")}`.trim(),
+  mcp__tedi__workspace: (i) =>
+    i.action === "switch"
+      ? `Switching workspace`
+      : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
   mcp__tedi__schedule: (i) =>
     i.action === "create"
       ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`

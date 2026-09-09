@@ -307,6 +307,11 @@ const args: Record<string, Record<string, unknown>[]> = {
   extension: [{ action: "disable", id: "tedi.sql-explorer" }],
   ai: [{ action: "status" }, { action: "read" }, { action: "send", text: "hi" }],
   ssh: [{ action: "list" }, { action: "connect", id: "c-abc" }],
+  workspace: [
+    { action: "switch", id: "ws-abc" },
+    { action: "create", name: "Scratch" },
+    { action: "rename", id: "ws-abc", name: "Scratch" },
+  ],
   schedule: [
     { action: "list" },
     { action: "create", command: "echo hi", delay: 60 },
@@ -756,6 +761,66 @@ console.log("\n[privacy] every pane accessor routes through the private-leaf fil
     fail("publicLeaves() no longer filters on `!l.private`");
   } else {
     console.log("  ok: publicLeaves() drops leaves carrying the flag");
+  }
+}
+
+/**
+ * The same rule, for the leaf-addressed capabilities registered ELSEWHERE.
+ *
+ * The block above reads one file, and the regression it exists to catch - "a new
+ * accessor was written without the filter" - happened in a different one:
+ * `sshExec` takes a leafId and runs a command on a REMOTE HOST, and it had no
+ * gate at all, because it is registered from `useSshLeafState.ts` (the only hook
+ * holding the leaf -> session map) and nothing was looking there.
+ *
+ * So the rule is checked where the capabilities actually live. Add a file here
+ * when a leaf-addressed capability is registered from it.
+ */
+console.log("\n[privacy] leaf-addressed capabilities outside usePaneHandles carry it too");
+{
+  const outside: { file: string; capability: string }[] = [
+    { file: "src/app/hooks/useSshLeafState.ts", capability: "sshExec" },
+  ];
+  for (const { file, capability } of outside) {
+    const text = await readFile(file, "utf8");
+    const at = text.indexOf(`${capability}:`);
+    if (at < 0) {
+      fail(`${capability} is gone from ${file} - was it moved? the gate has to move with it`);
+      continue;
+    }
+    // To the end of that registered function, which prettier closes at the same
+    // indent the key opened on.
+    const body = text.slice(at, text.indexOf("\n      },", at));
+    if (!/\.private === true|!l\.private|isLeafPrivate/.test(body)) {
+      fail(
+        `"${capability}" in ${file} does not test the private flag: a pane the user marked ` +
+          `private would be reachable through it`,
+      );
+    } else {
+      console.log(`  ok: ${capability} (${file})`);
+    }
+  }
+}
+
+/**
+ * A private pane's leafId must not cross the bridge in the one answer that could
+ * carry it: the open that CREATED it.
+ *
+ * Every listing drops a private leaf, so an agent cannot discover the id - but
+ * `sshConnect` returns the id of the pane it just made, and returning it for a
+ * private open would hand out the one number no listing will ever mention.
+ */
+console.log("\n[privacy] a private SSH open does not answer with its leafId");
+{
+  const src = await readFile("src/app/hooks/useHeaderActions.ts", "utf8");
+  const at = src.indexOf("sshConnect:");
+  const body = at < 0 ? "" : src.slice(at, src.indexOf("\n      },", at));
+  if (!body) {
+    fail("cannot find `sshConnect` in useHeaderActions.ts - was it moved or renamed?");
+  } else if (!/isPrivate \? true : leafId/.test(body)) {
+    fail("sshConnect answers with the leafId of a PRIVATE pane; no listing ever names one");
+  } else {
+    console.log("  ok: a private open answers `true`, a public one its leafId");
   }
 }
 

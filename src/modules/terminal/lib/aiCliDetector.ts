@@ -144,9 +144,10 @@ function normalizeCommandForMatch(line: string): string {
 }
 
 /**
- * Classify a shell command line as an AI CLI launch, or null. Exported so the
- * `+` -> Agent launcher can tag a pane it spawns with the right tool even though
- * it writes straight to the PTY (bypassing `pushInput`).
+ * Classify a shell command line as an AI CLI launch, or null. Exported for the
+ * two callers that write straight to the PTY and so bypass `pushInput`: the
+ * `+` -> Agent launcher, and the AI's own `sh`. Both have to tag the pane
+ * explicitly or the CLI they just started gets no badge and no `<env>` status.
  */
 export function matchTool(line: string): AiCliKind | null {
   const norm = normalizeCommandForMatch(line);

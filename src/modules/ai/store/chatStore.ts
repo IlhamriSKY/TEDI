@@ -84,6 +84,7 @@ type Live = Pick<
   | "injectIntoTerminal"
   | "runInTerminal"
   | "isTerminalBusy"
+  | "isTerminalAltScreen"
 > & {
   /** Path of the file in the active editor, for the per-turn <env> block. Not
    *  a ToolContext member: no tool reads it. */
@@ -229,7 +230,7 @@ const NOOP_LIVE: Live = {
   injectIntoActivePty: () => false,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
-  openSshTab: () => false,
+  openSshTab: () => null,
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
   consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),
@@ -242,6 +243,7 @@ const NOOP_LIVE: Live = {
   injectIntoTerminal: () => false,
   runInTerminal: () => false,
   isTerminalBusy: () => true,
+  isTerminalAltScreen: () => false,
 };
 
 // Per-session Chat instances. The transport reads keys lazily, so key changes
@@ -419,6 +421,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       useChatStore.getState().live.injectIntoTerminal(target, text),
     runInTerminal: (target, command) => useChatStore.getState().live.runInTerminal(target, command),
     isTerminalBusy: (target) => useChatStore.getState().live.isTerminalBusy(target),
+    isTerminalAltScreen: (target) => useChatStore.getState().live.isTerminalAltScreen(target),
     readCache,
     getSessionId: () => sessionId,
     getApiKeys: () => useChatStore.getState().apiKeys,
@@ -1094,6 +1097,11 @@ registerBridge({
   termList: () => getToolContext()?.listTerminals() ?? [],
   termBusy: (leafId?: number) =>
     getToolContext()?.isTerminalBusy(leafId === undefined ? undefined : { leafId }) ?? true,
+  /** The half of `termBusy` that a write is ALLOWED to land in: a full-screen
+   *  program reading its own input. No context means no, so the busy refusal
+   *  stands rather than being waved through by a missing bridge. */
+  termAltScreen: (leafId?: number) =>
+    getToolContext()?.isTerminalAltScreen(leafId === undefined ? undefined : { leafId }) ?? false,
   termRun: (leafId: number | undefined, command: string) => {
     const c = getToolContext();
     if (!c) return NO_CONTEXT;

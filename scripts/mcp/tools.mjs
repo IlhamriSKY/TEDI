@@ -190,9 +190,11 @@ export const TOOL_DEFS = {
     description:
       "Run a shell command in a TEDI terminal pane and return its output - the USER'S shell, cwd, " +
       "env and SSH session. Use your own Bash tool for ordinary work. Written to the PTY, so it " +
-      "cannot lose characters, and it waits for the prompt. That bypasses xterm input, so TEDI's " +
-      "AI-CLI detector never fires: launch an AI CLI with `type_text` + `keys`, or the pane is not " +
-      "recognised as running one. `submit: false` types the command and stops there, for when the " +
+      "cannot lose characters, and it waits for the prompt. A pane running a FULL-SCREEN program " +
+      "(an AI CLI, vim) accepts a write too - that is how you type into one, and the reply says " +
+      "`intoTui`; only a command running on the NORMAL screen is refused, because it is not " +
+      "reading input. Starting a known AI CLI here tags the pane, so it gets its badge and its " +
+      "status in `<env>`. `submit: false` types the command and stops there, for when the " +
       "answer IS a command and the user should press Enter. USE `capture: true` WHENEVER YOU WANT " +
       "THE OUTPUT ITSELF rather than to show the user a command running - reading a file, listing a " +
       "directory, parsing anything. Without it you are reading the SCREEN, which is a fixed ring of " +
@@ -213,7 +215,9 @@ export const TOOL_DEFS = {
         submit: { type: "boolean", description: "Default true. False types without running." },
         timeout: {
           type: "number",
-          description: "ms for the prompt, default 20000. A TUI never returns; you get the buffer.",
+          description:
+            "ms for the prompt, default 20000, floored at 1000 - `10` is a tenth of a second, " +
+            "not ten seconds. A TUI never returns; you get the buffer.",
         },
         lines: { type: "number", description: "default 60." },
       },
@@ -391,8 +395,8 @@ export const TOOL_DEFS = {
       "`group` two or more leafIds of ANY kind into one split tab (this IS 'join tabs' - TEDI has " +
       "no Chrome-style tab-group menu, never tell the user to use one); `rotate` a pane between " +
       '"row" (beside) and "col" (stacked), which is the only way to change a split\'s orientation, ' +
-      "so never tell the user to drag; `consolidate` every terminal into one tab. leafIds and " +
-      "tabIds come from `state`. Cap 6 panes per tab.",
+      "so never tell the user to drag; `consolidate` every terminal into one tab. `open` answers " +
+      "with the `leafId` it made - use that, do not go back to `state` for it. Cap 6 per tab.",
     schema: {
       type: "object",
       properties: {
@@ -454,6 +458,24 @@ export const TOOL_DEFS = {
         },
         label: { type: "string", description: "create: what the status bar calls it." },
         id: { type: "string", description: "cancel: an id from `list`." },
+      },
+      required: ["action"],
+    },
+  },
+
+  workspace: {
+    pack: "tedi",
+    description:
+      "Act on a workspace, a saved set of tabs with its own view: `switch` to one, `create` one " +
+      "(which switches to it and seeds a terminal), or `rename` one. `inspect workspaces` is the " +
+      "READ - it lists every workspace with the id these take. No command id reaches any of this, " +
+      "so this is the only route. Switching rebuilds every pane, so it always asks first.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["switch", "create", "rename"] },
+        id: { type: "string", description: "switch / rename: an id from `inspect workspaces`." },
+        name: { type: "string", description: "create / rename: max 60 chars." },
       },
       required: ["action"],
     },
