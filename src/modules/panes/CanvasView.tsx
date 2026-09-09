@@ -912,10 +912,10 @@ function CanvasWindow({
   const isSsh = node.leafKind === "terminal" && !!node.sshConnectionId;
   const label = leafLabel(node, sshHosts, undefined, aiTitles);
   const zoom = rect.zoom ?? 1;
-  // A WebGL terminal canvas scales through xterm's font size (`paneZoom`)
-  // rather than CSS; every other leaf is DOM and takes the transform.
-  const zoomable = true;
-  const cssZoom = node.leafKind !== "terminal" ? zoom : 1;
+  // Terminals only, local and SSH alike: a terminal rescales through xterm's
+  // own font size (`paneZoom`), which reflows cleanly. Every other leaf would
+  // have to take a CSS transform, and the canvas zoom already scales those.
+  const zoomable = node.leafKind === "terminal";
 
   /**
    * One zoom step, shared by the buttons and the wheel so the clamp and the
@@ -1217,12 +1217,7 @@ function CanvasWindow({
         </ContextMenuContent>
       </ContextMenu>
 
-      <div
-        className="relative min-h-0 flex-1"
-        // CSS zoom scales the whole DOM body - editor, source control, board, an
-        // extension panel - and is left at 1 for the two kinds it cannot reach.
-        style={cssZoom === 1 ? undefined : { zoom: cssZoom }}
-      >
+      <div className="relative min-h-0 flex-1">
         <ErrorBoundary label="canvas window" resetKeys={[node.id]}>
           <LeafBody
             node={node}

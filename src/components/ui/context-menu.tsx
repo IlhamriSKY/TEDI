@@ -209,7 +209,7 @@ function ContextMenuSeparator({
     <ContextMenuPrimitive.Separator
       data-slot="context-menu-separator"
       className={cn(
-        "bg-muted-foreground/20 -mx-1.5 my-1.5 h-px first:hidden last:hidden",
+        "bg-muted-foreground/20 -mx-1.5 my-1.5 h-px first:hidden last:hidden [[data-slot=context-menu-separator]+&]:hidden",
         className,
       )}
       {...props}

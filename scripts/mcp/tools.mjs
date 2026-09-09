@@ -297,7 +297,8 @@ export const TOOL_DEFS = {
     annotations: { destructiveHint: false },
     description:
       "Give a pane keyboard focus without clicking into it, so the next `keys`/`type_text` lands " +
-      "there. Clicking works too but moves an editor's caret to wherever the pane's centre was.",
+      "there. Brings its TAB forward too, which is the only way to reach a pane `state` listed in " +
+      "one you are not looking at. Clicking works but moves an editor's caret to the pane's centre.",
     schema: { type: "object", properties: { leafId: { type: "number" } }, required: ["leafId"] },
   },
 
@@ -377,7 +378,6 @@ export const TOOL_DEFS = {
     },
   },
 
-
   pane: {
     pack: "tedi",
     annotations: { destructiveHint: false },
@@ -419,6 +419,41 @@ export const TOOL_DEFS = {
         },
         count: { type: "number", description: "open: how many, default 1, max 6." },
         all: { type: "boolean", description: "close: every terminal but the last." },
+      },
+      required: ["action"],
+    },
+  },
+
+  schedule: {
+    pack: "tedi",
+    annotations: { destructiveHint: false },
+    // Listing what is queued is a read, and an agent about to use a pane should
+    // be able to check it without a card. Creating and cancelling change what
+    // will run on the user's machine, so both keep theirs.
+    auto: ["list"],
+    description:
+      "Run a command in a TEDI terminal LATER. `list` what is queued, with each one's status and " +
+      "how long until it fires; `create` one, `delay` seconds from now or `at` an ISO time; " +
+      "`cancel` a pending one by id. It survives restarts and fires into a pane in any tab or " +
+      "workspace, so this is how you do anything time-based - `sh` is for now. `submit: false` " +
+      "types the command and leaves it for the user to press Enter on.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "create", "cancel"] },
+        command: { type: "string", description: "create: the shell command." },
+        delay: { type: "number", description: "create: seconds from now." },
+        at: { type: "string", description: "create: ISO-8601 time, instead of `delay`." },
+        leafId: {
+          type: "number",
+          description: "create: which terminal. Default: the focused one.",
+        },
+        submit: {
+          type: "boolean",
+          description: "create: default true. False types without running.",
+        },
+        label: { type: "string", description: "create: what the status bar calls it." },
+        id: { type: "string", description: "cancel: an id from `list`." },
       },
       required: ["action"],
     },

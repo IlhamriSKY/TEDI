@@ -257,6 +257,12 @@ async function waitTerminal(
  * arbitrary-code escape hatch, and `inspect logs` reads the DevTools console.
  * The agent running INSIDE the window needs none of them and would pay for all
  * of them on every request.
+ *
+ * `schedule` is absent for the opposite reason: the in-app agent already has
+ * `schedule_command` / `list_schedules` / `cancel_schedule` natively, on the
+ * same engine. Adding it here would advertise the same capability twice and
+ * charge for both. The MCP tool exists so that an OUTSIDE CLI, which has no
+ * native equivalent, can reach the queue at all.
  */
 const HANDLERS: Record<string, Handler> = {
   inspect: async ({ what }) => {
@@ -520,7 +526,7 @@ const HANDLERS: Record<string, Handler> = {
       : fail(
           typeof ok === "string"
             ? ok
-            : `Could not focus leaf ${leafId} - it may be in a background tab, or private.`,
+            : `Could not focus leaf ${leafId} - no such pane, or it is private. A pane in a background tab is fine: focusing one brings its tab forward.`,
         );
   },
 

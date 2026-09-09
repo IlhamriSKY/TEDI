@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.49.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.50.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -201,7 +201,7 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                                                      |
 | `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance.                                                                                                                                                                                                      |
 | `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution.                                   |
-| `scheduler/`      | In-conversation task/timer surface for the AI agent (distinct from Rust `shell` background jobs).                                                                                                                                                                                                |
+| `scheduler/`      | Deferred commands: fire a command into a terminal later, surviving restarts. Reached by the in-app agent's `schedule_command` and, through `lib/bridge.ts`, by the MCP `schedule` tool.                                                                                                          |
 | `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                                                  |
 | `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                                                                |
 | `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                                                          |
@@ -519,7 +519,7 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   on launch.
 - **MCP server** (`scripts/mcp/`): how an outside AI CLI drives a RUNNING TEDI.
   `server.mjs` speaks JSON-RPC over stdio and reaches the window through one of
-  **two transports** (`transport.mjs` picks per call) - **20 tools**, or
+  **two transports** (`transport.mjs` picks per call) - **21 tools**, or
   `pnpm mcp <verb>` by hand.
   - **The local socket is the default** (`mcp_bridge.rs` <-> `socket.mjs`): a
     named pipe on Windows, a unix socket elsewhere. Every platform, many clients
@@ -547,9 +547,12 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   - **Beyond panes**: `inspect` lists commands / extensions / **settings** /
     **logs**; `set_setting` writes a preference live (via the store, because the
     Settings page is a separate webview nothing here can click); `extension`
-    enables, disables, reloads, updates or uninstalls one. **Installing is
-    refused** - new third-party code goes through the user's permission review.
-    No API key can come back: keys live in the keyring, never in the store.
+    enables, disables, reloads, updates or uninstalls one; `schedule` queues a
+    command into a terminal for later, lists the queue and cancels one - the same
+    engine `schedule_command` uses, vetted through the same `checkedShellCommand`.
+    **Installing an extension is refused** - new third-party code goes through the
+    user's permission review. No API key can come back: keys live in the keyring,
+    never in the store.
   - **Efficiency is a design constraint, not an afterthought.** The tool list is
     loaded into every request of every connected AI CLI, so `inspect`/`read` are
     single verbs with an enum instead of seven tools, and `state` no longer

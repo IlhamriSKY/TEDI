@@ -1,3 +1,5 @@
+import { useState } from "react";
+
 import { cn } from "@/lib/utils";
 
 /**
@@ -20,7 +22,8 @@ import { cn } from "@/lib/utils";
  * because the whole point is that a cell is a cell - discrete, identical, and
  * cheap enough to leave running for a turn that lasts minutes. A motion is a
  * per-cell PHASE plus a duration plus which of the two keyframes to run, so a
- * new one costs a row in the table below and no new CSS.
+ * new one costs a row in the table below and no new CSS. `wait` is the one
+ * exception, and it is the state that earns it: see the table.
  *
  * `bg-current` on purpose: the block inherits whatever colour it is dropped
  * into, so it takes the reasoning level's own ink from a class on the caller
@@ -102,10 +105,17 @@ const MOTIONS: Record<PixelMotion, Motion> = {
   spawn: { phase: (x) => Math.abs(x - (COLS - 1) / 2) / 2, secs: 0.9, frame: "pixel-chase" },
   // Row by row, the two rows ticking alternately, like items in a list.
   plan: { phase: (_x, y) => y / 2, secs: 0.85, frame: "pixel-blink" },
-  // The whole strip breathing, slowly. Nothing is happening here on purpose:
-  // this is the provider's turn, or a backoff.
+  // The one gait with no order to it at all, because this is the one state that
+  // has none: the turn is blocked on the provider, or sitting out a backoff, and
+  // nothing is happening in any particular sequence. `phase` is unused here, the
+  // component draws this one from random numbers instead. See `jitter` below.
   wait: { phase: () => 0, secs: 1.9, frame: "pixel-chase" },
 };
+
+/** How far a `wait` cell's own cycle is stretched or squeezed, as a fraction of
+ *  the gait's 1.9s. Both ends stay slow enough to read as waiting rather than as
+ *  working: 1.43s to 2.76s. */
+const WAIT_SPEED_SPREAD = [0.75, 1.45] as const;
 
 export function PixelActivity({
   className,
@@ -127,6 +137,35 @@ export function PixelActivity({
   motion?: PixelMotion;
 }) {
   const { phase, secs, frame } = MOTIONS[motion];
+  // The `wait` gait, drawn once per mount.
+  //
+  // Every other gait is a function of where the cell sits, because every other
+  // gait stands for something with an order to it. Waiting has none, and a gait
+  // built from position cannot express that: whatever stagger you pick, eight
+  // cells sharing one duration come back into phase every cycle, so within a few
+  // seconds the eye has the pattern and a slow scramble reads as a short loop.
+  // Jittering the DURATION as well is what actually breaks it: eight cells on
+  // eight periods have no common cycle to come back to, so the block never
+  // repeats. (Two rounded speeds do occasionally collide, which leaves that
+  // pair in step with each other and nothing else. Deduplicating them would be
+  // machinery for something invisible at 4px.)
+  //
+  // `useState` with an initialiser, not a value computed in render: this
+  // component re-renders every second (the elapsed clock ticks beside it), and
+  // fresh random numbers on each of those would restart all eight animations on
+  // every tick, which is a stutter rather than a shimmer. One draw per mount
+  // means one draw per turn.
+  const [jitter] = useState(() =>
+    Array.from({ length: ROWS * COLS }, () => ({
+      phase: Math.random(),
+      // Rounded so the emitted CSS stays readable in devtools; two decimals
+      // on a ~2s cycle is still 20ms of spread, far finer than the eye.
+      speed: +(
+        WAIT_SPEED_SPREAD[0] +
+        Math.random() * (WAIT_SPEED_SPREAD[1] - WAIT_SPEED_SPREAD[0])
+      ).toFixed(2),
+    })),
+  );
   return (
     <span
       className={cn("inline-grid shrink-0 gap-[2px]", className)}
@@ -157,7 +196,9 @@ export function PixelActivity({
         // first rather than last. Without it every motion runs backwards, which
         // is how the one sweep this replaces travelled right to left while its
         // comment claimed left to right.
-        const delay = `${(-(((1 - phase(x, y)) % 1) * secs)).toFixed(3)}s`;
+        const rnd = motion === "wait" ? jitter[i]! : null;
+        const cellSecs = rnd ? secs * rnd.speed : secs;
+        const delay = `${(-(((1 - (rnd ? rnd.phase : phase(x, y))) % 1) * cellSecs)).toFixed(3)}s`;
         return (
           <span
             key={i}
@@ -188,10 +229,10 @@ export function PixelActivity({
                     // keeps its own 14s, because a sheet whose cells are out of
                     // phase is not a sheet.
                     animationName: `${frame}, tedi-max-pixel-foil`,
-                    animationDuration: `${secs}s, 14s`,
+                    animationDuration: `${cellSecs}s, 14s`,
                     animationDelay: `${delay}, 0s`,
                   }
-                : { animationName: frame, animationDuration: `${secs}s`, animationDelay: delay }
+                : { animationName: frame, animationDuration: `${cellSecs}s`, animationDelay: delay }
             }
           />
         );

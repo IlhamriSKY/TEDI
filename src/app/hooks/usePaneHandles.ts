@@ -60,6 +60,7 @@ type Params = {
   TabsApi,
   | "setLeafCwd"
   | "setLeafPtyId"
+  | "setActiveId"
   | "focusPane"
   | "closePaneByLeaf"
   | "openFileTab"
@@ -82,6 +83,7 @@ export function usePaneHandles({
   setActiveEditorHandle,
   setLeafCwd,
   setLeafPtyId,
+  setActiveId,
   focusPane,
   closePaneByLeaf,
   openFileTab,
@@ -237,8 +239,24 @@ export function usePaneHandles({
        * actually happens is a new accessor written without the filter, and a
        * check that followed delegation could not see one.
        */
-      focusPaneVerified: (leafId: number) => {
-        if (!isPublic(leafId)) return false;
+      focusPaneVerified: async (leafId: number) => {
+        const hit = publicLeaves().find((p) => p.leaf.id === leafId);
+        if (!hit) return false;
+        // The OWNING TAB first, and this is the whole reason the capability is
+        // async. `state` reports every pane in every tab, so an agent routinely
+        // picks one that is not on screen - and an inactive tab is `invisible`
+        // (each hidden terminal additionally `display: none`), where `.focus()`
+        // does nothing at all. So `focus_pane` answered "focus did not land" for
+        // every background pane, with no hint that the tab was the reason, and
+        // the next `type_text` went wherever focus actually was.
+        setActiveId(hit.tabId);
+        focusPane(hit.tabId, leafId);
+        // Two frames: one for React to commit the tab switch, one for the
+        // browser to lay the pane out. Focus before that lands on an element
+        // that is still hidden.
+        await new Promise((resolve) =>
+          requestAnimationFrame(() => requestAnimationFrame(() => resolve(null))),
+        );
         const h = terminalRefs.current.get(leafId) ?? editorRefs.current.get(leafId);
         if (!h) return false;
         h.focus();

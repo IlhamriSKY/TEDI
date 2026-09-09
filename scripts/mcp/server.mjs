@@ -366,6 +366,30 @@ const HANDLERS = {
     return `opened SSH connection ${a.id}, but its pane did not appear in time - call \`state\` for its leafId`;
   },
 
+  schedule: async (d, a) => {
+    if (a.action === "list") return json(await d.schedules());
+    if (a.action === "cancel") {
+      if (!a.id) throw new Error("cancel needs `id` (from `schedule list`).");
+      const r = await d.scheduleCancel(a.id);
+      // A refusal comes back as a sentence, not a throw, so it reaches the model
+      // as the reason rather than as a stack.
+      if (typeof r === "string") throw new Error(r);
+      return json(r);
+    }
+    if (a.action !== "create")
+      throw new Error(`Unknown action: ${a.action}. Have: list, create, cancel.`);
+    const r = await d.scheduleCreate({
+      command: a.command,
+      delay: a.delay,
+      at: a.at,
+      leafId: a.leafId,
+      submit: a.submit,
+      label: a.label,
+    });
+    if (typeof r === "string") throw new Error(r);
+    return json(r);
+  },
+
   pane: async (d, a) => {
     switch (a.action) {
       case "open": {

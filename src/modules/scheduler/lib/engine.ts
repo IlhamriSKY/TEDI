@@ -36,7 +36,16 @@ class SchedulerEngine {
   private timers = new Map<string, ReturnType<typeof setTimeout>>();
   private bridge: SchedulerBridge = NOOP_BRIDGE;
   private listeners = new Set<Listener>();
-  private booted = false;
+  /**
+   * The in-flight (or settled) boot. A PROMISE, not a `booted` flag, because
+   * every mutator awaits it: `boot()` replaces `this.schedules` wholesale with
+   * what came off disk, so a `create()` that resolved first was erased by it -
+   * and the `persist()` that create ran wrote its one row over the whole saved
+   * file, so the user's other pending schedules were gone from disk too. The
+   * window is the store's first IPC round trip, which an agent scheduling
+   * something during startup lands in.
+   */
+  private booting: Promise<void> | null = null;
 
   setBridge(bridge: SchedulerBridge): void {
     this.bridge = bridge;
@@ -63,9 +72,21 @@ class SchedulerEngine {
   }
 
   /** Idempotent boot. Loads persisted schedules, arms timers, fires past-due. */
-  async boot(): Promise<void> {
-    if (this.booted) return;
-    this.booted = true;
+  boot(): Promise<void> {
+    this.booting ??= this.load().catch((err: unknown) => {
+      // A FAILURE IS NOT CACHED. Every mutator awaits this promise, so holding a
+      // rejected one would leave scheduling dead for the life of the window
+      // after a single unreadable store - a locked file, one bad IPC round trip.
+      // Clearing it lets the next call try again. Still rethrown, because the
+      // caller must not go on to `persist()` a list that was never loaded: that
+      // is how one failed READ becomes a wiped file.
+      this.booting = null;
+      throw err;
+    });
+    return this.booting;
+  }
+
+  private async load(): Promise<void> {
     const loaded = await loadSchedules();
     this.schedules = loaded;
     const now = Date.now();
@@ -87,6 +108,7 @@ class SchedulerEngine {
     target: TerminalTarget;
     label?: string;
   }): Promise<Schedule> {
+    await this.boot();
     const schedule: Schedule = {
       id: newScheduleId(),
       fireAt: input.fireAt,
@@ -106,6 +128,7 @@ class SchedulerEngine {
   }
 
   async cancel(id: string): Promise<boolean> {
+    await this.boot();
     const idx = this.schedules.findIndex((s) => s.id === id);
     if (idx < 0) return false;
     const cur = this.schedules[idx];
@@ -122,6 +145,7 @@ class SchedulerEngine {
 
   /** Drops completed/cancelled rows older than `maxAgeMs`. */
   async pruneHistory(maxAgeMs = 30 * 60_000): Promise<void> {
+    await this.boot();
     const now = Date.now();
     const next = this.schedules.filter((s) => {
       if (s.status === "pending") return true;

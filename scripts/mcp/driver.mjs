@@ -679,6 +679,26 @@ export class Driver {
     return this.#tedi("setSetting", String(key), value);
   }
 
+  /** Every schedule, pending and recently finished, with ISO times. */
+  schedules() {
+    return this.#tedi("schedules");
+  }
+
+  /**
+   * Queue a command for later. Answers with the new schedule, or a SENTENCE
+   * naming why it was refused - the command goes through the same guard and
+   * shell-transformer chain a command run now does, because it will run
+   * unattended and the approval raised here is the only human in the loop.
+   */
+  scheduleCreate(opts) {
+    return this.#tedi("scheduleCreate", opts);
+  }
+
+  /** Cancel a pending schedule. `{cancelled:true}`, or a sentence. */
+  scheduleCancel(id) {
+    return this.#tedi("scheduleCancel", String(id));
+  }
+
   /**
    * Console output and page errors captured since this connection opened.
    *

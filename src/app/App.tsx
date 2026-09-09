@@ -1006,6 +1006,7 @@ export default function App() {
     requestCloseLeaf,
     setLeafCwd,
     setLeafPtyId,
+    setActiveId,
     focusPane,
     closePaneByLeaf,
     openFileTab,

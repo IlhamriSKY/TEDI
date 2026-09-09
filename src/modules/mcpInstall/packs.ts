@@ -110,6 +110,12 @@ export const MCP_PACKS: McpPack[] = [
 export const MCP_EXTENSION_ALLOWLIST: { id: string; label: string }[] = [
   { id: "tedi.api-client", label: "API Client" },
   { id: "tedi.sql-explorer", label: "Database Viewer" },
+  // The local PHP/Node/database environment the user's sites actually run on.
+  // Worth advertising for the same reason as the two above: an agent asked why
+  // a site is down, or to point a project at another PHP, otherwise has to be
+  // walked through a dashboard it cannot see. Five tools, one of them the
+  // read that answers most of those questions in a single call.
+  { id: "tedi.devenv", label: "Dev Environment" },
 ];
 
 /**

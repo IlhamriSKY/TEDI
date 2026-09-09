@@ -61,6 +61,9 @@ export const STEP_MOTIONS: Record<string, PixelMotion> = {
   // "Updating plan (N items)".
   Updating: "plan",
   Waiting: "wait",
+  // Queueing a command for later, listing the queue, cancelling one. Nothing
+  // runs now in any of the three, which is the same thing `wait` draws.
+  Scheduling: "wait",
   // Both written by the transport, not by a tool: "Retrying in 4s…" and
   // "Context full - compacting and retrying…". Nothing is happening in either,
   // which is what `wait` draws.

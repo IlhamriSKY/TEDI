@@ -1,6 +1,9 @@
 import { toast } from "@/components/ui/toast";
 import { useChatStore } from "@/modules/ai";
 import { scheduler, setSchedulerBridge } from "@/modules/scheduler";
+// Side effect: registers `schedules` / `scheduleCreate` / `scheduleCancel` on the
+// automation bridge, so an outside AI CLI can reach the queue this file arms.
+import "@/modules/scheduler/lib/bridge";
 import { type TerminalPaneHandle } from "@/modules/terminal";
 import { useEffect, useRef, type RefObject } from "react";
 import { buildLiveContext, type LiveContext } from "../lib/buildLiveContext";
@@ -115,10 +118,15 @@ export function useAgentBridges({
         toast(message, { variant });
       },
     });
-    void scheduler.boot();
+    // Caught, not `void`ed: `boot` now rethrows an unreadable store rather than
+    // starting on an empty list it would later write over the real file, and an
+    // unhandled rejection at launch is a red console with nothing done about it.
+    // Silent is right here - the engine retries on the next call, and a toast
+    // about a store nobody has scheduled into yet is noise.
+    void scheduler.boot().catch(() => {});
     // Prune fired/cancelled history every 5min to keep the store small.
     const interval = window.setInterval(() => {
-      void scheduler.pruneHistory();
+      void scheduler.pruneHistory().catch(() => {});
     }, 5 * 60_000);
     return () => {
       window.clearInterval(interval);

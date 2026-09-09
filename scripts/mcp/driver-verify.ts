@@ -307,6 +307,12 @@ const args: Record<string, Record<string, unknown>[]> = {
   extension: [{ action: "disable", id: "tedi.sql-explorer" }],
   ai: [{ action: "status" }, { action: "read" }, { action: "send", text: "hi" }],
   ssh: [{ action: "list" }, { action: "connect", id: "c-abc" }],
+  schedule: [
+    { action: "list" },
+    { action: "create", command: "echo hi", delay: 60 },
+    { action: "create", command: "echo hi", at: "2030-01-01T00:00:00Z", submit: false },
+    { action: "cancel", id: "sch-abc" },
+  ],
   // `screenshot` is left out for the same reason the `screenshot` TOOL is
   // skipped below: it writes a file and wants real image bytes back.
   browser: [

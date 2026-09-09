@@ -114,6 +114,10 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   mcp__tedi__screenshot: () => `Capturing the window`,
   mcp__tedi__ai: (i) => `Asking TEDI to ${String(i.action ?? "")}`.trim(),
   mcp__tedi__ssh: (i) => `SSH ${String(i.action ?? "")}`.trim(),
+  mcp__tedi__schedule: (i) =>
+    i.action === "create"
+      ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
+      : `Scheduling ${String(i.action ?? "")}`.trim(),
   mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,

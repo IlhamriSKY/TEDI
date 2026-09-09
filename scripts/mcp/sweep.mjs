@@ -321,6 +321,47 @@ export default async function sweep(d) {
     return `leaf ${out.leafId}, ${hits} hits`;
   });
 
+  // Deferred execution. `sh` above proves a command reaches a terminal NOW, by
+  // the caller writing it and polling; this proves one queued for later gets
+  // there on its own, which is a different mechanism end to end - the engine's
+  // own timer and the terminal bridge, with no caller in the loop when it fires.
+  // The whole point of sweeping it is that neither half can be checked without a
+  // running window: `driver-verify` can only prove the handler calls the method.
+  let queued = null;
+  await check(
+    "schedule() queues a command and it fires into the terminal by itself",
+    async () => {
+      const stamp = `sch${(await d.eval("performance.now().toFixed(0)")).slice(-5)}`;
+      const leafId = await d.focusedLeaf();
+      const made = await d.scheduleCreate({
+        command: `echo ${stamp}`,
+        delay: 2,
+        leafId,
+        label: "control sweep",
+      });
+      // A refusal comes back as a sentence rather than a throw, so an
+      // unchecked result would read as a schedule that was never made.
+      if (typeof made === "string") throw new Error(made);
+      queued = made.id;
+      const pending = (await d.schedules()).schedules.find((s) => s.id === made.id);
+      if (pending?.status !== "pending") {
+        throw new Error(`status is "${pending?.status}" immediately after create`);
+      }
+      const seen = await d.waitTerminal({ text: stamp, leafId, timeout: 20000 });
+      if (!seen.done) throw new Error(`"${stamp}" never appeared: ${seen.reason}`);
+      const after = (await d.schedules()).schedules.find((s) => s.id === made.id);
+      if (after?.status !== "fired") throw new Error(`status is "${after?.status}" after it ran`);
+      queued = null;
+      return `${made.id} fired into leaf ${leafId}`;
+    },
+    // A schedule left pending after a failed check fires into whatever the
+    // sweep is doing minutes later, which is exactly the leaked-toggle problem
+    // the cleanup argument exists for.
+    async () => {
+      if (queued) await d.scheduleCancel(queued);
+    },
+  );
+
   // Chord virtual keys and the syntax of every injected expression are checked
   // in `scripts/mcp/driver-verify.ts` instead. Both are pure, and a check that
   // needs no running app has no business waiting for one.
@@ -790,6 +831,46 @@ export default async function sweep(d) {
     if (now !== other.id) throw new Error(`focus is ${now}, wanted ${other.id}`);
     return `${before} -> ${now}`;
   });
+
+  // The case above is the easy one: both leaves are on screen. `state` reports
+  // every pane in EVERY tab, so an agent routinely picks one that is not - and
+  // an inactive tab is `invisible`, where `.focus()` does nothing at all, so
+  // `focus_pane` used to answer "focus did not land" for every background pane
+  // with nothing saying the tab was the reason. Only a running window can show
+  // that the tab now comes forward with it.
+  await check(
+    "focusPane() brings a pane's TAB forward, not just the leaf",
+    async () => {
+      const activeTab = () =>
+        d.eval(
+          `document.querySelector('[data-tab-id][data-state=active],[data-tab-id][aria-selected=true]')?.getAttribute('data-tab-id') ?? null`,
+        );
+      const home = await d.focusedLeaf();
+      const homeTab = await activeTab();
+      await d.cmd("tab.new");
+      await wait(1800);
+      const parked = await d.focusedLeaf();
+      if (parked === home) throw new Error("the new tab did not take focus");
+      // Back to where we started, leaving `parked` in a tab nobody is looking at.
+      await d.cmd("tab.prev");
+      await wait(900);
+      if ((await d.focusedLeaf()) !== home) throw new Error("tab.prev did not return");
+      await d.focusPane(parked);
+      await wait(900);
+      const leaf = await d.focusedLeaf();
+      const tab = await activeTab();
+      if (leaf !== parked)
+        throw new Error(`focus is ${leaf}, wanted the background leaf ${parked}`);
+      if (tab === homeTab) throw new Error(`still on tab ${tab}; the tab never switched`);
+      return `leaf ${home} -> ${leaf}, tab ${homeTab} -> ${tab}`;
+    },
+    async () => {
+      while ((await tabs()) > base.tabs) {
+        await d.cmd("tab.close");
+        await wait(900);
+      }
+    },
+  );
 
   await check(
     "editor.findReplace opens the find bar",
