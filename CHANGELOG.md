@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.52] - 09-09-2026
+
+### Added
+
+- **Notes and todos sit beside the terminal.** A toolbar button right of the SSH menu, on `Mod+Shift+O`, opens one panel holding two lists: a checklist and a set of free-text notes. Both persist in their own store file and survive every session, which is what separates them from `todo_write`, the plan an agent keeps for the length of one turn. Notes is a list and an editor rather than an accordion, because a body expanded inside the list put a filled title field and a filled textarea between two bare text rows and the list stopped reading as a list. A pin keeps the panel up while you go back to the terminal to do the thing on it, and deleting a note that has a body asks first: an empty note is one line the user can retype, a body is not. The tabs are the Settings window's own recipe, and the toolbar button carries no count badge, because `border-radius` is force-zeroed app-wide and the usual dot lands as a square stuck to the glyph. See [NotesMenu.tsx](src/modules/notes/NotesMenu.tsx), [store.ts](src/modules/notes/store.ts).
+- **The agent can read that list and add to it.** `notes_read` returns both lists with their ids; `notes_write` adds a todo, completes one, or adds a note. Two tools rather than six, because the tool list is re-sent on every request and each name is a standing cost. It deliberately cannot delete or overwrite: removing a person's note is not worth the risk of one misread instruction, and the panel is two keystrokes away for the user who wants it gone. The descriptions and one prompt line exist to keep the model off `todo_write`, which is a different list with a different lifetime. See [notes.ts](src/modules/ai/tools/notes.ts).
+- **The changed-file list can be filtered.** One query narrows Merge, Staged and Changes at once, so a path is looked for without caring which section it landed in. It appears only once there are ten changes or more, below which it is chrome nobody asked for; staging does not change that total, so the box cannot flicker in and out while you work. A filter matching nothing says so, rather than leaving a blank panel that reads as "no changes". See [SourceControlPanel.tsx](src/modules/scm/SourceControlPanel.tsx).
+
+### Changed
+
+- **Source Control section headers no longer collapse.** The chevron on Merge, Staged and Changes hid the list behind a click and bought nothing the count already beside the title did not say. Filtering replaces what it was really used for on a long list, and does it better: collapsing hid everything, a filter shows the one thing being looked for. The per-file expander on a row stays, and is a different control: it reveals hunks, which is the only way a partial stage is made. See [ChangeSection.tsx](src/modules/scm/components/ChangeSection.tsx).
+
 ## [0.4.51] - 09-09-2026
 
 ### Added

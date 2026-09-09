@@ -5,14 +5,11 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
 import type { GitChange } from "../types";
 import { ChangeRow } from "./ChangeRow";
-import { ChevronRight, CornerUpLeft } from "lucide-react";
+import { CornerUpLeft } from "lucide-react";
 
 type Props = {
   title: string;
   changes: GitChange[];
-  /** Collapsed sections keep their header (and its count) visible. */
-  collapsed: boolean;
-  onToggleCollapse: () => void;
   /** Absent in a read-only listing, which drops every action on the section. */
   onSetStaged?: (changes: GitChange[], staged: boolean) => void;
   onDiscard?: (changes: GitChange[]) => void;
@@ -27,12 +24,16 @@ type Props = {
  * One list of changes under a header that acts on the whole group: the header
  * checkbox stages or unstages every row at once, matching what VSCode's
  * section-level +/- do.
+ *
+ * The header does NOT collapse the list. Hiding the changes behind a chevron
+ * bought nothing the count in the header did not already say, and cost a click
+ * before the panel could do its one job. A file is opened by clicking its row.
+ * The per-FILE expander in `ChangeRow` is a different control and stays: it
+ * reveals hunks, which is how a partial stage is made.
  */
 export function ChangeSection({
   title,
   changes,
-  collapsed,
-  onToggleCollapse,
   onSetStaged,
   onDiscard,
   onClickDiff,
@@ -61,22 +62,10 @@ export function ChangeSection({
             aria-label={`${allStaged ? "Unstage" : "Stage"} all ${title.toLowerCase()}`}
           />
         ) : null}
-        <button
-          type="button"
-          className="hover:text-foreground flex min-w-0 flex-1 items-center gap-0.5 text-left uppercase transition-colors"
-          onClick={onToggleCollapse}
-          aria-expanded={!collapsed}
-        >
-          {/* One chevron that rotates, not two that swap: a ternary between two
-              icons replaces the DOM node, so it can never animate. */}
-          <ChevronRight
-            size={11}
-            strokeWidth={2.5}
-            className={cn("transition-transform", !collapsed && "rotate-90")}
-          />
+        <span className="flex min-w-0 flex-1 items-center gap-0.5 uppercase">
           <span className="truncate">{title}</span>
           <span className="ml-1 tabular-nums">({changes.length})</span>
-        </button>
+        </span>
         {onSetStaged ? (
           <IconTooltip label={allStaged ? "Unstage all" : "Stage all"} side="bottom">
             <Button
@@ -123,7 +112,7 @@ export function ChangeSection({
           </IconTooltip>
         ) : null}
       </div>
-      <ul className={cn("pb-0.5", collapsed && "hidden")}>
+      <ul className="pb-0.5">
         {changes.map((c) => (
           <ChangeRow
             key={c.relative + ":" + c.status + ":" + (c.staged ? "s" : "w")}

@@ -734,6 +734,10 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
         text: `- Use \`run_subagent\` / \`run_subagents\` for broad read-only analysis; prefer parallel \`run_subagents\` for multi-scope work.`,
       },
       { needs: ["todo_write"], text: `- Use \`todo_write\` before 5+ chained tool calls.` },
+      {
+        needs: ["notes_write"],
+        text: `- \`notes_read\` / \`notes_write\` are the USER's saved notes and todos, not your plan. Only touch them when asked to; never delete (you cannot).`,
+      },
       { text: `- Be terse. No filler or apologies.` },
       {
         text: `- Before a mutation tool, give one short why-line. After work, give 1-2 sentences covering what changed and what is next.`,

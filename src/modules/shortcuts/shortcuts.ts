@@ -27,6 +27,7 @@ export type ShortcutId =
   | "ai.newline"
   | "shortcuts.open"
   | "settings.open"
+  | "notes.toggle"
   | "sidebar.toggle"
   | "rightPanel.toggle"
   | "scm.open"
@@ -84,6 +85,16 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Show keyboard shortcuts",
     group: "General",
     defaultBindings: [{ [MOD_PROP]: true, key: "k" }],
+  },
+  {
+    id: "notes.toggle",
+    label: "Notes & todos",
+    group: "General",
+    // Mod+Shift+O: free in the catalog, and bound by neither CodeMirror's
+    // default/search keymaps nor the vim one, so an editor keeps every key it
+    // owns. The obvious mnemonics were already taken (Mod+Shift+N is the agent
+    // tab, Mod+Shift+T reopens a tab, Mod+Shift+D splits down).
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "o" }],
   },
   {
     id: "tab.new",

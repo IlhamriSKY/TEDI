@@ -15,6 +15,7 @@ import {
   Layers,
   List,
   ListChecks,
+  NotepadText,
   Move,
   Replace,
   Search,
@@ -93,6 +94,8 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   run_subagent: { label: "Subagent", icon: Bot },
   run_subagents: { label: "Subagents", icon: Bot },
   todo_write: { label: "Todos", icon: ListChecks },
+  notes_read: { label: "Notes & todos", icon: NotepadText },
+  notes_write: { label: "Notes & todos", icon: NotepadText },
 };
 
 // Icon color per tool state: the color indicator lives on the icon itself,

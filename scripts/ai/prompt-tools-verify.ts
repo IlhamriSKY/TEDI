@@ -89,6 +89,8 @@ const REAL_TOOLS = [
   "run_subagents",
   "skill",
   "todo_write",
+  "notes_read",
+  "notes_write",
   "schedule_command",
   "cancel_schedule",
   "list_schedules",
@@ -129,7 +131,12 @@ for (const [label, prompt] of [
   const on = named(prompt);
   check(`${label}: names the core tools`, on.length >= 10, { named: on.length });
 }
-for (const heading of ["# Environment", "# Files", "# Terminal and panes", "# Delegation and output"]) {
+for (const heading of [
+  "# Environment",
+  "# Files",
+  "# Terminal and panes",
+  "# Delegation and output",
+]) {
   check(`full: keeps ${heading}`, SYSTEM_PROMPT.includes(heading));
 }
 
@@ -164,7 +171,11 @@ const FILE_TOOLS = [
 ];
 const noFiles = new Set(REAL_TOOLS.filter((t) => !FILE_TOOLS.includes(t)));
 const p = buildCorePrompt("full", (t) => noFiles.has(t));
-check("no file tool is named", named(p).every((t) => noFiles.has(t)), { named: named(p) });
+check(
+  "no file tool is named",
+  named(p).every((t) => noFiles.has(t)),
+  { named: named(p) },
+);
 check("the `# Files` heading went with them", !p.includes("# Files"));
 check("`mcp__tedi__sh` survived", /`sh`/.test(p));
 check("`run_subagents` survived", /`run_subagents`/.test(p));

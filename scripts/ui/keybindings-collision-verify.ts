@@ -61,6 +61,7 @@ const HANDLED = new Set<string>([
   "scm.open",
   "shortcuts.open",
   "settings.open",
+  "notes.toggle",
   "sidebar.toggle",
   "rightPanel.toggle",
   "view.zoomIn",

@@ -124,6 +124,16 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
       : `Scheduling ${String(i.action ?? "")}`.trim(),
   mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
+  notes_read: () => `Reading your notes and todos`,
+  // Verbs that already own a gait in STEP_MOTIONS: adding a row is `Creating`,
+  // ticking one is `Setting`. A new verb here would fall through to the default
+  // sweep, which step-motion-verify refuses.
+  notes_write: (i) =>
+    i.op === "complete_todo"
+      ? `Setting a todo done`
+      : `Creating ${i.op === "add_note" ? "note" : "todo"}${
+          typeof i.text === "string" ? ` "${i.text}"` : ""
+        }`,
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
     const tasks = Array.isArray(i.tasks) ? i.tasks : [];

@@ -47,6 +47,7 @@ export function builtinGroup(name: string): string {
   if (name.includes("schedule")) return "Schedule";
   if (name === "fetch") return "Web";
   if (name === "todo_write") return "Tasks";
+  if (name.startsWith("notes_")) return "Notes";
   if (
     name === "edit" ||
     name === "multi_edit" ||

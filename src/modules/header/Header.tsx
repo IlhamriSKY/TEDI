@@ -11,6 +11,7 @@ import type { Tab } from "@/modules/tabs";
 import { TabBar } from "@/modules/tabs";
 import type { WorkspaceView } from "@/modules/workspaces/store";
 import { SshMenu } from "@/modules/ssh/SshMenu";
+import { NotesMenu } from "@/modules/notes";
 import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
 import { McpInstallButton } from "@/modules/mcpInstall/McpInstallButton";
 import { useTheme } from "@/modules/theme";
@@ -326,6 +327,7 @@ function HeaderImpl({
         <span className="bg-border mx-1 h-5 w-px shrink-0" />
 
         <SshMenu onConnect={onConnectSsh} />
+        <NotesMenu />
         <ExtensionHeaderItems />
         {extensionsButton}
         <McpInstallButton />

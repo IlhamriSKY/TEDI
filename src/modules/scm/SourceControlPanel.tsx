@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { Input } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -82,6 +83,9 @@ type Props = {
    *  empty means the remote login directory. */
   sshCwd?: string | null;
 };
+
+/** Changed-file count at which the filter box appears. */
+const FILTER_MIN_CHANGES = 10;
 
 const STATUS_ORDER: Record<GitChangeStatus, number> = {
   conflicted: 0,
@@ -220,9 +224,12 @@ export function SourceControlPanel({
   const [confirmAll, setConfirmAll] = useState(false);
   const [confirmDiscard, setConfirmDiscard] = useState<GitChange[] | null>(null);
   const [message, setMessage] = useState("");
+  /** Substring filter over the changed paths. Replaces what collapsing a
+   *  section used to do for a long list, and does it better: collapsing hid
+   *  everything, this shows the one thing being looked for. */
+  const [fileFilter, setFileFilter] = useState("");
   const [busy, setBusy] = useState<ScmBusy>(null);
   const [tab, setTab] = useState<"changes" | "graph" | "prs">("changes");
-  const [collapsedSections, setCollapsedSections] = useState<Record<string, boolean>>({});
   // Bumped after commit/push and on manual refresh so the Graph tab refetches
   // without us wiring a direct ref into the child.
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
@@ -381,14 +388,25 @@ export function SourceControlPanel({
 
   // Three lists, the same split VSCode shows. A partially-staged file appears
   // in two of them because git tracks its index and worktree states separately.
-  const conflicts = useMemo(() => sorted.filter((c) => c.status === "conflicted"), [sorted]);
+  /**
+   * `sorted` narrowed by the filter box. Every section reads from this, so one
+   * query filters all three at once - a path is looked for without caring
+   * whether it happens to be staged yet.
+   */
+  const visible = useMemo(() => {
+    const q = fileFilter.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((c) => c.relative.toLowerCase().includes(q));
+  }, [sorted, fileFilter]);
+
+  const conflicts = useMemo(() => visible.filter((c) => c.status === "conflicted"), [visible]);
   const staged = useMemo(
-    () => sorted.filter((c) => c.staged && c.status !== "conflicted"),
-    [sorted],
+    () => visible.filter((c) => c.staged && c.status !== "conflicted"),
+    [visible],
   );
   const unstaged = useMemo(
-    () => sorted.filter((c) => !c.staged && c.status !== "conflicted"),
-    [sorted],
+    () => visible.filter((c) => !c.staged && c.status !== "conflicted"),
+    [visible],
   );
 
   /**
@@ -766,10 +784,6 @@ export function SourceControlPanel({
     }
   }, [busy, ops, status, sorted, identity]);
 
-  const toggleSection = useCallback((key: string) => {
-    setCollapsedSections((s) => ({ ...s, [key]: !s[key] }));
-  }, []);
-
   /**
    * Per-file hunk list, shown when a row is expanded.
    *
@@ -831,64 +845,102 @@ export function SourceControlPanel({
     );
   }
 
+  // Below this the list fits on screen and a filter row is chrome nobody asked
+  // for. Staging does not change the TOTAL, so the box cannot flicker in and
+  // out while the user works; only editing files moves this number.
+  const showFilter = sorted.length >= FILTER_MIN_CHANGES || fileFilter !== "";
+
   const sections =
     sorted.length === 0 ? (
       <div className="text-muted-foreground flex min-h-0 flex-1 items-center justify-center px-3 text-center text-[11px]">
         No changes.
       </div>
     ) : (
-      <ScrollArea className="min-h-0 flex-1">
-        {status?.truncated ? (
-          // Listing every row of a repository with a huge working tree - a
-          // `git init` left in a home directory makes every file under it
-          // untracked - froze the window, so the backend caps the list. Say so:
-          // an unannounced cap reads as "these are all my changes".
-          <div className="text-muted-foreground border-border/60 border-b px-3 py-1.5 text-[11px]">
-            Too many changes to list them all. Showing {sorted.length}.
+      <>
+        {showFilter ? (
+          <div className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
+            <Input
+              className="h-7 text-[11px] md:text-[11px]"
+              value={fileFilter}
+              onChange={(e) => setFileFilter(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") {
+                  e.stopPropagation();
+                  setFileFilter("");
+                }
+              }}
+              placeholder="Filter files"
+              aria-label="Filter changed files"
+            />
+            {fileFilter ? (
+              <IconTooltip label="Clear filter" side="bottom">
+                <button
+                  type="button"
+                  onClick={() => setFileFilter("")}
+                  aria-label="Clear filter"
+                  className="text-muted-foreground hover:text-foreground hover:bg-accent/40 flex size-6 shrink-0 cursor-pointer items-center justify-center rounded-md transition-colors"
+                >
+                  <X size={12} strokeWidth={2} />
+                </button>
+              </IconTooltip>
+            ) : null}
           </div>
         ) : null}
-        <ChangeSection
-          title="Merge Changes"
-          changes={conflicts}
-          collapsed={!!collapsedSections.conflicts}
-          onToggleCollapse={() => toggleSection("conflicts")}
-          busy={busy !== null}
-          // Checking a conflict stages it, which is exactly how git records
-          // "I resolved this". Without it the panel could show a conflict but
-          // never let the user finish the merge.
-          onSetStaged={setStaged}
-          onClickDiff={remote ? undefined : openDiff}
-          onDiscardOne={(c) => setConfirmDiscard([c])}
-          // A conflicted row can never expand (its diff is a COMBINED diff, not
-          // a patch), but passing this keeps its chevron column reserved so the
-          // three sections line up with each other.
-          renderHunks={remote ? undefined : renderHunks}
-        />
-        <ChangeSection
-          title="Staged Changes"
-          changes={staged}
-          collapsed={!!collapsedSections.staged}
-          onToggleCollapse={() => toggleSection("staged")}
-          busy={busy !== null}
-          onSetStaged={setStaged}
-          onDiscard={(cs) => setConfirmDiscard(cs)}
-          onClickDiff={remote ? undefined : openDiff}
-          onDiscardOne={(c) => setConfirmDiscard([c])}
-          renderHunks={remote ? undefined : renderHunks}
-        />
-        <ChangeSection
-          title="Changes"
-          changes={unstaged}
-          collapsed={!!collapsedSections.unstaged}
-          onToggleCollapse={() => toggleSection("unstaged")}
-          busy={busy !== null}
-          onSetStaged={setStaged}
-          onDiscard={(cs) => setConfirmDiscard(cs)}
-          onClickDiff={remote ? undefined : openDiff}
-          onDiscardOne={(c) => setConfirmDiscard([c])}
-          renderHunks={remote ? undefined : renderHunks}
-        />
-      </ScrollArea>
+        <ScrollArea className="min-h-0 flex-1">
+          {status?.truncated ? (
+            // Listing every row of a repository with a huge working tree - a
+            // `git init` left in a home directory makes every file under it
+            // untracked - froze the window, so the backend caps the list. Say so:
+            // an unannounced cap reads as "these are all my changes".
+            <div className="text-muted-foreground border-border/60 border-b px-3 py-1.5 text-[11px]">
+              Too many changes to list them all. Showing {visible.length}.
+            </div>
+          ) : null}
+          <ChangeSection
+            title="Merge Changes"
+            changes={conflicts}
+            busy={busy !== null}
+            // Checking a conflict stages it, which is exactly how git records
+            // "I resolved this". Without it the panel could show a conflict but
+            // never let the user finish the merge.
+            onSetStaged={setStaged}
+            onClickDiff={remote ? undefined : openDiff}
+            onDiscardOne={(c) => setConfirmDiscard([c])}
+            // A conflicted row can never expand (its diff is a COMBINED diff, not
+            // a patch), but passing this keeps its chevron column reserved so the
+            // three sections line up with each other.
+            renderHunks={remote ? undefined : renderHunks}
+          />
+          <ChangeSection
+            title="Staged Changes"
+            changes={staged}
+            busy={busy !== null}
+            onSetStaged={setStaged}
+            onDiscard={(cs) => setConfirmDiscard(cs)}
+            onClickDiff={remote ? undefined : openDiff}
+            onDiscardOne={(c) => setConfirmDiscard([c])}
+            renderHunks={remote ? undefined : renderHunks}
+          />
+          <ChangeSection
+            title="Changes"
+            changes={unstaged}
+            busy={busy !== null}
+            onSetStaged={setStaged}
+            onDiscard={(cs) => setConfirmDiscard(cs)}
+            onClickDiff={remote ? undefined : openDiff}
+            onDiscardOne={(c) => setConfirmDiscard([c])}
+            renderHunks={remote ? undefined : renderHunks}
+          />
+          {/* Every section returns null when it has no rows, so without this a
+            filter that matches nothing leaves a blank panel that reads as "no
+            changes" - the opposite of what the list is saying. */}
+          {visible.length === 0 ? (
+            <div className="text-muted-foreground px-3 py-6 text-center text-[11px]">
+              No file matches "{fileFilter.trim()}".
+            </div>
+          ) : null}
+        </ScrollArea>
+      </>
     );
 
   return (

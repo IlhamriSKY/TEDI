@@ -1,5 +1,6 @@
 import { type RefObject } from "react";
 import { readClipboardText } from "@/lib/clipboard";
+import { useNotesStore } from "@/modules/notes";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { WorkspaceView } from "@/modules/workspaces/store";
@@ -148,6 +149,9 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       openScmTab();
     },
     "shortcuts.open": () => void openSettingsWindow("shortcuts"),
+    // Reads the store directly rather than threading a dep through App: the
+    // header button toggles the same flag, and nothing else in App needs it.
+    "notes.toggle": () => useNotesStore.getState().toggleOpen(),
     "settings.open": () => void openSettingsWindow(),
     "sidebar.toggle": toggleSidebar,
     "rightPanel.toggle": toggleRightSlot,
