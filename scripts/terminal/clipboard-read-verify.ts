@@ -19,6 +19,10 @@
  *     again (that is the regression that brings the Linux bug back).
  *  4. RESOLVES, NEVER REJECTS: a failed read yields "" so paste sites need no
  *     per-site catch (an empty/image-only clipboard is not an error).
+ *  5. THE EDITOR CAN ACTUALLY PASTE IT: a Windows clipboard read is full of
+ *     CRLF, and CodeMirror collapses each pair into one document position, so
+ *     any caret math done off the JS string length overshoots the end of the
+ *     doc and throws instead of pasting.
  */
 /// <reference types="node" />
 import { readFileSync, readdirSync, statSync } from "node:fs";
@@ -122,6 +126,43 @@ console.log('4. resolves to text, and to "" instead of rejecting');
   const onFailure = await readClipboardText();
   console.warn = warn;
   assert(onFailure === "", "a failed read resolves to the empty string");
+}
+
+console.log("5. a CRLF clipboard pastes into a CodeMirror document instead of throwing");
+{
+  const { EditorState } = await import("@codemirror/state");
+  const text = "a\r\nb\r\nc";
+  const empty = EditorState.create({ doc: "" });
+
+  // The regression, exactly as it shipped: three CRLF-joined lines are 7 JS
+  // string units but 5 document positions, so an anchor of `from + text.length`
+  // points past the end.
+  let threw = "";
+  try {
+    empty.update({
+      changes: { from: 0, to: 0, insert: text },
+      selection: { anchor: text.length },
+    });
+  } catch (e) {
+    threw = (e as Error).message;
+  }
+  assert(
+    threw.includes("outside of document"),
+    "caret math off text.length still throws on CRLF (the bug this guards)",
+  );
+
+  const tr = empty.update(empty.replaceSelection(text));
+  assert(tr.state.doc.toString() === "a\nb\nc", "replaceSelection lands the text, CRs dropped");
+  assert(
+    tr.state.selection.main.head === tr.state.doc.length,
+    "and leaves the caret at the end of what it inserted",
+  );
+  assert(
+    /v\.dispatch\(v\.state\.replaceSelection\(text\)\)/.test(
+      read("src/modules/editor/EditorPane.tsx"),
+    ),
+    "the editor's Paste lets CodeMirror do that math",
+  );
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

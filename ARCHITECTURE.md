@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (111 commands today).
+index of the backend API surface (113 commands today).
 
 ```mermaid
 flowchart LR
@@ -325,17 +325,17 @@ never silently widen a grant.
 
 ## 8. Key architectural decisions
 
-| Decision                                     | Rationale                                                                                                                                                    |
-| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| Two-process (Tauri) instead of Electron/Node | Rust owns OS resources with no Node runtime in the trusted process; smaller, safer, faster.                                                                  |
-| Single `invoke_handler` command index        | One audit surface and one place to discover the entire backend API.                                                                                          |
-| PTY daemon sidecar                           | Dev servers and long jobs survive a window close without surviving a crash or reboot (bounded).                                                              |
-| Injected bridges over direct coupling        | The extension host and cross-module wiring stay decoupled from React and feature internals.                                                                  |
-| Install-time trust, no sandbox               | Full-privilege JS matches the VS Code model; a real sandbox would block the integrations authors need. A consent gate keeps the review dialog authoritative. |
-| A browser is an extension, not core          | The core download carries no browser engine; a real Chromium over CDP is installed only by users who want one, and reuses the one already on the machine.    |
-| BYOK keys in the OS keychain only            | Keys never touch disk or web storage; a compromised renderer cannot read the plaintext at rest.                                                              |
-| Fresh Blob-URL module per activation         | Enable/disable/update is fully live with clean per-activation isolation and no recompile.                                                                    |
-| Tabs never unmount                           | Background PTYs and dev servers keep streaming; switching is instant.                                                                                        |
+| Decision                                     | Rationale                                                                                                                                                                                                 |
+| -------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Two-process (Tauri) instead of Electron/Node | Rust owns OS resources with no Node runtime in the trusted process; smaller, safer, faster.                                                                                                               |
+| Single `invoke_handler` command index        | One audit surface and one place to discover the entire backend API.                                                                                                                                       |
+| PTY daemon sidecar                           | Dev servers and long jobs survive a window close without surviving a crash or reboot (bounded).                                                                                                           |
+| Injected bridges over direct coupling        | The extension host and cross-module wiring stay decoupled from React and feature internals.                                                                                                               |
+| Install-time trust, no sandbox               | Full-privilege JS matches the VS Code model; a real sandbox would block the integrations authors need. A consent gate keeps the review dialog authoritative.                                              |
+| A browser is an extension, not core          | The core download carries no browser engine and needs none: a pane is another `wry` webview from the OS runtime the shell already uses, and only users who want one install the extension that drives it. |
+| BYOK keys in the OS keychain only            | Keys never touch disk or web storage; a compromised renderer cannot read the plaintext at rest.                                                                                                           |
+| Fresh Blob-URL module per activation         | Enable/disable/update is fully live with clean per-activation isolation and no recompile.                                                                                                                 |
+| Tabs never unmount                           | Background PTYs and dev servers keep streaming; switching is instant.                                                                                                                                     |
 
 ## 9. Conventions
 

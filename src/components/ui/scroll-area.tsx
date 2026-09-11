@@ -14,9 +14,18 @@ function ScrollArea({
       className={cn("relative", className)}
       {...props}
     >
+      {/* `max-h-[inherit]` is what makes `<ScrollArea className="max-h-N">` a
+          SCROLLER rather than a spill. Radix sizes the viewport `h-full`, and a
+          percentage height against a parent that is only max-height-constrained
+          resolves to auto - so the viewport grew to the full content height and
+          painted straight over whatever sat below the box, footers included,
+          while the root's own overflow stayed `visible`. Inheriting the cap
+          gives the viewport something to overflow, which is what turns on its
+          own `overflow: hidden scroll`. A no-op for a ScrollArea with no
+          max-height: `inherit` then resolves to `none`, which is the default. */}
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="focus-visible:ring-ring/50 size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
+        className="focus-visible:ring-ring/50 size-full max-h-[inherit] rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:outline-1"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

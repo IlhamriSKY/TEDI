@@ -19,6 +19,7 @@ import {
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
 import { effortTextClass, useEffortLevel } from "../lib/effort";
+import { fitRail } from "../lib/promptRail";
 import { stepMotion } from "../lib/stepMotion";
 import { useChatStore } from "../store/chatStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -282,6 +283,7 @@ export function AiChatView({
           </div>
         )}
       </ConversationContent>
+      <PromptRail messages={messages} />
       <ConversationScrollButton />
     </Conversation>
   );
@@ -413,6 +415,148 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
       </TooltipTrigger>
       <TooltipContent side="bottom">Jump to this message</TooltipContent>
     </Tooltip>
+  );
+}
+
+/** Right-edge tick rail: one mark per user prompt, click to jump back to it.
+ *  The mark for the prompt currently being read is lit, so the bottom mark is
+ *  the last prompt. Mirrors the prompt rail in ChatGPT / Codex. */
+function PromptRail({ messages }: { messages: UIMessage[] }) {
+  const { scrollRef } = useStickToBottomContext();
+  const userMessages = useMemo(() => messages.filter((m) => m.role === "user"), [messages]);
+  // Stable key so the scroll listener only rewires when a prompt is added or
+  // removed, not on every streamed assistant token.
+  const userIdsKey = useMemo(() => userMessages.map((m) => m.id).join("|"), [userMessages]);
+  const userMessagesRef = useRef(userMessages);
+  userMessagesRef.current = userMessages;
+
+  const railRef = useRef<HTMLDivElement | null>(null);
+  const [activeIdx, setActiveIdx] = useState(-1);
+  /** Chat viewport height in px. Measured off the CHAT, not off the rail: the
+   *  rail's own height comes from its marks, so measuring that would be
+   *  circular. Re-measured on every pane resize, which is what keeps the rail
+   *  right in a split, on the canvas and in a dragged-narrow column alike. */
+  const [viewport, setViewport] = useState(0);
+
+  // A wheel over the rail drives the CHAT. The rail follows the lit mark on its
+  // own, so it is a map rather than something to scroll - and without this it
+  // eats the gesture for the whole right edge of the pane once it is long
+  // enough to scroll itself. It cannot be a React `onWheel`: React attaches
+  // wheel listeners passively, so `preventDefault` there is ignored and both
+  // would scroll. Hence a native non-passive one, attached by the ref callback
+  // (React 19 runs the cleanup it returns) so it lands when the rail mounts -
+  // an effect would miss it, since the rail is absent until the second prompt.
+  const attachRail = useCallback(
+    (node: HTMLDivElement | null) => {
+      railRef.current = node;
+      if (!node) return;
+      const onWheel = (e: WheelEvent) => {
+        e.preventDefault();
+        scrollRef.current?.scrollBy({ top: e.deltaY });
+      };
+      node.addEventListener("wheel", onWheel, { passive: false });
+      return () => {
+        railRef.current = null;
+        node.removeEventListener("wheel", onWheel);
+      };
+    },
+    [scrollRef],
+  );
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    const fit = () => setViewport(scroller.clientHeight);
+    fit();
+    const ro = new ResizeObserver(fit);
+    ro.observe(scroller);
+    return () => ro.disconnect();
+  }, [scrollRef]);
+
+  useEffect(() => {
+    const scroller = scrollRef.current;
+    if (!scroller) return;
+    let raf = 0;
+    // The active prompt is the last one whose top has passed the viewport top.
+    // ponytail: O(prompts) rect scan per scroll frame, fine into the hundreds;
+    // cache offsets and binary-search if a session ever outgrows that.
+    const measure = () => {
+      raf = 0;
+      const limit = scroller.getBoundingClientRect().top + 8;
+      let idx = -1;
+      userMessagesRef.current.forEach((m, i) => {
+        const el = scroller.querySelector(`[data-message-id="${CSS.escape(m.id)}"]`);
+        if (el && el.getBoundingClientRect().top <= limit) idx = i;
+      });
+      setActiveIdx(idx);
+    };
+    const onScroll = () => {
+      if (!raf) raf = requestAnimationFrame(measure);
+    };
+    onScroll();
+    scroller.addEventListener("scroll", onScroll, { passive: true });
+    return () => {
+      scroller.removeEventListener("scroll", onScroll);
+      if (raf) cancelAnimationFrame(raf);
+    };
+  }, [userIdsKey, scrollRef]);
+
+  // Long sessions overflow the rail; keep the lit mark in view.
+  useEffect(() => {
+    const mark = railRef.current?.children[activeIdx] as HTMLElement | undefined;
+    mark?.scrollIntoView({ block: "nearest" });
+  }, [activeIdx]);
+
+  const { room, pitch, visible } = fitRail(viewport, userMessages.length);
+  if (!visible) return null;
+
+  const jumpTo = (id: string) => {
+    const target = scrollRef.current?.querySelector(`[data-message-id="${CSS.escape(id)}"]`);
+    target?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
+
+  return (
+    <div
+      ref={attachRail}
+      style={{ maxHeight: room }}
+      // `right-3` clears the 10px chat scrollbar. The rail itself ignores
+      // pointer events so it never eats a click meant for the message under it;
+      // only the marks are clickable.
+      className="no-scrollbar group pointer-events-none absolute top-1/2 right-3 z-10 flex -translate-y-1/2 flex-col items-end overflow-y-auto py-1"
+    >
+      {userMessages.map((m, i) => {
+        const label =
+          (getUserMessageBody(m) || "(attachments only)")
+            .replace(/\s+/g, " ")
+            .trim()
+            .slice(0, 160) || "(empty)";
+        return (
+          <Tooltip key={m.id}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                aria-label={`Jump to prompt ${i + 1}`}
+                onClick={() => jumpTo(m.id)}
+                style={{ height: pitch }}
+                className="pointer-events-auto flex shrink-0 cursor-pointer items-center pl-2"
+              >
+                <span
+                  className={cn(
+                    "h-[2px] w-4 rounded-full transition-colors",
+                    i === activeIdx
+                      ? "bg-foreground"
+                      : "bg-muted-foreground/35 group-hover:bg-muted-foreground/70",
+                  )}
+                />
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="left" className="max-w-[260px]">
+              <span className="line-clamp-2">{label}</span>
+            </TooltipContent>
+          </Tooltip>
+        );
+      })}
+    </div>
   );
 }
 

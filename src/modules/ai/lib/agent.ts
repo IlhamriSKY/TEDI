@@ -99,6 +99,8 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   mcp__tedi__wait_for_terminal: (i) =>
     i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
   mcp__tedi__pane: (i) => `Pane ${String(i.action ?? "")}`,
+  mcp__tedi__worktree: (i) =>
+    `Worktree ${String(i.action ?? "list")}${i.branch ? ` ${String(i.branch)}` : ""}`,
   mcp__tedi__focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
   mcp__tedi__inspect: (i) => `Inspecting ${String(i.what ?? "TEDI")}`,
   mcp__tedi__run_command: (i) => `Running ${String(i.id ?? "command")}`,

@@ -176,7 +176,17 @@ function Body({
     <>
       {surface === "sidebar" ? (
         <Header onClose={onClose ?? (() => {})} dragHandle={dragHandle} />
-      ) : null}
+      ) : (
+        // The pane frame draws the title and the close button, but not these:
+        // the tool/MCP picker and the debug-request button belong to the CHAT,
+        // and a paned chat had no way to reach either. `DebugRequestViewer`
+        // renders nothing unless Debug capturing is on, so this row is just the
+        // picker for everyone else.
+        <div className="border-border/40 flex shrink-0 items-center justify-end gap-1 border-b px-2 py-1">
+          <ToolsPicker />
+          <DebugRequestViewer />
+        </div>
+      )}
 
       <PlanModeStrip />
 

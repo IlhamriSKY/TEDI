@@ -26,6 +26,12 @@ import { buildEntries, entryLabelClass, type Entry } from "@/modules/tabs/lib/en
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { useGitBranch } from "@/modules/scm/branch";
+import { localOps } from "@/modules/scm/api";
+import { WorktreeDialog } from "@/modules/scm/components/WorktreeDialog";
+import { openWorktree } from "@/modules/scm/worktreeBridge";
+import { createWorktreeAndOpen } from "@/modules/scm/worktreeCreate";
+import { localWorktreeOps, mainWorktreePath, type Worktree } from "@/modules/scm/worktrees";
+import { basename, toForwardSlash } from "@/lib/path";
 import { useSshHosts, type SshConnection } from "@/modules/ssh/connections";
 import { statusLabel, statusLabelClass, type SshStatus } from "@/modules/ssh/status";
 import { aiCliLabel, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
@@ -42,13 +48,24 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { memo, useMemo, useState, type ReactNode, type RefObject } from "react";
+import {
+  Fragment,
+  memo,
+  useCallback,
+  useEffect,
+  useMemo,
+  useState,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { countSavedTabEntries, restoreTabs } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
   ChevronRight,
   Folder,
+  FolderGit2,
   GitBranch,
+  GitFork,
   LayoutDashboard,
   PanelLeft,
   PanelRight,
@@ -189,6 +206,72 @@ function savedTitles(tabs: SavedTab[]): (string | undefined)[] {
   return out;
 }
 
+/**
+ * A row's own LOCAL working directory, or undefined.
+ *
+ * Per ROW, never per workspace: one workspace routinely holds panes in two
+ * different projects, so "the workspace's repository" has no single answer and
+ * anything keyed to it would name the wrong folder half the time. A terminal's
+ * cwd is the only thing in a workspace that names one. SSH panes are skipped -
+ * their path exists on another machine, so local git would answer about the
+ * wrong one.
+ */
+function localTerminalCwd(e: Entry): string | undefined {
+  if (e.kind !== "pane-leaf" || e.leafKind !== "terminal") return undefined;
+  if (!e.cwd || e.sshConnectionId) return undefined;
+  return toForwardSlash(e.cwd);
+}
+
+/**
+ * One linked worktree of a workspace's project, listed under it.
+ *
+ * Styled as an `EntryRowItem` without the actions, deliberately: a worktree sits
+ * in the same list as the tabs and reads as a sibling of them, which is what it
+ * is - another checkout you can be working in. The fork glyph is what separates
+ * the two, and it is the same one Source Control uses for worktrees.
+ *
+ * No remove button. Removing one deletes a folder and needs the
+ * uncommitted-work confirmation, which Source Control's worktree menu already
+ * owns; a second copy of that flow here would be a second thing to keep right.
+ */
+function WorktreeRowItem({
+  worktree: wt,
+  base,
+  onOpen,
+}: {
+  worktree: Worktree;
+  /** Main worktree path, so the row can print a relative folder. */
+  base: string;
+  onOpen: () => void;
+}) {
+  const label = wt.branch ?? `detached ${wt.head.slice(0, 7)}`;
+  const rel = wt.path.startsWith(`${base}/`) ? wt.path.slice(base.length + 1) : wt.path;
+  return (
+    <li className="group/row relative">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            onClick={onOpen}
+            className="text-sidebar-foreground/85 hover:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 pr-1.5 pl-11 text-[11px] transition-colors"
+          >
+            <GitFork size={11} strokeWidth={2} className="text-icon-branch shrink-0" />
+            <span className="min-w-0 flex-1 truncate text-left">{label}</span>
+            {wt.prunable ? (
+              <span className="text-destructive shrink-0 text-[10px]">missing</span>
+            ) : null}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right">
+          <span className="font-mono text-[10px]">{rel}</span>
+          <br />
+          {wt.prunable ? "Its folder is gone. Prune it from Source Control." : "Open in a terminal"}
+        </TooltipContent>
+      </Tooltip>
+    </li>
+  );
+}
+
 // Memoized. Props are stable callbacks plus the counts map, so shallow equality skips re-renders.
 function WorkspacesPanelInner({
   onSwitch,
@@ -223,6 +306,56 @@ function WorkspacesPanelInner({
   const [dragId, setDragId] = useState<string | null>(null);
   // Which workspace rows are expanded to reveal their tabs (session-only).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+
+  /**
+   * Worktrees per PROJECT FOLDER, loaded when a workspace row is expanded rather
+   * than polled. `git worktree list` is a subprocess and the list only changes
+   * when someone acts on it, so reading it on each expand is both cheap and
+   * enough - one made from Source Control's own menu turns up the next time the
+   * row is opened. Keyed by cwd, not by workspace, because a workspace can hold
+   * two projects and they have nothing to do with each other.
+   */
+  const [worktrees, setWorktrees] = useState<Record<string, Worktree[]>>({});
+  /**
+   * Which project the create dialog is for, with its MAIN worktree already
+   * resolved. Resolved BEFORE opening rather than inside: the dialog derives the
+   * suggested folder from this path, and a terminal's cwd is routinely a linked
+   * worktree once anyone has opened one, which would suggest a folder nested
+   * inside it.
+   */
+  const [newWorktreeFor, setNewWorktreeFor] = useState<{
+    wsId: string;
+    cwd: string;
+    repoRoot: string;
+  } | null>(null);
+
+  const loadWorktrees = useCallback(async (cwd: string): Promise<Worktree[]> => {
+    let list: Worktree[] = [];
+    try {
+      list = await localWorktreeOps(cwd).list();
+    } catch {
+      // Not a repository, or no git. Either way there is nothing to list, and
+      // these rows are a decoration on a folder - never an error to report.
+    }
+    setWorktrees((prev) => ({ ...prev, [cwd]: list }));
+    return list;
+  }, []);
+
+  /** Open the create dialog for the project a row sits in. */
+  const startNewWorktree = useCallback(
+    (wsId: string, cwd: string) => {
+      void loadWorktrees(cwd).then((fresh) =>
+        setNewWorktreeFor({ wsId, cwd, repoRoot: mainWorktreePath(fresh, cwd) }),
+      );
+    },
+    [loadWorktrees],
+  );
+
+  /** Branch list for the create dialog, from the project it was opened for. */
+  const loadBranchesForNew = useCallback(
+    () => (newWorktreeFor ? localOps(newWorktreeFor.repoRoot).branches() : Promise.resolve([])),
+    [newWorktreeFor],
+  );
 
   const startEdit = (id: string, current: string) => {
     setEditingId(id);
@@ -354,36 +487,70 @@ function WorkspacesPanelInner({
             {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
                 row's rename/close buttons and tab-count pill clear the scrollbar. */}
             <ul className="p-1 pr-2.5">
-              {workspaces.map((w) => (
-                <SortableWorkspaceRow
-                  key={w.id}
-                  workspace={w}
-                  isActive={w.id === activeId}
-                  isEditing={editingId === w.id}
-                  isExpanded={expanded.has(w.id)}
-                  draft={draft}
-                  tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
-                  rows={rowsFor(w)}
-                  canClose={workspaces.length > 1}
-                  // Editing a name needs an interactive input, so suspend drag
-                  // for the row - whether it is the workspace name or a tab's.
-                  sortable={editingId !== w.id && renamingLeafId === null}
-                  onSwitch={onSwitch}
-                  onClose={onClose}
-                  onStartEdit={startEdit}
-                  onSetPinned={setPinned}
-                  onDraftChange={setDraft}
-                  onCommitEdit={commitEdit}
-                  onCancelEdit={cancelEdit}
-                  onToggleExpanded={toggleExpanded}
-                  onFocusLeaf={onFocusLeaf}
-                  onRenameLeaf={onRenameLeaf}
-                  onCloseEntry={onCloseEntry}
-                  renamingLeafId={renamingLeafId}
-                  onSetRenamingLeaf={setRenamingLeafId}
-                  activeLeafId={activeLeafId}
-                />
-              ))}
+              {workspaces.map((w) => {
+                // Built once per row: the tab list and the worktree lookups read
+                // the same entries.
+                const rows = rowsFor(w);
+                return (
+                  <SortableWorkspaceRow
+                    key={w.id}
+                    workspace={w}
+                    isActive={w.id === activeId}
+                    isEditing={editingId === w.id}
+                    isExpanded={expanded.has(w.id)}
+                    draft={draft}
+                    tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
+                    rows={rows}
+                    canClose={workspaces.length > 1}
+                    // Editing a name needs an interactive input, so suspend drag
+                    // for the row - whether it is the workspace name or a tab's.
+                    sortable={editingId !== w.id && renamingLeafId === null}
+                    onSwitch={onSwitch}
+                    onClose={onClose}
+                    onStartEdit={startEdit}
+                    onSetPinned={setPinned}
+                    onDraftChange={setDraft}
+                    onCommitEdit={commitEdit}
+                    onCancelEdit={cancelEdit}
+                    onToggleExpanded={toggleExpanded}
+                    onFocusLeaf={onFocusLeaf}
+                    onRenameLeaf={onRenameLeaf}
+                    onCloseEntry={onCloseEntry}
+                    renamingLeafId={renamingLeafId}
+                    onSetRenamingLeaf={setRenamingLeafId}
+                    activeLeafId={activeLeafId}
+                    worktrees={worktrees}
+                    onLoadWorktrees={loadWorktrees}
+                    onNewWorktree={(cwd) => {
+                      // Creating one opens a tab, and a tab lands in the ACTIVE
+                      // workspace - so switch first, which the user has time for
+                      // while the dialog is up.
+                      if (w.id !== activeId) onSwitch(w.id);
+                      startNewWorktree(w.id, cwd);
+                    }}
+                    onOpenWorktree={(wt, list) => {
+                      // Focusing addresses LIVE tabs, which only the active
+                      // workspace has; an inactive one switches first, exactly
+                      // as its listed tab rows already do.
+                      if (w.id !== activeId) {
+                        onSwitch(w.id);
+                        return;
+                      }
+                      const open = rows.find(
+                        (r) =>
+                          r.entry.kind === "pane-leaf" &&
+                          r.entry.cwd !== undefined &&
+                          toForwardSlash(r.entry.cwd) === wt.path,
+                      );
+                      if (open?.entry.kind === "pane-leaf" && onFocusLeaf) {
+                        onFocusLeaf(open.entry.tabId, open.entry.leafId);
+                        return;
+                      }
+                      openWorktree(wt, list);
+                    }}
+                  />
+                );
+              })}
             </ul>
           </SortableContext>
           <DragOverlay dropAnimation={null}>
@@ -399,6 +566,28 @@ function WorkspacesPanelInner({
           </DragOverlay>
         </DndContext>
       </ScrollArea>
+
+      {/* One dialog for the panel, not one per row: only ever a single create is
+          pending, and mounting one per workspace would hydrate the CLI-agent
+          roster once per row. Unmounted when closed, so it starts clean. */}
+      {newWorktreeFor ? (
+        <WorktreeDialog
+          open
+          onOpenChange={(o) => {
+            if (!o) setNewWorktreeFor(null);
+          }}
+          repoRoot={newWorktreeFor.repoRoot}
+          worktrees={worktrees[newWorktreeFor.cwd] ?? []}
+          loadBranches={loadBranchesForNew}
+          onSubmit={async (input) => {
+            const target = newWorktreeFor;
+            const fresh = await createWorktreeAndOpen(target.repoRoot, input);
+            setWorktrees((prev) => ({ ...prev, [target.cwd]: fresh }));
+            // Expand it, or the row the user just added is behind a chevron.
+            setExpanded((prev) => new Set(prev).add(target.wsId));
+          }}
+        />
+      ) : null}
     </div>
   );
 }
@@ -429,6 +618,14 @@ type RowProps = {
   renamingLeafId: number | null;
   onSetRenamingLeaf: (leafId: number | null) => void;
   activeLeafId?: number | null;
+  /** Every project folder's worktrees, keyed by cwd. Owned by the panel so the
+   *  create dialog and the rows read one list. */
+  worktrees: Record<string, Worktree[]>;
+  /** Ask the panel to re-read one folder's list. Called when this row expands. */
+  onLoadWorktrees: (cwd: string) => Promise<Worktree[]>;
+  /** Open the create dialog for the project a row sits in. */
+  onNewWorktree: (cwd: string) => void;
+  onOpenWorktree: (worktree: Worktree, list: Worktree[]) => void;
 };
 
 /**
@@ -462,6 +659,10 @@ function SortableWorkspaceRow({
   renamingLeafId,
   onSetRenamingLeaf,
   activeLeafId,
+  worktrees,
+  onLoadWorktrees,
+  onNewWorktree,
+  onOpenWorktree,
 }: RowProps) {
   const { attributes, listeners, setNodeRef, transform, transition, isDragging } = useSortable({
     id: w.id,
@@ -474,6 +675,9 @@ function SortableWorkspaceRow({
   };
   const hasRows = rows.length > 0;
   const [confirmingClose, setConfirmingClose] = useState(false);
+  /** Project groups the user has folded shut, by main-worktree path. Session
+   *  only, and OPEN by default: a workspace is expanded to see what is in it. */
+  const [shutGroups, setShutGroups] = useState<Set<string>>(() => new Set());
   // Listed tab/pane awaiting its own close confirmation, or null.
   const [confirmingEntry, setConfirmingEntry] = useState<Entry | null>(null);
   /**
@@ -487,6 +691,75 @@ function SortableWorkspaceRow({
    *    cannot disagree.
    */
   const canCloseEntry = isActive && !!onCloseEntry && rows.length > 1;
+
+  /** Distinct project folders in this workspace, in row order. Plural on
+   *  purpose: one workspace commonly holds panes in two of them. */
+  const cwds: string[] = [];
+  for (const r of rows) {
+    const c = localTerminalCwd(r.entry);
+    if (c && !cwds.includes(c)) cwds.push(c);
+  }
+  // Read on expand, so a panel full of collapsed workspaces spawns no git. The
+  // key is what the effect reads, so there is no stale `rows` closure.
+  const cwdKey = cwds.join("|");
+  useEffect(() => {
+    if (!isExpanded || !cwdKey) return;
+    for (const c of cwdKey.split("|")) void onLoadWorktrees(c);
+  }, [isExpanded, cwdKey, onLoadWorktrees]);
+
+  /**
+   * The rows, grouped by the PROJECT they sit in.
+   *
+   * One project, however many worktrees: two panes on two different checkouts of
+   * `pokehub` are two rows of one group, because they are one codebase and the
+   * branch line under each already says which checkout. Grouping by the MAIN
+   * worktree path is what makes that true - every checkout of a repository
+   * resolves to the same main, so different folders still land together.
+   *
+   * Rows that belong to no repository (an SSH pane, an editor, a standalone tab)
+   * keep their place in an unnamed group rather than being sorted to the end,
+   * so the list still reads in the order the tab strip does.
+   */
+  type RowGroup = {
+    /** Main worktree path; "" for the rows that belong to no repository. */
+    key: string;
+    name: string;
+    rows: EntryRow[];
+    /** This project's worktrees that are NOT already open as one of `rows`. */
+    linked: Worktree[];
+    /** The whole list, so opening one can name its tab after the project. */
+    list: Worktree[];
+    /** Any cwd in the project, to create a new worktree from. */
+    cwd: string;
+  };
+  const groups: RowGroup[] = [];
+  {
+    const byMain = new Map<string, RowGroup>();
+    const open = new Set(cwds);
+    for (const r of rows) {
+      const cwd = localTerminalCwd(r.entry);
+      const list = cwd ? worktrees[cwd] : undefined;
+      const main = list?.find((x) => x.main)?.path;
+      if (!cwd || !main || !list) {
+        const last = groups[groups.length - 1];
+        if (last && last.key === "") last.rows.push(r);
+        else groups.push({ key: "", name: "", rows: [r], linked: [], list: [], cwd: "" });
+        continue;
+      }
+      let g = byMain.get(main);
+      if (!g) {
+        g = { key: main, name: basename(main), rows: [], linked: [], list, cwd };
+        byMain.set(main, g);
+        groups.push(g);
+      }
+      g.rows.push(r);
+    }
+    // A worktree ALREADY open as a tab is one of the rows above it, so listing
+    // it again put the same checkout on screen twice under two different icons.
+    // What is left is exactly "the checkouts you have not opened yet".
+    for (const g of byMain.values())
+      g.linked = g.list.filter((x) => !x.main && !x.bare && !open.has(x.path));
+  }
 
   return (
     <li
@@ -704,29 +977,110 @@ function SortableWorkspaceRow({
         // Not a drag surface: stop pointerdown so scrolling/clicking the list
         // never starts a workspace reorder.
         <ul onPointerDown={(e) => e.stopPropagation()} className="mt-0.5 mb-1 flex flex-col gap-px">
-          {rows.map((r) => (
-            <EntryRowItem
-              key={r.entry.key}
-              row={r}
-              isActiveLeaf={
-                activeLeafId != null &&
-                r.live &&
-                r.entry.kind === "pane-leaf" &&
-                r.entry.leafId === activeLeafId
-              }
-              renaming={r.live && r.entry.kind === "pane-leaf" && renamingLeafId === r.entry.leafId}
-              onOpen={() => {
-                if (r.live && onFocusLeaf) {
-                  // Standalone tabs have no leaf; -1 matches none, so the tab
-                  // side activates the tab and leaves its panes alone.
-                  onFocusLeaf(r.entry.tabId, r.entry.kind === "pane-leaf" ? r.entry.leafId : -1);
-                } else if (!isActive) onSwitch(w.id);
-              }}
-              onRename={onRenameLeaf}
-              onSetRenaming={onSetRenamingLeaf}
-              onRequestClose={canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined}
-            />
-          ))}
+          {groups.map((g) => {
+            const shut = g.name !== "" && shutGroups.has(g.key);
+            return (
+              <Fragment key={g.key || `loose:${g.rows[0]?.entry.key}`}>
+                {/* Project header. Its own accordion, and the unambiguous place
+                    to make a worktree: a GROUP is exactly one repository, which
+                    the workspace above it is not. */}
+                {g.name ? (
+                  <ContextMenu>
+                    <ContextMenuTrigger asChild>
+                      <li>
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setShutGroups((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(g.key)) next.delete(g.key);
+                              else next.add(g.key);
+                              return next;
+                            })
+                          }
+                          aria-expanded={!shut}
+                          className="text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] transition-colors"
+                        >
+                          <ChevronRight
+                            size={10}
+                            strokeWidth={2.25}
+                            className={cn("shrink-0 transition-transform", !shut && "rotate-90")}
+                          />
+                          <FolderGit2 size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                          <span className="min-w-0 flex-1 truncate text-left font-medium">
+                            {g.name}
+                          </span>
+                          <span className="shrink-0 text-[10px] tabular-nums opacity-50">
+                            {g.rows.length + g.linked.length}
+                          </span>
+                        </button>
+                      </li>
+                    </ContextMenuTrigger>
+                    <ContextMenuContent className="min-w-44">
+                      <ContextMenuItem onSelect={() => onNewWorktree(g.cwd)}>
+                        New Worktree
+                      </ContextMenuItem>
+                    </ContextMenuContent>
+                  </ContextMenu>
+                ) : null}
+                {shut
+                  ? null
+                  : g.rows.map((r) => (
+                      <EntryRowItem
+                        key={r.entry.key}
+                        row={r}
+                        nested={g.name !== ""}
+                        isActiveLeaf={
+                          activeLeafId != null &&
+                          r.live &&
+                          r.entry.kind === "pane-leaf" &&
+                          r.entry.leafId === activeLeafId
+                        }
+                        renaming={
+                          r.live &&
+                          r.entry.kind === "pane-leaf" &&
+                          renamingLeafId === r.entry.leafId
+                        }
+                        onOpen={() => {
+                          if (r.live && onFocusLeaf) {
+                            // Standalone tabs have no leaf; -1 matches none, so
+                            // the tab side activates the tab and leaves its
+                            // panes alone.
+                            onFocusLeaf(
+                              r.entry.tabId,
+                              r.entry.kind === "pane-leaf" ? r.entry.leafId : -1,
+                            );
+                          } else if (!isActive) onSwitch(w.id);
+                        }}
+                        onRename={onRenameLeaf}
+                        onSetRenaming={onSetRenamingLeaf}
+                        onRequestClose={
+                          canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined
+                        }
+                        // Also on the row, not only on the group header: this is
+                        // where the action was first learned, and a row sits in
+                        // exactly one project too.
+                        onNewWorktree={g.cwd ? () => onNewWorktree(g.cwd) : undefined}
+                        // Inside a named group the row's own label repeats the
+                        // project three lines running, so it leads with the
+                        // branch instead - the fact that tells checkouts apart.
+                        projectName={g.name || undefined}
+                      />
+                    ))}
+                {/* The checkouts of this project nobody has opened yet. */}
+                {shut
+                  ? null
+                  : g.linked.map((x) => (
+                      <WorktreeRowItem
+                        key={x.path}
+                        worktree={x}
+                        base={g.key}
+                        onOpen={() => onOpenWorktree(x, g.list)}
+                      />
+                    ))}
+              </Fragment>
+            );
+          })}
         </ul>
       )}
     </li>
@@ -746,6 +1100,9 @@ function EntryRowItem({
   onRename,
   onSetRenaming,
   onRequestClose,
+  onNewWorktree,
+  projectName,
+  nested,
 }: {
   row: EntryRow;
   isActiveLeaf: boolean;
@@ -756,6 +1113,16 @@ function EntryRowItem({
   /** Ask the parent row to confirm closing this entry. Absent when closing it
    *  isn't allowed (not the active workspace, or it's the last tab left). */
   onRequestClose?: () => void;
+  /** Offer "New Worktree" on this row's right-click. Absent for a row that
+   *  names no local folder - a standalone tab, an editor, an SSH pane. */
+  onNewWorktree?: () => void;
+  /** Indented a level deeper, because a project header sits above it. Without
+   *  a project the row is a direct child of the workspace and stays shallow. */
+  nested?: boolean;
+  /** Name of the project group this row sits under, when it has one. A row
+   *  whose label is exactly that repeats it a third time, so it leads with its
+   *  branch instead. */
+  projectName?: string;
 }) {
   const { entry: e, title } = row;
   const isLeaf = e.kind === "pane-leaf";
@@ -770,7 +1137,11 @@ function EntryRowItem({
   const isPrivate = e.kind === "pane-leaf" && e.isPrivate === true;
   // The OSC title repeats the label often enough (a shell that titles itself
   // after its folder) that showing both would just read as a stutter.
-  const showTitle = !!title && title !== e.label && title !== cwd;
+  // A shell titles itself with its own binary (`C:\...\pwsh.exe`, `/bin/bash`),
+  // which is the same string on every row and drowned the branch beside it. The
+  // useful case is an AGENT naming its task, and a task is not an absolute path.
+  const showTitle =
+    !!title && title !== e.label && title !== cwd && !/^([A-Za-z]:[\\/]|\/)/.test(title);
   // A remote pane reads its branch over its OWN session, so the answer is the
   // branch on that box rather than on this one. An ad-hoc connection has no
   // saved profile but does have a live session, so it resolves here too.
@@ -788,12 +1159,24 @@ function EntryRowItem({
     sshSessionId,
   );
 
+  /**
+   * A tab opened on a worktree is NAMED after its project, so under a group
+   * header of the same name the panel said "pokehub" three lines running while
+   * the thing that actually tells the two rows apart - the branch - sat in
+   * small grey text underneath. Where they duplicate, the branch is promoted to
+   * the row and the second line drops.
+   *
+   * Only on an exact match, so a renamed tab or a differently-named pane keeps
+   * the label the tab strip shows for it.
+   */
+  const repeatsProject = projectName !== undefined && e.label === projectName && !!branch;
+
   // While renaming, the field replaces the row's button entirely: an <input>
   // inside a <button> is invalid, and a click on the field would activate the
   // row underneath it.
   if (renaming && e.kind === "pane-leaf") {
     return (
-      <li className="flex h-6 items-center gap-1.5 pr-1.5 pl-7">
+      <li className={cn("flex h-6 items-center gap-1.5 pr-1.5", nested ? "pl-11" : "pl-7")}>
         <EntryIcon entry={e} />
         <InlineInput
           // Same seed as the tab strip: the name without the kind tag.
@@ -828,10 +1211,15 @@ function EntryRowItem({
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
       )}
     >
-      <span className="flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7">
+      <span
+        className={cn("flex h-6 w-full items-center gap-1.5 pr-1.5", nested ? "pl-11" : "pl-7")}
+      >
         <EntryIcon entry={e} />
+        {repeatsProject ? (
+          <GitBranch size={10} strokeWidth={2} className="text-icon-branch shrink-0" />
+        ) : null}
         <span className={cn("min-w-0 flex-1 truncate text-left", entryLabelClass(e))}>
-          {e.label}
+          {repeatsProject ? branch : e.label}
           {showTitle ? <span className="opacity-60"> · {title}</span> : null}
         </span>
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
@@ -839,8 +1227,13 @@ function EntryRowItem({
       {/* Branch of this pane's working directory. Absent entirely outside a
           repository, rather than a placeholder row saying nothing. Indented to
           the label, so the branch reads as belonging to the row above it. */}
-      {branch ? (
-        <span className="text-muted-foreground flex w-full items-center gap-1 pr-1.5 pb-0.5 pl-[1.6rem] text-[10px]">
+      {branch && !repeatsProject ? (
+        <span
+          className={cn(
+            "text-muted-foreground flex w-full items-center gap-1 pr-1.5 pb-0.5 text-[10px]",
+            nested ? "pl-[2.6rem]" : "pl-[1.6rem]",
+          )}
+        >
           <GitBranch size={9} strokeWidth={2} className="text-icon-branch shrink-0" />
           <span className="min-w-0 truncate">{branch}</span>
         </span>
@@ -851,10 +1244,17 @@ function EntryRowItem({
   // The action cluster is a SIBLING of the row button, not a child: nesting one
   // button inside another is invalid HTML and the inner one would swallow the
   // row's own click. Same hover-reveal treatment the workspace row above uses.
-  return (
-    <li className="group/row relative">
+  //
+  // The right-click lives on THIS row rather than on the workspace above it: a
+  // workspace can hold panes in two different projects, so only a row knows
+  // which repository a new worktree would belong to. Radix triggers compose, so
+  // the context trigger and the tooltip trigger can both own the same button.
+  const inner = (
+    <>
       <Tooltip>
-        <TooltipTrigger asChild>{rowButton}</TooltipTrigger>
+        <TooltipTrigger asChild>
+          {onNewWorktree ? <ContextMenuTrigger asChild>{rowButton}</ContextMenuTrigger> : rowButton}
+        </TooltipTrigger>
         {/* Styled tooltip, not the native `title` attribute this list used to
             carry: that renders as an unthemed OS box on its own timing, the one
             odd tooltip among all the themed ones in this panel. */}
@@ -912,6 +1312,21 @@ function EntryRowItem({
             </IconTooltip>
           )}
         </span>
+      )}
+    </>
+  );
+
+  return (
+    <li className="group/row relative">
+      {onNewWorktree ? (
+        <ContextMenu>
+          {inner}
+          <ContextMenuContent className="min-w-44">
+            <ContextMenuItem onSelect={onNewWorktree}>New Worktree</ContextMenuItem>
+          </ContextMenuContent>
+        </ContextMenu>
+      ) : (
+        inner
       )}
     </li>
   );

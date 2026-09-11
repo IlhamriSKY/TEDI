@@ -22,11 +22,13 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { invalidBranchName } from "../api";
 import type { GitBranch, GitStatus } from "../types";
+import { worktreeConflictMessage, worktreeHolding, type Worktree } from "../worktrees";
 import {
   Check,
   ChevronDown,
   Cloud,
   GitBranch as GitBranchIcon,
+  GitFork,
   Pencil,
   Plus,
   Trash2,
@@ -40,6 +42,20 @@ type Props = {
   onCheckout: (name: string, create?: boolean) => Promise<void>;
   onDeleteBranch: (name: string, force?: boolean) => Promise<void>;
   onRenameBranch: (from: string, to: string) => Promise<void>;
+  /**
+   * Every worktree of this repository, so a branch checked out in one is shown
+   * as such instead of offered as a switch that git will refuse.
+   *
+   * This is the one place the single-checkout assumption leaks into a UI that
+   * predates worktrees: `git checkout` and `git branch -d` BOTH fail on a
+   * branch another worktree holds, and the panel used to surface that as a raw
+   * `fatal: ... is already used by worktree at ...`. Empty when there are none,
+   * which is every repository that has never used the feature - so this is
+   * additive, and the menu behaves exactly as it always did.
+   */
+  worktrees?: Worktree[];
+  /** Switch to the worktree holding a branch, instead of checking it out. */
+  onOpenWorktree?: (w: Worktree) => void;
   disabled?: boolean;
 };
 
@@ -49,6 +65,8 @@ export function BranchMenu({
   onCheckout,
   onDeleteBranch,
   onRenameBranch,
+  worktrees,
+  onOpenWorktree,
   disabled,
 }: Props) {
   const [open, setOpen] = useState(false);
@@ -167,56 +185,78 @@ export function BranchMenu({
             <div className="text-muted-foreground px-2 py-3 text-[11.5px]">No branches found.</div>
           ) : null}
           {locals.length > 0 ? <DropdownMenuLabel>Local</DropdownMenuLabel> : null}
-          {locals.map((b) => (
-            <DropdownMenuItem
-              key={`l:${b.name}`}
-              className="group/branch"
-              onSelect={() => void run(() => onCheckout(b.name))}
-            >
-              <Check
-                size={12}
-                strokeWidth={2.5}
-                className={cn("shrink-0", !b.current && "invisible")}
-              />
-              <span className="min-w-0 flex-1 truncate">{b.name}</span>
-              {/* Rename works on the current branch too - it is the one you
-                  most often want to rename, right after realising the name was
-                  wrong. Delete stays off it, because git refuses that anyway. */}
-              <span
-                role="button"
-                tabIndex={-1}
-                aria-label={`Rename branch ${b.name}`}
-                className="hover:bg-muted hover:text-foreground shrink-0 rounded-md p-0.5 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100"
-                onClick={(e) => {
-                  e.preventDefault();
-                  e.stopPropagation();
-                  setRenameTo(b.name);
-                  setRenaming(b.name);
+          {locals.map((b) => {
+            // A branch another worktree holds cannot be checked out here and
+            // cannot be deleted at all, so the row switches to the one action
+            // that does work: going to where it IS checked out.
+            const held = worktrees?.length ? worktreeHolding(worktrees, b.name, status.root) : null;
+            return (
+              <DropdownMenuItem
+                key={`l:${b.name}`}
+                className="group/branch"
+                onSelect={() => {
+                  if (held) {
+                    setOpen(false);
+                    onOpenWorktree?.(held);
+                    return;
+                  }
+                  void run(() => onCheckout(b.name));
                 }}
               >
-                <Pencil size={11} strokeWidth={2} />
-              </span>
-              {!b.current ? (
+                <Check
+                  size={12}
+                  strokeWidth={2.5}
+                  className={cn("shrink-0", !b.current && "invisible")}
+                />
+                <span className="min-w-0 flex-1 truncate">{b.name}</span>
+                {held ? (
+                  <span
+                    className="text-muted-foreground flex shrink-0 items-center gap-0.5 text-[10px]"
+                    title={`Checked out in the worktree at ${held.path}`}
+                  >
+                    <GitFork size={10} strokeWidth={2} />
+                    worktree
+                  </span>
+                ) : null}
+                {/* Rename works on the current branch too - it is the one you
+                    most often want to rename, right after realising the name was
+                    wrong. Delete stays off it, because git refuses that anyway. */}
                 <span
                   role="button"
                   tabIndex={-1}
-                  aria-label={`Delete branch ${b.name}`}
-                  className={cn(
-                    DESTRUCTIVE_ACTION,
-                    "shrink-0 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100",
-                  )}
+                  aria-label={`Rename branch ${b.name}`}
+                  className="hover:bg-muted hover:text-foreground shrink-0 rounded-md p-0.5 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100"
                   onClick={(e) => {
                     e.preventDefault();
                     e.stopPropagation();
-                    setDeleteError(null);
-                    setConfirmDelete(b);
+                    setRenameTo(b.name);
+                    setRenaming(b.name);
                   }}
                 >
-                  <Trash2 size={11} strokeWidth={2} />
+                  <Pencil size={11} strokeWidth={2} />
                 </span>
-              ) : null}
-            </DropdownMenuItem>
-          ))}
+                {!b.current && !held ? (
+                  <span
+                    role="button"
+                    tabIndex={-1}
+                    aria-label={`Delete branch ${b.name}`}
+                    className={cn(
+                      DESTRUCTIVE_ACTION,
+                      "shrink-0 opacity-0 transition-[background-color,opacity] group-hover/branch:opacity-100",
+                    )}
+                    onClick={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      setDeleteError(null);
+                      setConfirmDelete(b);
+                    }}
+                  >
+                    <Trash2 size={11} strokeWidth={2} />
+                  </span>
+                ) : null}
+              </DropdownMenuItem>
+            );
+          })}
           {remotes.length > 0 ? <DropdownMenuLabel>Remote</DropdownMenuLabel> : null}
           {remotes.map((b) => (
             <DropdownMenuItem
@@ -364,7 +404,7 @@ export function BranchMenu({
                     setDeleteError(null);
                     void refresh();
                   })
-                  .catch((e: unknown) => setDeleteError(String(e)));
+                  .catch((e: unknown) => setDeleteError(worktreeConflictMessage(e) ?? String(e)));
               }}
             >
               {deleteError ? "Force delete" : "Delete"}

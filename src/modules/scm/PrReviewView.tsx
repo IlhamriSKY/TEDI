@@ -35,6 +35,8 @@ import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { usePrAction } from "./usePrAction";
+import { checkoutPrInWorktree, removeWorktreeSafely, worktreeAfterMerge } from "./prWorktree";
+import type { Worktree } from "./worktrees";
 import { safeUrlTransform } from "@/lib/markdownSafety";
 import { cn } from "@/lib/utils";
 import {
@@ -60,6 +62,7 @@ import {
   CircleDot,
   ExternalLink,
   FileDiff,
+  GitFork,
   GitMerge,
   GitPullRequest,
   GitPullRequestDraft,
@@ -72,6 +75,9 @@ import {
 
 type Props = {
   gh: GhOps;
+  /** Local repository root, for the worktree side: checking a PR out into one,
+   *  and offering to remove the one a merge just stranded. */
+  repoPath: string;
   /** Which pull request. Passed by number so a reload always re-reads the one
    *  that was opened, never whatever branch gh would resolve on its own. */
   number: number;
@@ -216,7 +222,7 @@ function PatchFileBlock({
   );
 }
 
-export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
+export function PrReviewView({ gh, repoPath, number, onBack, onRefresh, busy }: Props) {
   const [pr, setPr] = useState<PrDetail | null>(null);
   const [patch, setPatch] = useState<string>("");
   const [patchError, setPatchError] = useState<string | null>(null);
@@ -229,6 +235,12 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
   const [reviewBody, setReviewBody] = useState("");
   /** Non-null while the merge confirmation is open. */
   const [mergeMethod, setMergeMethod] = useState<MergeMethod | null>(null);
+  /**
+   * The worktree a just-merged branch left behind, held so the follow-up offer
+   * can name it. Asked AFTER the merge rather than before, because a merge that
+   * fails must not have proposed deleting anything.
+   */
+  const [strandedWorktree, setStrandedWorktree] = useState<Worktree | null>(null);
   const [deleteBranch, setDeleteBranch] = useState(true);
   // Replies for a pull request the user has already navigated away from are
   // dropped rather than applied, the same guard the list view uses.
@@ -681,6 +693,26 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
           >
             Check out
           </Button>
+          {/* The same checkout without moving THIS working tree's HEAD, which
+              is the difference that matters while something is running in it. */}
+          <IconTooltip label="Check out in a new worktree" side="bottom">
+            <Button
+              size="icon"
+              variant="ghost"
+              className="size-6"
+              disabled={busyAll}
+              aria-label={`Check out pull request ${pr.number} in a new worktree`}
+              onClick={() =>
+                void act(
+                  `Worktree for #${pr.number}`,
+                  () => checkoutPrInWorktree(repoPath, pr.number, pr.headRefName),
+                  `Checked out #${pr.number} in its own worktree.`,
+                )
+              }
+            >
+              <GitFork size={12} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
         </div>
       </div>
 
@@ -762,12 +794,59 @@ export function PrReviewView({ gh, number, onBack, onRefresh, busy }: Props) {
                 if (!m) return;
                 void act(
                   MERGE_LABEL[m],
-                  () => gh.mergePr(pr.number, m, deleteBranch),
+                  // The worktree question is asked INSIDE the merge, not
+                  // chained onto `act`. `act` catches its own failures and
+                  // resolves either way, and returns early when another action
+                  // is already running - so a `.then` on it would offer to
+                  // delete the worktree of a branch that was never merged,
+                  // taking whatever was uncommitted in it.
+                  async () => {
+                    await gh.mergePr(pr.number, m, deleteBranch);
+                    setStrandedWorktree(await worktreeAfterMerge(repoPath, pr.headRefName));
+                  },
                   "Pull request merged.",
                 );
               }}
             >
               Merge
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      {/* Offered, not done. The worktree may hold uncommitted work the merge
+          knew nothing about - and removing it is also what unblocks deleting
+          the local branch, which `gh pr merge --delete-branch` cannot do while
+          a worktree holds it. */}
+      <AlertDialog
+        open={strandedWorktree !== null}
+        onOpenChange={(o) => {
+          if (!o) setStrandedWorktree(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Remove the worktree for {pr.headRefName}?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {strandedWorktree?.path} is still checked out on the branch you just merged. Removing
+              it deletes that folder; anything uncommitted in it goes with it.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Keep it</AlertDialogCancel>
+            <AlertDialogAction
+              onClick={() => {
+                const w = strandedWorktree;
+                setStrandedWorktree(null);
+                if (!w) return;
+                void act(
+                  "Remove worktree",
+                  () => removeWorktreeSafely(repoPath, w.path),
+                  "Worktree removed.",
+                );
+              }}
+            >
+              Remove
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>

@@ -4,6 +4,8 @@ export {
   useTabs,
   activeLeaf,
   activeLeafKind,
+  activeChatIsPaned,
+  aiPanelVisible,
   isEditorLikeTab,
   isTerminalLikeTab,
   type Tab,

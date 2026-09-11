@@ -604,6 +604,11 @@ export class Driver {
    * The alternative for those is `drag` against a splitter's nth, which is both
    * fragile and blind to which pane it lands on.
    */
+  /** Worktrees. One capability, so every action is one round trip. */
+  worktree(args = {}) {
+    return this.#tedi("worktree", args);
+  }
+
   paneOpen(opts = {}) {
     return this.#tedi("paneOpen", opts);
   }

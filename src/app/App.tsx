@@ -54,6 +54,7 @@ import { StatusBar } from "@/modules/statusbar";
 import {
   activeLeaf,
   activeLeafKind,
+  aiPanelVisible,
   isEditorLikeTab,
   isTerminalLikeTab,
   useTabs,
@@ -336,9 +337,13 @@ export default function App() {
   // Chat-store slices App still needs for render / mutual exclusion.
   const openMini = useChatStore((s) => s.openMini);
   const panelOpen = useChatStore((s) => s.panelOpen);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
   const apiKeys = useChatStore((s) => s.apiKeys);
   const respondToApproval = useChatStore((s) => s.respondToApproval);
   const hasComposer = hasAnyKey(apiKeys);
+  // Both columns build the AI section from this, not from raw `panelOpen`, so
+  // the panel and a pane never show the same chat at once.
+  const aiPanelOpen = aiPanelVisible(tabs, panelOpen, activeSessionId);
 
   // Preferences used by the chrome / layout.
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
@@ -1200,7 +1205,7 @@ export default function App() {
                 onCloseEntry={handleHeaderCloseEntry}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
                 sshStatuses={sshStatuses}
-                aiPanelOpen={panelOpen}
+                aiPanelOpen={aiPanelOpen}
                 aiKeysLoaded={keysLoaded}
                 hasComposer={hasComposer}
                 onAddProviderKey={handleAddProviderKey}
@@ -1252,7 +1257,7 @@ export default function App() {
                 scmRightOpen={scmRightOpen}
                 sshRightOpen={sshRightOpen}
                 keysLoaded={keysLoaded}
-                panelOpen={panelOpen}
+                panelOpen={aiPanelOpen}
                 hasComposer={hasComposer}
                 explorerRoot={explorerRoot}
                 onPathDeleted={handlePathDeleted}
@@ -1294,6 +1299,8 @@ export default function App() {
             home={home}
             onCd={sendCd}
             onOpenMini={openMini}
+            aiPanelOpen={aiPanelOpen}
+            onToggleAiPanel={togglePanelAndFocus}
             hasAnySshLeaf={hasAnySshLeaf}
             sshSessionId={activeLeafIsSsh ? activeSshContext.sessionId : null}
             sshHostLabel={activeLeafIsSsh ? activeSshContext.hostLabel : null}

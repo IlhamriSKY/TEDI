@@ -27,6 +27,7 @@ import { usePrAction } from "./usePrAction";
 import { cn } from "@/lib/utils";
 import { CreatePrDialog, StackBranchDialog } from "./components/PrDialogs";
 import { PrReviewView } from "./PrReviewView";
+import { checkoutPrInWorktree } from "./prWorktree";
 import {
   friendlyGhError,
   ghFor,
@@ -48,6 +49,7 @@ import {
   MoreHorizontal,
   Plus,
   GitBranchPlus,
+  GitFork,
   RefreshCw,
   TriangleAlert,
   Upload,
@@ -248,6 +250,7 @@ export function PullRequestsView({
     return (
       <PrReviewView
         gh={gh}
+        repoPath={repoPath}
         number={reviewing}
         onBack={() => {
           setReviewing(null);
@@ -441,6 +444,27 @@ export function PullRequestsView({
                     </IconTooltip>
                   ) : null}
                   {row.pr ? (
+                    <IconTooltip label="Check out in a new worktree" side="left">
+                      <Button
+                        variant="ghost"
+                        size="icon"
+                        className="hover:text-foreground size-5 opacity-0 transition-[color,opacity] group-hover/pr:opacity-100 focus-visible:opacity-100"
+                        onClick={() =>
+                          void act(
+                            `Worktree for #${row.pr!.number}`,
+                            () =>
+                              checkoutPrInWorktree(repoPath, row.pr!.number, row.pr!.headRefName),
+                            `Checked out #${row.pr!.number} in its own worktree.`,
+                          )
+                        }
+                        disabled={busyAll}
+                        aria-label={`Check out pull request ${row.pr.number} in a new worktree`}
+                      >
+                        <GitFork size={11} strokeWidth={2} />
+                      </Button>
+                    </IconTooltip>
+                  ) : null}
+                  {row.pr ? (
                     <IconTooltip label="Open on GitHub" side="left">
                       <Button
                         variant="ghost"
@@ -503,6 +527,24 @@ export function PullRequestsView({
                       aria-label={`Check out pull request ${pr.number}`}
                     >
                       <GitBranchPlus size={11} strokeWidth={2} />
+                    </Button>
+                  </IconTooltip>
+                  <IconTooltip label="Check out in a new worktree" side="left">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="hover:text-foreground size-5 opacity-0 transition-[color,opacity] group-hover/pr:opacity-100 focus-visible:opacity-100"
+                      onClick={() =>
+                        void act(
+                          `Worktree for #${pr.number}`,
+                          () => checkoutPrInWorktree(repoPath, pr.number, pr.headRefName),
+                          `Checked out #${pr.number} in its own worktree.`,
+                        )
+                      }
+                      disabled={busyAll}
+                      aria-label={`Check out pull request ${pr.number} in a new worktree`}
+                    >
+                      <GitFork size={11} strokeWidth={2} />
                     </Button>
                   </IconTooltip>
                   <IconTooltip label="Open on GitHub" side="left">

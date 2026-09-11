@@ -6,7 +6,6 @@ import { getMcpServers, TEDI_MCP_SERVER_NAME, type McpServerConfig } from "../li
 import { TOOL_DEFS } from "@mcp/tools.mjs";
 import { type TediMcpDeps } from "../lib/tediMcpServer";
 import { getMcpSurface } from "@/modules/settings/store";
-import { isTrustedEgressHost } from "../lib/security";
 import type { ToolContext } from "./context";
 
 /** Image/audio payload carried out of an MCP tool result so toModelOutput can
@@ -83,24 +82,18 @@ export function clampToolKey(key: string, max = 64): string {
  * Only reached for `config.builtin`. `auto` is a field in this repo's own tool
  * table, not an annotation, so it never crosses the protocol and no third-party
  * server can set one - see the note on `ToolDef.auto`.
+ *
+ * `auto` IS THE WHOLE LIST. Nothing else may answer "no card needed": a branch
+ * that waived approval on some other property of the input (this one carried a
+ * trusted-host check for a browser tool that has since moved into an extension)
+ * silently exempts actions the table never freed - here, `pane` `open`, which
+ * starts terminals.
  */
 function autoApprover(toolName: string): boolean | ((input: Record<string, unknown>) => boolean) {
   const auto = TOOL_DEFS[toolName]?.auto;
   if (!auto?.length) return true;
   const free = new Set<string>(auto);
-  return (input) => {
-    const action = String(input?.action ?? "");
-    if (free.has(action)) return false;
-    // Reaching a NEW host asks; the same host then stays quiet for the rest of
-    // the session. This is not a second policy, it is the one `open_browser`
-    // ran on before it became an action, and dropping it would have turned a
-    // five-page research pass on one site into five identical cards. The host
-    // is recorded from inside the handler, which only runs after approval.
-    if ((action === "open" || action === "navigate") && typeof input?.url === "string") {
-      return !isTrustedEgressHost(input.url);
-    }
-    return true;
-  };
+  return (input) => !free.has(String(input?.action ?? ""));
 }
 
 /** Convert an MCP tool definition to an AI SDK tool. */

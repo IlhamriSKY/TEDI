@@ -148,6 +148,37 @@ export function findAiPane(
   return null;
 }
 
+/**
+ * Whether a pane already holds the chat the sidebar panel would show. The panel
+ * always renders the ACTIVE session, so this is the one question behind both
+ * "hide the panel" and "the panel needs a chat of its own".
+ */
+export function activeChatIsPaned(tabs: Tab[], activeSessionId: string | null): boolean {
+  return activeSessionId != null && findAiPane(tabs, activeSessionId) != null;
+}
+
+/**
+ * Whether the sidebar AI panel may render right now. Same rule as
+ * {@link findAiPane}, extended to the panel: two `useChat` views over one Chat
+ * are one conversation drawn twice sharing one composer, so the pane wins and
+ * the panel steps aside. Nothing here touches `panelOpen`, so closing the pane
+ * (or moving to a chat no pane holds) brings the panel straight back - and the
+ * AI toggle starts a NEW chat rather than reopening onto the pane's one, which
+ * is what keeps the panel reachable while a pane is up.
+ *
+ * ponytail: picking a paned chat from the panel's OWN session picker still
+ * hides the panel - correct, the chat is in the pane, but silent when that
+ * pane sits in a background tab. Grey those rows out (as the `+` menu already
+ * does via `openSessions`) if it bites.
+ */
+export function aiPanelVisible(
+  tabs: Tab[],
+  panelOpen: boolean,
+  activeSessionId: string | null,
+): boolean {
+  return panelOpen && !activeChatIsPaned(tabs, activeSessionId);
+}
+
 /** Recompute the top-level mirrors from the active leaf. */
 export function syncPaneMirror(tab: PaneTab): PaneTab {
   const leaf = findLeaf(tab.paneTree, tab.activeLeafId);

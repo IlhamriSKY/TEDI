@@ -37,6 +37,16 @@ import {
 } from "./components/RepoDialogs";
 import { friendlyGhError, ghFor } from "./gh";
 import { useScmRepoTarget, useScmRepoTargetStore } from "./repoTarget";
+import { WorktreeMenu } from "./components/WorktreeMenu";
+import { WorktreeDialog, type WorktreeSubmit } from "./components/WorktreeDialog";
+import {
+  localWorktreeOps,
+  mainWorktreePath,
+  worktreeConflictMessage,
+  type Worktree,
+} from "./worktrees";
+import { createWorktreeAndOpen } from "./worktreeCreate";
+import { openWorktree as openWorktreeOf, removeWorktreeAt } from "./worktreeBridge";
 import type { GitChange, GitChangeStatus, GitInProgress, GitStatus, OpenDiffInput } from "./types";
 import { cn } from "@/lib/utils";
 import { CircleAlert, FolderGit2, X } from "lucide-react";
@@ -154,6 +164,14 @@ function friendlyGitError(e: unknown, op: GitOp): string {
   if (lower.includes("not a git repository")) {
     return "Not a git repository.";
   }
+  // One guard covering every command that trips over a second checkout, not
+  // just the branch switch that reported it: `checkout`, `branch -d` and
+  // `branch -D` all refuse a branch another worktree holds, and forcing does
+  // not help with any of them. The menu already hides those actions for a
+  // branch it KNOWS is held; this catches the worktree made a second ago in a
+  // terminal, which no loaded list can know about.
+  const heldElsewhere = worktreeConflictMessage(raw);
+  if (heldElsewhere) return heldElsewhere;
   if (lower.includes("index.lock") || lower.includes("unable to create")) {
     return "Another git process is running (index.lock present). Try again in a moment.";
   }
@@ -586,6 +604,96 @@ export function SourceControlPanel({
 
   const loadBranches = useCallback(async () => (ops ? ops.branches() : []), [ops]);
 
+  // ---- worktrees ----
+  //
+  // Local only. `git worktree` itself would run fine over `ssh_git`, but the
+  // point of a worktree here is a terminal tab sitting in it, and that tab
+  // would be a LOCAL shell at a path that only exists on the remote box.
+  const worktreeOps = useMemo(
+    () => (!remote && status?.isRepo && status.root ? localWorktreeOps(status.root) : null),
+    [remote, status?.isRepo, status?.root],
+  );
+
+  /**
+   * The worktree list, held in panel state rather than only inside the menu,
+   * because `BranchMenu` needs it too: a branch already checked out somewhere
+   * else cannot be switched to, and saying so before the click is the whole
+   * difference between a working branch list and one that fails with a raw
+   * `fatal:` a third of the time.
+   *
+   * Refreshed on the same passes that already refresh everything else (repo
+   * change, and after any worktree write), not polled: nothing outside this
+   * panel creates worktrees often enough to be worth a subprocess every 2.5s.
+   */
+  const [worktrees, setWorktrees] = useState<Worktree[]>([]);
+  const [worktreeDialogOpen, setWorktreeDialogOpen] = useState(false);
+
+  const loadWorktrees = useCallback(async () => {
+    if (!worktreeOps) return [];
+    const list = await worktreeOps.list();
+    setWorktrees(list);
+    return list;
+  }, [worktreeOps]);
+
+  /**
+   * Worktree WRITES run from the MAIN worktree, never from the one being acted
+   * on - which is what `worktreeOps` above is bound to, because the panel
+   * follows whichever checkout the focused terminal is in. See
+   * `mainWorktreePath` for what goes wrong otherwise.
+   */
+  const mainRoot = status?.root ? mainWorktreePath(worktrees, status.root) : null;
+  const writeOps = useCallback(() => (mainRoot ? localWorktreeOps(mainRoot) : null), [mainRoot]);
+
+  useEffect(() => {
+    if (!worktreeOps) {
+      setWorktrees([]);
+      return;
+    }
+    void loadWorktrees().catch(() => setWorktrees([]));
+  }, [worktreeOps, loadWorktrees]);
+
+  /** Open a worktree as a terminal tab. Nothing else has to happen: Source
+   *  Control resolves its repository from the focused shell's cwd, so the
+   *  panel follows the new tab on its own. */
+  const openWorktree = useCallback((w: Worktree) => openWorktreeOf(w, worktrees), [worktrees]);
+
+  const createWorktree = useCallback(
+    async (input: WorktreeSubmit) => {
+      if (!mainRoot) throw new Error("Not a git repository.");
+      // Shared with the Workspaces panel, which offers the same create from a
+      // project row. `createWorktreeAndOpen` resolves the MAIN worktree itself
+      // rather than trusting what it is handed, so neither caller can nest a
+      // new worktree inside the one the panel happens to be pointed at.
+      setWorktrees(await createWorktreeAndOpen(mainRoot, input));
+      await fetchStatus(true);
+    },
+    [mainRoot, fetchStatus],
+  );
+
+  const removeWorktree = useCallback(
+    async (path: string, force?: boolean) => {
+      if (!mainRoot) throw new Error("Not a git repository.");
+      // Rethrows so the dialog can offer a forced delete on the "contains
+      // modified or untracked files" refusal, the way branch delete does.
+      await removeWorktreeAt(mainRoot, path, force);
+      await loadWorktrees().catch(() => {});
+      toast("Worktree removed", { variant: "success" });
+    },
+    [mainRoot, loadWorktrees],
+  );
+
+  const pruneWorktrees = useCallback(async () => {
+    const ops = writeOps();
+    if (!ops) return;
+    try {
+      await ops.prune();
+      await loadWorktrees();
+      toast("Pruned worktrees whose folder was gone", { variant: "success" });
+    } catch (e) {
+      toast(String(e), { variant: "error" });
+    }
+  }, [writeOps, loadWorktrees]);
+
   // Which repo dialog is open. One piece of state rather than four booleans:
   // they are mutually exclusive, all opened from the same menu.
   const [dialog, setDialog] = useState<ScmMoreAction | null>(null);
@@ -960,7 +1068,33 @@ export function SourceControlPanel({
         onDeleteBranch={doDeleteBranch}
         onRenameBranch={doRenameBranch}
         busy={busy !== null}
+        worktrees={worktrees}
+        onOpenWorktree={openWorktree}
+        worktreeMenu={
+          worktreeOps ? (
+            <WorktreeMenu
+              repoRoot={status?.root ?? ""}
+              loadWorktrees={loadWorktrees}
+              onOpen={openWorktree}
+              onCreate={() => setWorktreeDialogOpen(true)}
+              onRemove={removeWorktree}
+              onPrune={pruneWorktrees}
+              disabled={busy !== null}
+            />
+          ) : null
+        }
       />
+
+      {worktreeOps && mainRoot ? (
+        <WorktreeDialog
+          open={worktreeDialogOpen}
+          onOpenChange={setWorktreeDialogOpen}
+          repoRoot={mainRoot}
+          worktrees={worktrees}
+          loadBranches={loadBranches}
+          onSubmit={createWorktree}
+        />
+      ) : null}
 
       {collapsed ? null : (
         <>

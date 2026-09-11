@@ -64,7 +64,7 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    automation, backup, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard, dock,
+    automation, backup, browser, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard,
     extensions, format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell,
     ssh,
 };
@@ -130,8 +130,7 @@ fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
     };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, DefWindowProcW, GetWindowLongPtrW, SetWindowLongPtrW, GWLP_WNDPROC,
-        GWL_STYLE, MINMAXINFO, WM_GETMINMAXINFO, WM_LBUTTONDOWN, WM_MBUTTONDOWN, WM_PARENTNOTIFY,
-        WM_RBUTTONDOWN, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+        GWL_STYLE, MINMAXINFO, WM_GETMINMAXINFO, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
     };
 
     // Single main window, so one slot for the original proc is enough.
@@ -153,22 +152,6 @@ fn apply_windows_frame_fixes(window: &tauri::WebviewWindow) {
                 DefWindowProcW(hwnd, msg, wparam, lparam)
             }
         };
-
-        // A CLICK ON A DOCKED WINDOW. An extension can hand us a window from
-        // another process to hold as a pane (see `modules::dock`). The OS
-        // delivers clicks to it by position but leaves the keyboard focus where
-        // it was - on our own webview - so the page could be clicked and not
-        // typed into. `WM_PARENTNOTIFY` is the OS telling us a child was
-        // pressed, and this proc is the only place that hears it: the adopted
-        // window covers the pane, so the webview never sees the click at all.
-        if msg == WM_PARENTNOTIFY
-            && matches!(
-                wparam as u32 & 0xFFFF,
-                WM_LBUTTONDOWN | WM_MBUTTONDOWN | WM_RBUTTONDOWN
-            )
-        {
-            dock::focus_clicked_child(hwnd as isize);
-        }
 
         if msg == WM_GETMINMAXINFO {
             // Let the original proc fill defaults first (TAO enforces the
@@ -733,7 +716,9 @@ pub fn run() {
         .manage(secrets::SecretsState::default())
         .manage(ssh::SshState::default())
         .manage(extensions::ExtensionsState::default())
-        .invoke_handler(tauri::generate_handler![
+        // Wrapped so that no app command answers a page in a browser pane,
+        // whatever origin that page manages to reach; see `browser/mod.rs`.
+        .invoke_handler(crate::modules::browser::refuse_browser_panes(tauri::generate_handler![
             pty::pty_open,
             pty::pty_attach,
             pty::pty_write,
@@ -795,10 +780,12 @@ pub fn run() {
             backup::backup_seal,
             backup::backup_open,
             clipboard::clipboard_read_text,
-            dock::dock_adopt_window,
-            dock::dock_place_window,
-            dock::dock_clip_window,
-            dock::dock_release_window,
+            browser::browser_place,
+            browser::browser_close,
+            browser::browser_navigate,
+            browser::browser_list,
+            browser::browser_zoom,
+            browser::browser_cdp,
             net::http_ping,
             net::port_is_open,
             net::http_stream,
@@ -845,7 +832,7 @@ pub fn run() {
             extensions::commands::ext_enable,
             extensions::commands::ext_disable,
             extensions::commands::ext_uninstall,
-        ])
+        ]))
         .on_window_event(|window, event| {
             // Mirror main-window minimize/restore onto the settings child.
             // Owner-window semantics handle this on Windows; the explicit

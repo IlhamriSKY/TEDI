@@ -116,6 +116,12 @@ export const MCP_EXTENSION_ALLOWLIST: { id: string; label: string }[] = [
   // walked through a dashboard it cannot see. Five tools, one of them the
   // read that answers most of those questions in a single call.
   { id: "tedi.devenv", label: "Dev Environment" },
+  // A real browser pane. ONE tool with an action enum, so the whole surface -
+  // open, snapshot, click, fill, read, console, screenshot - costs a single
+  // schema rather than twenty, which is what makes it cheap enough to advertise
+  // at all. An outside CLI that can drive a browser is the difference between
+  // "check whether the page works" and "walk me through what you see".
+  { id: "tedi.browser", label: "Browser" },
 ];
 
 /**

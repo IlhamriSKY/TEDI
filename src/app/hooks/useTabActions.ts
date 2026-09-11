@@ -8,6 +8,8 @@ import {
   useCliAgentsStore,
   type CliAgent,
 } from "@/modules/terminal/lib/cliAgents";
+import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
+import { setWorktreeOpener, type OpenWorktreeInput } from "@/modules/scm/worktreeBridge";
 import {
   hasLeaf,
   leafIds,
@@ -16,7 +18,14 @@ import {
   type TerminalPaneHandle,
 } from "@/modules/terminal";
 import { openUrlInBrowser } from "@/modules/extensions/browserBridge";
-import { useCallback, useState, type Dispatch, type RefObject, type SetStateAction } from "react";
+import {
+  useCallback,
+  useEffect,
+  useState,
+  type Dispatch,
+  type RefObject,
+  type SetStateAction,
+} from "react";
 import { type TabsApi } from "./tabsApi";
 
 type Params = {
@@ -261,6 +270,35 @@ export function useTabActions({
   );
 
   /**
+   * Type `command` into a freshly-opened pane once its shell is ready.
+   *
+   * Panes mount and spawn their PTY asynchronously, so the keystrokes have to
+   * wait for a prompt or they land in a shell that is not reading stdin yet.
+   * Retried every 150ms, giving up after ~6s rather than typing blind.
+   *
+   * `launchAgent` rather than `write`, even for a plain setup command, because
+   * it also tags the pane with `tool` - the status badge would otherwise stay
+   * dark, since a command typed this way bypasses xterm's `onData` and neither
+   * a renamed launcher (`claude-start`) nor a chained `pnpm i && claude`
+   * matches a detector pattern.
+   *
+   * Shared by the two openers that type into a pane they just made: `+` ->
+   * Agent, and Source Control's "open worktree".
+   */
+  const launchAtPrompt = useCallback(
+    (leafId: number, command: string, tool: AiCliKind | null, tries = 40) => {
+      const term = terminalRefs.current.get(leafId);
+      if (term?.isAtPrompt()) {
+        term.launchAgent(command, tool);
+        return;
+      }
+      if (tries <= 0) return;
+      setTimeout(() => launchAtPrompt(leafId, command, tool, tries - 1), 150);
+    },
+    [],
+  );
+
+  /**
    * `+` -> Agent: one tab holding a terminal per picked agent, arranged by
    * `layout`, each auto-running that agent's CLI.
    *
@@ -270,11 +308,8 @@ export function useTabActions({
    * them.
    *
    * The CLI is typed into the shell rather than spawned as the PTY's program, so
-   * the pane falls back to a normal shell when the agent exits. `launchAgent`
-   * (not `write`) does the typing because it also tags the pane with the agent's
-   * detector kind - the status badge would otherwise stay dark, since the
-   * command bypasses xterm's `onData` and a renamed launcher (`claude-start`)
-   * matches no detector pattern anyway.
+   * the pane falls back to a normal shell when the agent exits; `launchAtPrompt`
+   * above is what does the typing, and why it tags the pane.
    */
   const spawnAgents = useCallback(
     (agentIds: string[], layout: PaneLayout = "row") => {
@@ -288,29 +323,51 @@ export function useTabActions({
       const cwd = explorerRoot ?? inheritedCwdForNewTab();
       const title = picked.length === 1 ? picked[0].name : `${picked.length} agents`;
       const tabId = newPaneGroupTab(picked.length, layout, cwd, title);
-      // Panes mount and spawn their PTY asynchronously; wait for the shell to
-      // reach a prompt before typing, else the keystrokes land in a shell that
-      // is not reading stdin yet. Give up after ~6s rather than typing blind.
-      const launch = (leafId: number, agent: CliAgent, tries: number) => {
-        const term = terminalRefs.current.get(leafId);
-        if (term?.isAtPrompt()) {
-          term.launchAgent(agent.command.trim(), agentToolKind(agent));
-          return;
-        }
-        if (tries <= 0) return;
-        setTimeout(() => launch(leafId, agent, tries - 1), 150);
-      };
       setTimeout(() => {
         const tab = tabsRef.current.find((x) => x.id === tabId);
         if (!tab || tab.kind !== "pane") return;
         leafIds(tab.paneTree).forEach((leafId, i) => {
           const agent = picked[i];
-          if (agent) launch(leafId, agent, 40);
+          if (agent) launchAtPrompt(leafId, agent.command.trim(), agentToolKind(agent));
         });
       }, 120);
     },
-    [newPaneGroupTab, explorerRoot, inheritedCwdForNewTab],
+    [newPaneGroupTab, explorerRoot, inheritedCwdForNewTab, launchAtPrompt],
   );
+
+  /**
+   * Source Control's "open worktree": a terminal tab whose shell starts in the
+   * worktree folder, optionally running the repository's setup command and an
+   * agent (already chained into one line by `worktreeLaunchLine`).
+   *
+   * An ordinary `newTab`, so the pane is a normal terminal that outlives the
+   * agent and that every other affordance - splitting, floating, the Board -
+   * already understands. Nothing about the tab records that it is a worktree:
+   * Source Control resolves the repository from the shell's cwd, so being in
+   * the folder IS being in the worktree. The tab even names itself, because a
+   * terminal leaf's label is `basename(cwd)` and a worktree folder is named
+   * after its branch.
+   */
+  const openWorktree = useCallback(
+    ({ path, command, tool, title }: OpenWorktreeInput) => {
+      const { tabId } = newTab(path, title ? { title } : undefined);
+      if (!command) return;
+      setTimeout(() => {
+        const tab = tabsRef.current.find((x) => x.id === tabId);
+        if (!tab || tab.kind !== "pane") return;
+        const leaf = activeLeaf(tab);
+        if (leaf?.leafKind === "terminal") launchAtPrompt(leaf.id, command, tool ?? null);
+      }, 120);
+    },
+    [newTab, launchAtPrompt],
+  );
+
+  // Publish it for Source Control, whose four hosts are too far apart (one of
+  // them at the bottom of the pane tree) to thread a callback down to.
+  useEffect(() => {
+    setWorktreeOpener(openWorktree);
+    return () => setWorktreeOpener(null);
+  }, [openWorktree]);
 
   /**
    * Show `url` in the browser extension, if the user has it.

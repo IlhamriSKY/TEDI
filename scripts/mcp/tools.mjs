@@ -38,7 +38,8 @@ export const TOOL_DEFS = {
     description:
       "Snapshot of the window. Call it first: it names the leafIds every other tool takes. `panes` " +
       "is EVERY pane in EVERY tab with what identifies it - a terminal's cwd, ssh host, running AI " +
-      "CLI, prompt state and last output; an editor's path and dirty flag; a browser's url. Plus " +
+      "CLI, prompt state and last output; an editor's path and dirty flag; an extension pane's " +
+      "title, which for a browser pane is the page it is showing. Plus " +
       "tabs, focus, open modal, toast count, and `paneHandle` for `drag`. Private panes are absent " +
       "by design. One round trip; call it freely.",
     schema: {
@@ -376,6 +377,55 @@ export const TOOL_DEFS = {
         private: {
           type: "boolean",
           description: "connect: open it as a private pane the AI cannot see.",
+        },
+      },
+      required: ["action"],
+    },
+  },
+
+  worktree: {
+    pack: "tedi",
+    annotations: { destructiveHint: true },
+    // `list` is the only one that changes nothing. `add` and `open` create a
+    // tab, `remove` deletes a folder.
+    auto: ["list"],
+    description:
+      "Git worktrees - several checkouts of ONE repository, each on its own branch, so two agents " +
+      "work at once without either stashing for the other. `list` them; `add` a branch as a new " +
+      "worktree and open it in a tab (creates the branch when it does not exist, runs the repo's " +
+      "saved setup command, and `run` types one line at its prompt); `remove` one by path or " +
+      "branch; `prune` registrations whose folder is gone; `open` an existing one in a tab. `cwd` " +
+      "is any folder in the repository and defaults to the focused terminal's, so a plain " +
+      '`{action:"list"}` answers about the project you are looking at. Writes always run from ' +
+      "the main worktree, so calling this from inside a worktree is safe.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["list", "add", "remove", "prune", "open"] },
+        cwd: {
+          type: "string",
+          description: "Any folder in the repository. The focused terminal's when omitted.",
+        },
+        branch: {
+          type: "string",
+          description: "add: the branch to be on. remove / open: may name one instead of a path.",
+        },
+        path: {
+          type: "string",
+          description:
+            "add: where to put it, default `<repo>/.worktrees/<branch>`. remove / open: which one.",
+        },
+        from: {
+          type: "string",
+          description: "add: what a CREATED branch starts from. HEAD when omitted.",
+        },
+        run: {
+          type: "string",
+          description: "add: one command line typed at the new worktree's first prompt.",
+        },
+        force: {
+          type: "boolean",
+          description: "remove: required once the worktree holds uncommitted work.",
         },
       },
       required: ["action"],

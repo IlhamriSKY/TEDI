@@ -1,7 +1,7 @@
 import { type EditorPaneHandle } from "@/modules/editor";
 import { useChatStore } from "@/modules/ai";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
-import { activeLeaf, type Tab } from "@/modules/tabs";
+import { activeChatIsPaned, activeLeaf, type Tab } from "@/modules/tabs";
 import { type TerminalPaneHandle } from "@/modules/terminal";
 import {
   useCallback,
@@ -46,8 +46,15 @@ export function useSelectionAskAi({
 } {
   const openPanel = useChatStore((s) => s.openPanel);
   const focusInput = useChatStore((s) => s.focusInput);
-  const panelOpen = useChatStore((s) => s.panelOpen);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const newSession = useChatStore((s) => s.newSession);
   const attachSelection = useChatStore((s) => s.attachSelection);
+  // The panel steps aside while a pane holds the active chat, so the toggle
+  // reads what is actually ON SCREEN rather than the raw store flag - against
+  // that flag its first press would "close" an already-invisible panel and do
+  // nothing at all.
+  const chatIsPaned = activeChatIsPaned(tabs, activeSessionId);
+  const panelOpen = useChatStore((s) => s.panelOpen) && !chatIsPaned;
 
   const captureActiveSelection = useCallback((): string | null => {
     const t = tabs.find((x) => x.id === activeId);
@@ -70,11 +77,16 @@ export function useSelectionAskAi({
     }
     if (panelOpen) {
       useChatStore.getState().closePanel();
-    } else {
-      openPanel();
-      focusInput(null);
+      return;
     }
-  }, [hasComposer, panelOpen, openPanel, focusInput]);
+    // Opening onto a chat a pane already holds would just draw it twice, and
+    // the panel would step aside again - which reads as a dead button. So the
+    // panel gets a chat of its OWN: the pane keeps its conversation, the
+    // sidebar starts a fresh one, and the composer follows the new session.
+    if (chatIsPaned) newSession();
+    openPanel();
+    focusInput(null);
+  }, [hasComposer, panelOpen, chatIsPaned, newSession, openPanel, focusInput]);
 
   const handleAttachFileToAgent = useCallback(
     (path: string) => {

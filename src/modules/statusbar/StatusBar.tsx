@@ -40,6 +40,14 @@ type Props = {
   home: string | null;
   onCd: (path: string) => void;
   onOpenMini: () => void;
+  /** Whether the AI panel is actually ON SCREEN, which is not the same as the
+   *  chat store's `panelOpen`: the panel steps aside while a pane holds the
+   *  active chat. The button lights from this so it never claims to be showing
+   *  something that is not there. */
+  aiPanelOpen: boolean;
+  /** Open the AI panel, or focus the pane's composer when a pane already has
+   *  the chat. Shared with the Ctrl+I shortcut so both do the same thing. */
+  onToggleAiPanel: () => void;
   /** Whether any SSH leaf is connected. Gates the right-slot Remote toggle so
    *  it appears only alongside a live session, mirroring the left sidebar. */
   hasAnySshLeaf: boolean;
@@ -64,6 +72,8 @@ function StatusBarInner({
   home,
   onCd,
   onOpenMini,
+  aiPanelOpen,
+  onToggleAiPanel,
   hasAnySshLeaf,
   sshSessionId,
   sshRoute,
@@ -79,6 +89,8 @@ function StatusBarInner({
 
   const entries = useStatusBarEntries({
     onOpenMini,
+    aiPanelOpen,
+    onToggleAiPanel,
     scm: <ScmRightOpenButton />,
     ssh: <SshRightOpenButton hasAnySshLeaf={hasAnySshLeaf} />,
   });

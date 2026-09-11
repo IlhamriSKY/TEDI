@@ -28,6 +28,9 @@ import { callBridge } from "./bridge";
 // else natural to hang them, and the host is the one module guaranteed to load
 // before any capability call can arrive.
 import "./domState";
+// Registers the `worktree` capability, which is what puts worktrees on BOTH MCP
+// transports at once. Side-effect import, like `domState` above it.
+import "@/modules/scm/worktreeAutomation";
 
 type BridgeCall = { callId: string; name: string; args?: unknown[] };
 

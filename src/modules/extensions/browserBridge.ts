@@ -35,18 +35,21 @@ export function useBrowserExtensionReady(): boolean {
  * when the extension is not there, so a caller can fall back or stay quiet
  * instead of reporting a success that did not happen.
  *
- * Two calls, because they answer different questions: the tool opens the tab
- * and owns the url, the command opens the pane the user then looks at. The tool
- * runs FIRST so the pane paints an already-loading page rather than a blank one
- * that jumps a moment later.
+ * ONE CALL, NOT TWO, and the difference is a pane. Both of these open a pane on
+ * their own now: the tool's `open` mints one when none is showing (and focuses
+ * whichever one it navigates), and the command always mints a fresh one. Running
+ * both put the page in the FIRST pane and then opened a second, blank one on top
+ * of it - so every preview pill left the user looking at an empty browser. With
+ * no url there is nothing to open but a pane, which is what the command is for.
  */
 export async function openUrlInBrowser(url: string): Promise<boolean> {
   if (!browserExtensionReady()) return false;
   try {
     if (url) {
       await runExtensionCommand(BROWSER_EXTENSION_ID, BROWSER_TOOL, { action: "open", url });
+    } else {
+      await runExtensionCommand(BROWSER_EXTENSION_ID, OPEN_PANE_COMMAND);
     }
-    await runExtensionCommand(BROWSER_EXTENSION_ID, OPEN_PANE_COMMAND);
     return true;
   } catch {
     // A disabled-mid-call extension, or a handler that threw. Neither is worth

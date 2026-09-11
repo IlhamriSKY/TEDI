@@ -14,7 +14,6 @@
  */
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
-import { useChatStore } from "@/modules/ai";
 import {
   useBuiltinSectionToggleEntries,
   useRightPanelToggleEntries,
@@ -39,18 +38,20 @@ const AI_IDS = { pill: "ai:agent", button: "ai:panel" } as const;
 
 export function useStatusBarEntries({
   onOpenMini,
+  aiPanelOpen,
+  onToggleAiPanel,
   scm,
   ssh,
 }: {
   onOpenMini: () => void;
+  /** See `StatusBar`'s props: the panel's ON SCREEN state, not `panelOpen`. */
+  aiPanelOpen: boolean;
+  onToggleAiPanel: () => void;
   /** The two built-in right-slot buttons. Passed in rather than imported so
    *  this module stays free of the SCM and SSH stores. */
   scm: React.ReactNode;
   ssh: React.ReactNode;
 }): StatusBarEntry[] {
-  const panelOpen = useChatStore((s) => s.panelOpen);
-  const togglePanel = useChatStore((s) => s.togglePanel);
-
   const statusItems = useStatusItemEntries();
   const panelToggles = useRightPanelToggleEntries();
   const sectionToggles = useSidebarSectionToggleEntries();
@@ -85,6 +86,6 @@ export function useStatusBarEntries({
 
     // --- 2: AI, locked ---------------------------------------------------
     entry(AI_IDS.pill, 2, <AgentStatusPill onClick={onOpenMini} />),
-    entry(AI_IDS.button, 2, <AiOpenButton onToggle={togglePanel} active={panelOpen} />),
+    entry(AI_IDS.button, 2, <AiOpenButton onToggle={onToggleAiPanel} active={aiPanelOpen} />),
   ];
 }

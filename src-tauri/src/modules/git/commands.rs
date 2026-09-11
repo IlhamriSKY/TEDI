@@ -939,6 +939,14 @@ fn git_file_at_inner(
 /// absent: rewriting `.git/config` outlives any one operation. Note that
 /// `push` already accepts an explicit URL, so this list is not an
 /// exfiltration boundary and was never able to be one.
+///
+/// `worktree` is the one entry whose blast radius genuinely reaches outside the
+/// repository - `add` creates a directory at any path it is handed and `remove`
+/// deletes one. It is here anyway, because the panel's whole worktree feature is
+/// composed in TypeScript over this runner the way the PR feature is composed
+/// over `gh_run`, and because the webview already reaches every one of those
+/// paths through `fs_create_dir`, `fs_delete` and `shell_run_command`. Narrowing
+/// it here would buy nothing and cost a second, drifting implementation.
 const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "add",
     "branch",
@@ -962,6 +970,7 @@ const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "show-ref",
     "stash",
     "tag",
+    "worktree",
 ];
 
 /// git's transport options take the name of a program to run
@@ -1509,7 +1518,8 @@ fn git_commit_detail_inner(repo_path: String, sha: String) -> Result<CommitDetai
 
 #[cfg(test)]
 mod tests {
-    use super::{check_args, is_unmerged, parse_branch_header};
+    use super::{check_args, git, git_run_inner, is_unmerged, parse_branch_header};
+    use std::process::Stdio;
 
     /// `ssh_git_status` reuses this parser with a POSIX remote root while
     /// running on whatever OS the app is on. On Windows `Path::join` inserts a
@@ -1686,6 +1696,127 @@ mod tests {
         // Path arguments must stay inside the repository.
         assert!(check_args(&v(&["add", "--", "../../etc/passwd"])).is_err());
         assert!(check_args(&v(&["add", "--", "..\\..\\win.ini"])).is_err());
+    }
+
+    /// Every vector `makeWorktreeOps` emits, kept in step with
+    /// `scripts/scm/worktree-verify.ts`, which asserts the same strings on the
+    /// frontend side. A worktree path is a POSITIONAL argument, not a pathspec
+    /// after `--`, so the `..` rule deliberately does not apply to it: a
+    /// worktree beside the repository (`../repo-feature`) is the layout git's
+    /// own documentation uses, and refusing it here would refuse a folder the
+    /// user typed into the dialog on purpose.
+    #[test]
+    fn the_worktree_vectors_are_allowed() {
+        let v = |a: &[&str]| a.iter().map(|s| s.to_string()).collect::<Vec<_>>();
+        for args in [
+            &["worktree", "list", "--porcelain"][..],
+            &["worktree", "add", "/r/.worktrees/f", "-b", "f"][..],
+            &[
+                "worktree",
+                "add",
+                "/r/.worktrees/f",
+                "-b",
+                "f",
+                "origin/main",
+            ][..],
+            &["worktree", "add", "/r/.worktrees/f", "f"][..],
+            &["worktree", "add", "--detach", "/r/.worktrees/pr"][..],
+            &["worktree", "remove", "/r/.worktrees/f"][..],
+            &["worktree", "remove", "--force", "/r/.worktrees/f"][..],
+            &["worktree", "prune"][..],
+            // The sibling layout, which is what `..` in a positional means here.
+            &["worktree", "add", "../repo-feature", "-b", "feature"][..],
+        ] {
+            assert!(check_args(&v(args)).is_ok(), "{args:?} should be allowed");
+        }
+        // The subcommand being allowed does not unpin the option rules.
+        assert!(check_args(&v(&["worktree", "add", "--exec=calc", "/r/x"])).is_err());
+        assert!(check_args(&v(&["worktree", "add", "/r/x\0y"])).is_err());
+    }
+
+    /// The whole `git_run` path against a REAL repository, not just the
+    /// allowlist: `check_args`, then `require_root`, then an actual `git
+    /// worktree` spawn. `check_args` alone proves the vector is permitted, and
+    /// proved nothing about whether the command it names runs - which is the
+    /// half that reaches the user.
+    ///
+    /// Skipped rather than failed when `git` is absent, so a machine without it
+    /// does not turn a missing tool into a broken build.
+    #[test]
+    fn git_run_really_drives_worktrees() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping: no git on PATH");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("tedi-wt-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp repo dir");
+        let root = tmp.to_string_lossy().to_string();
+        let run = |args: &[&str]| {
+            git_run_inner(root.clone(), args.iter().map(|s| s.to_string()).collect())
+        };
+
+        run(&["init", "-q", "."]).expect("init");
+        // A commit is required: `worktree add` needs something to check out.
+        std::fs::write(
+            tmp.join("a.txt"),
+            b"hi
+",
+        )
+        .expect("seed file");
+        run(&["add", "-A", "--", "a.txt"]).expect("add");
+        // -c rather than global config, so a machine with no git identity still
+        // runs this and no machine has its identity written by a test.
+        let commit = git(&tmp)
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ])
+            .output()
+            .expect("commit");
+        assert!(commit.status.success(), "commit failed");
+
+        // The list is one worktree - and it PARSES as porcelain, which is what
+        // the frontend reads.
+        let listed = run(&["worktree", "list", "--porcelain"]).expect("worktree list");
+        assert!(listed.contains("worktree "), "porcelain list: {listed}");
+        assert_eq!(listed.matches("worktree ").count(), 1);
+
+        run(&["worktree", "add", ".worktrees/feat", "-b", "feat"]).expect("worktree add");
+        assert!(tmp.join(".worktrees/feat").is_dir(), "worktree folder");
+        let two = run(&["worktree", "list", "--porcelain"]).expect("list again");
+        assert_eq!(two.matches("worktree ").count(), 2);
+        assert!(two.contains("branch refs/heads/feat"), "list: {two}");
+
+        // The refusal the panel turns into "open that worktree instead". It has
+        // to keep saying this, or `worktreeConflictMessage` matches nothing.
+        let refused = run(&["checkout", "feat"]).expect_err("checkout must be refused");
+        assert!(
+            refused.contains("used by worktree at"),
+            "unexpected refusal: {refused}"
+        );
+
+        run(&["worktree", "remove", "--force", ".worktrees/feat"]).expect("worktree remove");
+        assert_eq!(
+            run(&["worktree", "list", "--porcelain"])
+                .expect("list")
+                .matches("worktree ")
+                .count(),
+            1
+        );
+
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]

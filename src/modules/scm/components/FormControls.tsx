@@ -100,7 +100,7 @@ export function BranchCombobox({
       >
         <Command className="rounded-2xl">
           <CommandInput placeholder="Search branches" className="text-[12px]" />
-          <CommandList className="max-h-56">
+          <CommandList scrollbar className="max-h-56">
             <CommandEmpty className="py-4 text-[11px]">{emptyText}</CommandEmpty>
             {noneLabel ? (
               <CommandGroup>

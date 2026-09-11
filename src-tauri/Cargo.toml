@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.4.53"
+version = "0.4.54"
 description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -191,8 +191,13 @@ windows-sys = { version = "0.59", features = [
 # on Windows because it composites through DirectComposition. Versions match the
 # copies wry already pulls in, so no duplicate crates are added.
 webview2-com = "0.38"
+# `Win32_Graphics_Gdi` is for the browser pane's window region (`browser/mod.rs`
+# cuts holes where the app draws over it). It compiled without being listed here
+# only because wry happens to enable the same feature and Cargo unifies them - a
+# wry bump that drops it would break this build with an error naming neither.
 windows = { version = "0.61", features = [
 	"Win32_Foundation",
+	"Win32_Graphics_Gdi",
 	"Win32_System_Com",
 	"Win32_System_Com_StructuredStorage",
 	"Win32_System_Memory",

@@ -195,7 +195,20 @@ export function usePaneHandles({
         case "editor":
           return { path: leaf.path, dirty: leaf.dirty, ssh: leaf.sshHostLabel };
         case "extension-panel":
-          return { extensionId: leaf.extensionId, panelId: leaf.panelId, state: leaf.state };
+          // `title` is what the panel PUBLISHES about itself through
+          // `setExtensionTabState`, and it is the only thing here that says what
+          // the pane is holding: an extension id names the program, not the
+          // page. A browser pane puts the page's own title there, the SQL
+          // Explorer its connection. Without it an agent can see that a browser
+          // pane exists and has to spend a second call to learn which page it is
+          // on. `state` beside it is a lifecycle TONE (`connected`, `error`),
+          // not content, so it can never answer that.
+          return {
+            extensionId: leaf.extensionId,
+            panelId: leaf.panelId,
+            title: leaf.title,
+            state: leaf.state,
+          };
         case "ai":
           // Which conversation this pane is a view onto. Without it an agent can
           // see that an AI pane exists but not which session it holds, so it

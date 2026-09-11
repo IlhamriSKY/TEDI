@@ -61,7 +61,14 @@ export type {
 
 // Re-export the active-leaf discriminators from their new home so callers that
 // import them from this module (or the barrel) are unaffected by the move.
-export { activeLeaf, activeLeafKind, isTerminalLikeTab, isEditorLikeTab } from "./tabHelpers";
+export {
+  activeLeaf,
+  activeLeafKind,
+  isTerminalLikeTab,
+  isEditorLikeTab,
+  aiPanelVisible,
+  activeChatIsPaned,
+} from "./tabHelpers";
 
 // Browsers cap WebGL contexts at ~16. One xterm renderer per terminal leaf.
 // 6 panes per tab leaves headroom for multiple tabs.
@@ -178,7 +185,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * round trip after every open. It was never unknown, only unreturned.
    */
   const newTab = useCallback(
-    (cwd?: string, opts?: { private?: boolean; savedPtyId?: string }) => {
+    (cwd?: string, opts?: { private?: boolean; savedPtyId?: string; title?: string }) => {
       const tabId = nextIdRef.current++;
       const leafId = nextIdRef.current++;
       setTabs((curr) => {
@@ -188,6 +195,12 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           leafKind: "terminal",
           cwd,
           terminalOrdinal: allocOrdinal(curr),
+          // A name for a tab whose folder is not what it should say. The only
+          // caller is "open a worktree": its folder is named after the BRANCH,
+          // and a tab reading `new-layout` hides which project it belongs to.
+          // Same field a manual rename writes, so "Reset name" still works and
+          // gives back the derived folder name.
+          ...(opts?.title ? { customTitle: opts.title } : {}),
           ...(opts?.private ? { private: true } : {}),
           // Adopt an existing daemon session: the restore path in
           // openPtyForSession sees `savedPtyId` and calls reattachPty instead

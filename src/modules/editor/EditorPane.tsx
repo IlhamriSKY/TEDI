@@ -825,11 +825,13 @@ export function EditorPane({
     void readClipboardText().then((text) => {
       const v = cmRef.current?.view;
       if (!v || !text) return;
-      const sel = v.state.selection.main;
-      v.dispatch({
-        changes: { from: sel.from, to: sel.to, insert: text },
-        selection: { anchor: sel.from + text.length },
-      });
+      // `replaceSelection` puts the caret where CodeMirror actually landed the
+      // text. Doing that by hand off `text.length` counts JS string units, and
+      // CodeMirror collapses each CRLF - which is what a Windows clipboard read
+      // is full of - into ONE document position, so the anchor overshot the end
+      // of the doc and every right-click paste threw "Selection points outside
+      // of document" instead of pasting.
+      v.dispatch(v.state.replaceSelection(text));
       v.focus();
     });
   };

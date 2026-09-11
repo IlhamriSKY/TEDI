@@ -407,6 +407,10 @@ const HANDLERS = {
     return json(r);
   },
 
+  // The bridge formats the answer, so both transports say the same thing and
+  // this side has nothing to keep in step.
+  worktree: async (d, a) => d.worktree(a),
+
   pane: async (d, a) => {
     switch (a.action) {
       case "open": {
@@ -666,7 +670,21 @@ function ensureExtIndex() {
   extIndexKey = key;
   extIndexPromise = extensionTools()
     .then(({ list, live }) => {
-      extIndexLive = live;
+      // AN EMPTY ANSWER IS NOT CACHEABLE EITHER, and that one bit is the
+      // difference between an outside CLI seeing the browser and never seeing
+      // it. `extensions()` succeeds the moment TEDI's window is up, but an
+      // extension's AI tools only exist after `activate()` has run, and the
+      // extension host takes seconds to work through them all. A CLI that
+      // connects in that window gets a SUCCESSFUL query returning an extension
+      // with no tools yet, caches it as live, and is stuck without `ext_*` for
+      // the rest of its session with nothing to retry it. Measured: probing
+      // ~12s after a window reload advertised nothing; ~30s in it advertised
+      // all 21 actions.
+      //
+      // So a pack that is switched ON and resolved to NOTHING is treated as an
+      // answer still on its way. It retries at most once per `tools/list` or
+      // `tools/call`, and stops the moment tools appear.
+      extIndexLive = live && (list.length > 0 || currentSurface().extensions.length === 0);
       return {
         advertised: list.map(({ _ext, ...rest }) => rest),
         routes: new Map(list.map((t) => [t.name, t._ext])),

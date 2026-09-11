@@ -254,6 +254,23 @@ const chats = new Map<string, Chat<UIMessage>>();
 const toolContexts = new Map<string, ToolContext>();
 const CHAT_LRU_CAP = 10;
 
+/**
+ * Sessions that exist in memory but have never been written to disk. An empty
+ * chat is not history: `newSession` leaves it here, and the first persisted
+ * message is what commits it to the sessions list. Nothing is lost if the app
+ * quits first - there was nothing in it.
+ */
+const unsavedSessions = new Set<string>();
+
+/**
+ * The sessions list as it should exist ON DISK. Every write goes through this:
+ * the in-memory list carries the empty chats too, and a save triggered by some
+ * OTHER session would otherwise smuggle them onto disk.
+ */
+function savedList(sessions: SessionMeta[]): SessionMeta[] {
+  return unsavedSessions.size === 0 ? sessions : sessions.filter((x) => !unsavedSessions.has(x.id));
+}
+
 /** The active (or named) session's ToolContext, or undefined before the first
  *  chat exists. Only for read-only UI such as the tool picker; a turn always
  *  uses the context the transport was built with. */
@@ -708,7 +725,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
         updatedAt: Date.now(),
       };
       nextSessions = [fresh];
-      await saveSessionsList(nextSessions);
+      unsavedSessions.add(resumeId);
     }
     const persisted = await loadMessages(resumeId);
     if (persisted && persisted.length > 0) seedMessages.set(resumeId, persisted);
@@ -730,8 +747,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
       updatedAt: Date.now(),
     };
     const next = [meta, ...get().sessions];
+    unsavedSessions.add(id);
     set({ sessions: next, activeSessionId: id, agentMeta: IDLE_META });
-    void saveSessionsList(next);
+    // No `saveSessionsList` here: see `unsavedSessions`. `saveActiveId` still
+    // runs so a first message resumes on the right chat; hydrate already drops
+    // an active id that names no saved session.
     void saveActiveId(id);
     return id;
   },
@@ -770,6 +790,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
       pendingPersist.delete(id);
     }
     discardCheckpoint(id);
+    unsavedSessions.delete(id);
     readCaches.delete(id);
     lastAutoCompactToastAt.delete(id);
     // Tear down the persistent Rust shell (one per chat) so the child process
@@ -788,8 +809,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
         createdAt: Date.now(),
         updatedAt: Date.now(),
       };
+      unsavedSessions.add(fresh.id);
       set({ sessions: [fresh], activeSessionId: fresh.id, agentMeta: IDLE_META });
-      void saveSessionsList([fresh]);
+      // Empty, NOT `[fresh]`: the stand-in has nothing in it, and the list has
+      // to be written anyway or the chat just deleted returns on restart.
+      void saveSessionsList([]);
       void saveActiveId(fresh.id);
       return;
     }
@@ -803,7 +827,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
       activeSessionId: nextActive,
       ...(wasActive ? { agentMeta: IDLE_META } : {}),
     });
-    void saveSessionsList(remaining);
+    void saveSessionsList(savedList(remaining));
     if (wasActive) void saveActiveId(nextActive);
   },
 
@@ -812,7 +836,10 @@ export const useChatStore = create<StoreState>((set, get) => ({
       s.id === id ? { ...s, title, updatedAt: Date.now() } : s,
     );
     set({ sessions: next });
-    void saveSessionsList(next);
+    // A rename is the user naming the chat, so it counts as content: an empty
+    // one stops being a throwaway and is written like any other.
+    unsavedSessions.delete(id);
+    void saveSessionsList(savedList(next));
   },
 
   persistMessages: (id, messages) => {
@@ -827,19 +854,26 @@ export const useChatStore = create<StoreState>((set, get) => ({
     }, PERSIST_DEBOUNCE_MS);
     pendingPersist.set(id, { latest: messages, timer });
 
-    // Update sessions only when the derived title actually changes.
     const sessions = get().sessions;
     const meta = sessions.find((s) => s.id === id);
     if (!meta) return;
+
+    // The chat has content now, so it earns its place in the list. Keyed off
+    // the message rather than the title because an attachments-only opener
+    // derives "New chat" and would otherwise never be saved at all.
+    const commit = messages.length > 0 && unsavedSessions.delete(id);
+
+    // Retitle only while untitled, and only when the derived title differs.
     const isUntitled = !meta.title || meta.title === "New chat";
-    if (!isUntitled) return;
-    const nextTitle = deriveTitle(messages);
-    if (nextTitle === meta.title) return;
-    const next = sessions.map((s) =>
-      s.id === id ? { ...s, title: nextTitle, updatedAt: Date.now() } : s,
-    );
-    set({ sessions: next });
-    void saveSessionsList(next);
+    const nextTitle = isUntitled ? deriveTitle(messages) : meta.title;
+    const retitled = nextTitle !== meta.title;
+    if (!commit && !retitled) return;
+
+    const next = retitled
+      ? sessions.map((s) => (s.id === id ? { ...s, title: nextTitle, updatedAt: Date.now() } : s))
+      : sessions;
+    if (retitled) set({ sessions: next });
+    void saveSessionsList(savedList(next));
   },
 
   showHistoryPicker: false,

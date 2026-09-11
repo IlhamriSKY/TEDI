@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.53.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.54.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -61,7 +61,7 @@ pointer-events-none` so PTYs and dev servers keep streaming.
 
 ```
 src-tauri/                      Backend (Rust)
-  src/lib.rs                    invoke_handler (all 111 commands) + boot + CLI dispatch
+  src/lib.rs                    invoke_handler (all 113 commands) + boot + CLI dispatch
   src/main.rs                   thin shim
   src/modules/
     pty/{mod,session,shell_init,job,path_probe}.rs + scripts/   interactive PTYs
@@ -74,7 +74,8 @@ src-tauri/                      Backend (Rust)
     cli_ext/{mod,commands,registry,install,helpers,types,scaffold,validate}.rs    headless `tedi ext`
     preview/{mod,proxy,util}.rs   `tedi-frame://` proxy scheme
     format.rs secrets.rs net.rs mcp.rs mcp_bridge.rs backup.rs clipboard.rs
-    appimage.rs automation.rs chatgpt_auth.rs dock.rs events.rs ids.rs lockext.rs
+    browser/{mod,cdp}.rs          child-webview browser panes + in-process CDP
+    appimage.rs automation.rs chatgpt_auth.rs events.rs ids.rs lockext.rs
     cli.rs cli_theme.rs cli_update.rs cli_paint.rs
   tedi-cli/                     Windows console-subsystem `tedi` launcher (separate crate)
   capabilities/                 plugin API allowlist for the webview
@@ -100,27 +101,27 @@ src/                            Frontend (React webview), alias @/* -> src/*
 
 ## Backend (`src-tauri/src/modules/`)
 
-| Module            | Key commands / role                                                                                                                                                                                                  |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`            | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                |
-| `pty_daemon/`     | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                    |
-| `fs/`             | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                        |
-| `shell/`          | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                |
-| `git/`            | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel.                                                                                                                                                  |
-| `ssh/`            | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                   |
-| `extensions/`     | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                    |
-| `preview/`        | `tedi-frame://` async URI-scheme proxy: strips X-Frame-Options / CSP frame-ancestors and rewrites subresource references so an iframe can embed a page that would otherwise refuse (the extension marketplace card). |
-| `format.rs`       | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                        |
-| `secrets.rs`      | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                       |
-| `net.rs`          | `http_ping` dev-server probe.                                                                                                                                                                                        |
-| `mcp.rs`          | Model Context Protocol support for the AI subsystem.                                                                                                                                                                 |
-| `backup.rs`       | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                    |
-| `clipboard.rs`    | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                               |
-| `dock.rs`         | `dock_adopt/place/clip/release_window`: reparent another process's window as a `WS_CHILD` so a pane can hold a real browser. Windows only.                                                                           |
-| `mcp_bridge.rs`   | The local socket (named pipe / unix socket) an outside AI CLI reaches a running window through. The default MCP transport; CDP is the fallback for real input only.                                                  |
-| `automation.rs`   | Where the automation port comes from: WebView2 fixes its browser arguments before the first webview exists, so the port is read from the settings file at startup, not from an env var.                              |
-| `chatgpt_auth.rs` | OAuth PKCE sign-in with a ChatGPT account (loopback listener on 1455, no CORS on the exchange, refresh token straight to the keychain), so a subscription pays for a turn instead of API credits.                    |
-| `cli*.rs`         | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                       |
+| Module            | Key commands / role                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| ----------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`            | `pty_open/attach/write/resize/close/list_sessions/kill_all`. Two backends: daemon (default) falls back to in-process.                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `pty_daemon/`     | Sidecar owning PTYs across GUI restarts (`--pty-daemon` flag, no Tauri commands).                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `fs/`             | `fs_read_dir/read_file/read_file_portion/write_file/create_*/rename/delete/search/grep/glob`.                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `shell/`          | `shell_run_command`, `shell_session_*`, `shell_bg_*`. Distinct from interactive PTYs.                                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `git/`            | `git_status/diff_full/commit/push/log/discard_*` for the SCM panel. `git_run`'s allowlist includes `worktree`, which the panel composes over in TS.                                                                                                                                                                                                                                                                                                                                                                     |
+| `ssh/`            | `ssh_connect/run/disconnect`, `ssh_agent_keys`, `ssh_sftp_*`. `russh` + `russh-sftp`, ProxyJump chaining, ssh-agent auth (named pipe / Pageant / `SSH_AUTH_SOCK`).                                                                                                                                                                                                                                                                                                                                                      |
+| `extensions/`     | `ext_install_from_zip/from_github`, `ext_peek_*`, `ext_check_update`, `ext_list/enable/disable/uninstall`, `ext_read_manifest/asset/asset_bytes`.                                                                                                                                                                                                                                                                                                                                                                       |
+| `preview/`        | `tedi-frame://` async URI-scheme proxy: strips X-Frame-Options / CSP frame-ancestors and rewrites subresource references so an iframe can embed a page that would otherwise refuse (the extension marketplace card).                                                                                                                                                                                                                                                                                                    |
+| `format.rs`       | `fmt_run_external` direct-spawn external formatter (15 s timeout, 8 MiB cap).                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `secrets.rs`      | `secrets_get/set/delete/get_all` (keychain; Linux file-store fallback). `get_all` never exposed to extensions.                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `net.rs`          | `http_ping` dev-server probe.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `mcp.rs`          | Model Context Protocol support for the AI subsystem.                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
+| `backup.rs`       | `backup_seal/backup_open`: PBKDF2 + AES-256-GCM encrypted blobs for SSH connection export/import.                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| `clipboard.rs`    | `clipboard_read_text`: host-process clipboard read (Linux WebKitGTK paste workaround).                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| `browser/`        | `browser_place/close/navigate/zoom/list/cdp`: a Tauri CHILD WEBVIEW per browser pane, placed on the pane's rectangle and clipped with a window region where the app draws over it. `cdp.rs` reaches the DevTools Protocol in-process via `ICoreWebView2::CallDevToolsProtocolMethod`, so there is no debugging port and no socket. Every app command refuses a `browser-*` webview (`refuse_browser_panes`) and a pane's IPC is cut inside WebView2, so panes are Windows only. Driven by the `tedi.browser` extension. |
+| `mcp_bridge.rs`   | The local socket (named pipe / unix socket) an outside AI CLI reaches a running window through. The default MCP transport; CDP is the fallback for real input only.                                                                                                                                                                                                                                                                                                                                                     |
+| `automation.rs`   | Where the automation port comes from: WebView2 fixes its browser arguments before the first webview exists, so the port is read from the settings file at startup, not from an env var.                                                                                                                                                                                                                                                                                                                                 |
+| `chatgpt_auth.rs` | OAuth PKCE sign-in with a ChatGPT account (loopback listener on 1455, no CORS on the exchange, refresh token straight to the keychain), so a subscription pays for a turn instead of API credits.                                                                                                                                                                                                                                                                                                                       |
+| `cli*.rs`         | `tedi` CLI entry, `tedi ext`, `tedi theme`, `tedi --update` (see CLI section).                                                                                                                                                                                                                                                                                                                                                                                                                                          |
 
 Wired Tauri plugins (`lib.rs` `.plugin(...)` + `capabilities/default.json`):
 `autostart`, `dialog`, `log`, `opener`, `os`, `process`, `single-instance`,
@@ -199,7 +200,7 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 | `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                                                                |
 | `theme/`          | Theme provider. Light/dark is toggled from the header button; Settings no longer offers an Appearance picker, and `system` survives only as the first-run default.                                                                                                                               |
 | `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                                                      |
-| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance.                                                                                                                                                                                                      |
+| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance; `worktrees.ts` (see Worktrees).                                                                                                                                                                      |
 | `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution.                                   |
 | `scheduler/`      | Deferred commands: fire a command into a terminal later, surviving restarts. Reached by the in-app agent's `schedule_command` and, through `lib/bridge.ts`, by the MCP `schedule` tool.                                                                                                          |
 | `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                                                  |
@@ -294,6 +295,89 @@ through the arm that works there: a terminal scales xterm's `fontSize`
 positioning) and every other pane takes CSS `zoom`. The canvas Add menu calls the ORDINARY tab openers, so a pane added
 there is a normal pane tab that is still present when you switch back.
 
+## Worktrees (`src/modules/scm/worktrees.ts`)
+
+Several checkouts of one repository, each on its own branch in its own folder,
+so two agents can work at once without one stashing for the other.
+
+**Almost nothing was needed to support them.** Every git command in the panel
+resolves its repository through `rev-parse --show-toplevel`, which inside a
+linked worktree answers with THAT worktree, so status, diff, staging, commit,
+push and `gh` were already correct in one. What was missing was creating,
+listing and removing them, plus the two places the one-checkout assumption
+leaks. Composed in TypeScript over the `git_run` argument-vector runner, the way
+the PR feature is composed over `gh_run`
+(`scripts/scm/worktree-verify.ts` drives the real sequencing over a recording
+runner).
+
+Three rules, each of which is a bug if broken:
+
+1. **Writes run from the MAIN worktree** (`mainWorktreePath`), never from the
+   one being acted on - and the panel follows the focused terminal, so "the
+   current repo" IS routinely that one. `git worktree remove` on the worktree
+   git is standing in half-succeeds on Windows: deregistered, then
+   "Permission denied" on the folder, leaving a directory `list` no longer knows
+   about and `remove` will not touch again.
+2. **A branch another worktree holds cannot be checked out or deleted at all**,
+   `-D` included. `BranchMenu` marks those rows and opens the worktree instead;
+   `worktreeConflictMessage` catches the race (a worktree made in a terminal a
+   second ago) for every command at once.
+3. **New worktrees land in `<repo>/.worktrees/<branch-slug>`**, made invisible to
+   git by one write of `*` to `.worktrees/.gitignore` - which excludes itself, so
+   there is no read-modify-write and nothing to commit.
+
+Opening one is an ordinary `newTab` at its folder (`worktreeBridge`, because the
+panel has four hosts and one is at the bottom of the pane tree); the tab names
+itself, since a terminal leaf's label is `basename(cwd)`.
+
+**Two surfaces offer the same create**, so it lives in `worktreeCreate.ts` rather
+than in either of them: Source Control's header menu, and the Workspaces panel.
+There the rows are grouped by PROJECT - one group per repository, however many
+worktrees, since every checkout resolves to the same main worktree path and that
+is what they are keyed by. Right-clicking a group (or any row in it) gives "New
+Worktree"; never the workspace above them, which routinely holds two projects and
+so cannot say which repository the action would mean. A row's project is its
+terminal's cwd (`localTerminalCwd`, SSH panes skipped); rows in no repository
+keep their place in an unnamed group rather than being sorted away.
+
+Nothing is listed twice. A worktree already open IS one of the rows, so the fork
+rows under a group mean "the checkouts you have not opened yet". A worktree tab
+is named after the PROJECT (`customTitle`, set by `newTab`), because the folder is
+named after the branch and a tab reading `new-layout` drops the only word saying
+it is `pokehub` - and inside a group, where that label would repeat the header,
+the row leads with its BRANCH instead, which is the fact that tells two checkouts
+apart.
+
+**An agent can drive the whole thing over MCP.** One `worktree` tool with a
+five-action enum, not five tools - a tool definition is a standing bill on every
+request of every connected CLI, so the surface is one schema. Its handler is ONE
+bridge capability (`worktreeAutomation.ts`), which is what puts it on both
+transports at once: the stdio server's `d.worktree(...)` and the in-process
+server's `bridge("worktree", ...)` are the same function, so neither can drift
+because neither implements anything. It answers with TEXT the capability
+formats, which is fewer tokens than pretty-printed JSON and the only way the two
+transports are guaranteed to say the same thing. `cwd` defaults to the focused
+terminal's folder, so `{action:"list"}` costs one round trip instead of `state`
+first; `list` is the only auto-approved action, and `add` infers whether to
+create the branch so a wrong guess is not a wasted turn. `BRIDGED` routes it to
+the local socket, so it works on macOS and Linux where the DevTools port does
+not exist.
+
+**Working in several at once is safe, and measured**: 200 concurrent git
+operations across two worktrees of one repository, zero failures - each worktree
+has its own index and ref writes are lock-protected. The hazards are TEDI's own,
+and both are closed: every worktree WRITE resolves the MAIN worktree itself
+(`createWorktreeAndOpen`, and `prWorktree` after it derived a PR's PATH from the
+focused checkout and nested it, so removing the outer worktree deleted the inner
+one with rc=0 and no warning), and the remove confirmation names the uncommitted
+changes it would destroy instead of only the folder. The create dialog can
+chain the repo's saved setup command and an agent into one `&&` line
+(`worktreeLaunchLine`) - a fresh worktree has no `node_modules`, `vendor` or
+`.env`, all of them gitignored. `prWorktree.ts` checks a PR out into a
+DETACHED worktree and runs `gh pr checkout` inside it, so gh keeps owning the
+fork-and-fetch problem, and offers to remove the stranded worktree after a merge
+(which is also what unblocks `--delete-branch`).
+
 ## AI subsystem (`src/modules/ai/`)
 
 BYOK, multi-provider via `@ai-sdk/*`. Eleven providers: OpenAI, Anthropic, Google,
@@ -356,8 +440,9 @@ user's visible terminal; `submit:false` types without running, and a write into
 a pane running a FULL-SCREEN program is how you type into an AI CLI), `read`
 (terminal scrollback / open editors / DOM text), `state`, `wait_for_terminal`,
 `focus_pane`, `pane` (open, close, group, rotate, consolidate - `open` answers
-with the `leafId` it made), `open_file` and `workspace` (switch, create,
-rename; `inspect workspaces` is the read). What stays native is file IO and the
+with the `leafId` it made), `worktree` (list, add, remove, prune, open - see
+Worktrees), `open_file` and `workspace` (switch, create, rename; `inspect
+workspaces` is the read). What stays native is file IO and the
 agent's own hidden shell: `bash_*` because sub-agents get it and get no MCP
 tools at all.
 
@@ -439,19 +524,19 @@ but render nothing.
 `extensions/` folder here is gitignored (only `extensions/README.md` is
 committed) and holds working copies for local iteration:
 
-| Extension                    | Demonstrates                                                                                                                                                                                    |
-| ---------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `tedi.beautify`              | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting.                                                                                                   |
-| `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`.                                                                                                              |
-| `tedi.sql-explorer`          | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list.                                                                                |
-| `tedi.api-client`            | Postman-style API workbench. `invoke:http_stream`/`http_abort` as the whole backend (no sidecar), two `ctx.sidebar` sections, `ctx.storage` for bulk data + `ctx.secrets` for secret variables. |
-| `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                           |
-| `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                           |
-| `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                             |
-| `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                 |
-| `tedi.browser`               | A real Chromium docked onto the pane that owns it, driven over CDP: Chrome Web Store extensions, and a `browser` tool on the MCP surface (`ext_browser` from outside).                          |
-| `tedi.ai-usage`              | Status-bar usage meters: `statusbar:write` with a label + progress, `settings:*`, gated `invoke`.                                                                                               |
-| `tedi.process-monitor`       | One streamed sampler over `shell_bg_spawn_direct` instead of a spawn per tick, a status-bar meter whose tooltip draws a pixel chart, and a `panels[] surface:"tab"` process tree.               |
+| Extension                    | Demonstrates                                                                                                                                                                                                           |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `tedi.beautify`              | `headerbar:write`, `editor:read/write` round-trip, native sidecar, multi-language formatting.                                                                                                                          |
+| `tedi.discord-rich-presence` | `app.onContextChange`, `statusbar:write`, gated `invoke`, idempotent `deactivate`.                                                                                                                                     |
+| `tedi.sql-explorer`          | `panels[] surface:"tab"` + `tabs:open`, `settings:*`, `secrets:*`, `ctx.ui.codeEditor`, sidebar connection list.                                                                                                       |
+| `tedi.api-client`            | Postman-style API workbench. `invoke:http_stream`/`http_abort` as the whole backend (no sidecar), two `ctx.sidebar` sections, `ctx.storage` for bulk data + `ctx.secrets` for secret variables.                        |
+| `tedi.secondary-folder-tree` | `panels[] surface:"right"`, `commands` + `keybindings`, `ctx.panel.toggle`, `ctx.ui.mountFolderTree`.                                                                                                                  |
+| `tedi.screenshot`            | Status-bar toggle + capture-phase click interception, native sidecar.                                                                                                                                                  |
+| `tedi.rtk-bridge`            | `shell:transform` rewriting every AI shell command.                                                                                                                                                                    |
+| `tedi.remote-access`         | Browser mirrors of live TEDI terminals via a self-hosted relay.                                                                                                                                                        |
+| `tedi.browser`               | A browser pane that is a Tauri child webview (the same `wry` surface the shell uses), placed and clipped by the `browser_*` commands and driven over in-process CDP. One `browser` tool with 21 actions. Windows only. |
+| `tedi.ai-usage`              | Status-bar usage meters: `statusbar:write` with a label + progress, `settings:*`, gated `invoke`.                                                                                                                      |
+| `tedi.process-monitor`       | One streamed sampler over `shell_bg_spawn_direct` instead of a spawn per tick, a status-bar meter whose tooltip draws a pixel chart, and a `panels[] surface:"tab"` process tree.                                      |
 
 **Local dev loop**: `pnpm tauri:dev:ext` symlinks each `extensions/<id>/` into
 the dev profile's app-data dir (`link:ext` / `relink:ext` / `unlink:ext` manage
@@ -528,7 +613,7 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   on launch.
 - **MCP server** (`scripts/mcp/`): how an outside AI CLI drives a RUNNING TEDI.
   `server.mjs` speaks JSON-RPC over stdio and reaches the window through one of
-  **two transports** (`transport.mjs` picks per call) - **22 tools**, or
+  **two transports** (`transport.mjs` picks per call) - **23 tools**, or
   `pnpm mcp <verb>` by hand.
   - **The local socket is the default** (`mcp_bridge.rs` <-> `socket.mjs`): a
     named pipe on Windows, a unix socket elsewhere. Every platform, many clients
@@ -611,20 +696,26 @@ dev` shares prod data. The daemon outlives the dev GUI; set
 ## Recent capabilities
 
 - **PTY daemon** persistence across window close, with scrollback replay.
-- **Browser** (`tedi.browser` extension): a real Chromium driven over CDP, its
-  window placed on the pane that owns it so the page is composited by the GPU at
-  full resolution with a native pointer and an ordinary Chrome user agent. One
-  pane is one page, titled and iconed from the page itself. Reuses an installed
-  Chrome / Edge / Brave / Chromium and downloads Chrome for Testing only when
-  there is none, so the TEDI download is unaffected. Chrome Web Store extensions
-  (an ad blocker, say) persist in its own profile. The agent reads the page's
-  **accessibility tree** and acts on `[N]` refs with trusted input, and drains
-  **console errors** - which closes the run-it, see-it-break, fix-it loop.
-  On the **canvas** the pane paints a `Page.startScreencast` stream into a
-  `<canvas>` instead and parks the window: an OS window cannot be scaled by the
-  canvas transform, stacked between two DOM elements, or culled, so it would
-  show a 1:1 crop over everything above it. Same Chrome, same profile, same tab;
-  only the painter changes, so a signed-in session survives a view switch.
+- **Browser** (`tedi.browser` extension): a pane whose page is a **Tauri child
+  webview** - the same `wry` surface the shell itself is drawn with - created by
+  the host and placed on the pane's rectangle. Nothing is downloaded and no
+  second process runs: on Windows the WebView2 runtime the app already uses IS
+  the browser. It replaced a design that found or downloaded a whole Chromium,
+  adopted one of its windows with `SetParent`, cut away the title bar that window
+  drew inside its own client area, and streamed JPEG frames wherever a foreign
+  window could not go. A native child surface still composites ABOVE the DOM, so
+  menus, dialogs and canvas windows over the pane are cut OUT of the webview with
+  a window region rather than drawn over it. On the **canvas** the page is scaled
+  with `Emulation.setDeviceMetricsOverride` pinned to the pane's logical size, so
+  a desktop page shrinks instead of reflowing into a phone layout. The agent
+  reaches it over the DevTools Protocol **in-process**
+  (`ICoreWebView2::CallDevToolsProtocolMethod`, no debugging port, no socket, no
+  origin allow-list), reads the page's **accessibility tree** and acts on `[N]`
+  refs with trusted input, and drains **console errors** buffered in the page.
+  **Windows only**: every app command refuses a pane by its webview label
+  (`refuse_browser_panes`, because Tauri checks capabilities for an app command
+  only from a remote origin), and a pane's IPC is cut inside WebView2 before it
+  loads a page, a cut WKWebView and WebKitGTK do not offer.
 - **MCP** (stdio), both as a client and as a server driving a running window.
 - **Sub-agent DAG orchestration** (`run_subagents` with `depends_on`), ten agents.
 - **Plan mode** (`>plan`) queuing mutations into one review diff.

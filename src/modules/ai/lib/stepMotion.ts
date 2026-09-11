@@ -54,6 +54,9 @@ export const STEP_MOTIONS: Record<string, PixelMotion> = {
   // the editor, an extension being enabled or reloaded, and TEDI's own agent
   // being handed a turn.
   Pane: "spawn",
+  // A worktree is a checkout appearing, and every action but `remove` ends with
+  // a tab open in one, so it belongs with the pane rather than with `write`.
+  Worktree: "spawn",
   Focusing: "spawn",
   Opening: "spawn",
   Extension: "spawn",

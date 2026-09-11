@@ -617,6 +617,13 @@ const HANDLERS: Record<string, Handler> = {
       ),
     ),
 
+  // One line, because the bridge already formatted the answer. That is the
+  // point of putting the logic there: this transport and the stdio one cannot
+  // drift when neither of them implements anything.
+  worktree: async (args) => ({
+    content: [{ type: "text" as const, text: await bridge<string>("worktree", args) }],
+  }),
+
   focus_pane: async ({ leafId }) => {
     const ok = await bridge<boolean | string>("focusPaneVerified", Number(leafId));
     return ok === true

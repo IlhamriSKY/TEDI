@@ -7,6 +7,7 @@ import { setColumnPlacement } from "@/modules/settings/preferences";
 import { revealColumn } from "@/lib/sectionDrag";
 import { useScmRightPanelStore } from "../scmRightPanelStore";
 import type { GitBranch as GitBranchRef, GitStatus } from "../types";
+import type { Worktree } from "../worktrees";
 import { BranchMenu } from "./BranchMenu";
 import {
   ChevronDown,
@@ -39,6 +40,13 @@ type PanelHeaderProps = {
   onRenameBranch?: (from: string, to: string) => Promise<void>;
   /** True while a git operation is in flight; blocks a branch switch on top. */
   busy?: boolean;
+  /** The worktree menu, when the repository is local. Omitted over SSH, where
+   *  a worktree could be created but not opened as a local terminal tab. */
+  worktreeMenu?: React.ReactNode;
+  /** The same worktrees as DATA, which `BranchMenu` needs to tell a branch it
+   *  can switch to from one another worktree already holds. */
+  worktrees?: Worktree[];
+  onOpenWorktree?: (w: Worktree) => void;
 };
 
 export function PanelHeader({
@@ -56,6 +64,9 @@ export function PanelHeader({
   onDeleteBranch,
   onRenameBranch,
   busy,
+  worktreeMenu,
+  worktrees,
+  onOpenWorktree,
 }: PanelHeaderProps) {
   // No change count here: each section header already carries its own, and the
   // one that mattered sat right of the branch name where it read as part of it.
@@ -71,6 +82,8 @@ export function PanelHeader({
           onCheckout={onCheckout}
           onDeleteBranch={onDeleteBranch}
           onRenameBranch={onRenameBranch}
+          worktrees={worktrees}
+          onOpenWorktree={onOpenWorktree}
           disabled={busy}
         />
       ) : (
@@ -108,6 +121,9 @@ export function PanelHeader({
         </Tooltip>
       ) : null}
       <span className="tedi-header-divider" aria-hidden />
+      {/* Left of the row's own actions, because it belongs with the branch name
+          it sits beside: both name a checkout, one the current and one the rest. */}
+      {status?.isRepo ? worktreeMenu : null}
       {onDiscardAll && !historyOnly && status?.isRepo && changeCount > 0 ? (
         <IconTooltip label="Discard all changes" side="bottom">
           <Button

@@ -92,12 +92,48 @@ function CommandInput({
   );
 }
 
-function CommandList({ className, ...props }: React.ComponentProps<typeof CommandPrimitive.List>) {
+function CommandList({
+  className,
+  onWheel,
+  scrollbar,
+  ...props
+}: React.ComponentProps<typeof CommandPrimitive.List> & {
+  /**
+   * Show the app's scrollbar instead of hiding it.
+   *
+   * Hidden by default because a command PALETTE is a short, keyboard-driven
+   * menu where a bar is clutter. A long picker is the other case: a branch list
+   * forty deep with no bar looks like it ends at the tenth entry, and nothing
+   * tells you it can move. Opt-in rather than opt-out so the palettes keep the
+   * look they were designed with.
+   */
+  scrollbar?: boolean;
+}) {
   return (
     <CommandPrimitive.List
       data-slot="command-list"
+      // WITHOUT THIS, a command list inside a Popover inside a modal Dialog
+      // cannot be wheel-scrolled at all - the keyboard still works, so it reads
+      // as "the dropdown is stuck". `react-remove-scroll`, which the Dialog uses
+      // to lock the page, listens for `wheel` on DOCUMENT and calls
+      // `preventDefault()` on every event that is neither inside the dialog's
+      // own subtree nor one of its `shards`. A `PopoverContent` is portaled to
+      // `body`, so it is neither, and Radix's Dialog does not expose `shards` to
+      // add it. Stopping the event here keeps it from ever reaching that
+      // listener, and the browser then scrolls this list natively.
+      //
+      // Not `preventDefault`: the default IS the scrolling we want. And not
+      // chaining the wheel past a scroll container is the right behaviour
+      // anyway, which is why this is safe for every other list too.
+      onWheel={(e) => {
+        e.stopPropagation();
+        onWheel?.(e);
+      }}
       className={cn(
-        "no-scrollbar max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        "max-h-72 scroll-py-1 overflow-x-hidden overflow-y-auto outline-none",
+        // Not a `cn` override: `no-scrollbar` is a plain CSS class, so
+        // tailwind-merge cannot drop it for a caller. It has to not be added.
+        !scrollbar && "no-scrollbar",
         className,
       )}
       {...props}
