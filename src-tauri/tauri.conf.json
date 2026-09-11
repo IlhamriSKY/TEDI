@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "TEDI",
   "mainBinaryName": "TEDIApp",
-  "version": "0.4.54",
+  "version": "0.4.55",
   "identifier": "id.ilhamrisky.tedi",
   "build": {
     "beforeDevCommand": "pnpm dev",
@@ -52,13 +52,19 @@
     "linux": {
       "deb": {
         "section": "utils",
-        "depends": ["libwebkit2gtk-4.1-0", "libgtk-3-0"],
+        "depends": [
+          "libwebkit2gtk-4.1-0",
+          "libgtk-3-0"
+        ],
         "desktopTemplate": "tedi.desktop",
         "postInstallScript": "scripts/linux-postinstall.sh",
         "preRemoveScript": "scripts/linux-preremove.sh"
       },
       "rpm": {
-        "depends": ["webkit2gtk4.1", "gtk3"],
+        "depends": [
+          "webkit2gtk4.1",
+          "gtk3"
+        ],
         "desktopTemplate": "tedi.desktop",
         "postInstallScript": "scripts/linux-postinstall.sh",
         "preRemoveScript": "scripts/linux-preremove.sh"
@@ -83,7 +89,9 @@
   },
   "plugins": {
     "updater": {
-      "endpoints": ["https://github.com/IlhamriSKY/TEDI/releases/latest/download/latest.json"],
+      "endpoints": [
+        "https://github.com/IlhamriSKY/TEDI/releases/latest/download/latest.json"
+      ],
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDYwODYyOTk4OTJBQ0VBRTUKUldUbDZxeVNtQ21HWUM2c3dKb0N1b3Q3ZE9oTjJNOG0vSzgvVThuMXFleFdDVUlXdzhHYkpuenEK",
       "windows": {
         "installMode": "passive"

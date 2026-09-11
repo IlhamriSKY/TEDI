@@ -287,10 +287,11 @@ async function waitTerminal(
  * agent edits files with `edit`/`write_file`, and flushing the USER's buffer over
  * its own disk write is the wrong way round.
  *
- * `schedule` and `ai` are absent for the opposite reason - the capability is
- * already here. `schedule_command` / `list_schedules` / `cancel_schedule` are
- * native tools on the same engine, and `ai` reads and drives the built-in agent,
- * which IS the caller. Advertising either would charge for the same thing twice.
+ * `schedule`, `notes` and `ai` are absent for the opposite reason - the
+ * capability is already here. `schedule_command` / `list_schedules` /
+ * `cancel_schedule` and `notes_read` / `notes_write` are native tools on the
+ * same engines, and `ai` reads and drives the built-in agent, which IS the
+ * caller. Advertising any of them would charge for the same thing twice.
  */
 const HANDLERS: Record<string, Handler> = {
   inspect: async ({ what }) => {

@@ -609,6 +609,11 @@ export class Driver {
     return this.#tedi("worktree", args);
   }
 
+  /** The user's own notes and todos (the toolbar panel). One capability, TEXT. */
+  notes(args = {}) {
+    return this.#tedi("notes", args);
+  }
+
   paneOpen(opts = {}) {
     return this.#tedi("paneOpen", opts);
   }

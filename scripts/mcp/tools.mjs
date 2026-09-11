@@ -328,6 +328,10 @@ export const TOOL_DEFS = {
 
   screenshot: {
     pack: "misc",
+    // Writes a fresh temp PNG, so not read-only, but it captures rather than
+    // changes anything - nothing to destroy. Left pessimistic, a gating client
+    // read a screenshot as dangerous as `eval_js`.
+    annotations: { destructiveHint: false },
     description:
       "Capture the TEDI window to a PNG and return its path - read that path back to see it. Main " +
       "webview only: a floated pane is a separate webview and comes out blank.",
@@ -513,8 +517,36 @@ export const TOOL_DEFS = {
     },
   },
 
+  notes: {
+    pack: "tedi",
+    annotations: { destructiveHint: false },
+    // Reading the user's list is unattended; adding to it changes what they see,
+    // so the writes keep their card.
+    auto: ["read"],
+    description:
+      "The USER's OWN notes and todo list - the panel they keep in the toolbar, which outlives every " +
+      "session. This is NOT your per-turn plan (that is todo_write) and NOT the schedule queue. " +
+      "`read` returns both lists with the ids `complete_todo` needs; `add_todo` appends a checklist " +
+      "line; `complete_todo` ticks one by id; `add_note` adds a titled note with an optional `body`. " +
+      "It cannot delete or overwrite anything - the user keeps that. Read it when what you are doing " +
+      "might already be written down, or to add something the user asked you to remember.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["read", "add_todo", "complete_todo", "add_note"] },
+        text: { type: "string", description: "add_todo: the line. add_note: the title." },
+        body: { type: "string", description: "add_note: the note body. Optional." },
+        id: { type: "string", description: "complete_todo: the todo id from `read`." },
+      },
+      required: ["action"],
+    },
+  },
+
   workspace: {
     pack: "tedi",
+    // switch / create / rename: none destroys anything (a switch rebuilds panes
+    // but loses no data, create and rename are additive).
+    annotations: { destructiveHint: false },
     description:
       "Act on a workspace, a saved set of tabs with its own view: `switch` to one, `create` one " +
       "(which switches to it and seeds a terminal), or `rename` one. `inspect workspaces` is the " +

@@ -411,6 +411,9 @@ const HANDLERS = {
   // this side has nothing to keep in step.
   worktree: async (d, a) => d.worktree(a),
 
+  // Same shape: the bridge returns text, this just carries it.
+  notes: async (d, a) => d.notes(a),
+
   pane: async (d, a) => {
     switch (a.action) {
       case "open": {
@@ -792,9 +795,59 @@ async function callTool(name, args) {
 const SUPPORTED_PROTOCOL_VERSIONS = ["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
 const LATEST_PROTOCOL_VERSION = SUPPORTED_PROTOCOL_VERSIONS[0];
 
-/** The client's version when we support it, otherwise our own latest. */
+/** The client's version when we support it, otherwise our own latest. Legacy
+ *  only: `initialize` never negotiates a modern version, because a modern client
+ *  does not send `initialize` at all. */
 function negotiateProtocol(requested) {
   return SUPPORTED_PROTOCOL_VERSIONS.includes(requested) ? requested : LATEST_PROTOCOL_VERSION;
+}
+
+/**
+ * MODERN (2026-07-28+) revisions carry the protocol version in each request's
+ * `_meta` instead of establishing a session with `initialize`. This server is
+ * DUAL-ERA: it speaks the modern stateless model AND the legacy handshake at
+ * once, which the spec explicitly allows
+ * (`.../2026-07-28/basic/versioning#backward-compatibility`) - a request opening
+ * with `initialize` is served legacy, one carrying modern `_meta` is served
+ * stateless. NOTHING about the legacy path changes, so no current client breaks;
+ * the additions are only reached by a client that speaks modern, and none does
+ * yet. The server was already stateless in practice (no session gating), so this
+ * is a `server/discover` reply, a per-request version check, and a `resultType`
+ * on modern results - not a rewrite.
+ */
+const MODERN_PROTOCOL_VERSIONS = ["2026-07-28"];
+
+/** What `server/discover` advertises and the per-request gate accepts: modern
+ *  first (preferred), then every legacy revision still spoken. */
+export const ALL_PROTOCOL_VERSIONS = [...MODERN_PROTOCOL_VERSIONS, ...SUPPORTED_PROTOCOL_VERSIONS];
+
+/** Identity reported in both `initialize` and `server/discover`. `title` is the
+ *  display name (2025-11-25+), `name` the programmatic id. */
+const SERVER_INFO = { name: "tedi", title: "TEDI", version: "1.0.0" };
+
+/** Whether a request opts into the modern era, i.e. carries a modern protocol
+ *  version in `_meta`. Legacy requests put their version in `params.protocolVersion`
+ *  on `initialize` only, never in `_meta`, so they read as false. */
+function isModernRequest(msg) {
+  return Boolean(msg?.params?._meta?.["io.modelcontextprotocol/protocolVersion"]);
+}
+
+/**
+ * The `server/discover` result (a MUST in modern MCP). Pure and exported so
+ * `mcp-conformance-verify` pins its shape without spawning the process. Matches
+ * the spec's `DiscoverResult`: `resultType`, `supportedVersions`, `capabilities`,
+ * and the identity under the modern `_meta` key.
+ */
+export function discoverResult() {
+  return {
+    resultType: "complete",
+    supportedVersions: ALL_PROTOCOL_VERSIONS,
+    capabilities: { tools: { listChanged: false } },
+    instructions:
+      "TEDI's own MCP surface: read and drive its panes, terminals, editors, SSH, workspaces, " +
+      "scheduler, notes and extensions. Call `state` first - it names the leafIds the other tools take.",
+    _meta: { "io.modelcontextprotocol/serverInfo": SERVER_INFO },
+  };
 }
 
 function send(msg) {
@@ -807,7 +860,30 @@ async function handle(msg) {
   if (msg.id === undefined) return;
   const reply = (result) => send({ jsonrpc: "2.0", id: msg.id, result });
 
+  // MODERN per-request version gate. A request that names a modern protocol
+  // version we do not speak is refused with -32022, the error a modern client
+  // retries on with a version from `data.supported`. Legacy requests carry no
+  // such `_meta`, so this is additive and never touches them.
+  const modernVersion = msg.params?._meta?.["io.modelcontextprotocol/protocolVersion"];
+  if (modernVersion && !ALL_PROTOCOL_VERSIONS.includes(modernVersion)) {
+    return send({
+      jsonrpc: "2.0",
+      id: msg.id,
+      error: {
+        code: -32022,
+        message: "Unsupported protocol version",
+        data: { supported: ALL_PROTOCOL_VERSIONS, requested: modernVersion },
+      },
+    });
+  }
+  const modern = isModernRequest(msg);
+
   switch (msg.method) {
+    // MODERN discovery: supported versions, capabilities and identity in one
+    // reply. A dual-era client sends this first on stdio to tell a modern server
+    // from a legacy one; a legacy client never sends it.
+    case "server/discover":
+      return reply(discoverResult());
     case "initialize":
       return reply({
         // NEGOTIATE, do not echo. The spec is explicit: if the server supports
@@ -819,30 +895,46 @@ async function handle(msg) {
         // including future revisions it has never seen. Answering with our own
         // latest is the spec's own downgrade signal, not a downgrade bug.
         protocolVersion: negotiateProtocol(msg.params?.protocolVersion),
-        capabilities: { tools: {} },
-        serverInfo: { name: "tedi", version: "1.0.0" },
+        // `listChanged: false`, DECLARED not omitted: the spec says a tools
+        // server MUST carry the boolean, and false is the honest value - this
+        // server never pushes `notifications/tools/list_changed`. The tool set
+        // does shift (a pack toggled, an extension finishing `activate()`), but
+        // a client re-lists on its own and `ensureExtIndex` retries an
+        // not-yet-ready extension answer, so there is nothing to notify about
+        // rather than a notification we quietly fail to send.
+        capabilities: { tools: { listChanged: false } },
+        // `title` is the display name the client shows (Implementation.title,
+        // 2025-11-25); `name` stays the programmatic id. Older clients ignore it.
+        serverInfo: SERVER_INFO,
       });
     case "ping":
       return reply({});
-    case "tools/list":
-      return reply({ tools: await listTools() });
-    case "tools/call":
+    case "tools/list": {
+      // `resultType: "complete"` ONLY for a modern request. A legacy tools/list
+      // result stays byte-identical to what shipped, so a strict legacy client
+      // cannot be tripped by a field it never expected.
+      const result = { tools: await listTools() };
+      return reply(modern ? { resultType: "complete", ...result } : result);
+    }
+    case "tools/call": {
+      let result;
       try {
         const out = await callTool(msg.params?.name, msg.params?.arguments);
         // A handler may answer with ready-made content blocks (an image) instead
         // of a string; everything else is still wrapped as one text block.
-        return reply(
+        result =
           out && typeof out === "object" && Array.isArray(out.content)
             ? out
-            : { content: [{ type: "text", text: String(out) }] },
-        );
+            : { content: [{ type: "text", text: String(out) }] };
       } catch (err) {
         // `isError`, not a JSON-RPC error: a tool failing is something the agent
         // should read and act on (start TEDI, dismiss the toast, pick a real
         // leaf id), not a transport fault that hides the message.
         dropIfDisconnected(err.message);
-        return reply({ content: [{ type: "text", text: `ERROR: ${err.message}` }], isError: true });
+        result = { content: [{ type: "text", text: `ERROR: ${err.message}` }], isError: true };
       }
+      return reply(modern ? { resultType: "complete", ...result } : result);
+    }
     default:
       return send({
         jsonrpc: "2.0",

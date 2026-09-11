@@ -31,6 +31,10 @@ import "./domState";
 // Registers the `worktree` capability, which is what puts worktrees on BOTH MCP
 // transports at once. Side-effect import, like `domState` above it.
 import "@/modules/scm/worktreeAutomation";
+// Registers the `notes` capability, so an outside AI CLI reaches the user's own
+// notes and todos over MCP - the panel the in-app agent already reads through
+// its native `notes_read` / `notes_write`. Side-effect import, same as above.
+import "@/modules/notes/notesAutomation";
 
 type BridgeCall = { callId: string; name: string; args?: unknown[] };
 

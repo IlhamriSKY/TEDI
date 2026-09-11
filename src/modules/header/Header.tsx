@@ -70,6 +70,9 @@ type Props = {
   onToggleSidebar: () => void;
   /** Open a folder as the new workspace root. */
   onOpenFolder: () => void;
+  /** The open folder (focused terminal's cwd), for the Install MCP dialog's
+   *  "This project" scope. Null when nothing local is open yet. */
+  mcpProjectRoot?: string | null;
   /** Split the active pane. Forwarded to the TabBar's `+` dropdown. */
   onSplit: (dir: "row" | "col") => void;
   /** True when the active tab still has room for another split. */
@@ -191,6 +194,7 @@ function HeaderImpl({
   onReorderLeafInGroup,
   onToggleSidebar,
   onOpenFolder,
+  mcpProjectRoot,
   onSplit,
   canSplit,
   onOpenExtensions,
@@ -330,7 +334,7 @@ function HeaderImpl({
         <NotesMenu />
         <ExtensionHeaderItems />
         {extensionsButton}
-        <McpInstallButton />
+        <McpInstallButton projectRoot={mcpProjectRoot ?? null} />
         {themeButton}
         {settingsButton}
 

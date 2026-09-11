@@ -39,11 +39,9 @@ import {
   DEFAULT_PORT,
   detect,
   install,
-  installProject,
-  projectStatus,
   serverPath,
   uninstall,
-  uninstallProject,
+  type Scope,
   type TargetStatus,
 } from "./install";
 
@@ -52,9 +50,10 @@ import {
 const channelLive = (): boolean =>
   (window as unknown as { __TEDI_AUTOMATION__?: boolean }).__TEDI_AUTOMATION__ === true;
 
-/** The folder the explorer is rooted at. Read from the same localStorage key
- *  `useWorkspaceRoot` seeds itself from, rather than threading a prop through
- *  App and the whole Header for one optional row. */
+/** The last user-picked folder, only a FALLBACK now. The live open folder comes
+ *  in as `projectRoot` (the focused terminal's cwd), so a per-project config
+ *  lands in the folder you are actually working in, not one you opened days ago -
+ *  which is the whole point of the "This project" scope. */
 function pickedRoot(): string | null {
   try {
     return localStorage.getItem("tedi.workspaceRoot");
@@ -63,12 +62,23 @@ function pickedRoot(): string | null {
   }
 }
 
-export function McpInstallButton() {
+/** The folder name to show for the project scope. */
+function folderName(root: string | null): string {
+  if (!root) return "";
+  return root.replace(/\/+$/, "").split("/").pop() || root;
+}
+
+export function McpInstallButton({ projectRoot }: { projectRoot: string | null }) {
   const [open, setOpen] = useState(false);
+  const [scope, setScope] = useState<Scope>("global");
   const [rows, setRows] = useState<TargetStatus[] | null>(null);
   const [port, setPort] = useState(0);
   const [server, setServer] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
+
+  /** The folder a project-scoped config is written into: the focused terminal's
+   *  cwd, falling back to the last picked root. */
+  const root = projectRoot ?? pickedRoot();
 
   /** Pack ids switched OFF, and extension ids switched ON. Stored that way round
    *  so a pack added later is on by default and a new extension is not. */
@@ -81,15 +91,13 @@ export function McpInstallButton() {
   );
 
   const refresh = useCallback(async () => {
-    const root = pickedRoot();
-    const [cli, project, storedPort, path, surfaceCfg] = await Promise.all([
-      detect(),
-      root ? projectStatus(root) : Promise.resolve(null),
+    const [cli, storedPort, path, surfaceCfg] = await Promise.all([
+      detect(scope, root),
       getAutomationPort(),
       serverPath(),
       getMcpSurface(),
     ]);
-    setRows(project ? [...cli, project] : cli);
+    setRows(cli);
     setPort(storedPort);
     setServer(path);
     setOnExts(surfaceCfg.extensions);
@@ -121,7 +129,7 @@ export function McpInstallButton() {
         };
       }).filter((e) => e.usable),
     );
-  }, []);
+  }, [scope, root]);
 
   const writeSurface = useCallback(async (nextOff: string[], nextExts: string[]) => {
     setOffPacks(nextOff);
@@ -158,13 +166,9 @@ export function McpInstallButton() {
     async (row: TargetStatus, next: boolean) => {
       setBusy(row.id);
       try {
-        if (row.id === "project") {
-          const root = pickedRoot();
-          if (!root) throw new Error("No folder is open.");
-          await (next ? installProject(root, port || DEFAULT_PORT) : uninstallProject(root));
-        } else {
-          await (next ? install(row, port || DEFAULT_PORT) : uninstall(row));
-        }
+        await (next
+          ? install(row, scope, root, port || DEFAULT_PORT)
+          : uninstall(row, scope, root));
         // Writing a config is only half of it: with the channel off, that config
         // points at a port nothing is listening on. Turning it on here is what
         // makes one click enough - it takes effect on the next launch.
@@ -182,8 +186,31 @@ export function McpInstallButton() {
         setBusy(null);
       }
     },
-    [port, live, refresh],
+    [port, live, refresh, scope, root],
   );
+
+  /** One click to wire every found CLI in the current scope. Skips the ones
+   *  already installed and the ones not present, and reports how many it did. */
+  const enableAll = useCallback(async () => {
+    const targets = (rows ?? []).filter((r) => r.present && !r.installed);
+    if (targets.length === 0) return;
+    setBusy("all");
+    try {
+      for (const row of targets) await install(row, scope, root, port || DEFAULT_PORT);
+      if (!port) await setAutomationPort(DEFAULT_PORT);
+      await refresh();
+      toast(
+        `MCP installed for ${targets.length} CLI${targets.length === 1 ? "" : "s"}${
+          live ? "" : " - restart TEDI to open the channel"
+        }`,
+        { variant: live ? "success" : "default" },
+      );
+    } catch (err) {
+      toast(err instanceof Error ? err.message : String(err), { variant: "error" });
+    } finally {
+      setBusy(null);
+    }
+  }, [rows, scope, root, port, live, refresh]);
 
   const setChannel = useCallback(async (on: boolean) => {
     await setAutomationPort(on ? DEFAULT_PORT : 0);
@@ -262,48 +289,109 @@ export function McpInstallButton() {
               never engages. The negative margin + padding keep the switches'
               focus rings from being cropped by the scroll edge. */}
           <div className="-mx-1 flex min-h-0 flex-1 flex-col gap-4 overflow-x-hidden overflow-y-auto px-1">
+            {/* Scope: write to each CLI's user-wide config, or to its own
+                project-scoped file inside the OPEN FOLDER (the focused terminal's
+                cwd). Two buttons rather than a Switch because neither side is a
+                default-off "extra" - they are two equal destinations, and a
+                Switch would imply one is the on-state of the other. */}
+            <div className="flex items-center justify-between gap-3">
+              {/* The Settings window's segmented recipe, class for class (see
+                  ThemeSection's light/dark switch): a `bg-muted/40` track, `h-6`
+                  triggers, `bg-background` for the active one. No radius, because
+                  the app force-zeroes it and a `rounded` here would just read as
+                  a mistake. */}
+              <div className="bg-muted/40 inline-flex h-7 shrink-0 items-center p-0.5 text-[11px]">
+                {(["global", "project"] as const).map((s) => (
+                  <button
+                    key={s}
+                    type="button"
+                    onClick={() => setScope(s)}
+                    aria-pressed={scope === s}
+                    className={cn(
+                      "h-6 px-2.5 transition-colors",
+                      scope === s
+                        ? "bg-background text-foreground"
+                        : "text-muted-foreground hover:text-foreground",
+                    )}
+                  >
+                    {s === "global" ? "Global" : "This project"}
+                  </button>
+                ))}
+              </div>
+              {/* Names the folder a project config lands in, so "This project" is
+                  never mistaken for global - the bug the old single row had. */}
+              <span className="text-muted-foreground min-w-0 truncate text-xs" title={root ?? ""}>
+                {scope === "global"
+                  ? "User-wide, every session"
+                  : root
+                    ? folderName(root)
+                    : "No folder open"}
+              </span>
+            </div>
+
             <div className="flex flex-col gap-1">
               {rows === null && (
                 <div className="text-muted-foreground flex items-center gap-2 py-4 text-sm">
                   <Spinner className="size-4" /> Looking for AI CLIs&hellip;
                 </div>
               )}
-              {rows?.map((row) => (
-                <label
-                  key={row.id}
-                  className={cn(
-                    "flex items-center justify-between gap-3 rounded-md px-2 py-2",
-                    row.present ? "hover:bg-accent/50" : "opacity-45",
-                  )}
-                >
-                  <span className="min-w-0">
-                    <span className="text-sm">{row.name}</span>
-                    {/* The full path on hover: the row truncates from the right,
-                        which is exactly the end that says WHICH file this is. */}
-                    <span
-                      className="text-muted-foreground block truncate text-xs"
-                      title={row.present ? row.path : undefined}
-                    >
-                      {row.present ? row.path : "not installed"}
-                    </span>
-                  </span>
-                  {busy === row.id ? (
-                    <Spinner className="size-4 shrink-0" />
-                  ) : (
-                    <Switch
-                      checked={row.installed}
-                      disabled={!row.present}
-                      onCheckedChange={(next) => void toggle(row, next)}
-                      aria-label={`${row.installed ? "Remove" : "Install"} MCP for ${row.name}`}
-                    />
-                  )}
-                </label>
-              ))}
-              {rows?.length === 0 && (
-                <p className="text-muted-foreground py-4 text-sm">
-                  No supported AI CLI found. Point any MCP client at{" "}
-                  <code className="text-foreground">node {server}</code>.
+              {scope === "project" && !root ? (
+                <p className="text-muted-foreground px-2 py-4 text-sm">
+                  Open a folder (its terminal) to write a project-scoped config there. Each CLI gets
+                  its own standard file - <code className="text-foreground">.mcp.json</code>,{" "}
+                  <code className="text-foreground">.cursor/mcp.json</code>, and so on.
                 </p>
+              ) : (
+                <>
+                  {(rows ?? []).some((r) => r.present && !r.installed) && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      className="h-7 self-end text-xs"
+                      onClick={() => void enableAll()}
+                      disabled={busy !== null}
+                    >
+                      Enable all found
+                    </Button>
+                  )}
+                  {rows?.map((row) => (
+                    <label
+                      key={row.id}
+                      className={cn(
+                        "flex items-center justify-between gap-3 rounded-md px-2 py-2",
+                        row.present ? "hover:bg-accent/50" : "opacity-45",
+                      )}
+                    >
+                      <span className="min-w-0">
+                        <span className="text-sm">{row.name}</span>
+                        {/* The full path on hover: the row truncates from the right,
+                        which is exactly the end that says WHICH file this is. */}
+                        <span
+                          className="text-muted-foreground block truncate text-xs"
+                          title={row.present ? row.path : undefined}
+                        >
+                          {row.present ? row.path : "not installed"}
+                        </span>
+                      </span>
+                      {busy === row.id ? (
+                        <Spinner className="size-4 shrink-0" />
+                      ) : (
+                        <Switch
+                          checked={row.installed}
+                          disabled={!row.present}
+                          onCheckedChange={(next) => void toggle(row, next)}
+                          aria-label={`${row.installed ? "Remove" : "Install"} MCP for ${row.name}`}
+                        />
+                      )}
+                    </label>
+                  ))}
+                  {rows?.length === 0 && (
+                    <p className="text-muted-foreground py-4 text-sm">
+                      No supported AI CLI found. Point any MCP client at{" "}
+                      <code className="text-foreground">node {server}</code>.
+                    </p>
+                  )}
+                </>
               )}
             </div>
 

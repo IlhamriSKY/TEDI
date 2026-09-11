@@ -19,12 +19,7 @@
  *  4. A STALE entry - one pointing at a path an update replaced - must read as
  *     NOT installed, or the indicator shows a working integration that is not.
  */
-import {
-  _internals,
-  PROJECT_TARGET,
-  TARGETS,
-  type Target,
-} from "../../src/modules/mcpInstall/install";
+import { _internals, TARGETS, type Target } from "../../src/modules/mcpInstall/install";
 
 const { withEntry, withoutEntry, readsAsInstalled, entryFor } = _internals;
 
@@ -46,7 +41,7 @@ const PORT = 9222;
 const BUNDLE = "id.ilhamrisky.tedi";
 
 const byId = (id: string): Target => {
-  const t = [...TARGETS, PROJECT_TARGET].find((x) => x.id === id);
+  const t = TARGETS.find((x) => x.id === id);
   if (!t) throw new Error(`no target ${id}`);
   return t;
 };

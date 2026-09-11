@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.54.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.55.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -185,28 +185,28 @@ macOS/Linux rely on `Drop for Session -> killer.kill()`.
 
 ## Frontend (`src/modules/`, 20 modules)
 
-| Module            | Role                                                                                                                                                                                                                                                                                             |
-| ----------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                                                     |
-| `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. `lib/notes.ts`: `+` -> Note opens a quick note, a real `note-N.md` under the app data dir that autosaves (debounced, drained by the quit guard) and restores with the workspace. |
-| `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                                                              |
-| `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`) plus the workspace canvas view (`CanvasView`, free-floating windows).                                                                                                                                        |
-| `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                                                             |
-| `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                                                  |
-| `header/`         | Top bar: workspace view toggle (tabs/kanban/canvas), inline search (`SearchInline` adapts terminal vs editor), a light/dark toggle beside Install MCP, custom `WindowControls` (Linux/Windows).                                                                                                  |
-| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                                                  |
-| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers by id in App.tsx. App's `isDisabled` decides who owns a chord: a focused terminal keeps its control codes, a focused vim editor keeps `isVimControlChord`, core beats any extension (`coreShortcutFor`).                                        |
-| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                                                         |
-| `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                                                                |
-| `theme/`          | Theme provider. Light/dark is toggled from the header button; Settings no longer offers an Appearance picker, and `system` survives only as the first-run default.                                                                                                                               |
-| `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                                                      |
-| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance; `worktrees.ts` (see Worktrees).                                                                                                                                                                      |
-| `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution.                                   |
-| `scheduler/`      | Deferred commands: fire a command into a terminal later, surviving restarts. Reached by the in-app agent's `schedule_command` and, through `lib/bridge.ts`, by the MCP `schedule` tool.                                                                                                          |
-| `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                                                  |
-| `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                                                                |
-| `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                                                          |
-| `mcpInstall/`     | The header **Install MCP** button: registers the stdio server with the installed AI CLIs and writes `automationPort`.                                                                                                                                                                            |
+| Module            | Role                                                                                                                                                                                                                                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal/`       | One mounted xterm per tab via `useTerminalSession` + pty-bridge; OSC 7/133 handlers; themes.                                                                                                                                                                                                                                                       |
+| `editor/`         | CodeMirror 6 (`EditorPane`), language modes, AI inline autocomplete, format-on-save, vim mode, prebuilt themes. `lib/notes.ts`: `+` -> Note opens a quick note, a real `note-N.md` under the app data dir that autosaves (debounced, drained by the quit guard) and restores with the workspace.                                                   |
+| `explorer/`       | File tree (Material/Catppuccin icons), fuzzy search, keyboard nav, inline rename. `basename` splits on `/` and `\`.                                                                                                                                                                                                                                |
+| `panes/`          | Split-pane orchestration via `react-resizable-panels` (`PaneStack`, `PaneTreeView`) plus the workspace canvas view (`CanvasView`, free-floating windows).                                                                                                                                                                                          |
+| `tabs/`           | Source of truth: `useTabs` (tab list + active id), `useWorkspaceCwd`, serialization.                                                                                                                                                                                                                                                               |
+| `workspaces/`     | Workspace persistence + switching (`store.ts`, `serialize.ts`).                                                                                                                                                                                                                                                                                    |
+| `header/`         | Top bar: workspace view toggle (tabs/kanban/canvas), inline search (`SearchInline` adapts terminal vs editor), a light/dark toggle beside Install MCP, custom `WindowControls` (Linux/Windows).                                                                                                                                                    |
+| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                                                                                                                                                                                                                                    |
+| `shortcuts/`      | Keymap registry + `useGlobalShortcuts`; handlers by id in App.tsx. App's `isDisabled` decides who owns a chord: a focused terminal keeps its control codes, a focused vim editor keeps `isVimControlChord`, core beats any extension (`coreShortcutFor`).                                                                                          |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared `commandRegistry` every `useGlobalShortcuts` caller populates, so component-owned commands run too.                                                                                                                                                                                                           |
+| `settings/`       | Settings store (`store.ts` via `tauri-plugin-store`), preferences, window opener.                                                                                                                                                                                                                                                                  |
+| `theme/`          | Theme provider. Light/dark is toggled from the header button; Settings no longer offers an Appearance picker, and `system` survives only as the first-run default.                                                                                                                                                                                 |
+| `ai/`             | AI agent subsystem (below).                                                                                                                                                                                                                                                                                                                        |
+| `scm/`            | `SourceControlPanel` + `GitDiffPane`; `api.ts` wraps `git_*`; AI commit-message affordance; `worktrees.ts` (see Worktrees).                                                                                                                                                                                                                        |
+| `ssh/`            | Connection manager + remote SFTP explorer; `connections.ts` persists hosts (password/key in keychain, or `agent` mode which stores nothing and lets the local ssh-agent sign) and owns `authFields`, the one mode-to-wire mapping; ProxyJump chain resolution.                                                                                     |
+| `scheduler/`      | Deferred commands: fire a command into a terminal later, surviving restarts. Reached by the in-app agent's `schedule_command` and, through `lib/bridge.ts`, by the MCP `schedule` tool.                                                                                                                                                            |
+| `updater/`        | In-app updater UI on `tauri-plugin-updater`; listens for `tedi:trigger-update`.                                                                                                                                                                                                                                                                    |
+| `extensions/`     | Extension host: install UI, permission-gated `ctx` API, contribution registries (see Extensions).                                                                                                                                                                                                                                                  |
+| `automation/`     | The capability bridge (`bridge.ts`): one registry of everything an outside driver can call in-realm, published to `window.__tedi` only when the automation flag is set.                                                                                                                                                                            |
+| `mcpInstall/`     | The header **Install MCP** button: registers the stdio server with the installed AI CLIs and writes `automationPort`. Global or per-project scope (`Scope` in `install.ts`); each CLI has both a home config and its own standard project file, and the project one lands in the focused terminal's cwd (`explorerRoot`, threaded through Header). |
 
 **Tab model** (`tabs/lib/tabTypes.ts`): `Tab = PaneTab | AiDiffTab | GitDiffTab |
 ExtensionTab | ScmTab`. `PaneTab` (`kind:"pane"`) holds a split tree whose leaves
@@ -428,7 +428,8 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 | `shell.ts`                 | `bash_run`, `bash_background` (approval); `bash_logs`, `bash_list`, `bash_kill` (auto)                                                                         | mixed    |
 | `schedule.ts`              | `list_schedules`, `cancel_schedule` (auto); `schedule_command` (approval)                                                                                      | mixed    |
 | `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                     | auto     |
-| `todo.ts`                  | `todo_write`                                                                                                                                                   | auto     |
+| `todo.ts`                  | `todo_write` (the agent's per-turn plan, NOT the user's list)                                                                                                  | auto     |
+| `notes.ts`                 | `notes_read` (auto); `notes_write` add/complete/add_note (approval). The USER's saved notes/todos panel; cannot delete or overwrite                            | mixed    |
 | `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                           | approval |
 
 **Panes and terminals are NOT in this table.** They are MCP tools on
@@ -613,8 +614,17 @@ dev` shares prod data. The daemon outlives the dev GUI; set
   on launch.
 - **MCP server** (`scripts/mcp/`): how an outside AI CLI drives a RUNNING TEDI.
   `server.mjs` speaks JSON-RPC over stdio and reaches the window through one of
-  **two transports** (`transport.mjs` picks per call) - **23 tools**, or
-  `pnpm mcp <verb>` by hand.
+  **two transports** (`transport.mjs` picks per call) - **24 tools**, or
+  `pnpm mcp <verb>` by hand. It is DUAL-ERA (`conformance-verify.ts`): the LEGACY
+  session model (`initialize`, negotiating `2025-11-25` down to `2024-11-05`,
+  batches refused) that every current AI CLI speaks, AND the MODERN `2026-07-28`
+  stateless model added on top - `server/discover`, a `-32022` on an unsupported
+  per-request `_meta` version, and a `resultType` added to MODERN results only so
+  a legacy reply stays byte-identical. A request opening with `initialize` is
+  served legacy; one carrying modern `_meta` is served stateless. No client uses
+  modern yet, so it is forward-compat at zero cost. Tools carry `annotations`
+  (read/destructive hints) from the shared table so both transports advertise
+  identical safety.
   - **The local socket is the default** (`mcp_bridge.rs` <-> `socket.mjs`): a
     named pipe on Windows, a unix socket elsewhere. Every platform, many clients
     at once, authenticated by a per-run token, no restart to enable. It calls
@@ -643,7 +653,13 @@ dev` shares prod data. The daemon outlives the dev GUI; set
     Settings page is a separate webview nothing here can click); `extension`
     enables, disables, reloads, updates or uninstalls one; `schedule` queues a
     command into a terminal for later, lists the queue and cancels one - the same
-    engine `schedule_command` uses, vetted through the same `checkedShellCommand`.
+    engine `schedule_command` uses, vetted through the same `checkedShellCommand`;
+    `notes` reads and adds to the USER's own notes/todos panel (the same list the
+    in-app agent's `notes_read`/`notes_write` reach), add and complete only, never
+    delete. Both `schedule` and `notes` are bridge capabilities
+    (`scheduler/lib/bridge.ts`, `notes/notesAutomation.ts`), so they answer on the
+    local socket and work off Windows; neither has a `tediMcpServer` handler
+    because the in-app agent has the native twin.
     **Installing an extension is refused** - new third-party code goes through the
     user's permission review. No API key can come back: keys live in the keyring,
     never in the store.

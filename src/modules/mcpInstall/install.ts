@@ -29,11 +29,34 @@ export const DEFAULT_PORT = 9222;
 
 type Format = "mcpServers" | "codexToml" | "opencode";
 
+/**
+ * Where an entry is written.
+ *
+ * `global` is the user-wide config in the home directory - the CLI loads it in
+ * every session. `project` is the CLI's OWN project-scoped file inside the open
+ * folder, which the CLI reads only while its working directory is that folder,
+ * and which can be committed so a repo carries its own MCP wiring. Every CLI here
+ * has both, at a documented standard path; see `TARGETS`.
+ */
+export type Scope = "global" | "project";
+
 export type Target = {
   id: string;
   name: string;
-  /** Config file, relative to home unless it starts with a drive or slash. */
+  /** Global config file, relative to home. */
   file: string;
+  /**
+   * Project-scoped config file, relative to the OPEN FOLDER. Each is the tool's
+   * own documented per-project location, verified against current docs rather
+   * than guessed:
+   *  - Claude Code `.mcp.json`, Cursor `.cursor/mcp.json`, Gemini
+   *    `.gemini/settings.json` (same `mcpServers` shape as their user config);
+   *  - Codex `.codex/config.toml` (merged over the global TOML; the project must
+   *    be trusted for Codex to read it);
+   *  - opencode `opencode.json` at the root (overrides the global JSON);
+   *  - Copilot CLI `.copilot/mcp-config.json` (merged over the global one).
+   */
+  projectFile: string;
   /** Paths (relative to home) that prove the CLI is installed. Any one will do. */
   probes: string[];
   format: Format;
@@ -49,6 +72,7 @@ export const TARGETS: Target[] = [
     id: "claude",
     name: "Claude Code",
     file: ".claude.json",
+    projectFile: ".mcp.json",
     probes: [".claude.json", ".claude"],
     format: "mcpServers",
   },
@@ -56,6 +80,7 @@ export const TARGETS: Target[] = [
     id: "codex",
     name: "Codex CLI",
     file: ".codex/config.toml",
+    projectFile: ".codex/config.toml",
     probes: [".codex"],
     format: "codexToml",
   },
@@ -63,6 +88,7 @@ export const TARGETS: Target[] = [
     id: "gemini",
     name: "Gemini CLI",
     file: ".gemini/settings.json",
+    projectFile: ".gemini/settings.json",
     probes: [".gemini"],
     format: "mcpServers",
   },
@@ -70,6 +96,7 @@ export const TARGETS: Target[] = [
     id: "opencode",
     name: "opencode",
     file: ".config/opencode/opencode.json",
+    projectFile: "opencode.json",
     probes: [".config/opencode"],
     format: "opencode",
   },
@@ -77,6 +104,7 @@ export const TARGETS: Target[] = [
     id: "copilot",
     name: "GitHub Copilot CLI",
     file: ".copilot/mcp-config.json",
+    projectFile: ".copilot/mcp-config.json",
     probes: [".copilot"],
     format: "mcpServers",
   },
@@ -84,6 +112,7 @@ export const TARGETS: Target[] = [
     id: "cursor",
     name: "Cursor",
     file: ".cursor/mcp.json",
+    projectFile: ".cursor/mcp.json",
     probes: [".cursor"],
     format: "mcpServers",
   },
@@ -323,26 +352,51 @@ function withoutEntry(target: Target, text: string): string {
 // --- public API ------------------------------------------------------------
 
 export type TargetStatus = Target & {
-  /** The CLI is installed on this machine. */
+  /** Which scope this row was resolved for. */
+  scope: Scope;
+  /** The CLI is installed on this machine (and, for `project`, a folder is open). */
   present: boolean;
   /** Our entry is in its config and points at this TEDI. */
   installed: boolean;
-  /** Absolute config path, for the dialog. */
+  /** Absolute config path, for the dialog. Empty only for `project` with no open
+   *  folder, which `present:false` already flags. */
   path: string;
 };
 
-async function resolve(target: Target): Promise<{ path: string; present: boolean }> {
+/**
+ * The config file for one target in one scope, and whether it can be written.
+ *
+ * `project` needs an open FOLDER: without one there is nowhere to put a
+ * project-scoped file, so `present` is false and `path` is empty. Both scopes
+ * still gate on the CLI being installed here - a project `.mcp.json` for a CLI
+ * the user does not have is a file nothing reads.
+ */
+async function resolve(
+  target: Target,
+  scope: Scope,
+  root: string | null,
+): Promise<{ path: string; present: boolean }> {
   const h = await home();
-  const probes = await Promise.all(target.probes.map((p) => exists(`${h}/${p}`)));
-  return { path: `${h}/${target.file}`, present: probes.some(Boolean) };
+  const cliPresent = (await Promise.all(target.probes.map((p) => exists(`${h}/${p}`)))).some(
+    Boolean,
+  );
+  if (scope === "project") {
+    if (!root) return { path: "", present: false };
+    return { path: `${slash(root)}/${target.projectFile}`, present: cliPresent };
+  }
+  return { path: `${h}/${target.file}`, present: cliPresent };
 }
 
-/** Every target, with whether the CLI is here and whether we are wired into it. */
-export async function detect(): Promise<TargetStatus[]> {
+/**
+ * Every target in one scope: where its config is, whether the CLI is here, and
+ * whether we are wired into it. `root` is the OPEN FOLDER (the focused terminal's
+ * cwd), used only for `project`.
+ */
+export async function detect(scope: Scope, root: string | null): Promise<TargetStatus[]> {
   const [server, bundle] = await Promise.all([serverPath(), bundleId()]);
   return await Promise.all(
     TARGETS.map(async (t) => {
-      const { path, present } = await resolve(t);
+      const { path, present } = await resolve(t, scope, root);
       // Per target, not per run. `readOrEmpty` throws on anything it cannot read
       // as text - and `~/.claude.json` is the one file here that realistically
       // trips the 10 MB read cap, because it carries Claude Code's whole project
@@ -358,70 +412,32 @@ export async function detect(): Promise<TargetStatus[]> {
       } catch {
         installed = false;
       }
-      return { ...t, path, present, installed };
+      return { ...t, scope, path, present, installed };
     }),
   );
 }
 
-/** Add (or repair) our entry in one target's config. */
-export async function install(target: Target, port = DEFAULT_PORT): Promise<void> {
-  const { path } = await resolve(target);
+/** Add (or repair) our entry in one target's config for `scope`. */
+export async function install(
+  target: Target,
+  scope: Scope,
+  root: string | null,
+  port = DEFAULT_PORT,
+): Promise<void> {
+  const { path, present } = await resolve(target, scope, root);
+  if (!path) throw new Error("Open a folder first to install a project-scoped config.");
+  if (!present) throw new Error(`${target.name} is not installed on this machine.`);
   const server = await serverPath();
   await writeFile(path, withEntry(target, await readOrEmpty(path), server, port, await bundleId()));
 }
 
 /** Remove our entry, leaving the rest of the file untouched. */
-export async function uninstall(target: Target): Promise<void> {
-  const { path } = await resolve(target);
+export async function uninstall(target: Target, scope: Scope, root: string | null): Promise<void> {
+  const { path } = await resolve(target, scope, root);
+  if (!path) return;
   const text = await readOrEmpty(path);
   if (!text.trim()) return;
   await writeFile(path, withoutEntry(target, text));
-}
-
-/**
- * The `.mcp.json` a project shares with its collaborators. Not in `TARGETS`
- * because it is not a CLI and has no home-relative path - it is offered
- * separately, against whatever folder is open.
- */
-export const PROJECT_TARGET: Target = {
-  id: "project",
-  name: "This project (.mcp.json)",
-  file: ".mcp.json",
-  probes: [],
-  format: "mcpServers",
-};
-
-export async function projectStatus(root: string): Promise<TargetStatus> {
-  const path = `${slash(root)}/.mcp.json`;
-  const [server, bundle] = await Promise.all([serverPath(), bundleId()]);
-  return {
-    ...PROJECT_TARGET,
-    // NAME THE FOLDER, not "this project". A CLI reads the `.mcp.json` of ITS
-    // OWN working directory, which is very often not the folder TEDI has open -
-    // and a row that only said "this project" read as global, so an agent still
-    // loading TEDI from some other repo's checked-in `.mcp.json` looked like
-    // this switch being ignored.
-    name: `${slash(root).split("/").pop() || root}/.mcp.json`,
-    path,
-    present: true,
-    installed: readsAsInstalled(PROJECT_TARGET, await readOrEmpty(path), server, bundle),
-  };
-}
-
-export async function installProject(root: string, port = DEFAULT_PORT): Promise<void> {
-  const path = `${slash(root)}/.mcp.json`;
-  const server = await serverPath();
-  await writeFile(
-    path,
-    withEntry(PROJECT_TARGET, await readOrEmpty(path), server, port, await bundleId()),
-  );
-}
-
-export async function uninstallProject(root: string): Promise<void> {
-  const path = `${slash(root)}/.mcp.json`;
-  const text = await readOrEmpty(path);
-  if (!text.trim()) return;
-  await writeFile(path, withoutEntry(PROJECT_TARGET, text));
 }
 
 /** Exported for `scripts/mcp/install-verify.ts`, which drives the file edits

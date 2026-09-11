@@ -1156,6 +1156,7 @@ export default function App() {
             onReorderLeafInGroup={reorderLeafInGroup}
             onToggleSidebar={toggleSidebar}
             onOpenFolder={openWorkspaceFolder}
+            mcpProjectRoot={explorerRoot}
             onSplit={splitActivePaneInActiveTab}
             canSplit={headerCanSplit}
             onOpenExtensions={handleHeaderOpenExtensions}

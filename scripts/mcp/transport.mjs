@@ -43,6 +43,8 @@ export const BRIDGED = {
   panes: "panes",
   // Worktrees are pure git plus a tab, so nothing here needs the compositor.
   worktree: "worktree",
+  // The user's notes/todos are a store read or write, no DOM and no compositor.
+  notes: "notes",
   // The DOM reads and the terminal reductions. These were the LAST CDP-only
   // calls that did not genuinely need a trusted input event or the compositor,
   // and CDP is Windows-only - so `state`, `sh`, `read`, `run_command`,

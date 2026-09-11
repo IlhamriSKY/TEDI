@@ -124,6 +124,16 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
     i.action === "create"
       ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
       : `Scheduling ${String(i.action ?? "")}`.trim(),
+  // The stdio server serves this to outside CLIs; the in-app agent uses native
+  // `notes_read`/`notes_write` and does not reach it, but the surface check wants
+  // a label for every tedi tool. Reuses verbs that already own a gait, the same
+  // way `notes_write` above does - a new one would fail step-motion-verify.
+  mcp__tedi__notes: (i) =>
+    i.action === "complete_todo"
+      ? `Setting a todo done`
+      : i.action === "add_todo" || i.action === "add_note"
+        ? `Creating ${i.action === "add_note" ? "note" : "todo"}`
+        : `Reading your notes and todos`,
   mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   notes_read: () => `Reading your notes and todos`,
