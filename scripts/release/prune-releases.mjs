@@ -23,11 +23,17 @@ import { execFileSync } from "node:child_process";
 
 const OWNER = "IlhamriSKY";
 const CORE = "TEDI";
+// Every extension repo, alphabetically. Keep this in step with the folders
+// under `extensions/`: a repo missing here is silently never pruned, which is
+// how TEDI.dev-environment reached 11 published releases against a cap of 5.
 const EXTENSIONS = [
   "TEDI.ai-usage",
   "TEDI.api-client",
   "TEDI.beautify",
+  "TEDI.browser",
+  "TEDI.dev-environment",
   "TEDI.discord-rich-presence",
+  "TEDI.process-monitor",
   "TEDI.remote-access",
   "TEDI.rtk-bridge",
   "TEDI.screenshot",
