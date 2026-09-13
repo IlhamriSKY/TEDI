@@ -1,4 +1,3 @@
-import type { ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -13,10 +12,8 @@ type Props = {
   /** Absent in a read-only listing, which drops every action on the section. */
   onSetStaged?: (changes: GitChange[], staged: boolean) => void;
   onDiscard?: (changes: GitChange[]) => void;
-  onClickDiff?: (change: GitChange) => void;
+  onClickDiff?: (change: GitChange, pin?: boolean) => void;
   onDiscardOne?: (change: GitChange) => void;
-  /** Per-file hunk list, rendered under an expanded row. See ChangeRow. */
-  renderHunks?: (change: GitChange) => ReactNode;
   busy?: boolean;
 };
 
@@ -27,9 +24,9 @@ type Props = {
  *
  * The header does NOT collapse the list. Hiding the changes behind a chevron
  * bought nothing the count in the header did not already say, and cost a click
- * before the panel could do its one job. A file is opened by clicking its row.
- * The per-FILE expander in `ChangeRow` is a different control and stays: it
- * reveals hunks, which is how a partial stage is made.
+ * before the panel could do its one job. A file is opened by clicking its row,
+ * into a diff tab: there is no inline per-file expander either, so the panel
+ * never renders a diff nobody clicked.
  */
 export function ChangeSection({
   title,
@@ -38,7 +35,6 @@ export function ChangeSection({
   onDiscard,
   onClickDiff,
   onDiscardOne,
-  renderHunks,
   busy,
 }: Props) {
   if (changes.length === 0) return null;
@@ -118,10 +114,9 @@ export function ChangeSection({
             key={c.relative + ":" + c.status + ":" + (c.staged ? "s" : "w")}
             change={c}
             busy={busy}
-            onClickDiff={onClickDiff ? () => onClickDiff(c) : undefined}
+            onClickDiff={onClickDiff ? (pin) => onClickDiff(c, pin) : undefined}
             onDiscard={onDiscardOne ? () => onDiscardOne(c) : undefined}
             onToggleStage={onSetStaged ? (staged) => onSetStaged([c], staged) : undefined}
-            renderHunks={renderHunks}
           />
         ))}
       </ul>

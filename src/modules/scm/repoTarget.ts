@@ -9,8 +9,9 @@
  * repo and the repo root are the same target, and a folder in no repo at all
  * just resolves back to the workspace's own.
  *
- * Nothing scans, watches or discovers: the target is only ever set by an
- * explicit menu pick.
+ * The target is only ever set by an explicit pick: the Explorer menu, or the
+ * repository picker Source Control fills from `git_find_repos`. Nothing
+ * switches it on its own.
  *
  * `forRoot` is the workspace the pick was made under. Reading through
  * {@link useScmRepoTarget} means opening another workspace stops applying it

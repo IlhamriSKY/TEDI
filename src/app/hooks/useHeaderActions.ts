@@ -41,7 +41,7 @@ export function useHeaderActions({
   handleHeaderCloseEntry: (tabId: number, leafId: number | null) => void;
   handleHeaderNewPreview: () => void;
   handleHeaderNewNote: () => void;
-  handleHeaderPinLeaf: (tabId: number, leafId: number) => void;
+  handleHeaderPinLeaf: (tabId: number, leafId: number | null) => void;
   handleHeaderOpenExtensions: () => void;
   handleHeaderOpenSettings: () => void;
   handleHeaderConnectSsh: (conn: SshConnection, opts?: { private?: boolean }) => void;
@@ -80,8 +80,8 @@ export function useHeaderActions({
     );
   }, [openFileTab]);
   const handleHeaderPinLeaf = useCallback(
-    (tabId: number, leafId: number) => {
-      focusPane(tabId, leafId);
+    (tabId: number, leafId: number | null) => {
+      if (leafId !== null) focusPane(tabId, leafId);
       pinTab(tabId);
     },
     [focusPane, pinTab],

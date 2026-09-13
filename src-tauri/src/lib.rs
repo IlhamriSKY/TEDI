@@ -46,7 +46,7 @@ pub fn purge_allocator() {
 /// Run [`purge_allocator`] on a timer, off the UI thread. Deliberately its own
 /// thread rather than a Tauri async task: the sweep walks the heap, and the one
 /// thing it must never do is share a thread with anything that draws.
-fn spawn_allocator_purge_thread() {
+pub(crate) fn spawn_allocator_purge_thread() {
     let _ = std::thread::Builder::new()
         .name("tedi-alloc-purge".into())
         .spawn(|| loop {
@@ -744,6 +744,7 @@ pub fn run() {
             fs::grep::fs_replace_in_file,
             git::commands::git_status,
             git::commands::git_ignored,
+            git::commands::git_find_repos,
             git::commands::git_file_head,
             git::commands::git_file_at,
             git::commands::git_run,

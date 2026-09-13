@@ -316,27 +316,97 @@ async fn run_stream(
     // on every received chunk, so a legitimately slow but live SSE stream (long
     // gaps between tokens) is unaffected; only a truly dead connection trips it.
     const IDLE_TIMEOUT: Duration = Duration::from_secs(300);
+
+    // Coalescing window, same shape as the PTY flusher's `FLUSH_INTERVAL`. Each
+    // `Channel::send` is its own `webview.eval` of a base64 string, and
+    // `resp.chunk()` yields whatever reqwest got off the socket, so an unbatched
+    // body is one JS evaluation per chunk. The frontend rebuilds these into a
+    // byte `ReadableStream` (`httpProxy.ts` enqueues `base64ToBytes(ev.data)`
+    // into a `ReadableStream<Uint8Array>`), so where the boundaries fall is not
+    // observable, only how many there are.
+    //
+    // BE PRECISE ABOUT WHEN THIS HELPS. It merges only when chunks arrive closer
+    // together than the window. A bulk body (a `web_fetch`, a large non-SSE
+    // response) arrives as fast as the socket delivers and collapses to one send
+    // per window. A token stream does not: at ~45 tokens/s the gaps are ~22 ms,
+    // the buffer is always empty when the next token lands, and the send count
+    // is exactly what it was before, plus up to 16 ms of latency. Faster models
+    // close the gap and do merge. 16 ms is one frame, so the added latency is
+    // under the rate the UI can show it either way.
+    const FLUSH_EVERY: Duration = Duration::from_millis(16);
+    /// Ship early when a window fills up, so a bulk body streams rather than
+    /// sitting in the buffer for the whole window.
+    const FLUSH_BYTES: usize = 64 * 1024;
+
+    let mut pending: Vec<u8> = Vec::new();
+    // Set when `pending` goes from empty to non-empty, so the window is measured
+    // from the FIRST byte in it. A `sleep(FLUSH_EVERY)` re-created per loop pass
+    // would instead restart on every chunk, and a steady stream that produces
+    // faster than the window would then never flush on time at all.
+    let mut flush_at: Option<tokio::time::Instant> = None;
+
+    let flush = |pending: &mut Vec<u8>| -> bool {
+        if pending.is_empty() {
+            return true;
+        }
+        let data = base64::engine::general_purpose::STANDARD.encode(&pending);
+        pending.clear();
+        on_event.send(StreamEvent::Chunk { data }).is_ok()
+    };
+
     loop {
         tokio::select! {
             _ = notify.notified() => break,
+            // Only fires while something is waiting, so a quiet stream parks on
+            // the read instead of waking every 16 ms. `pending()` rather than a
+            // `, if flush_at.is_some()` precondition with an `unwrap` inside:
+            // `select!` still EVALUATES a disabled branch's expression, and this
+            // crate is built `panic = "abort"`, so an `unwrap` there would be a
+            // silent process kill if the guard and the option ever disagreed.
+            // A future that never resolves cannot be got wrong.
+            _ = async {
+                match flush_at {
+                    Some(at) => tokio::time::sleep_until(at).await,
+                    None => std::future::pending::<()>().await,
+                }
+            } => {
+                flush_at = None;
+                if !flush(&mut pending) {
+                    break;
+                }
+            }
             chunk = tokio::time::timeout(IDLE_TIMEOUT, resp.chunk()) => match chunk {
-                Err(_elapsed) => return Err("upstream stalled (idle timeout)".to_string()),
+                Err(_elapsed) => {
+                    // Hand over whatever did arrive before reporting the stall.
+                    flush(&mut pending);
+                    return Err("upstream stalled (idle timeout)".to_string());
+                }
                 Ok(Ok(Some(bytes))) => {
                     if bytes.is_empty() {
                         continue;
                     }
-                    let data = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                    if on_event.send(StreamEvent::Chunk { data }).is_err() {
-                        // Frontend stopped listening; stop pulling upstream.
-                        break;
+                    pending.extend_from_slice(&bytes);
+                    if pending.len() >= FLUSH_BYTES {
+                        flush_at = None;
+                        if !flush(&mut pending) {
+                            // Frontend stopped listening; stop pulling upstream.
+                            break;
+                        }
+                    } else {
+                        flush_at.get_or_insert_with(|| tokio::time::Instant::now() + FLUSH_EVERY);
                     }
                 }
                 Ok(Ok(None)) => break,
-                Ok(Err(e)) => return Err(e.to_string()),
+                Ok(Err(e)) => {
+                    flush(&mut pending);
+                    return Err(e.to_string());
+                }
             },
         }
     }
 
+    // The tail: a body that ended mid-window, or a cancel that raced one.
+    flush(&mut pending);
     let _ = on_event.send(StreamEvent::End);
     Ok(())
 }

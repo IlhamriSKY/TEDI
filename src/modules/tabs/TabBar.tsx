@@ -56,8 +56,8 @@ type Props = {
   /** Set a leaf's tab name, or `null` to fall back to the derived one (folder
    *  basename, file name, page title). Backs the right-click Rename. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
-  /** Pin a preview-editor leaf on double-click. */
-  onPinLeaf: (tabId: number, leafId: number) => void;
+  /** Keep a preview tab on double-click. `leafId` is null for a git diff, which has no leaf. */
+  onPinLeaf: (tabId: number, leafId: number | null) => void;
   /** Reorder tabs. `beforeTabId` null appends. */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
   /** Reorder a leaf within its split group. `beforeLeafId` null appends. Cross-group drops are ignored; use `onMoveLeafToGroup`. */

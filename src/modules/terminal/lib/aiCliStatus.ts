@@ -68,10 +68,21 @@ export function aiCliStateColorClass(state: AiCliState): string {
  * themable color + a smooth "breathing" pulse while working / blocking so an
  * active prompt is always visible. Idle stays solid (no animation). Color
  * resolves from the themable `--tedi-icon-*` CSS variables.
+ *
+ * `done` breathes too, but a FINITE number of times (`.ai-breathe-settle`).
+ * It is the only state the app holds indefinitely: it is set on the
+ * working->quiet edge and kept until the user focuses that terminal, so on a
+ * board of finished agents it is N badges that would otherwise animate for
+ * hours. A running animation keeps the compositor producing a frame every
+ * vsync, so "held until noticed" was costing a frame loop per finished agent
+ * for as long as the user did not look. It still catches the eye when it
+ * appears, then rests on its own colour.
  */
 export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
   const color = aiCliStateColorClass(s.state);
-  return s.state === "idle" ? color : `${color} animate-ai-breathe`;
+  if (s.state === "idle") return color;
+  if (s.state === "done") return `${color} ai-breathe-settle`;
+  return `${color} animate-ai-breathe`;
 }
 
 export function toolDisplayName(t: AiCliKind): string {

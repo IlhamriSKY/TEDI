@@ -109,7 +109,14 @@ async fn handle(req: Request<Vec<u8>>) -> Result<Response<Vec<u8>>, String> {
             .get(reqwest::header::CONTENT_LENGTH)
             .and_then(|v| v.to_str().ok())
             .and_then(|s| s.parse::<usize>().ok())
-            .map(|n| n.min(MAX_BODY_BYTES))
+            // Clamped well below `MAX_BODY_BYTES`, because this is an
+            // UPSTREAM-SUPPLIED number and the only thing it buys is skipping a
+            // few doublings. Honouring it up to the cap let one asset
+            // advertising a large Content-Length commit that much immediately,
+            // with no concurrency limit on the handlers a single page fan-out
+            // can start. The `while let` below is what actually enforces the
+            // cap, and `Vec` grows fine without the hint.
+            .map(|n| n.min(256 * 1024))
             .unwrap_or(0),
     );
     while let Some(chunk) = upstream.chunk().await.map_err(|e| format!("body: {e}"))? {

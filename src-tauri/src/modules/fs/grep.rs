@@ -15,6 +15,33 @@ const FILE_SIZE_CAP: u64 = 5 * 1024 * 1024;
 const DEFAULT_MAX_RESULTS: usize = 200;
 const HARD_MAX_RESULTS: usize = 2000;
 
+/// Longest matched line shipped across IPC, in CHARACTERS.
+///
+/// Both consumers slice this by characters, and both want less than this: the
+/// explorer renders `MAX_LINE_CHARS = 240` of it with an ellipsis
+/// (`HighlightLine.tsx`), and the agent's `search` tool cuts at
+/// `MAX_MATCH_TEXT = 400` (`ai/tools/search.ts`). Sitting above both means
+/// neither sees a change, while a single enormous line stops being serialized,
+/// sent and parsed in full only to be thrown away: `FILE_SIZE_CAP` admits a
+/// 5 MiB file, and a committed minified bundle is one line.
+///
+/// Characters rather than bytes, so the cap means the same thing for CJK or
+/// emoji as for ASCII. A byte cap of the same number would hand the agent tool
+/// roughly 170 characters instead of the 400 it asks for on non-ASCII lines.
+const MAX_HIT_CHARS: usize = 512;
+
+/// Truncate to [`MAX_HIT_CHARS`], never mid-codepoint.
+///
+/// `char_indices` yields codepoint boundaries, so the slice below cannot panic
+/// the way a byte offset would. Grep hits land on arbitrary bytes of arbitrary
+/// files, so that case is reached in practice rather than in theory.
+fn clip_line(line: &str) -> String {
+    match line.char_indices().nth(MAX_HIT_CHARS) {
+        Some((end, _)) => line[..end].to_string(),
+        None => line.to_string(),
+    }
+}
+
 #[derive(Serialize)]
 pub struct GrepHit {
     pub path: String,
@@ -191,7 +218,7 @@ fn fs_grep_inner(
                         path: abs.clone(),
                         rel: rel_clone.clone(),
                         line: line_num,
-                        text: text.trim_end_matches('\n').to_string(),
+                        text: clip_line(text.trim_end_matches('\n')),
                     });
                     Ok(true)
                 }),
@@ -527,6 +554,51 @@ fn fs_replace_in_file_inner(
     crate::modules::fs::atomic::atomic_write(&file_path, replaced.as_bytes())
         .map_err(|e| format!("write {path}: {e}"))?;
     Ok(count)
+}
+
+#[cfg(test)]
+mod clip_tests {
+    use super::{clip_line, MAX_HIT_CHARS};
+
+    #[test]
+    fn short_lines_pass_through_unchanged() {
+        assert_eq!(clip_line("hello"), "hello");
+        let exact = "x".repeat(MAX_HIT_CHARS);
+        assert_eq!(clip_line(&exact), exact);
+    }
+
+    #[test]
+    fn a_long_line_is_capped() {
+        let long = "x".repeat(MAX_HIT_CHARS * 4);
+        assert_eq!(clip_line(&long).chars().count(), MAX_HIT_CHARS);
+    }
+
+    /// The cap must be in characters, not bytes, or the agent's `search` tool
+    /// (which asks for 400 characters) silently gets about 170 on a CJK file.
+    #[test]
+    fn the_cap_counts_characters_not_bytes() {
+        let cjk = "\u{4e16}".repeat(MAX_HIT_CHARS * 2);
+        let out = clip_line(&cjk);
+        assert_eq!(out.chars().count(), MAX_HIT_CHARS);
+        assert!(
+            out.len() > MAX_HIT_CHARS,
+            "three bytes per char, so the byte length must exceed the char cap"
+        );
+        // Still valid UTF-8 and a real prefix: no codepoint was split.
+        assert!(cjk.starts_with(&out));
+    }
+
+    /// A mixed line puts the cap in the middle of a multi-byte sequence, which
+    /// is exactly where a byte slice would panic.
+    #[test]
+    fn slicing_never_splits_a_codepoint() {
+        for pad in 0..8 {
+            let line = format!("{}{}", "a".repeat(pad), "\u{4e16}".repeat(MAX_HIT_CHARS));
+            let out = clip_line(&line);
+            assert!(out.chars().count() <= MAX_HIT_CHARS, "pad={pad}");
+            assert!(line.starts_with(&out), "pad={pad}");
+        }
+    }
 }
 
 #[cfg(test)]

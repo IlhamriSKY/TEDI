@@ -179,6 +179,20 @@ export function aiPanelVisible(
   return panelOpen && !activeChatIsPaned(tabs, activeSessionId);
 }
 
+/**
+ * The ONE VS Code-style preview slot, shared by editor and git-diff tabs: a
+ * preview open of either kind replaces whichever tab this matches, so clicking
+ * through files never piles up tabs. A tab the user pinned to the strip is
+ * never replaced, preview flag or not.
+ */
+export function isPreviewTab(t: Tab): boolean {
+  if (t.pinned) return false;
+  if (t.kind === "git-diff") return t.preview === true;
+  if (t.kind !== "pane" || leaves(t.paneTree).length !== 1) return false;
+  const leaf = findLeaf(t.paneTree, t.activeLeafId);
+  return leaf?.leafKind === "editor" && leaf.preview === true;
+}
+
 /** Recompute the top-level mirrors from the active leaf. */
 export function syncPaneMirror(tab: PaneTab): PaneTab {
   const leaf = findLeaf(tab.paneTree, tab.activeLeafId);

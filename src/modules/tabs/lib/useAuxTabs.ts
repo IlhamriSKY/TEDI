@@ -13,7 +13,7 @@ import {
   type ScmTab,
   type Tab,
 } from "./tabTypes";
-import { findAiPane, syncPaneMirror } from "./tabHelpers";
+import { findAiPane, isPreviewTab, syncPaneMirror } from "./tabHelpers";
 
 /**
  * Shared mutable handles `useTabs` threads into the aux-tab sub-hook. These
@@ -90,6 +90,8 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
       baseRev?: string | null;
       oldRelative?: string | null;
       commitLabel?: string;
+      /** Keep the tab. Without it the diff takes the shared preview slot. */
+      pin?: boolean;
     }) => {
       const commitSha = input.commitSha ?? undefined;
       let targetId: number | null = null;
@@ -112,6 +114,7 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
                   ...t,
                   reloadKey: t.reloadKey + 1,
                   changeStatus: input.changeStatus,
+                  ...(input.pin ? { preview: false } : {}),
                 }
               : t,
           );
@@ -121,27 +124,31 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
         const title = commitSha
           ? `${basename(input.path)} @ ${input.commitLabel ?? commitSha.slice(0, 7)}`
           : `${basename(input.path)} (diff)`;
-        return [
-          ...curr,
-          {
-            id,
-            kind: "git-diff",
-            title,
-            path: input.path,
-            relative: input.relative,
-            repoPath: input.repoPath,
-            changeStatus: input.changeStatus,
-            reloadKey: 0,
-            ...(commitSha
-              ? {
-                  commitSha,
-                  baseRev: input.baseRev ?? null,
-                  oldRelative: input.oldRelative ?? null,
-                  commitLabel: input.commitLabel,
-                }
-              : {}),
-          },
-        ];
+        const tab: Tab = {
+          id,
+          kind: "git-diff",
+          title,
+          path: input.path,
+          relative: input.relative,
+          repoPath: input.repoPath,
+          changeStatus: input.changeStatus,
+          reloadKey: 0,
+          ...(input.pin ? {} : { preview: true }),
+          ...(commitSha
+            ? {
+                commitSha,
+                baseRev: input.baseRev ?? null,
+                oldRelative: input.oldRelative ?? null,
+                commitLabel: input.commitLabel,
+              }
+            : {}),
+        };
+        if (input.pin) return [...curr, tab];
+        const previewIdx = curr.findIndex(isPreviewTab);
+        if (previewIdx === -1) return [...curr, tab];
+        const next = [...curr];
+        next[previewIdx] = tab;
+        return next;
       });
       if (targetId !== null) setActiveId(targetId);
       return targetId as number | null;
@@ -419,11 +426,7 @@ export function useAuxTabs({ setTabs, setActiveId, nextIdRef, tabsRef }: AuxTabs
             if (opts.icon !== undefined) patched.icon = opts.icon;
             // A tab carries `state` as an opaque object, so it cannot be
             // compared cheaply; the two fields that move every tick can.
-            if (
-              patched.title === t.title &&
-              patched.icon === t.icon &&
-              patched.state === t.state
-            ) {
+            if (patched.title === t.title && patched.icon === t.icon && patched.state === t.state) {
               return t;
             }
             changed = true;

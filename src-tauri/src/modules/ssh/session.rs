@@ -1154,6 +1154,12 @@ pub async fn connect(
         // closed (the browser / bridge went away). Without this, dead sinks
         // accumulate across reconnects and the pump wastes a clone + send on
         // every output byte.
+        // Borrows rather than taking ownership, so the two hot arms below can
+        // fan FIRST and then MOVE the event into the primary channel. Sent
+        // first, every byte of remote output paid for a second full copy of its
+        // base64 String even when the mirror list is empty, which is the normal
+        // case (a mirror exists only while the browser relay or the bridge is
+        // attached).
         let fan = |ev: &SshEvent| {
             if let Ok(mut sinks) = pump_sinks.lock() {
                 sinks.retain(|ch| ch.send(ev.clone()).is_ok());
@@ -1171,15 +1177,15 @@ pub async fn connect(
                     let ev = SshEvent::Data {
                         data: B64.encode(data),
                     };
-                    let _ = on_event_pump.send(ev.clone());
                     fan(&ev);
+                    let _ = on_event_pump.send(ev);
                 }
                 ChannelMsg::ExtendedData { ref data, ext: 1 } => {
                     let ev = SshEvent::Stderr {
                         data: B64.encode(data),
                     };
-                    let _ = on_event_pump.send(ev.clone());
                     fan(&ev);
+                    let _ = on_event_pump.send(ev);
                 }
                 ChannelMsg::ExitStatus { exit_status } => {
                     let ev = SshEvent::Exit {

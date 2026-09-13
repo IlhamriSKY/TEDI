@@ -2549,26 +2549,27 @@ const fileIcons: FileIcons = {
   },
 };
 
-const { languageIds, fileExtensions, fileNames } = Object.entries(fileIcons).reduce(
-  ({ languageIds, fileExtensions, fileNames }, [name, icon]) => ({
-    languageIds: {
-      ...languageIds,
-      ...icon.languageIds?.reduce((a, c) => ({ ...a, [c]: name }), {}),
-    },
-    fileExtensions: {
-      ...fileExtensions,
-      ...icon.fileExtensions?.reduce((a, c) => ({ ...a, [c]: name }), {}),
-    },
-    fileNames: {
-      ...fileNames,
-      ...icon.fileNames?.reduce((a, c) => ({ ...a, [c]: name }), {}),
-    },
-  }),
-  {
-    languageIds: {},
-    fileExtensions: {},
-    fileNames: {},
-  },
-);
+// Invert the table above into three flat lookups: extension/filename/language
+// id -> icon name.
+//
+// Plain loops, and that is the point. This used to be a `reduce` whose every
+// step SPREAD the accumulator into a brand new object, with a second spreading
+// `reduce` nested inside it per field. That is quadratic: the accumulator is
+// copied once per entry, and it grows as it goes, so building the ~1,950
+// mappings from 392 entries copied millions of key-value pairs and allocated a
+// few thousand throwaway objects. It runs at module evaluation, which is on the
+// startup path (the explorer icon lookups are imported eagerly), and it
+// produced exactly the same three objects a single pass of assignments does.
+//
+// Later wins on a duplicate key, which is what the spread order did too.
+const languageIds: Record<string, string> = {};
+const fileExtensions: Record<string, string> = {};
+const fileNames: Record<string, string> = {};
+
+for (const [name, icon] of Object.entries(fileIcons)) {
+  for (const id of icon.languageIds ?? []) languageIds[id] = name;
+  for (const ext of icon.fileExtensions ?? []) fileExtensions[ext] = name;
+  for (const file of icon.fileNames ?? []) fileNames[file] = name;
+}
 
 export { fileExtensions, fileNames, languageIds };

@@ -322,6 +322,12 @@ export function buildSubagentTools(ctx: ToolContext) {
         const activeSet = new Set<number>();
         const runIds = new Map<number, string>();
         let active = 0;
+        // Resolved by `settle` on the last task. The wait below used to be a
+        // 50 ms `setInterval` re-scanning `settled` with `.every` - 20 renderer
+        // main-thread wakeups per second for the whole batch, which is minutes,
+        // during the window where the agent is doing its heaviest work. The
+        // information was already here: `settle` is the one place a task ends.
+        let onAllSettled: (() => void) | null = null;
 
         // Pre-mark cycled tasks as settled/bad, then cascade-skip their
         // dependents. Without the cascade a non-cycle task that depends on a
@@ -415,7 +421,8 @@ export function buildSubagentTools(ctx: ToolContext) {
               });
           }
           if (failed) skipDependentsOf(result.index);
-          if (!settled.every(Boolean)) pump();
+          if (settled.every(Boolean)) onAllSettled?.();
+          else pump();
         }
 
         async function runOne(i: number, depResults: (typeof results)[number][]) {
@@ -481,14 +488,17 @@ export function buildSubagentTools(ctx: ToolContext) {
         }
 
         pump();
-        if (active > 0) {
+        // `active > 0` is kept from the polling version deliberately: it means
+        // something is in flight that can still settle. Waiting on the unsettled
+        // count alone would turn "nothing launchable left" (which the old code
+        // fell through) into a permanent hang.
+        if (active > 0 && !settled.every(Boolean)) {
           await new Promise<void>((resolve) => {
-            const id = setInterval(() => {
-              if (settled.every(Boolean)) {
-                clearInterval(id);
-                resolve();
-              }
-            }, 50);
+            onAllSettled = resolve;
+            // `settle` can have completed the batch between the check above and
+            // this callback running; resolving twice is a no-op, never settling
+            // is a hang.
+            if (settled.every(Boolean)) resolve();
           });
         }
 

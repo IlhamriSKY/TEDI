@@ -24,6 +24,12 @@ export function gitStatusSsh(sessionId: number, cwd: string): Promise<GitStatus>
   return invoke<GitStatus>("ssh_git_status", { id: sessionId, cwd });
 }
 
+/** Git repositories at or below `root` (the root itself included when it is
+ *  one), forward-slash and sorted. Depth- and time-capped on the Rust side. */
+export function gitFindRepos(root: string): Promise<string[]> {
+  return invoke<string[]>("git_find_repos", { root });
+}
+
 /** Gitignored working-tree entries as forward-slash absolute paths (fully
  *  ignored directories collapsed to the directory). Drives explorer dimming. */
 export function gitIgnored(repoPath: string): Promise<string[]> {

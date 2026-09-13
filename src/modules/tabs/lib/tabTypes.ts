@@ -61,6 +61,8 @@ export type GitDiffTab = {
   oldRelative?: string | null;
   /** Short SHA shown in the diff header. */
   commitLabel?: string;
+  /** Still in the preview slot: the next preview open replaces this tab. */
+  preview?: boolean;
 };
 
 /**

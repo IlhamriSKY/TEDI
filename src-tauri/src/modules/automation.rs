@@ -70,15 +70,85 @@ pub fn debug_port() -> Option<u16> {
 // WebView2 startup flags.
 // ---------------------------------------------------------------------------
 
-/// WebView2 command-line flags for TEDI's own webviews.
-///
-/// Keeps wry's defaults (disable the mini-menu / SmartScreen / PDF OOUI) and adds
-/// the bits that keep the window processing while it is minimized or occluded:
-/// turning off `CalculateNativeWinOcclusion` plus renderer and timer background
-/// throttling, so CDP input and rendering keep working for the automation
-/// channel rather than freezing behind an occlusion check.
+/// Chromium features TEDI turns off for every webview it creates. These are
+/// wry's defaults (the mini-menu, SmartScreen, the PDF OOUI); none of them
+/// changes how the compositor schedules work.
 #[cfg(target_os = "windows")]
-const WEBVIEW2_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI,msSmartScreenProtection,CalculateNativeWinOcclusion --disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-background-timer-throttling --autoplay-policy=no-user-gesture-required";
+const DISABLED_FEATURES: &str = "msWebOOUI,msPdfOOUI,msSmartScreenProtection";
+
+/// Flags every webview gets, automation or not.
+///
+/// `--disable-background-timer-throttling` is here on purpose, and it is the one
+/// piece of the old Puppeteer flag set that TEDI genuinely needs as a terminal.
+/// A covered window is `hidden` to Chromium, and a hidden page normally has its
+/// timers cut to 1 Hz. xterm.js drains pending output on a chained
+/// `setTimeout` (`WriteBuffer._innerWrite` reschedules whenever a write exceeds
+/// its 12 ms budget), so at 1 Hz a build log running in a window you have
+/// switched away from would arrive roughly twelve milliseconds of work per
+/// second and pile up in the write buffer until you came back. Every poller in
+/// the app is on the same footing.
+///
+/// Critically, keeping it costs almost nothing: timer throttling is not what
+/// makes an unattended window expensive. See [`WEBVIEW2_AUTOMATION_ARGS`].
+#[cfg(target_os = "windows")]
+const WEBVIEW2_COMMON_ARGS: &str =
+    "--autoplay-policy=no-user-gesture-required --disable-background-timer-throttling";
+
+/// The flags that stop Chromium from ever noticing the window is not on screen.
+///
+/// THESE ARE AUTOMATION-ONLY, and it matters that they stay that way. Together
+/// they turn off native occlusion detection (`CalculateNativeWinOcclusion`),
+/// occluded-window backgrounding, and renderer backgrounding, so the compositor
+/// and the GPU process keep producing frames at the display refresh rate
+/// forever, whether TEDI is focused, buried under a browser, or minimized.
+/// The automation channel needs that, because it drives a window the user may
+/// have covered, and it is opt-in and off by default, so it pays for it.
+///
+/// They shipped to every user until v0.4.56. Measured on the same Chromium
+/// build, one window fully covered by another, driving a page that renders
+/// continuously and runs a 50 ms chained timer:
+///
+/// | argument set                     | CPU while covered | timer rate |
+/// |----------------------------------|-------------------|------------|
+/// | what shipped, to everyone        | 4.5% of a core    | 19.6 /s    |
+/// | what a normal user gets now      | 0.1% of a core    | 15.1 /s    |
+/// | what the automation channel gets | 3.4% of a core    | 19.3 /s    |
+///
+/// That middle row is why the split is where it is. Essentially all of the cost
+/// of an unattended window is compositing it, and none of it is the timers, so
+/// TEDI keeps its timers and lets Chromium stop drawing. (A covered window is
+/// also deprioritized, which is the 19.6 -> 15.1 difference: the timer runs a
+/// little slower, not 20x slower the way real throttling would make it.)
+///
+/// THE ONE THING THIS COSTS is browser panes, which are driven over in-process
+/// COM CDP (`browser/cdp.rs`) rather than this port, so they do not get these
+/// flags back. Measured on a covered window: `Page.captureScreenshot` still
+/// SUCCEEDS, because Chromium forces a frame for the capture, but it takes
+/// ~2.7s instead of ~165ms since there is no composited frame to hand back.
+/// `CALL_TIMEOUT` is 45s, so it fits comfortably; an agent screenshotting a
+/// pane while the user works in another window just waits a little longer.
+#[cfg(target_os = "windows")]
+const WEBVIEW2_AUTOMATION_ARGS: &str =
+    "--disable-backgrounding-occluded-windows --disable-renderer-backgrounding";
+
+/// The `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` value for a given port setting.
+///
+/// Pure so the gating is testable: the occlusion flags must appear when, and
+/// only when, the automation channel is on. `debug_port()` caches in a
+/// `OnceLock`, so a test that went through it could only ever see one branch.
+#[cfg(target_os = "windows")]
+fn browser_args(port: Option<u16>) -> String {
+    // `--disable-features` can only appear ONCE: Chromium keeps the last
+    // occurrence and silently drops the earlier ones, so the occlusion entry is
+    // appended to the shared list rather than passed as a second switch.
+    match port {
+        Some(port) => format!(
+            "--disable-features={DISABLED_FEATURES},CalculateNativeWinOcclusion \
+             {WEBVIEW2_AUTOMATION_ARGS} {WEBVIEW2_COMMON_ARGS} --remote-debugging-port={port}"
+        ),
+        None => format!("--disable-features={DISABLED_FEATURES} {WEBVIEW2_COMMON_ARGS}"),
+    }
+}
 
 /// Publish those flags, plus the automation port when one is configured, through
 /// the `WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS` env var the WebView2 loader reads
@@ -98,10 +168,7 @@ pub fn apply_webview2_browser_args_env() {
     // listening socket. `TEDI_DEBUG_PORT`, or the stored setting the Install MCP
     // button writes - which is why it reads `debug_port()` rather than the env
     // var directly: the app has to be able to turn its own channel on.
-    let args = match debug_port() {
-        Some(port) => format!("{WEBVIEW2_ARGS} --remote-debugging-port={port}"),
-        None => WEBVIEW2_ARGS.to_string(),
-    };
+    let args = browser_args(debug_port());
     // Edition 2021: `set_var` is safe. Called on the main thread at startup before
     // any webview (or other thread) exists.
     std::env::set_var("WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS", args);
@@ -118,6 +185,71 @@ mod tests {
         // would hand WebView2 `--remote-debugging-port=0`, which does not mean
         // "off" to Chromium - it means "pick any free port", i.e. silently ON.
         assert_eq!("0".trim().parse::<u16>().ok().filter(|p| *p != 0), None);
+    }
+
+    /// The whole point of the split, in both directions.
+    ///
+    /// A normal user must get a webview Chromium is allowed to stop DRAWING when
+    /// it is covered, because that is where the cost of an unattended window is.
+    /// They must still get unthrottled TIMERS, because that is what keeps xterm
+    /// draining terminal output and the pollers polling while TEDI sits behind
+    /// another window. Shipping the whole Puppeteer set to everyone bought the
+    /// second at the price of the first.
+    #[cfg(target_os = "windows")]
+    #[test]
+    fn only_the_occlusion_flags_are_gated_on_the_automation_channel() {
+        let off = browser_args(None);
+        for flag in [
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "CalculateNativeWinOcclusion",
+            "--remote-debugging-port",
+        ] {
+            assert!(
+                !off.contains(flag),
+                "{flag} must not ship with the channel off"
+            );
+        }
+        assert!(
+            off.contains("--disable-background-timer-throttling"),
+            "timers must stay unthrottled for every user, or a covered window \
+             drains terminal output at 1 Hz"
+        );
+
+        let on = browser_args(Some(9222));
+        for flag in [
+            "--disable-backgrounding-occluded-windows",
+            "--disable-renderer-backgrounding",
+            "--disable-background-timer-throttling",
+            "CalculateNativeWinOcclusion",
+            "--remote-debugging-port=9222",
+        ] {
+            assert!(
+                on.contains(flag),
+                "{flag} is required when the channel is on"
+            );
+        }
+
+        // wry's own feature disables survive both branches, and `--disable-features`
+        // appears exactly once or Chromium drops all but the last copy.
+        for args in [&off, &on] {
+            assert!(args.contains("msWebOOUI"));
+            assert!(args.contains("msPdfOOUI"));
+            assert!(args.contains("msSmartScreenProtection"));
+            assert_eq!(args.matches("--disable-features=").count(), 1, "{args}");
+
+            // A malformed command line does not fail loudly, it is just ignored,
+            // so check the shape: every token is a switch, and the `\` string
+            // continuations did not eat or double a separator.
+            assert!(!args.contains("  "), "double space in {args:?}");
+            assert_eq!(args.trim(), args, "stray outer whitespace in {args:?}");
+            for token in args.split(' ') {
+                assert!(
+                    token.starts_with("--"),
+                    "{token:?} is not a switch in {args:?}"
+                );
+            }
+        }
     }
 
     #[test]

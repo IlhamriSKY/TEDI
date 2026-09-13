@@ -39,6 +39,16 @@ export function ScmStack({ tabs, activeId, rootPath, onPathDeleted, onOpenDiff }
                 onPathDeleted={onPathDeleted}
                 onOpenDiff={onOpenDiff}
                 historyOnly
+                // An inactive scm tab is only `invisible`, so it stays mounted
+                // and its 2.5s git poll kept spawning four `git.exe` per tick
+                // behind an overlay nobody can see.
+                //
+                // `paused`, not `collapsed`: `collapsed` also unmounts the
+                // panel body, which would throw away the commit graph's scroll
+                // position and loaded pages on every tab switch - the exact
+                // state this overlay stays mounted to preserve. `paused` stops
+                // the polls and nothing else, and un-pausing refetches.
+                paused={!visible}
               />
             </div>
           </div>

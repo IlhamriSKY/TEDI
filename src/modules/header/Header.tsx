@@ -62,7 +62,7 @@ type Props = {
   /** Switch the active workspace between tabs / kanban / canvas. */
   onSetView: (view: WorkspaceView) => void;
   /** Pin a preview-editor leaf on double-click. */
-  onPinLeaf: (tabId: number, leafId: number) => void;
+  onPinLeaf: (tabId: number, leafId: number | null) => void;
   /** Drag-and-drop reorder of the tab strip. */
   onReorderTabs?: (fromTabId: number, beforeTabId: number | null) => void;
   /** Drag-and-drop reorder inside a split group. */

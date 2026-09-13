@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.4.55"
+version = "0.4.56"
 description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -186,10 +186,13 @@ windows-sys = { version = "0.59", features = [
 	"Win32_Graphics_Gdi",
 	"Win32_UI_WindowsAndMessaging",
 ] }
-# Capture the focused tab's webview content directly (just the tab, no window
-# chrome) via ICoreWebView2::CapturePreview. A plain screen grab misses WebView2
-# on Windows because it composites through DirectComposition. Versions match the
-# copies wry already pulls in, so no duplicate crates are added.
+# Direct access to the WebView2 COM interfaces wry does not surface. Three uses,
+# all Windows-only: `ICoreWebView2Settings3` to turn off the browser accelerator
+# keys (`lib.rs`) and to harden a browser pane (`browser/mod.rs`), and
+# `CallDevToolsProtocolMethodCompletedHandler` to drive CDP in-process
+# (`browser/cdp.rs`), which is how a pane is screenshotted and scripted.
+# Versions match the copies wry already pulls in, so no duplicate crates are
+# added.
 webview2-com = "0.38"
 # `Win32_Graphics_Gdi` is for the browser pane's window region (`browser/mod.rs`
 # cuts holes where the app draws over it). It compiled without being listed here
@@ -203,17 +206,14 @@ windows = { version = "0.61", features = [
 	"Win32_System_Memory",
 ] }
 
-# macOS/Linux: their screen capture DOES include the webview surface, so the
-# on-demand browser screenshot grabs the composited screen and crops to the pane.
-[target.'cfg(not(target_os = "windows"))'.dependencies]
-# 0.4.0 is the last X11-only release (0.4.1+ pulls pipewire/Wayland, which needs
-# a newer libpipewire than ubuntu-22.04 ships). Fixes the macOS compile bug that
-# 0.0.14 had, while keeping the build light (xcb + dbus, no pipewire/clang).
-xcap = "=0.4.0"
-# Add only the JPEG codec to xcap's re-exported `image` crate (it defaults to
-# PNG-only). Feature-unifies with xcap's own `image` dep, so `xcap::image` gains
-# JPEG without image/default's heavy AVIF/webp encoders.
-image = { version = "0.25", default-features = false, features = ["jpeg"] }
+# NOTE: there is deliberately no `cfg(not(target_os = "windows"))` dependency
+# block. It used to carry `xcap` + `image` for a macOS/Linux screen-capture arm
+# that no longer exists: `grep -rE "use image|image::|xcap" src-tauri/src` finds
+# nothing, and the only `xcap` left in the repo belongs to the separate
+# `extensions/tedi.screenshot` sidecar crate, which pins its own copy. They were
+# compiled into every Linux and macOS build (xcb + dbus + the JPEG codec) and
+# linked into a binary that never called them. Re-add here if a host-side
+# capture path comes back.
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"

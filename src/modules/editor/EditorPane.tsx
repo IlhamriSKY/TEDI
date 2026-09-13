@@ -221,6 +221,32 @@ function revealInView(view: EditorView, t: RevealTarget): void {
   view.focus();
 }
 
+/**
+ * CodeMirror's `basicSetup` toggles, hoisted to module scope.
+ *
+ * As an inline object literal this was a NEW object on every render of
+ * EditorPane, and `@uiw/react-codemirror` treats a changed `basicSetup`
+ * identity as "reconfigure": the whole extension tree is rebuilt, the keymap
+ * (~85 bindings) is re-parsed and every facet is recombined. EditorPane
+ * re-renders on things as ordinary as a keystroke-driven dirty flag, a theme
+ * token change or a tab focus, none of which change a single one of these
+ * booleans. Frozen once, the reconfigure happens when the options actually
+ * differ, which is never.
+ */
+const BASIC_SETUP = {
+  lineNumbers: true,
+  highlightActiveLineGutter: true,
+  foldGutter: false,
+  bracketMatching: true,
+  closeBrackets: true,
+  autocompletion: true,
+  highlightActiveLine: true,
+  highlightSelectionMatches: true,
+  // Custom Ctrl+F / Ctrl+H bar lives in <EditorFindReplace>; the built-in CM
+  // panel would compete with it and stack at the top.
+  searchKeymap: false,
+} as const;
+
 export function EditorPane({
   path,
   onDirtyChange,
@@ -941,19 +967,7 @@ export function EditorPane({
               extensions={extensions}
               height="100%"
               className="min-h-0 flex-1 overflow-hidden"
-              basicSetup={{
-                lineNumbers: true,
-                highlightActiveLineGutter: true,
-                foldGutter: false,
-                bracketMatching: true,
-                closeBrackets: true,
-                autocompletion: true,
-                highlightActiveLine: true,
-                highlightSelectionMatches: true,
-                // Custom Ctrl+F / Ctrl+H bar lives in <EditorFindReplace>; the
-                // built-in CM panel would compete with it and stack at the top.
-                searchKeymap: false,
-              }}
+              basicSetup={BASIC_SETUP}
             />
             <EditorFindReplace ref={findReplaceRef} getView={getView} />
           </div>

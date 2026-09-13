@@ -138,6 +138,10 @@ export function FileExplorer({
     onPathDeleted,
     includeHidden: showHiddenFiles,
     sortMode,
+    // Same reason the git poll below takes `collapsed`: the tree body isn't
+    // rendered, so re-listing every expanded directory every 4s is work for a
+    // view nobody can see.
+    paused: collapsed,
   });
   // Git status + ignored list for VSCode-style decorations (colored names +
   // M/A/U badges, dimmed gitignored rows). Self-contained: polls independently

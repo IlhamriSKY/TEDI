@@ -510,6 +510,11 @@ pub async fn ssh_sftp_read_file(
         // OOM the app by being slurped whole into memory + an IPC string.
         // Mirrors the local fs_read_file size guard.
         const MAX_SFTP_READ_BYTES: u64 = 16 * 1024 * 1024;
+
+        // Two checks, because neither alone is both cheap and sound.
+        //
+        // The stat is the cheap one: it refuses an oversized file in one round
+        // trip instead of pulling 16 MiB across the network first. Keep it.
         if let Ok(meta) = sftp.metadata(path.clone()).await {
             if meta.len() > MAX_SFTP_READ_BYTES {
                 return Err(format!(
@@ -519,7 +524,28 @@ pub async fn ssh_sftp_read_file(
                 ));
             }
         }
-        let bytes = sftp.read(path).await.map_err(humanize)?;
+
+        // The `take` is the sound one. The stat above is an `if let Ok`, so
+        // every way a stat can fail (no permission on the parent, a server that
+        // will not stat that path, a dangling symlink) used to fall straight
+        // through to an unbounded read. A stat can also simply be wrong: a file
+        // being appended to grows between the stat and the read, and a
+        // pseudo-file reports zero length and then streams forever. So the cap
+        // is enforced again on the bytes that actually arrive.
+        let mut file = sftp.open(path).await.map_err(humanize)?;
+        let mut bytes = Vec::new();
+        // One over the cap, so hitting the limit is distinguishable from a file
+        // that happens to be exactly the cap.
+        (&mut file)
+            .take(MAX_SFTP_READ_BYTES + 1)
+            .read_to_end(&mut bytes)
+            .await
+            .map_err(|e| humanize(SftpError::IO(e.to_string())))?;
+        if bytes.len() as u64 > MAX_SFTP_READ_BYTES {
+            return Err(format!(
+                "file too large to open: over {MAX_SFTP_READ_BYTES} bytes"
+            ));
+        }
         // Mirror fs::file::fs_read_file: return UTF-8 text. Binary files
         // explode any editor pane anyway; rejecting up front with a clear
         // message beats handing junk to CodeMirror.

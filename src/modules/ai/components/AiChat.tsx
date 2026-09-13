@@ -326,26 +326,33 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
       raf = requestAnimationFrame(flush);
     };
 
-    const observers: IntersectionObserver[] = [];
-    const wireOne = (id: string): boolean => {
-      const target = scroller.querySelector(
-        `[data-message-id="${CSS.escape(id)}"]`,
-      ) as HTMLElement | null;
-      if (!target) return false;
-      const io = new IntersectionObserver(
-        ([entry]) => {
+    // ONE observer with N targets, not one observer per message. Blink runs an
+    // intersection pass per OBSERVER after layout on any frame where geometry
+    // moved, so an observer each turned scrolling a long chat into N passes per
+    // frame for a single "is this prompt off the top" question. The id comes
+    // back off the target, which already carries it.
+    const io = new IntersectionObserver(
+      (entries) => {
+        for (const entry of entries) {
+          const id = (entry.target as HTMLElement).dataset.messageId;
+          if (!id) continue;
           // "Above viewport" means not intersecting and bounding box ends
           // before the root's top edge. boundingClientRect and rootBounds
           // share viewport coords, so this is a direct y-comparison.
           const rootTop = entry.rootBounds?.top ?? 0;
           const isAbove = !entry.isIntersecting && entry.boundingClientRect.bottom <= rootTop;
           state.set(id, isAbove);
-          schedule();
-        },
-        { root: scroller, threshold: 0 },
-      );
+        }
+        schedule();
+      },
+      { root: scroller, threshold: 0 },
+    );
+    const wireOne = (id: string): boolean => {
+      const target = scroller.querySelector(
+        `[data-message-id="${CSS.escape(id)}"]`,
+      ) as HTMLElement | null;
+      if (!target) return false;
       io.observe(target);
-      observers.push(io);
       return true;
     };
 
@@ -364,7 +371,7 @@ function LastUserMessagePin({ messages }: { messages: UIMessage[] }) {
     return () => {
       if (raf) cancelAnimationFrame(raf);
       if (retryRaf) cancelAnimationFrame(retryRaf);
-      for (const io of observers) io.disconnect();
+      io.disconnect();
     };
   }, [userIdsKey, scrollRef]);
 

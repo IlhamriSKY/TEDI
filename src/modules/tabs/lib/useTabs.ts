@@ -38,6 +38,7 @@ import {
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { type ExtensionTab, type PaneTab, type Tab } from "./tabTypes";
 import {
+  isPreviewTab,
   nextActiveAfterClose,
   sortPinnedFirst,
   syncPaneMirror,
@@ -427,16 +428,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
             });
           });
         }
-        // Find the existing single-leaf editor preview tab to reuse.
-        const previewIdx = curr.findIndex(
-          (t) =>
-            t.kind === "pane" &&
-            leafIds(t.paneTree).length === 1 &&
-            (() => {
-              const l = findLeaf(t.paneTree, t.activeLeafId);
-              return l?.leafKind === "editor" && l.preview;
-            })(),
-        );
+        const previewIdx = curr.findIndex(isPreviewTab);
         const id = nextIdRef.current++;
         const leafId = nextIdRef.current++;
         targetTabId = id;
@@ -475,6 +467,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   const pinTab = useCallback((id: number) => {
     setTabs((curr) =>
       curr.map((t) => {
+        if (t.id === id && t.kind === "git-diff" && t.preview) return { ...t, preview: false };
         if (t.id !== id || t.kind !== "pane") return t;
         const leaf = findLeaf(t.paneTree, t.activeLeafId);
         if (!leaf || leaf.leafKind !== "editor" || !leaf.preview) return t;

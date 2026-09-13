@@ -8,9 +8,14 @@
  * plus an event plumbed from Rust into the webview. `ext_stamps` stats two
  * files per extension and returns one integer each - for a nine-extension
  * install that is eighteen `fs::metadata` calls and a couple of hundred bytes
- * of IPC, roughly once a second, and only while the window is visible. That is
- * far below what the app already does every second for terminals and git
- * decorations, and it cost one small Rust command instead of a dependency.
+ * of IPC, and only while the window is visible. That is far below what the app
+ * already does every second for terminals and git decorations, and it cost one
+ * small Rust command instead of a dependency.
+ *
+ * The cadence is not flat: once/second while anything is moving, backing off to
+ * once/five-seconds after thirty quiet ticks (see `idleTicks`). Almost every
+ * TEDI session never edits an extension, and those sessions should not pay a
+ * per-second poll for the whole day to watch files nobody is writing.
  *
  * ## Why the change has to be stable before reloading
  *
@@ -52,6 +57,28 @@ async function extensionsStore(): Promise<StoreModule["useExtensionsStore"]> {
  *  has passed (~1-2s), slow enough to be invisible in a profile. */
 const POLL_MS = 1000;
 
+/** Cadence once nothing has moved for a while. See `idleTicks`. */
+const IDLE_POLL_MS = 5000;
+
+/** How many all-quiet ticks before backing off to `IDLE_POLL_MS`. */
+const IDLE_TICKS_BEFORE_BACKOFF = 30;
+
+/**
+ * Consecutive ticks where every watched file was byte-identical to its
+ * baseline. Reset to 0 the moment anything moves.
+ *
+ * This watcher exists for someone editing an extension, and that is a small
+ * fraction of the time TEDI is open. At a flat 1 Hz it was an IPC round trip
+ * plus two `fs::metadata` per enabled extension EVERY SECOND for the whole life
+ * of the app, for a user who may never write one.
+ *
+ * The cost of backing off is one slow beat on any save that follows thirty
+ * seconds of quiet, so roughly the first save after a think, not just the first
+ * of a session: worst case ~7s from write to reload instead of ~3s. The tick
+ * after it is back at 1 Hz, so an edit-save-edit-save loop runs at full speed.
+ */
+let idleTicks = 0;
+
 type ExtStamp = { id: string; stamp: number };
 
 /** Last stamp we consider "current" per extension. An id missing from here is
@@ -78,7 +105,17 @@ const pending = new Map<string, number>();
  */
 const watched = new Map<string, string[]>();
 
-let timer: ReturnType<typeof setInterval> | null = null;
+/**
+ * Whether the watcher is live.
+ *
+ * Deliberately separate from `timer`. `timer` is only the handle of a PENDING
+ * wake, and while a tick is in flight there is no pending wake, so a `timer`
+ * left holding an already-fired id would read as "running" to everything that
+ * checks it. Stopping and restarting inside that window would then arm a second
+ * chain and poll at double rate for the rest of the session.
+ */
+let running = false;
+let timer: ReturnType<typeof setTimeout> | null = null;
 let unlistenChanged: UnlistenFn | null = null;
 /** Guards against overlapping ticks: a reload can outlast POLL_MS, and a
  *  second tick landing mid-reload would read a stamp for a half-torn-down
@@ -135,6 +172,10 @@ async function tick(): Promise<void> {
   if (watched.size === 0) return;
 
   ticking = true;
+  // Anything that is not "every watched file is exactly where we left it"
+  // counts, so a bundler mid-write holds the fast cadence rather than letting
+  // it back off between the "wait" tick and the "reload" tick that follows.
+  let changed = false;
   try {
     const requests = [...watched].map(([id, files]) => ({ id, files }));
     const stamps = await invoke<ExtStamp[]>("ext_stamps", { requests });
@@ -150,9 +191,11 @@ async function tick(): Promise<void> {
         continue;
       }
       if (action === "wait") {
+        changed = true;
         pending.set(id, stamp);
         continue;
       }
+      changed = true;
       pending.delete(id);
       baseline.set(id, stamp);
       const name = store.list.find((e) => e.id === id)?.manifest.name ?? id;
@@ -187,8 +230,29 @@ async function tick(): Promise<void> {
     // command being unavailable on an older host during a dev rebuild.
     console.warn("[extensions] stamp poll failed", err);
   } finally {
+    idleTicks = changed ? 0 : idleTicks + 1;
     ticking = false;
   }
+}
+
+/**
+ * Re-arm the next tick at the cadence the last one earned.
+ *
+ * A self-rescheduling timeout rather than an interval: the delay has to be
+ * re-read after every tick for the backoff to mean anything, and chaining also
+ * removes the "a reload outlasts the period and ticks pile up" case the
+ * `ticking` guard exists to absorb.
+ */
+function schedule(): void {
+  const delay = idleTicks >= IDLE_TICKS_BEFORE_BACKOFF ? IDLE_POLL_MS : POLL_MS;
+  timer = setTimeout(() => {
+    // The wake has fired, so there is nothing left to clear.
+    timer = null;
+    void tick().finally(() => {
+      // Stopped while the tick was in flight: do not resurrect the loop.
+      if (running) schedule();
+    });
+  }, delay);
 }
 
 /**
@@ -199,8 +263,9 @@ async function tick(): Promise<void> {
  * there would fight the main window over the same files.
  */
 export function startExtensionAutoReload(): () => void {
-  if (timer) return stopExtensionAutoReload;
-  timer = setInterval(() => void tick(), POLL_MS);
+  if (running) return stopExtensionAutoReload;
+  running = true;
+  schedule();
 
   // Every store mutation (install, update, uninstall, enable, disable, manual
   // reload) announces here, and every one of them changes the files on disk or
@@ -211,11 +276,14 @@ export function startExtensionAutoReload(): () => void {
     if (!id) return;
     baseline.delete(id);
     pending.delete(id);
+    // Installing, enabling or reloading an extension means the user is working
+    // with extensions right now, so drop back to the fast cadence.
+    idleTicks = 0;
     // An uninstall is the one case where forgetting is right: the folder is
     // gone, so there is nothing left to watch and nothing that can come back.
     if (e.payload?.kind === "removed") watched.delete(id);
   }).then((fn) => {
-    if (timer) unlistenChanged = fn;
+    if (running) unlistenChanged = fn;
     else fn(); // stopped before the listener landed
   });
 
@@ -223,8 +291,12 @@ export function startExtensionAutoReload(): () => void {
 }
 
 export function stopExtensionAutoReload(): void {
-  if (timer) clearInterval(timer);
+  // Clear `running` first: a tick already in flight reads it in its `finally`
+  // and must not re-arm the loop behind us.
+  running = false;
+  if (timer) clearTimeout(timer);
   timer = null;
+  idleTicks = 0;
   unlistenChanged?.();
   unlistenChanged = null;
   baseline.clear();

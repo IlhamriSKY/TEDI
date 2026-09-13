@@ -236,6 +236,7 @@ export function buildEntries(
         key: `tab-${t.id}`,
         tabId: t.id,
         label: t.title,
+        italic: t.preview === true,
         pinned: t.pinned === true,
       });
       continue;

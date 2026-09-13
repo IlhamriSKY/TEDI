@@ -121,4 +121,6 @@ export type OpenDiffInput = {
   oldRelative?: string | null;
   /** Short SHA shown in the diff header. */
   commitLabel?: string;
+  /** Open as a kept tab instead of the reusable preview slot. */
+  pin?: boolean;
 };

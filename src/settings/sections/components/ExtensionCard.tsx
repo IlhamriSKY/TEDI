@@ -39,6 +39,10 @@ export function ExtensionCard({
   const contributed = all.flatMap((entry) => (entry.extensionId === ext.id ? [entry.item] : []));
   const [settingsOpen, setSettingsOpen] = useState(false);
 
+  const blurb =
+    ext.manifest.description ??
+    `Source: ${ext.source}${ext.manifest.author ? ` · ${ext.manifest.author}` : ""}`;
+
   const isGithub = ext.source.startsWith("github:");
   const updateAvailable =
     ext.latest_version !== null &&
@@ -82,9 +86,12 @@ export function ExtensionCard({
                 </Badge>
               ) : null}
             </div>
-            <span className="text-muted-foreground text-[10.5px] leading-relaxed">
-              {ext.manifest.description ??
-                `Source: ${ext.source}${ext.manifest.author ? ` · ${ext.manifest.author}` : ""}`}
+            {/* Manifest blurbs run past 1200 chars; clamp so one card cannot own the list. */}
+            <span
+              className="text-muted-foreground line-clamp-2 text-[10.5px] leading-relaxed"
+              title={blurb}
+            >
+              {blurb}
             </span>
             <span className="text-muted-foreground/70 text-[10px]">
               Source: {ext.source}

@@ -19,15 +19,23 @@ import { openUrl } from "@tauri-apps/plugin-opener";
 import { basename } from "@/lib/path";
 import { useSshBrowseStore } from "@/modules/ssh/sshBrowseStore";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { gitStatus, gitStatusSsh, isBranchSwitch, localOps, remoteOps, type GitOps } from "./api";
+import {
+  gitFindRepos,
+  gitStatus,
+  gitStatusSsh,
+  isBranchSwitch,
+  localOps,
+  remoteOps,
+  type GitOps,
+} from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
 import type { CommitAction } from "./CommitDetailPane";
 import { PullRequestsView } from "./PullRequestsView";
-import { HunkList } from "./components/HunkList";
 import { ChangeSection } from "./components/ChangeSection";
 import { CommitBox, type ScmBusy, type ScmMoreAction } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
+import { RepoStrip, repoKey, repoLabel } from "./components/RepoStrip";
 import {
   BranchOpDialog,
   CommitRefDialog,
@@ -78,6 +86,15 @@ type Props = {
   dragHandle?: React.ReactNode;
   /** When the sidebar section is minimized to its header, the body is skipped. */
   collapsed?: boolean;
+  /**
+   * Stop the git polls without unmounting anything.
+   *
+   * Distinct from `collapsed`, which also skips rendering the body. An scm TAB
+   * that is not the active tab stays mounted behind an `invisible` overlay
+   * precisely so its graph keeps its scroll position across a tab switch, so it
+   * wants the polls paused and the body kept. Set by `ScmStack`.
+   */
+  paused?: boolean;
   /**
    * Set only while the FOCUSED terminal leaf is a connected SSH session. The
    * panel then acts on that remote's repo instead of the local workspace, so
@@ -211,6 +228,7 @@ export function SourceControlPanel({
   historyOnly = false,
   dragHandle,
   collapsed = false,
+  paused = false,
   sshSessionId = null,
   sshCwd = null,
 }: Props) {
@@ -220,6 +238,7 @@ export function SourceControlPanel({
   // SSH session's repo and has no local path to point anywhere.
   const repoTarget = useScmRepoTarget(workspaceRoot);
   const clearRepoTarget = useScmRepoTargetStore((s) => s.clear);
+  const setRepoTarget = useScmRepoTargetStore((s) => s.target);
   const targeted = sshSessionId === null && repoTarget !== null;
   const rootPath = targeted ? repoTarget : workspaceRoot;
 
@@ -252,6 +271,14 @@ export function SourceControlPanel({
   // without us wiring a direct ref into the child.
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
   const bumpGraph = useCallback(() => setGraphRefreshToken((n) => n + 1), []);
+  /**
+   * Repositories found inside the workspace folder, tagged with the root they
+   * were scanned for so a list from the previous workspace is never shown
+   * against the next one. Scanned on open and on a manual refresh, never on
+   * the 2.5s poll: repositories do not appear often enough to walk for.
+   */
+  const [foundRepos, setFoundRepos] = useState<{ root: string; list: string[] } | null>(null);
+  const [repoScan, setRepoScan] = useState(0);
 
   // Remote mode: read AND write the SSH session's repo. Every operation below
   // goes through `ops`, which routes to `ssh_git` in this mode, so a remote
@@ -309,7 +336,7 @@ export function SourceControlPanel({
   }, [status?.root, status?.isRepo, remote, sshSessionId]);
 
   const openDiff = useCallback(
-    (c: GitChange) => {
+    (c: GitChange, pin?: boolean) => {
       // Reading a blob and rendering the diff both run local git, so a remote
       // repository has no diff tab to open yet.
       if (!status?.root || remote) return;
@@ -318,6 +345,7 @@ export function SourceControlPanel({
         relative: c.relative,
         repoPath: status.root,
         changeStatus: c.status,
+        pin,
       });
     },
     [status, onOpenDiff, remote],
@@ -370,29 +398,62 @@ export function SourceControlPanel({
 
   const refresh = useCallback(() => {
     bumpGraph();
+    setRepoScan((n) => n + 1);
     return fetchStatus(false);
   }, [fetchStatus, bumpGraph]);
 
+  // Local only: a remote tree would need a walk over SSH, and the picker points
+  // at local paths.
   useEffect(() => {
-    if (collapsed) return;
+    if (!workspaceRoot || remote || collapsed) return;
+    let live = true;
+    void gitFindRepos(workspaceRoot)
+      .catch(() => [])
+      .then((list) => {
+        if (live) setFoundRepos({ root: workspaceRoot, list });
+      });
+    return () => {
+      live = false;
+    };
+  }, [workspaceRoot, remote, collapsed, repoScan]);
+
+  const repos =
+    !remote && workspaceRoot && foundRepos?.root === workspaceRoot ? foundRepos.list : [];
+  /** Anything to switch to besides the workspace's own repository. */
+  const holdsOtherRepos =
+    workspaceRoot !== null && repos.some((r) => repoKey(r) !== repoKey(workspaceRoot));
+
+  const pickRepo = useCallback(
+    (repo: string) => {
+      if (!workspaceRoot) return;
+      // Picking the workspace's own repository IS following the workspace.
+      if (repoKey(repo) === repoKey(workspaceRoot)) clearRepoTarget();
+      else setRepoTarget(repo, workspaceRoot);
+    },
+    [workspaceRoot, clearRepoTarget, setRepoTarget],
+  );
+
+  useEffect(() => {
+    if (collapsed || paused) return;
     void fetchStatus(false);
-  }, [fetchStatus, rootPath, collapsed, sshSessionId]);
+  }, [fetchStatus, rootPath, collapsed, paused, sshSessionId]);
 
   // The anchor moved - a `cd` in the remote terminal, or a different folder
   // opened in the Remote tree - and that can be a different repo. Refetch
   // silently: OSC 7 fires on every prompt, so a spinner here would flash
   // constantly while the user just types.
   useEffect(() => {
-    if (collapsed || sshSessionId === null) return;
+    if (collapsed || paused || sshSessionId === null) return;
     void fetchStatus(true);
-  }, [fetchStatus, collapsed, sshSessionId, sshAnchor]);
+  }, [fetchStatus, collapsed, paused, sshSessionId, sshAnchor]);
 
-  // Collapsed to its header: the change list / graph aren't rendered, so don't
-  // poll git status (subprocess spawn every 2.5s) for an unseen view.
+  // Nobody can see the change list or the graph: collapsed to a header, or
+  // sitting behind another tab. Either way, stop spawning a git subprocess
+  // every 2.5s for it. Un-pausing re-runs the effect above, which refetches.
   useVisibilityPoll(
     () => void fetchStatus(true),
     AUTO_REFRESH_MS,
-    (Boolean(rootPath) || Boolean(remote)) && !collapsed,
+    (Boolean(rootPath) || Boolean(remote)) && !collapsed && !paused,
   );
 
   const sorted = useMemo(() => {
@@ -892,33 +953,6 @@ export function SourceControlPanel({
     }
   }, [busy, ops, status, sorted, identity]);
 
-  /**
-   * Per-file hunk list, shown when a row is expanded.
-   *
-   * Local repositories only: applying part of a file feeds the patch to
-   * `git apply` on stdin, and the SSH transport has no stdin. Keyed off
-   * `graphRefreshToken`, which `refresh()` bumps after a write and the 2.5s
-   * poll does not - a hunk is addressed by its index, so it must be re-read
-   * when the file changes and left alone when it has not.
-   *
-   * Declared with the other hooks and ABOVE the "no folder open" early return:
-   * a hook after that `return` is skipped whenever the panel has no folder, and
-   * React throws "Rendered fewer hooks than expected" the moment one is opened.
-   */
-  const renderHunks = useCallback(
-    (c: GitChange) =>
-      ops ? (
-        <HunkList
-          ops={ops}
-          change={c}
-          reloadKey={graphRefreshToken}
-          onApplied={() => void refresh()}
-          busy={busy !== null}
-        />
-      ) : null,
-    [ops, graphRefreshToken, refresh, busy],
-  );
-
   if (!rootPath && !remote) {
     return (
       <div className="relative flex h-full flex-col">
@@ -1014,10 +1048,6 @@ export function SourceControlPanel({
             onSetStaged={setStaged}
             onClickDiff={remote ? undefined : openDiff}
             onDiscardOne={(c) => setConfirmDiscard([c])}
-            // A conflicted row can never expand (its diff is a COMBINED diff, not
-            // a patch), but passing this keeps its chevron column reserved so the
-            // three sections line up with each other.
-            renderHunks={remote ? undefined : renderHunks}
           />
           <ChangeSection
             title="Staged Changes"
@@ -1027,7 +1057,6 @@ export function SourceControlPanel({
             onDiscard={(cs) => setConfirmDiscard(cs)}
             onClickDiff={remote ? undefined : openDiff}
             onDiscardOne={(c) => setConfirmDiscard([c])}
-            renderHunks={remote ? undefined : renderHunks}
           />
           <ChangeSection
             title="Changes"
@@ -1037,7 +1066,6 @@ export function SourceControlPanel({
             onDiscard={(cs) => setConfirmDiscard(cs)}
             onClickDiff={remote ? undefined : openDiff}
             onDiscardOne={(c) => setConfirmDiscard([c])}
-            renderHunks={remote ? undefined : renderHunks}
           />
           {/* Every section returns null when it has no rows, so without this a
             filter that matches nothing leaves a blank panel that reads as "no
@@ -1102,25 +1130,15 @@ export function SourceControlPanel({
               the file tree is not rooted at, so say which one and how to get
               back rather than letting the panel quietly disagree with the
               Explorer beside it. */}
-          {targeted ? (
-            <div className="border-border/60 bg-muted/40 flex shrink-0 items-center gap-2 border-b px-2 py-1.5">
-              <FolderGit2 size={13} strokeWidth={2} className="text-icon-working shrink-0" />
-              <span
-                className="min-w-0 flex-1 truncate text-[11px]"
-                title={status?.root ?? repoTarget}
-              >
-                {basename(status?.root ?? repoTarget)}
-              </span>
-              <Button
-                variant="outline"
-                size="sm"
-                className="h-6 px-2 text-[11px]"
-                onClick={clearRepoTarget}
-                aria-label="Follow the workspace repository again"
-              >
-                Follow workspace
-              </Button>
-            </div>
+          {workspaceRoot && (targeted || holdsOtherRepos) ? (
+            <RepoStrip
+              workspaceRoot={workspaceRoot}
+              repos={repos}
+              current={status?.isRepo ? (status.root ?? null) : null}
+              targeted={targeted}
+              onPick={pickRepo}
+              onFollowWorkspace={clearRepoTarget}
+            />
           ) : null}
 
           {error ? <div className="text-destructive px-3 py-2 text-[11px]">{error}</div> : null}
@@ -1165,11 +1183,30 @@ export function SourceControlPanel({
             <div className="text-muted-foreground flex min-h-0 flex-1 flex-col items-center justify-center gap-2 px-3 text-center text-[11px]">
               <p>
                 {!remote
-                  ? "This folder is not a git repository."
+                  ? holdsOtherRepos
+                    ? "This folder is not a git repository, but these inside it are:"
+                    : "This folder is not a git repository."
                   : error
                     ? "Could not read the remote repository."
                     : "Not a git repository on the remote."}
               </p>
+              {holdsOtherRepos && workspaceRoot ? (
+                <div className="flex max-h-48 w-full max-w-64 flex-col gap-1 overflow-y-auto">
+                  {repos.map((r) => (
+                    <Button
+                      key={r}
+                      variant="outline"
+                      size="sm"
+                      className="h-7 justify-start text-[11px]"
+                      title={r}
+                      onClick={() => pickRepo(r)}
+                    >
+                      <FolderGit2 size={12} strokeWidth={2} />
+                      <span className="truncate">{repoLabel(r, workspaceRoot)}</span>
+                    </Button>
+                  ))}
+                </div>
+              ) : null}
               {/* The dead end this used to be. Initializing is the one thing a
                   user wants here, and it is a local-only operation. */}
               {!remote && rootPath ? (

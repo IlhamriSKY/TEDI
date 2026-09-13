@@ -335,9 +335,57 @@ fn parse_refs(raw: &str) -> Vec<String> {
     }
 }
 
+/// How long a resolved (or absent) repo root is trusted before `git rev-parse`
+/// is spawned again. A folder does not stop being inside its repository while
+/// you look at it, and the two things that DO change the answer (opening a
+/// different folder, `git init` in this one) either pass a different `start` or
+/// are rare enough to wait out one tick. Kept shorter than the 2.5s poll so a
+/// user-initiated refresh right after a `git init` still re-resolves.
+const REPO_ROOT_TTL: Duration = Duration::from_secs(2);
+
+/// Memo for [`find_repo_root`], keyed on the path asked about. `None` is cached
+/// too: "not a repo" costs the same subprocess to learn as a hit does.
+///
+/// Entries are dropped once they age out (see [`find_repo_root`]), so the map
+/// holds only the paths asked about in the last [`REPO_ROOT_TTL`], which is a
+/// handful even in a long session. Callers pass workspace-level paths (an open
+/// folder, a worktree, a repo root), never per-file ones, but a cache with no
+/// eviction is worth avoiding regardless.
+#[allow(clippy::type_complexity)]
+fn repo_roots() -> &'static Mutex<HashMap<PathBuf, (Instant, Option<PathBuf>)>> {
+    static ROOTS: OnceLock<Mutex<HashMap<PathBuf, (Instant, Option<PathBuf>)>>> = OnceLock::new();
+    ROOTS.get_or_init(Default::default)
+}
+
+/// The repository root containing `start`, or `None`.
+///
+/// Memoized because this is on the polled path and was the single most
+/// frequently spawned git subprocess in the app: `git_status`, `git_ignored`
+/// and the explorer's decoration poll each call it, every 2.5s, per open panel,
+/// and each call was a whole `git rev-parse --show-toplevel` process whose
+/// answer had not changed since the last tick. On a workspace with the Explorer
+/// and Source Control both open plus an scm tab, that alone was several
+/// CreateProcess per second for a constant.
 fn find_repo_root(start: &Path) -> Option<PathBuf> {
+    if let Some((at, cached)) = repo_roots().lock().unwrap().get(start) {
+        if at.elapsed() < REPO_ROOT_TTL {
+            return cached.clone();
+        }
+    }
+    let resolved = resolve_repo_root(start);
+    let now = Instant::now();
+    let mut memo = repo_roots().lock().unwrap();
+    // Sweep on write. An aged-out entry can never be returned, so keeping it
+    // would only grow the map for the rest of the process. Writes happen at
+    // most once per TTL per path, so this walk is over a handful of entries.
+    memo.retain(|_, (at, _)| now.duration_since(*at) < REPO_ROOT_TTL);
+    memo.insert(start.to_path_buf(), (now, resolved.clone()));
+    resolved
+}
+
+fn resolve_repo_root(start: &Path) -> Option<PathBuf> {
     let out = git(start)
-        .args(["rev-parse", "--show-toplevel"])
+        .args(["--no-optional-locks", "rev-parse", "--show-toplevel"])
         .output()
         .ok()?;
     if !out.status.success() {
@@ -529,7 +577,12 @@ struct NumstatEntry {
 /// the caller falls back to counting the file itself.
 fn numstat(root: &Path, staged: bool) -> HashMap<String, NumstatEntry> {
     let mut cmd = git(root);
-    cmd.args(["diff", "--numstat"]);
+    // `--no-optional-locks` for the same reason `status_cmd` above documents,
+    // and this one needs it just as much: `git_status` calls numstat twice on
+    // the same 2.5s poll, so without it every tick that finds a stat-dirty
+    // entry takes the index lock to rewrite it, doubling up with the status
+    // walk beside it and racing any git the user runs in a terminal.
+    cmd.args(["--no-optional-locks", "diff", "--numstat"]);
     if staged {
         cmd.arg("--cached");
     }
@@ -858,6 +911,57 @@ fn git_ignored_inner(repo_path: String) -> Result<Vec<String>, String> {
     Ok(out)
 }
 
+/// How far below the workspace root `git_find_repos` looks. VS Code's own scan
+/// defaults to 1; 3 still reaches `projects/client/app` without walking a
+/// whole home directory.
+const REPO_SCAN_DEPTH: usize = 3;
+const REPO_SCAN_BUDGET: Duration = Duration::from_secs(2);
+const REPO_SCAN_MAX: usize = 100;
+/// Dependency and build trees: huge, and never a checkout the user works in.
+const REPO_SCAN_SKIP: &[&str] = &["node_modules", "target", "vendor", "dist", "build"];
+
+/// Git repositories at or below `root`, forward-slash and sorted, so Source
+/// Control can switch between the checkouts a workspace folder holds instead of
+/// only ever showing the one its root resolves to.
+///
+/// Depth-, time- and count-capped: it runs on workspace open and on a manual
+/// refresh, never on the status poll. Hidden directories are skipped, which
+/// also keeps the walk out of every `.git` itself.
+#[tauri::command]
+pub async fn git_find_repos(root: String) -> Result<Vec<String>, String> {
+    tauri::async_runtime::spawn_blocking(move || Ok(find_repos(Path::new(&root), REPO_SCAN_DEPTH)))
+        .await
+        .map_err(|e| format!("git_find_repos join error: {e}"))?
+}
+
+fn find_repos(root: &Path, depth: usize) -> Vec<String> {
+    let started = Instant::now();
+    let walker = ignore::WalkBuilder::new(root)
+        .standard_filters(false)
+        .hidden(true)
+        .follow_links(false)
+        .max_depth(Some(depth))
+        .filter_entry(|e| {
+            e.file_type().is_some_and(|t| t.is_dir())
+                && !REPO_SCAN_SKIP.contains(&e.file_name().to_string_lossy().as_ref())
+        })
+        .build();
+    let mut out = Vec::new();
+    for entry in walker {
+        if started.elapsed() > REPO_SCAN_BUDGET || out.len() >= REPO_SCAN_MAX {
+            break;
+        }
+        let Ok(entry) = entry else { continue };
+        // `exists`, not `is_dir`: a linked worktree or a submodule has a `.git`
+        // FILE, and is just as much a repository.
+        if entry.path().join(".git").exists() {
+            out.push(to_forward(&entry.path().to_string_lossy()));
+        }
+    }
+    out.sort();
+    out
+}
+
 /// Read a blob at `rev` for a repo-relative path (`git show <rev>:<path>`),
 /// classified like `fs_read_file` (text / image / binary). A path absent at
 /// that revision (added later, deleted, or a rename's other side) yields an
@@ -1049,7 +1153,17 @@ fn git_run_inner(repo_path: String, args: Vec<String>) -> Result<String, String>
     };
     let mut cmd = git(&root);
     cmd.args(&args);
-    run(cmd)
+    let out = run(cmd);
+    // `git init` is the one subcommand that changes what `find_repo_root` would
+    // answer for a path, and the memo has just cached "not a repo" for it on the
+    // way in here. Without this the panel would keep saying so for the rest of
+    // the TTL, i.e. the folder the user just initialised would look like it
+    // failed. Clearing the whole memo is fine: it refills from one subprocess
+    // per path and only ever holds the last couple of seconds of lookups.
+    if out.is_ok() && args[0] == "init" {
+        repo_roots().lock().unwrap().clear();
+    }
+    out
 }
 
 /// Apply a patch this app synthesised, reading it from STDIN.
@@ -1850,6 +1964,81 @@ mod tests {
         assert_eq!(
             parse_branch_header("## HEAD (no branch)"),
             (None, None, 0, 0)
+        );
+    }
+}
+
+#[cfg(test)]
+mod find_repos_tests {
+    use super::find_repos;
+    use std::fs;
+
+    #[test]
+    fn finds_nested_checkouts_and_skips_dependency_and_hidden_trees() {
+        let root = std::env::temp_dir().join(format!("tedi-find-repos-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        for dir in [
+            "a/.git",
+            "b/c/.git",
+            "node_modules/pkg/.git",
+            ".hidden/x/.git",
+            "too/deep/down/here/.git",
+        ] {
+            fs::create_dir_all(root.join(dir)).unwrap();
+        }
+        // A worktree / submodule carries a `.git` FILE.
+        fs::create_dir_all(root.join("wt")).unwrap();
+        fs::write(root.join("wt/.git"), "gitdir: ../a/.git/worktrees/wt").unwrap();
+
+        let base = super::to_forward(&root.to_string_lossy());
+        let got: Vec<String> = find_repos(&root, 3)
+            .into_iter()
+            .map(|p| p.trim_start_matches(&base).to_string())
+            .collect();
+        let _ = fs::remove_dir_all(&root);
+        assert_eq!(got, vec!["/a", "/b/c", "/wt"]);
+    }
+}
+
+#[cfg(test)]
+mod repo_root_memo_tests {
+    use super::{find_repo_root, repo_roots, REPO_ROOT_TTL};
+    use std::path::PathBuf;
+
+    /// The memo exists to stop a `git rev-parse` per poll tick, but a cache that
+    /// only ever grows is its own problem. Entries past the TTL can never be
+    /// returned, so a write sweeps them; this pins that the map does not
+    /// accumulate one entry per path the app has ever asked about.
+    ///
+    /// Asserts on ITS OWN keys rather than the map size: the memo is a process
+    /// global and `git_run_inner`'s tests reach it from other threads, so a size
+    /// assertion here would be flaky rather than wrong.
+    #[test]
+    fn the_memo_evicts_instead_of_growing() {
+        // Paths that cannot exist, so `git rev-parse` fails fast and the memo
+        // caches `None`. Tagged so a parallel test cannot collide.
+        let tag = std::process::id();
+        let mine: Vec<PathBuf> = (0..6)
+            .map(|i| PathBuf::from(format!("/tedi-memo-{tag}-{i}")))
+            .collect();
+        for p in &mine {
+            find_repo_root(p);
+        }
+        assert!(
+            mine.iter()
+                .all(|p| repo_roots().lock().unwrap().contains_key(p)),
+            "the memo should be holding the paths just asked about"
+        );
+
+        std::thread::sleep(REPO_ROOT_TTL + std::time::Duration::from_millis(250));
+        // One write is all it takes: the sweep runs on insert.
+        find_repo_root(&PathBuf::from(format!("/tedi-memo-{tag}-fresh")));
+
+        let held = repo_roots().lock().unwrap();
+        let stale: Vec<_> = mine.iter().filter(|p| held.contains_key(*p)).collect();
+        assert!(
+            stale.is_empty(),
+            "aged-out entries survived a later write: {stale:?}"
         );
     }
 }

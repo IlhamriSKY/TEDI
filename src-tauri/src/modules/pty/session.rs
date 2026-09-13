@@ -1,6 +1,5 @@
 use std::io::{Read, Write};
-use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -50,6 +49,25 @@ const READ_BUF: usize = 16 * 1024;
 const MAX_PENDING: usize = 4 * 1024 * 1024;
 // Hard reset (ESC c) + dim notice. Written verbatim when backlog is dropped.
 const OVERFLOW_NOTICE: &[u8] = b"\x1bc\x1b[2m[tedi: dropped output due to backpressure]\x1b[0m\r\n";
+
+/// Bytes the reader has taken off the PTY and the flusher has not shipped yet,
+/// together with whether the session has ended.
+///
+/// `done` lives INSIDE the mutex, and that is load-bearing rather than tidy.
+/// The flusher decides whether to park while holding this lock. A flag stored
+/// outside it could be set in the window between that decision and the park,
+/// and the `notify_one` that accompanies it would fire into an empty wait list.
+/// The flusher would then sleep forever on a session that had already ended,
+/// leaking its thread and keeping the sink (a Tauri channel, or the daemon
+/// per-session fan-out) alive with it. Keeping the flag here makes the
+/// check-and-park atomic with respect to it by construction.
+struct Pending {
+    bytes: Vec<u8>,
+    /// Set by the waiter once the shell has exited and it has shipped the final
+    /// bytes. The flusher unwinds the first time it sees this with an empty
+    /// buffer.
+    done: bool,
+}
 
 #[derive(Serialize, Clone)]
 #[serde(tag = "type", rename_all = "camelCase")]
@@ -223,8 +241,29 @@ pub fn spawn_with_sink(
         master: Mutex::new(pair.master),
     });
 
-    let pending: Arc<Mutex<Vec<u8>>> = Arc::new(Mutex::new(Vec::with_capacity(READ_BUF)));
-    let done = Arc::new(AtomicBool::new(false));
+    // Bytes the reader has taken off the PTY and the flusher has not shipped
+    // yet, plus the condvar the reader signals when it appends.
+    //
+    // The condvar is what keeps an idle shell free. The flusher used to be a
+    // bare `sleep(FLUSH_INTERVAL)` poll, so every live session woke a thread
+    // 125 times a second forever whether or not the shell had produced a byte:
+    // on the sidecar daemon that poll was measurably ALL of its idle CPU (the
+    // only threads burning any were exactly the ones matching live sessions,
+    // with no output flowing).
+    //
+    // The trade is a little first-byte latency. The old poll was free-running,
+    // so a byte arriving mid-cycle waited a mean of 4 ms for the next wake;
+    // parking wakes on the byte itself but then sleeps a full FLUSH_INTERVAL to
+    // collect the rest of the burst, so the first byte after a quiet spell now
+    // waits ~8 ms. That is half a frame on the echo path and buys an idle
+    // terminal that costs nothing at all.
+    let pending: Arc<(Mutex<Pending>, Condvar)> = Arc::new((
+        Mutex::new(Pending {
+            bytes: Vec::with_capacity(READ_BUF),
+            done: false,
+        }),
+        Condvar::new(),
+    ));
     let spawn_at = Instant::now();
 
     let pending_r = pending.clone();
@@ -242,16 +281,21 @@ pub fn spawn_with_sink(
                             logged_first = true;
                             log::info!("pty first byte after {}ms", spawn_at.elapsed().as_millis());
                         }
-                        let mut g = pending_r.lock_or_recover();
-                        if g.len() + n > MAX_PENDING {
-                            // Discard the whole backlog rather than slicing
-                            // through escape sequences. Emit a hard reset so
-                            // xterm does not carry stale SGR/cursor state.
-                            dropped_bytes += g.len() as u64;
-                            g.clear();
-                            g.extend_from_slice(OVERFLOW_NOTICE);
+                        {
+                            let mut g = pending_r.0.lock_or_recover();
+                            if g.bytes.len() + n > MAX_PENDING {
+                                // Discard the whole backlog rather than slicing
+                                // through escape sequences. Emit a hard reset so
+                                // xterm does not carry stale SGR/cursor state.
+                                dropped_bytes += g.bytes.len() as u64;
+                                g.bytes.clear();
+                                g.bytes.extend_from_slice(OVERFLOW_NOTICE);
+                            }
+                            g.bytes.extend_from_slice(&buf[..n]);
                         }
-                        g.extend_from_slice(&buf[..n]);
+                        // Guard dropped first: the flusher wakes straight into
+                        // the lock rather than into contention on it.
+                        pending_r.1.notify_one();
                     }
                     Err(e) => {
                         // Normal on child exit: the slave fd is closed and
@@ -270,26 +314,51 @@ pub fn spawn_with_sink(
 
     let sink_flush = sink.clone();
     let pending_f = pending.clone();
-    let done_f = done.clone();
     thread::Builder::new()
         .name("tedi-pty-flusher".into())
-        .spawn(move || loop {
-            thread::sleep(FLUSH_INTERVAL);
-            let chunk = {
-                let mut g = pending_f.lock_or_recover();
-                if g.is_empty() {
-                    if done_f.load(Ordering::Acquire) {
+        .spawn(move || {
+            // Handed to the buffer on each flush so the next window writes into
+            // the capacity this one already grew, instead of starting from
+            // empty and walking the doubling chain again 125 times a second.
+            let mut spare: Vec<u8> = Vec::with_capacity(READ_BUF);
+            let (lock, cv) = &*pending_f;
+            loop {
+                // Park until the reader has something, or the session ended.
+                {
+                    let mut g = lock.lock_or_recover();
+                    while g.bytes.is_empty() && !g.done {
+                        g = cv.wait(g).unwrap_or_else(|e| e.into_inner());
+                    }
+                    // Empty and done: the waiter already shipped the tail.
+                    if g.bytes.is_empty() {
                         break;
                     }
+                }
+                // Let the rest of the burst land so one flush carries a whole
+                // window. This is the coalescing the fixed-interval poll used
+                // to provide, and it is what keeps a build log from becoming
+                // one IPC message per read.
+                thread::sleep(FLUSH_INTERVAL);
+                let chunk = std::mem::replace(&mut lock.lock_or_recover().bytes, spare);
+                // The waiter can take the tail while this thread is inside the
+                // coalescing sleep, which leaves nothing here. Shipping an empty
+                // frame would be harmless but pointless, and the fixed-interval
+                // poll this replaced never did it.
+                if chunk.is_empty() {
+                    spare = chunk;
                     continue;
                 }
-                std::mem::take(&mut *g)
-            };
-            // Sink decides encoding: Channel sink base64-encodes for the
-            // Tauri JSON IPC, daemon sink stores raw + fans out to clients.
-            if !sink_flush.data(&chunk) {
-                log::debug!("pty flusher exiting, sink closed");
-                break;
+                // Sink decides encoding: Channel sink base64-encodes for the
+                // Tauri JSON IPC, daemon sink stores raw + fans out to clients.
+                if !sink_flush.data(&chunk) {
+                    log::debug!("pty flusher exiting, sink closed");
+                    break;
+                }
+                spare = chunk;
+                spare.clear();
+                // A single overflow window can leave 4 MiB of capacity behind;
+                // keep a working window's worth and give the rest back.
+                spare.shrink_to(READ_BUF * 4);
             }
         })
         .map_err(|e| {
@@ -300,10 +369,10 @@ pub fn spawn_with_sink(
         })?;
 
     let sink_exit = sink;
-    let pending_e = pending;
-    // Clone instead of move so the outer `done` stays accessible to the
-    // map_err cleanup path below if waiter spawn fails.
-    let done_e = done.clone();
+    // Clone instead of move so the outer `pending` stays reachable from the
+    // map_err path below: if the waiter fails to spawn, that path has to mark
+    // the session done and wake the flusher off its condvar itself.
+    let pending_e = pending.clone();
     thread::Builder::new()
         .name("tedi-pty-waiter".into())
         .spawn(move || {
@@ -319,20 +388,204 @@ pub fn spawn_with_sink(
             if let Err(e) = reader_thread.join() {
                 log::error!("pty reader thread panicked: {e:?}");
             }
-            let tail = std::mem::take(&mut *pending_e.lock_or_recover());
+            // One lock for both, so the flusher cannot observe "not done, and
+            // nothing to send" and park just as this thread finishes. See
+            // `Pending`.
+            let tail = {
+                let mut g = pending_e.0.lock_or_recover();
+                g.done = true;
+                std::mem::take(&mut g.bytes)
+            };
+            // The flusher parks on the condvar now, so setting `done` alone no
+            // longer reaches it.
+            pending_e.1.notify_one();
             if !tail.is_empty() {
                 sink_exit.data(&tail);
             }
-            done_e.store(true, Ordering::Release);
             sink_exit.exit(code);
         })
         .map_err(|e| {
             // Wake the flusher's empty-pending branch so it exits its loop,
-            // and kill the child to unblock the reader.
-            done.store(true, Ordering::Release);
+            // and kill the child to unblock the reader. Same lock discipline
+            // as the waiter above.
+            pending.0.lock_or_recover().done = true;
+            pending.1.notify_one();
             let _ = session.killer.lock().map(|mut k| k.kill());
             format!("spawn pty waiter thread: {e}")
         })?;
 
     Ok((session, size))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::sync::mpsc;
+
+    enum Ev {
+        Data(Vec<u8>),
+        Exit(i32),
+    }
+
+    /// Sink that forwards everything to one channel.
+    ///
+    /// It owns the only `Sender`, so the receiver seeing `Disconnected` means
+    /// every `Arc` clone of the sink has been dropped, i.e. the flusher and the
+    /// waiter threads have both unwound. That is the observable the teardown
+    /// test asserts on.
+    struct CollectSink {
+        tx: mpsc::Sender<Ev>,
+    }
+
+    impl PtyEventSink for CollectSink {
+        fn data(&self, bytes: &[u8]) -> bool {
+            self.tx.send(Ev::Data(bytes.to_vec())).is_ok()
+        }
+        fn exit(&self, code: i32) {
+            let _ = self.tx.send(Ev::Exit(code));
+        }
+    }
+
+    struct Harness {
+        /// `None` once `close()` has run, mirroring `pty_close` handing the
+        /// session to `drop_session`.
+        session: Option<Arc<Session>>,
+        rx: mpsc::Receiver<Ev>,
+        seen: String,
+        exited: Option<i32>,
+        hung_up: bool,
+    }
+
+    impl Harness {
+        /// `None` when this environment has no usable shell, so the tests skip
+        /// rather than fail on a machine that cannot spawn one.
+        fn start() -> Option<Self> {
+            let (tx, rx) = mpsc::channel();
+            let (session, _size) =
+                spawn_with_sink(80, 24, None, Arc::new(CollectSink { tx })).ok()?;
+            Some(Harness {
+                session: Some(session),
+                rx,
+                seen: String::new(),
+                exited: None,
+                hung_up: false,
+            })
+        }
+
+        fn write(&self, bytes: &[u8]) {
+            if let Some(s) = &self.session {
+                let _ = s.writer.lock().unwrap().write_all(bytes);
+            }
+        }
+
+        /// What closing a terminal actually does. Dropping the session closes
+        /// the pseudoconsole, which is what lets the reader see EOF; hold it and
+        /// ConPTY keeps the pipe open no matter what the shell did.
+        fn close(&mut self) {
+            if let Some(s) = self.session.take() {
+                s.kill_tree();
+                drop_session(s);
+            }
+        }
+
+        /// Pump events until `stop` is satisfied or the deadline passes.
+        ///
+        /// Answers ConPTY's opening `ESC[6n` cursor-position query the way a
+        /// terminal would: without a reply ConPTY waits and the shell never
+        /// reaches a prompt, so nothing else would ever happen.
+        fn pump(&mut self, secs: u64, mut stop: impl FnMut(&Harness) -> bool) {
+            let deadline = Instant::now() + Duration::from_secs(secs);
+            let mut answered_cpr = false;
+            while Instant::now() < deadline {
+                if stop(self) {
+                    return;
+                }
+                match self.rx.recv_timeout(Duration::from_millis(250)) {
+                    Ok(Ev::Data(chunk)) => self.seen.push_str(&String::from_utf8_lossy(&chunk)),
+                    Ok(Ev::Exit(code)) => self.exited = Some(code),
+                    Err(mpsc::RecvTimeoutError::Timeout) => {}
+                    Err(mpsc::RecvTimeoutError::Disconnected) => {
+                        self.hung_up = true;
+                        return;
+                    }
+                }
+                if !answered_cpr && self.seen.contains("[6n") {
+                    answered_cpr = true;
+                    self.write(b"\x1b[1;1R");
+                }
+            }
+        }
+
+        /// Wait for the shell to print a prompt, so input is not typed into a
+        /// shell that is still starting up.
+        fn wait_for_prompt(&mut self) {
+            self.pump(45, |h| h.seen.contains("133;B") || h.seen.len() > 120);
+        }
+    }
+
+    impl Drop for Harness {
+        fn drop(&mut self) {
+            self.close();
+        }
+    }
+
+    /// The flusher parks on a condvar instead of polling on a timer, which
+    /// makes the reader's `notify_one` load-bearing: miss it and a terminal
+    /// never paints, with nothing in the logs to say why. A unit test over the
+    /// buffer cannot catch that, because the bug IS the handoff, so this drives
+    /// a real shell through the real reader/flusher/sink chain.
+    ///
+    /// It covers the PARKED path rather than a single delivery: the flusher
+    /// ships ConPTY's opening query, finds the buffer empty, parks again, and
+    /// only a working notify gets the echoed command out afterwards.
+    #[test]
+    fn output_reaches_the_sink_through_the_parked_flusher() {
+        let Some(mut h) = Harness::start() else {
+            eprintln!("no usable shell in this environment; skipping");
+            return;
+        };
+        h.wait_for_prompt();
+        h.write(b"echo TEDI_FLUSH_OK\r\n");
+        // Twice: once as the echoed command line, once as its output. One
+        // occurrence would also be satisfied by a shell that never ran it.
+        h.pump(45, |h| h.seen.matches("TEDI_FLUSH_OK").count() >= 2);
+        let hits = h.seen.matches("TEDI_FLUSH_OK").count();
+        assert!(
+            hits >= 2,
+            "flusher delivered {hits} copies of the marker in {} bytes; the reader \
+             notify or the condvar wait is broken",
+            h.seen.len()
+        );
+    }
+
+    /// Closing a terminal must unwind every thread it started.
+    ///
+    /// This is the guard on the lost wakeup that [`Pending`] exists to prevent.
+    /// A flag set outside the buffer mutex would let the flusher read "not
+    /// done", the waiter set it and fire `notify_one` into an empty wait list,
+    /// and the flusher park forever on a finished session, leaking its thread
+    /// and holding the sink alive with it. The window is invisible in review
+    /// and rare enough to survive manual testing, so it needs a test that
+    /// fails on the symptom: threads that never let go.
+    ///
+    /// `Disconnected` is the assertion: the sink owns the only `Sender`, so the
+    /// receiver only hangs up once the flusher and the waiter have both dropped
+    /// their `Arc` of it. A parked flusher never would.
+    #[test]
+    fn closing_a_session_unwinds_every_thread() {
+        let Some(mut h) = Harness::start() else {
+            eprintln!("no usable shell in this environment; skipping");
+            return;
+        };
+        h.wait_for_prompt();
+        h.close();
+        h.pump(60, |h| h.hung_up);
+        assert!(
+            h.hung_up,
+            "the PTY threads still held the sink 60s after the session was dropped \
+             (exit event: {:?}, {} bytes seen) - a thread is parked and leaked",
+            h.exited,
+            h.seen.len()
+        );
+    }
 }

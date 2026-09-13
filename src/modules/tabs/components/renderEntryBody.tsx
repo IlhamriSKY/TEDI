@@ -49,7 +49,7 @@ export type RenderEntryArgs = {
   dragStyle?: React.CSSProperties;
   /** True when this entry is being dragged. Drives ghost opacity. */
   selfDragging?: boolean;
-  onPinLeaf: (tabId: number, leafId: number) => void;
+  onPinLeaf: (tabId: number, leafId: number | null) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   onCloseEntriesAfter: (entry: Entry) => void;
   sshHosts: Map<string, SshConnection>;
@@ -130,9 +130,8 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       data-tab-id={e.tabId}
       data-tauri-drag-region="false"
       onDoubleClick={() => {
-        if (e.kind === "pane-leaf" && e.italic) {
-          onPinLeaf(e.tabId, e.leafId);
-        }
+        // Italic = still in the preview slot (an editor leaf or a git diff).
+        if (e.italic) onPinLeaf(e.tabId, e.kind === "pane-leaf" ? e.leafId : null);
       }}
       // Drag attrs/listeners supplied by caller. Nullish spreads preserve default click semantics when absent.
       {...(dragAttrs ?? {})}

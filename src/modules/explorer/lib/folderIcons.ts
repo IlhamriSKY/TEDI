@@ -512,16 +512,13 @@ const folderIcons: FolderIcons = {
   },
 };
 
-const { folderNames } = Object.entries(folderIcons).reduce(
-  ({ folderNames }, [name, icon]) => ({
-    folderNames: {
-      ...folderNames,
-      ...icon.folderNames?.reduce((a, c) => ({ ...a, [c]: `folder_${name}` }), {}),
-    },
-  }),
-  {
-    folderNames: {},
-  },
-);
+// folder name -> icon name. One pass of assignments, for the same reason the
+// file table next door uses one: the spreading `reduce` this replaces rebuilt
+// the whole accumulator per entry, at module evaluation, on the startup path.
+const folderNames: Record<string, string> = {};
+
+for (const [name, icon] of Object.entries(folderIcons)) {
+  for (const folder of icon.folderNames ?? []) folderNames[folder] = `folder_${name}`;
+}
 
 export { folderNames };

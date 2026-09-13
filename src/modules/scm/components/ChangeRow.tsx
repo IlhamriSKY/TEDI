@@ -1,4 +1,3 @@
-import { useState, type ReactNode } from "react";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -6,13 +5,14 @@ import { basename, dirname } from "@/lib/path";
 import { cn } from "@/lib/utils";
 import type { GitChange } from "../types";
 import { STATUS_LETTER, STATUS_TONE } from "../statusMeta";
-import { ChevronRight, CornerUpLeft } from "lucide-react";
+import { CornerUpLeft } from "lucide-react";
 
 type RowProps = {
   change: GitChange;
   /** Omitted for a read-only listing: the row then renders as plain text with
-   *  no diff click target. */
-  onClickDiff?: () => void;
+   *  no diff click target. A click opens the diff as a PREVIEW tab the next
+   *  click replaces; a double-click (`pin`) keeps it open, as in VS Code. */
+  onClickDiff?: (pin?: boolean) => void;
   onDiscard?: () => void;
   /**
    * Checked means staged. The index IS the selection - there is no second
@@ -23,34 +23,11 @@ type RowProps = {
   onToggleStage?: (staged: boolean) => void;
   /** Disables the checkbox while an operation on this row is in flight. */
   busy?: boolean;
-  /**
-   * Renders this file's hunks under the row. Absent means no expander at all,
-   * which is how the read-only listing and the SSH panel opt out.
-   *
-   * Offered for a plain modified text file only. An untracked or deleted file
-   * has no two sides to split, a binary one has no hunks, and a rename carries
-   * header lines that `git apply` treats as part of the change - each of those
-   * is a whole-file action, and offering a chevron that opens an empty list
-   * would be worse than not offering one.
-   */
-  renderHunks?: (change: GitChange) => ReactNode;
 };
 
-export function ChangeRow({
-  change,
-  onClickDiff,
-  onDiscard,
-  onToggleStage,
-  busy,
-  renderHunks,
-}: RowProps) {
+export function ChangeRow({ change, onClickDiff, onDiscard, onToggleStage, busy }: RowProps) {
   const name = basename(change.relative);
   const dir = dirname(change.relative);
-  // Local, not lifted: the row's key already carries path + status + staged, so
-  // staging the file re-keys the row and the expansion closes by itself, which
-  // is what should happen when the file moves to the other section.
-  const [expanded, setExpanded] = useState(false);
-  const canExpand = Boolean(renderHunks) && change.status === "modified" && !change.binary;
   // pr-4 keeps the diff-stats / discard indicators clear of the Radix
   // ScrollArea's 10px overlay thumb. pr-3 left only ~2px, which rounds to a
   // visible overlap at some DPIs (matches the GraphRow fix).
@@ -70,7 +47,12 @@ export function ChangeRow({
         )}
         role={onClickDiff ? "button" : undefined}
         tabIndex={onClickDiff ? 0 : undefined}
-        onClick={onClickDiff}
+        onClick={() => onClickDiff?.()}
+        // The checkbox and the discard button are both `<button>`s, and a quick
+        // double toggle of the checkbox must not also pin a diff open.
+        onDoubleClick={(e) => {
+          if (!(e.target as HTMLElement).closest("button")) onClickDiff?.(true);
+        }}
         onKeyDown={(e) => {
           if (onClickDiff && (e.key === "Enter" || e.key === " ")) {
             e.preventDefault();
@@ -78,31 +60,6 @@ export function ChangeRow({
           }
         }}
       >
-        {/* A fixed-width slot whether or not this row has an expander, so the
-            checkboxes of every row still line up. */}
-        {renderHunks ? (
-          <span
-            className="flex size-4 shrink-0 items-center justify-center"
-            onClick={(e) => e.stopPropagation()}
-            onKeyDown={(e) => e.stopPropagation()}
-          >
-            {canExpand ? (
-              <button
-                type="button"
-                className="text-muted-foreground hover:text-foreground cursor-pointer"
-                onClick={() => setExpanded((v) => !v)}
-                aria-expanded={expanded}
-                aria-label={`${expanded ? "Hide" : "Show"} hunks of ${change.relative}`}
-              >
-                <ChevronRight
-                  size={11}
-                  strokeWidth={2.5}
-                  className={cn("transition-transform", expanded && "rotate-90")}
-                />
-              </button>
-            ) : null}
-          </span>
-        ) : null}
         {onToggleStage ? (
           <span
             className="flex shrink-0 items-center"
@@ -163,7 +120,6 @@ export function ChangeRow({
           </span>
         ) : null}
       </div>
-      {canExpand && expanded ? renderHunks!(change) : null}
     </li>
   );
 }

@@ -263,6 +263,22 @@ fn init_logging() {
 /// daemon mode.
 pub fn run_forever() -> ! {
     init_logging();
+    // The daemon is now the process that owns ALL PTY buffering, and it
+    // outlives the GUI by design (see `DEFAULT_IDLE_TIMEOUT_SECS`). That makes
+    // it the process most exposed to the commit ratchet `purge_allocator` in
+    // lib.rs documents: a bursty producer strands freed-but-committed pages
+    // across partly-used mimalloc segments, and nothing hands them back. The
+    // GUI has run this sweep since the ratchet was first measured there; the
+    // daemon inherited the workload and not the sweep.
+    crate::spawn_allocator_purge_thread();
+    // Worker count is deliberately left at tokio's default (one per core).
+    // Pinning it low looks tempting, since the daemon's async work is one local
+    // socket, but `dispatch` runs `Write`, `Resize` and `Attach` INLINE on a
+    // worker and each of those blocks on a ConPTY handle. With `MAX_CLIENTS`
+    // at 64 there can be that many reader loops dispatching at once, so a
+    // small pool is a wedge waiting to happen, and idle workers cost no CPU
+    // and a few hundred KB. Move those arms to `spawn_blocking` first if this
+    // ever needs sizing.
     let rt = tokio::runtime::Builder::new_multi_thread()
         .enable_all()
         .thread_name("tedi-ptyd")
@@ -535,7 +551,7 @@ async fn dispatch(
             // Move to the blocking pool so the sync SPAWN_LOCK + ConPTY
             // openpty/spawn_command (slow on Windows, can run for hundreds
             // of ms) don't pin a tokio worker. Two concurrent Opens would
-            // otherwise stall both workers in a default multi-thread runtime.
+            // otherwise hold two workers for the duration.
             let state_clone = state.clone();
             let client_tx = tx.clone();
             let outcome = tokio::task::spawn_blocking(move || {

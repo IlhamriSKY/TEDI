@@ -26,7 +26,7 @@ type SortableTabGroupProps = {
   groupDragging: boolean;
   /** True when this group is being dragged. */
   isDragging: boolean;
-  onPinLeaf: (tabId: number, leafId: number) => void;
+  onPinLeaf: (tabId: number, leafId: number | null) => void;
   onCloseEntry: (tabId: number, leafId: number | null) => void;
   /** Close every entry to the right of `entry`. Lives in TabBar for the flattened entry list. */
   onCloseEntriesAfter: (entry: Entry) => void;

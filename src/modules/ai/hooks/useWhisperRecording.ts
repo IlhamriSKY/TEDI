@@ -1,5 +1,3 @@
-import { createOpenAI } from "@ai-sdk/openai";
-import { experimental_transcribe as transcribe } from "ai";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useChatStore } from "../store/chatStore";
 
@@ -19,6 +17,16 @@ function pickMime(): string | undefined {
 }
 
 async function transcribeBlob(blob: Blob, apiKey: string): Promise<string> {
+  // Imported here rather than at module scope. This hook is instantiated by
+  // `AiComposerProvider`, which wraps the entire app shell unconditionally, so
+  // a static import put the whole OpenAI provider and the `ai` transcription
+  // entry point into the startup chunk graph for a feature that only runs after
+  // the user has pressed a microphone button and `getUserMedia` has succeeded.
+  // Matches the dynamic-import shape `agent.ts` already uses for providers.
+  const [{ createOpenAI }, { experimental_transcribe: transcribe }] = await Promise.all([
+    import("@ai-sdk/openai"),
+    import("ai"),
+  ]);
   const openai = createOpenAI({ apiKey });
   const buf = new Uint8Array(await blob.arrayBuffer());
   const { text } = await transcribe({

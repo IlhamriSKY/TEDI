@@ -109,6 +109,14 @@ type Options = {
   /** Client-side sort applied on top of the Rust listing. Default: keep the
    *  Rust order (folders first + name-asc). */
   sortMode?: SortMode;
+  /** Stop the auto-refresh poll while the tree body isn't rendered (the panel
+   *  collapsed to its header). The git-decoration poll beside it already takes
+   *  the same gate via `useGitStatusPoll(collapsed ? null : rootPath)`; without
+   *  this one, collapsing the Explorer silenced the git subprocesses but left a
+   *  `fs_read_dir` round-trip per expanded directory running every 4s for a
+   *  tree nobody can see. Un-pausing refreshes once immediately, so expanding
+   *  the panel never shows the pre-collapse listing. */
+  paused?: boolean;
 };
 
 export function useFileTree(rootPath: string | null, options?: Options) {
@@ -228,7 +236,26 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // Auto-refresh to track external mutations without a backend FS watcher.
   // Triggers: window focus/visibility (immediate), interval while focused,
   // FS_REFRESH_EVENT (targeted or full). Polling pauses on blur/hidden.
-  useVisibilityPoll(() => refreshAllLoadedRef.current(), AUTO_REFRESH_MS, Boolean(rootPath));
+  const paused = Boolean(options?.paused);
+  useVisibilityPoll(
+    () => refreshAllLoadedRef.current(),
+    AUTO_REFRESH_MS,
+    Boolean(rootPath) && !paused,
+  );
+
+  // Catch up on whatever changed while the tree was paused.
+  //
+  // `useVisibilityPoll` re-arms its interval when it is re-enabled but does not
+  // fire immediately (its own docstring says an on-enable refresh belongs to the
+  // caller), so without this an Explorer expanded after a collapse would show
+  // the pre-collapse listing until the next tick. The refresh is silent, and
+  // `sameEntries` skips the repaint when nothing moved.
+  const wasPausedRef = useRef(paused);
+  useEffect(() => {
+    const resumed = wasPausedRef.current && !paused;
+    wasPausedRef.current = paused;
+    if (resumed && rootPath) refreshAllLoadedRef.current();
+  }, [paused, rootPath]);
 
   // A targeted refresh, deliberately NOT coalesced: it answers a mutation the
   // app just made, so it must never be dropped for landing near a focus change.

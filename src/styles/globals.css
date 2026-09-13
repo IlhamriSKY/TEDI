@@ -107,6 +107,24 @@
   }
 }
 
+/* The same breathe, but it STOPS. For `done`: a turn that finished and is
+ * waiting to be noticed, a state the app holds until the user focuses that
+ * terminal, which can be hours.
+ *
+ * An infinite animation is not free the way a static badge is: while one is
+ * running the document always has an active animation, so the compositor
+ * produces a frame every vsync for as long as it lasts. `done` is the one
+ * status that can persist unattended and multiply (one per finished agent
+ * pane), so it is the one that must not run forever. Eight cycles is about
+ * fifteen seconds of catching the eye, after which the badge rests at full
+ * opacity and `--tedi-icon-done` carries the meaning on its own.
+ *
+ * `working` and `blocking` keep the infinite breathe: both mean something is
+ * happening right now, and both end on their own. */
+.ai-breathe-settle {
+  animation: ai-breathe 1.8s ease-in-out 8;
+}
+
 /* A pixel cell lighting and going out (components/ui/pixel-activity.tsx).
  *
  * TWO shapes, because the component draws eleven motions and the shape is what
