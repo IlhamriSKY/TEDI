@@ -66,7 +66,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 use modules::{
     automation, backup, browser, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard,
     extensions, format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell,
-    ssh,
+    snapshot, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -781,6 +781,8 @@ pub fn run() {
             backup::backup_seal,
             backup::backup_open,
             clipboard::clipboard_read_text,
+            snapshot::snapshot_watch,
+            snapshot::snapshot_drag,
             browser::browser_place,
             browser::browser_close,
             browser::browser_navigate,

@@ -327,6 +327,12 @@ export type Preferences = {
    */
   autoOpenProjectUrl: boolean;
   /**
+   * Show a preview card bottom-right whenever the OS saves a screenshot (Print
+   * Screen, Win+PrtScn, Cmd+Shift+3/4, GNOME/KDE tools), to open in a pane, drag
+   * anywhere, or copy its path. Watched by `snapshot_watch` in Rust. Default true.
+   */
+  snapshotPreview: boolean;
+  /**
    * User-saved theme presets. Appear in the Theme settings preset grid
    * alongside the built-in `THEME_PRESETS`. The user "saves" the current
    * custom-theme state as a preset (with a chosen name); subsequent
@@ -458,6 +464,7 @@ const KEY_CUSTOM_THEME_ENABLED = "customThemeEnabled";
 const KEY_CUSTOM_THEME = "customTheme";
 const KEY_APP_OPACITY = "appOpacity";
 const KEY_AUTO_OPEN_PROJECT_URL = "autoOpenProjectUrl";
+const KEY_SNAPSHOT_PREVIEW = "snapshotPreview";
 const KEY_USER_THEME_PRESETS = "userThemePresets";
 const KEY_FORMAT_ON_SAVE = "formatOnSave";
 const KEY_FORMATTERS = "formatters";
@@ -596,6 +603,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   customTheme: DEFAULT_CUSTOM_THEME,
   appOpacity: APP_OPACITY_DEFAULT,
   autoOpenProjectUrl: false,
+  snapshotPreview: true,
   userThemePresets: [],
   formatOnSave: false,
   formatters: DEFAULT_FORMATTERS,
@@ -745,6 +753,7 @@ export async function loadPreferences(): Promise<Preferences> {
     appOpacity: clampOpacity(get<number>(KEY_APP_OPACITY) ?? DEFAULT_PREFERENCES.appOpacity),
     autoOpenProjectUrl:
       get<boolean>(KEY_AUTO_OPEN_PROJECT_URL) ?? DEFAULT_PREFERENCES.autoOpenProjectUrl,
+    snapshotPreview: get<boolean>(KEY_SNAPSHOT_PREVIEW) ?? DEFAULT_PREFERENCES.snapshotPreview,
     userThemePresets: (() => {
       const raw = get<unknown>(KEY_USER_THEME_PRESETS);
       if (!Array.isArray(raw)) return DEFAULT_PREFERENCES.userThemePresets;
@@ -935,6 +944,10 @@ export async function setAppOpacity(value: number): Promise<void> {
 
 export async function setAutoOpenProjectUrl(value: boolean): Promise<void> {
   await writePref(KEY_AUTO_OPEN_PROJECT_URL, value);
+}
+
+export async function setSnapshotPreview(value: boolean): Promise<void> {
+  await writePref(KEY_SNAPSHOT_PREVIEW, value);
 }
 
 export async function setDefaultModel(value: DynamicModelId, provider?: ProviderId): Promise<void> {
@@ -1564,6 +1577,7 @@ export async function onPreferencesChange(
     // Written from the Settings window, consumed live by the main window.
     appOpacity: KEY_APP_OPACITY,
     autoOpenProjectUrl: KEY_AUTO_OPEN_PROJECT_URL,
+    snapshotPreview: KEY_SNAPSHOT_PREVIEW,
     userThemePresets: KEY_USER_THEME_PRESETS,
     formatOnSave: KEY_FORMAT_ON_SAVE,
     formatters: KEY_FORMATTERS,

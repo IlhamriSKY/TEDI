@@ -18,3 +18,6 @@ pub const TRIGGER_UPDATE: &str = "tedi:trigger-update";
 /// without the `TEDI_DEBUG_PORT` DevTools channel, which cannot be turned on
 /// after launch (WebView2 fixes its browser arguments at environment creation).
 pub const RUN_COMMAND: &str = "tedi:run-command";
+
+/// Rust -> main window: the OS saved a new screenshot (payload: its native path).
+pub const SNAPSHOT: &str = "tedi:snapshot";

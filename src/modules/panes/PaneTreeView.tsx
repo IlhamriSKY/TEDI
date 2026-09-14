@@ -25,7 +25,8 @@ import {
   type DragStartEvent,
 } from "@dnd-kit/core";
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from "@/components/ui/resizable";
-import { basename } from "@/lib/path";
+import { basename, isImagePath } from "@/lib/path";
+import { copyToClipboard } from "@/modules/explorer/lib/contextActions";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -71,7 +72,9 @@ import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
 import {
   BookOpen,
+  Check,
   Cloud,
+  Copy,
   FileCode,
   Globe,
   GripVertical,
@@ -234,6 +237,33 @@ const PaneDndContext = createContext<PaneDndValue>({
   drag: { sourceLeafId: null, overLeafId: null, edge: null },
   leafCount: 1,
 });
+
+/** Pane-header button that copies an editor pane's file path, confirming with a
+ *  check for a moment. Its own component so the "copied" flag does not
+ *  re-render the whole leaf frame. */
+function CopyPathButton({ path }: { path: string }) {
+  const [copied, setCopied] = useState(false);
+  const timer = useRef<number | undefined>(undefined);
+  return (
+    <IconTooltip label={copied ? "Copied" : "Copy path"} side="bottom">
+      <button
+        type="button"
+        aria-label="Copy path"
+        onClick={(e) => {
+          e.stopPropagation();
+          void copyToClipboard(path).then(() => {
+            setCopied(true);
+            window.clearTimeout(timer.current);
+            timer.current = window.setTimeout(() => setCopied(false), 1500);
+          });
+        }}
+        className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
+      >
+        {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
+      </button>
+    </IconTooltip>
+  );
+}
 
 /** Radio value for "follow the global terminal theme" (clears the override). */
 const FOLLOW_GLOBAL_THEME = "__follow_global__";
@@ -862,8 +892,8 @@ function PaneLeafFrame({
               {/* Word wrap. Same reasoning as the markdown toggle: it belongs on
                 the editor it wraps, and the toolbar copy could only ever
                 address the focused pane. Hidden in markdown preview (nothing
-                to wrap). */}
-              {node.leafKind === "editor" && !mdPreview && (
+                to wrap), and on an image, which has no lines at all. */}
+              {node.leafKind === "editor" && !mdPreview && !isImagePath(node.path) && (
                 <IconTooltip
                   label={(() => {
                     const t = shortcutHint("editor.toggleWordWrap", userShortcuts);
@@ -897,6 +927,7 @@ function PaneLeafFrame({
               {onlyHere && node.leafKind === "editor" && (
                 <ExtensionHeaderItems placement="left" compact />
               )}
+              {node.leafKind === "editor" && <CopyPathButton path={node.path} />}
             </div>
             {floatParams && (
               <IconTooltip

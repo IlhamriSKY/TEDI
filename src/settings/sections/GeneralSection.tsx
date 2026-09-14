@@ -27,6 +27,7 @@ import {
   setUiZoom,
   setShowHiddenFiles,
   setShowSourceControl,
+  setSnapshotPreview,
   setFontFamily,
   setTerminalFontSize,
   setTerminalScrollback,
@@ -64,6 +65,7 @@ export function GeneralSection() {
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
   const customSoundCount = [aiBlockingSound, aiCompletionSound].filter(Boolean).length;
   const autoOpenProjectUrl = usePreferencesStore((s) => s.autoOpenProjectUrl);
+  const snapshotPreview = usePreferencesStore((s) => s.snapshotPreview);
   const uiZoom = usePreferencesStore((s) => s.uiZoom);
   const fontFamily = usePreferencesStore((s) => s.fontFamily);
   // Local mirror for live drag. Persisted on slider release so we don't
@@ -304,6 +306,16 @@ export function GeneralSection() {
             checked={autoOpenProjectUrl}
             onCheckedChange={(v) => void setAutoOpenProjectUrl(v)}
           />
+        </SettingRow>
+      </div>
+
+      <div className="flex flex-col gap-2">
+        <Label>Screenshots</Label>
+        <SettingRow
+          title="Preview new screenshots"
+          description="When you take a screenshot (Print Screen, Win+Shift+S, Cmd+Shift+3/4, the GNOME or KDE screenshot tool), show it bottom-right. Drag it anywhere a file goes: onto a terminal it types the path, onto the AI chat it attaches, or into another app. Or just copy the path. Works with any tool that saves the file into the system screenshot folder; a clipboard-only capture has no file to offer."
+        >
+          <Switch checked={snapshotPreview} onCheckedChange={(v) => void setSnapshotPreview(v)} />
         </SettingRow>
       </div>
 

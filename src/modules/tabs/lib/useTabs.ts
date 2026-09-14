@@ -686,6 +686,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
    * terminal regardless of the active leaf, so Ctrl+D from an editor still
    * spawns a shell. Pass `newKind = "editor"` for side-by-side code.
    * All combinations (terminal/editor, editor/editor) are allowed.
+   * `editorPath` opens that local file in the new editor instead of cloning
+   * the tab's editor, so a split can show a file the tab does not have open.
    */
   const splitActivePane = useCallback(
     (
@@ -693,6 +695,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       dir: SplitDir,
       newKind?: "terminal" | "editor",
       cwdOverride?: string,
+      editorPath?: string,
     ): number | null => {
       let newLeafId: number | null = null;
       setTabs((curr) =>
@@ -718,6 +721,8 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
               terminalOrdinal: allocOrdinal(curr),
             };
             state = ts;
+          } else if (editorPath) {
+            state = { leafKind: "editor", path: editorPath, dirty: false, preview: false };
           } else {
             // Duplicate the active editor; fall back to any editor in the tab.
             // No editor in the tab means nothing to clone, so the split is a no-op.

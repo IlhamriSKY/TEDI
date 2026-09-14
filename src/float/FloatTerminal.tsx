@@ -22,6 +22,8 @@ export function FloatTerminal({ leafId, remotePty }: { leafId: number; remotePty
     if (!el) return;
     const term = new Terminal({
       theme: buildTerminalTheme(null),
+      // Same contrast floor as a docked pane (see session-lifecycle.ts).
+      minimumContrastRatio: 4.5,
       fontFamily: '"JetBrainsMono Nerd Font Mono", ui-monospace, "Cascadia Code", Menlo, monospace',
       fontSize: 13,
       cursorBlink: true,

@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.58] - 14-09-2026
+
+### Added
+
+- **A screenshot you take shows up in TEDI, ready to use.** Press Print Screen (or Win+Shift+S, Cmd+Shift+3/4, the GNOME or KDE screenshot tool) and a preview slides in bottom-right. Click it and the image opens in a pane beside the one you are working in. Drag it and it is the file itself: dropped on a terminal it types the path, dropped on the AI chat it attaches, dropped into Explorer, a browser or a chat app it goes there. Copy path puts the path on the clipboard. The card waits while TEDI is in the background, so a capture of another app is still there when you switch back, and it can be turned off in Settings > General > Screenshots. Nothing hooks the Print Screen key: TEDI watches the folder your system saves screenshots into (the Windows Screenshots folder, including a OneDrive one; the macOS screenshot location or the Desktop; XDG Pictures and its subfolders on Linux, whatever they are called in your language), which is why it works with any tool that saves a file. A capture that only goes to the clipboard has no file to offer and is not shown. The drag is the operating system's own file drag on every platform. See [snapshot.rs](src-tauri/src/modules/snapshot.rs), [SnapshotPreview.tsx](src/modules/snapshot/SnapshotPreview.tsx).
+- **Every file pane has a Copy path button** in its header, beside float. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx).
+
+### Fixed
+
+- **Text in the terminal is readable in light mode.** Programs pick colours assuming a dark background: the grey status lines an AI CLI prints, PowerShell's bright-white typing suggestions and its yellow command names came out nearly white on white, and a light palette cannot fix colours sent as exact RGB. The terminal now enforces a minimum contrast of 4.5:1, the same floor VS Code uses, nudging only the glyphs that fall below it, with dim text held to half that so it still reads as dim. See [session-lifecycle.ts](src/modules/terminal/lib/session-lifecycle.ts).
+- **An image pane no longer offers word wrap**, which did nothing on a picture. See [PaneTreeView.tsx](src/modules/panes/PaneTreeView.tsx).
+
 ## [0.4.57] - 14-09-2026
 
 ### Changed

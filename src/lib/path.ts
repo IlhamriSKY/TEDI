@@ -64,6 +64,15 @@ export function isPdfPath(path: string): boolean {
 }
 
 /**
+ * Files an editor pane shows as a picture instead of text: the formats Rust
+ * `fs::file::sniff_image_mime` recognises. Decided by name so a pane header can
+ * shed text-only controls (word wrap) before the file has been read.
+ */
+export function isImagePath(path: string): boolean {
+  return /\.(png|jpe?g|gif|bmp|webp|ico|svg|avif)$/i.test(path);
+}
+
+/**
  * Convert a local filesystem path to a `file://` URL, or null if it isn't an
  * absolute local path. Handles Windows drive paths (`D:\dir\f.html` /
  * `D:/dir/f.html`), UNC paths (`\\server\share\f`), and POSIX absolute paths

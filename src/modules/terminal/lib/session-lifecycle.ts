@@ -173,6 +173,10 @@ export function ensureSession(
     fontSize,
     lineHeight: 1.05,
     theme: buildTerminalTheme(terminalThemeOverride),
+    // Programs pick colours for a dark background (an AI CLI's truecolor
+    // greys, PSReadLine's bright-white prediction), which a light palette
+    // cannot remap. xterm nudges any glyph below this ratio; 4.5 = VS Code.
+    minimumContrastRatio: 4.5,
     cursorBlink: true,
     cursorStyle: "bar",
     cursorInactiveStyle: "outline",

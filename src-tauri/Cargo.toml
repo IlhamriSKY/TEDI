@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.4.57"
+version = "0.4.58"
 description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -185,6 +185,10 @@ windows-sys = { version = "0.59", features = [
 	"Win32_Graphics_Dwm",
 	"Win32_Graphics_Gdi",
 	"Win32_UI_WindowsAndMessaging",
+	# `SHGetKnownFolderPath(FOLDERID_Screenshots)` + `CoTaskMemFree` for the
+	# screenshot preview watcher (`modules/snapshot.rs`).
+	"Win32_UI_Shell",
+	"Win32_System_Com",
 ] }
 # Direct access to the WebView2 COM interfaces wry does not surface. Three uses,
 # all Windows-only: `ICoreWebView2Settings3` to turn off the browser accelerator
@@ -204,16 +208,22 @@ windows = { version = "0.61", features = [
 	"Win32_System_Com",
 	"Win32_System_Com_StructuredStorage",
 	"Win32_System_Memory",
+	# `SHCreateItemFromParsingName` + `SHDoDragDrop`: the screenshot preview's
+	# native file drag (`modules/snapshot.rs`).
+	"Win32_System_Ole",
+	"Win32_UI_Shell",
 ] }
 
-# NOTE: there is deliberately no `cfg(not(target_os = "windows"))` dependency
-# block. It used to carry `xcap` + `image` for a macOS/Linux screen-capture arm
-# that no longer exists: `grep -rE "use image|image::|xcap" src-tauri/src` finds
-# nothing, and the only `xcap` left in the repo belongs to the separate
-# `extensions/tedi.screenshot` sidecar crate, which pins its own copy. They were
-# compiled into every Linux and macOS build (xcb + dbus + the JPEG codec) and
-# linked into a binary that never called them. Re-add here if a host-side
-# capture path comes back.
+# Native file drag OUT of the window for the screenshot preview
+# (`modules/snapshot.rs`) on macOS (NSDraggingSession) and Linux/BSD (GTK). Not
+# on Windows, where the shell's own `SHDoDragDrop` does it on the `windows` crate
+# above and this crate would add a second, older copy of it. Everything it
+# depends on on these targets (objc2, core-graphics, gtk/gdk 0.18) is already in
+# the tree through tauri, so only `drag` itself is new. Code behind
+# `cfg(not(target_os = "windows"))` never compiles on a Windows machine, so CI's
+# Linux and macOS jobs are what check it.
+[target.'cfg(not(target_os = "windows"))'.dependencies]
+drag = "2"
 
 [target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
 tauri-plugin-autostart = "2"

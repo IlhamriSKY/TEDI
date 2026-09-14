@@ -51,6 +51,7 @@ type Params = {
   | "newPaneGroupTab"
   | "setLeafCwd"
   | "splitActivePane"
+  | "openFileTab"
   | "moveLeafToTab"
   | "closePaneByLeaf"
 >;
@@ -92,6 +93,7 @@ export function useTabActions({
   newPaneGroupTab,
   setLeafCwd,
   splitActivePane,
+  openFileTab,
   moveLeafToTab,
   closePaneByLeaf,
 }: Params): {
@@ -108,6 +110,7 @@ export function useTabActions({
   spawnAgents: (agentIds: string[], layout?: PaneLayout) => void;
   openPreviewTab: (url: string) => void;
   splitActivePaneInActiveTab: (dir: "row" | "col", kind?: "terminal" | "editor") => void;
+  openFileBeside: (path: string) => void;
   moveLeafToGroup: (leafId: number, targetTabId: number) => void;
   handleCloseTabOrPane: () => void;
 } {
@@ -399,6 +402,32 @@ export function useTabActions({
   );
 
   /**
+   * Open a local file in a new pane beside the active one, so it sits next to
+   * what the user is working in (the screenshot preview's click). A file already
+   * open in a pinned editor is focused instead of opened twice, and a tab that
+   * cannot take a split (not a pane tab, or full) gets a new tab.
+   */
+  const openFileBeside = useCallback(
+    (nativePath: string) => {
+      const path = toForwardSlash(nativePath);
+      const alreadyOpen = tabsRef.current.some(
+        (x) =>
+          x.kind === "pane" &&
+          leaves(x.paneTree).some(
+            (l) => l.leafKind === "editor" && l.path === path && !l.preview && !l.sshSessionId,
+          ),
+      );
+      const t = tabsRef.current.find((x) => x.id === activeId);
+      if (alreadyOpen || t?.kind !== "pane" || leafIds(t.paneTree).length >= MAX_PANES_PER_TAB) {
+        openFileTab(path, true);
+        return;
+      }
+      splitActivePane(activeId, "row", "editor", undefined, path);
+    },
+    [activeId, tabsRef, splitActivePane, openFileTab],
+  );
+
+  /**
    * Moves a leaf into `targetTabId` as a horizontal split. The leaf's id
    * is preserved so its PTY / editor session survives. Resolves the
    * target title before the move so the toast can name it if the source
@@ -444,6 +473,7 @@ export function useTabActions({
     spawnAgents,
     openPreviewTab,
     splitActivePaneInActiveTab,
+    openFileBeside,
     moveLeafToGroup,
     handleCloseTabOrPane,
   };

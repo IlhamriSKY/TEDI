@@ -25,4 +25,5 @@ pub mod pty;
 pub mod pty_daemon;
 pub mod secrets;
 pub mod shell;
+pub mod snapshot;
 pub mod ssh;

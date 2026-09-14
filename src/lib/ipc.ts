@@ -39,6 +39,8 @@ export const IPC_EVENTS = {
   TRIGGER_UPDATE: "tedi:trigger-update",
   /** Rust -> main window: run a command registry id passed to `tedi cmd <id>` (single-instance forward). */
   RUN_COMMAND: "tedi:run-command",
+  /** Rust -> main window: the OS saved a new screenshot (payload: its native path). */
+  SNAPSHOT: "tedi:snapshot",
 } as const;
 
 /**

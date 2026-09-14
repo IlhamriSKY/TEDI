@@ -110,6 +110,7 @@ import { useProjectUrl } from "./hooks/useProjectUrl";
 import { useChromeDerivations } from "./hooks/useChromeDerivations";
 import { useTabSideEffects } from "./hooks/useTabSideEffects";
 import { CommandPalette } from "@/modules/commandPalette";
+import { SnapshotPreview } from "@/modules/snapshot/SnapshotPreview";
 import { AppDialogs } from "./components/AppDialogs";
 import { AppSidebar } from "./components/AppSidebar";
 import { WorkspaceArea } from "./components/WorkspaceArea";
@@ -758,6 +759,7 @@ export default function App() {
     spawnAgents,
     openPreviewTab,
     splitActivePaneInActiveTab,
+    openFileBeside,
     moveLeafToGroup,
     handleCloseTabOrPane,
   } = useTabActions({
@@ -777,6 +779,7 @@ export default function App() {
     newPaneGroupTab,
     setLeafCwd,
     splitActivePane,
+    openFileTab,
     moveLeafToTab,
     closePaneByLeaf,
   });
@@ -1328,6 +1331,8 @@ export default function App() {
           ) : null}
 
           <Toaster />
+
+          <SnapshotPreview onOpen={openFileBeside} />
 
           <CommandPalette
             open={commandPaletteOpen}
