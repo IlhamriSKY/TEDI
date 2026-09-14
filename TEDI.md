@@ -12,7 +12,7 @@ contract see [ARCHITECTURE.md](ARCHITECTURE.md); for build/PR rules see
 **TEDI** (Terminal Director): a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
 editor, and a bring-your-own-key AI agent. Forked from
-[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.56.
+[Crynta/Terax v0.5.9](https://github.com/crynta/terax-ai). Current version 0.4.57.
 
 |                  |                                                                                                                                                                                                                          |
 | ---------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
@@ -429,7 +429,7 @@ Settings; tools merge in as `mcp__<server>__<tool>` and always need approval.
 | `schedule.ts`              | `list_schedules`, `cancel_schedule` (auto); `schedule_command` (approval)                                                                                      | mixed    |
 | `subagent.ts`              | `run_subagent` (one), `run_subagents` (bounded-concurrency `depends_on` DAG, cascade-skip)                                                                     | auto     |
 | `todo.ts`                  | `todo_write` (the agent's per-turn plan, NOT the user's list)                                                                                                  | auto     |
-| `notes.ts`                 | `notes_read` (auto); `notes_write` add/complete/add_note (approval). The USER's saved notes/todos panel; cannot delete or overwrite                            | mixed    |
+| `notes.ts`                 | `notes_read` (auto); `notes_write` add/edit/complete/reopen/delete (approval), via `notes/notesAutomation.ts`. The USER's saved notes/todos panel              | mixed    |
 | `mcp.ts` / `extensions.ts` | MCP-server and extension-contributed tools, merged before built-ins so neither can shadow `bash_run`                                                           | approval |
 
 **Panes and terminals are NOT in this table.** They are MCP tools on
@@ -442,7 +442,7 @@ a pane running a FULL-SCREEN program is how you type into an AI CLI), `read`
 (terminal scrollback / open editors / DOM text), `state`, `wait_for_terminal`,
 `focus_pane`, `pane` (open, close, group, rotate, consolidate - `open` answers
 with the `leafId` it made), `worktree` (list, add, remove, prune, open - see
-Worktrees), `open_file` and `workspace` (switch, create, rename; `inspect
+Worktrees), `open_file` and `workspace` (switch, create, rename, remove; `inspect
 workspaces` is the read). What stays native is file IO and the
 agent's own hidden shell: `bash_*` because sub-agents get it and get no MCP
 tools at all.
@@ -654,9 +654,9 @@ dev` shares prod data. The daemon outlives the dev GUI; set
     enables, disables, reloads, updates or uninstalls one; `schedule` queues a
     command into a terminal for later, lists the queue and cancels one - the same
     engine `schedule_command` uses, vetted through the same `checkedShellCommand`;
-    `notes` reads and adds to the USER's own notes/todos panel (the same list the
-    in-app agent's `notes_read`/`notes_write` reach), add and complete only, never
-    delete. Both `schedule` and `notes` are bridge capabilities
+    `notes` reads and manages the USER's own notes/todos panel (the same list and
+    the same `runNotesAction` the in-app agent's `notes_read`/`notes_write` reach):
+    add, edit, complete, reopen, delete, every write behind a card. Both `schedule` and `notes` are bridge capabilities
     (`scheduler/lib/bridge.ts`, `notes/notesAutomation.ts`), so they answer on the
     local socket and work off Windows; neither has a `tediMcpServer` handler
     because the in-app agent has the native twin.

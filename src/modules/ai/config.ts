@@ -736,7 +736,7 @@ const CORE_BLOCKS: readonly PromptBlock[] = [
       { needs: ["todo_write"], text: `- Use \`todo_write\` before 5+ chained tool calls.` },
       {
         needs: ["notes_write"],
-        text: `- \`notes_read\` / \`notes_write\` are the USER's saved notes and todos, not your plan. Only touch them when asked to; never delete (you cannot).`,
+        text: `- \`notes_read\` / \`notes_write\` are the USER's saved notes and todos, not your plan. Only touch them when asked to; edit or delete only what the user named.`,
       },
       { text: `- Be terse. No filler or apologies.` },
       {

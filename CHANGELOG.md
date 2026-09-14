@@ -4,6 +4,16 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.57] - 14-09-2026
+
+### Changed
+
+- **An AI can now manage your notes and todos, not only add to them.** Over MCP and through the built-in agent alike, the notes tool could add a todo, tick one and add a note, and nothing else: a todo an agent added by mistake stayed until you deleted it by hand, and a note could never be corrected. It can now edit, complete, reopen and delete a todo, clear every done todo at once, and edit or delete a note. Reading one note by its id returns its whole body, because the list only says a note has one and nobody can edit text they have never seen. Every change still raises an approval card, so a delete is always your call. Both surfaces now run one implementation, so they cannot disagree about what an action does. See [notesAutomation.ts](src/modules/notes/notesAutomation.ts), [notes.ts](src/modules/ai/tools/notes.ts), [tools.mjs](scripts/mcp/tools.mjs).
+
+### Added
+
+- **The MCP `workspace` tool can remove a workspace.** It could switch, create and rename one, then had to ask you to click Close. `remove` does exactly what that button does, including ending the terminals in it, and refuses the last workspace the same way the panel hides Close on it. See [App.tsx](src/app/App.tsx), [workspaceMgmtBridge.ts](src/modules/extensions/workspaceMgmtBridge.ts).
+
 ## [0.4.56] - 13-09-2026
 
 ### Changed

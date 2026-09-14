@@ -519,24 +519,38 @@ export const TOOL_DEFS = {
 
   notes: {
     pack: "tedi",
-    annotations: { destructiveHint: false },
-    // Reading the user's list is unattended; adding to it changes what they see,
-    // so the writes keep their card.
+    annotations: { destructiveHint: true },
+    // Reading the user's list is unattended; every write changes what they see,
+    // and a delete loses what they wrote, so all of them keep their card.
     auto: ["read"],
     description:
       "The USER's OWN notes and todo list - the panel they keep in the toolbar, which outlives every " +
       "session. This is NOT your per-turn plan (that is todo_write) and NOT the schedule queue. " +
-      "`read` returns both lists with the ids `complete_todo` needs; `add_todo` appends a checklist " +
-      "line; `complete_todo` ticks one by id; `add_note` adds a titled note with an optional `body`. " +
-      "It cannot delete or overwrite anything - the user keeps that. Read it when what you are doing " +
-      "might already be written down, or to add something the user asked you to remember.",
+      "`read` returns both lists with their ids, or one note's full body with `id`. Todos: " +
+      "`add_todo`, `edit_todo`, `complete_todo`, `reopen_todo`, `delete_todo`, `clear_done`. " +
+      "Notes: `add_note` (`text` title, optional `body`), `edit_note`, `delete_note`. Touch it " +
+      "only when the user asks, or to check what they already wrote down.",
     schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["read", "add_todo", "complete_todo", "add_note"] },
-        text: { type: "string", description: "add_todo: the line. add_note: the title." },
-        body: { type: "string", description: "add_note: the note body. Optional." },
-        id: { type: "string", description: "complete_todo: the todo id from `read`." },
+        action: {
+          type: "string",
+          enum: [
+            "read",
+            "add_todo",
+            "edit_todo",
+            "complete_todo",
+            "reopen_todo",
+            "delete_todo",
+            "clear_done",
+            "add_note",
+            "edit_note",
+            "delete_note",
+          ],
+        },
+        id: { type: "string", description: "The todo or note id from `read`." },
+        text: { type: "string", description: "Todo line, or note title." },
+        body: { type: "string", description: "add_note / edit_note: the note body." },
       },
       required: ["action"],
     },
@@ -544,19 +558,22 @@ export const TOOL_DEFS = {
 
   workspace: {
     pack: "tedi",
-    // switch / create / rename: none destroys anything (a switch rebuilds panes
-    // but loses no data, create and rename are additive).
-    annotations: { destructiveHint: false },
+    // `remove` closes the workspace AND ends every terminal in it.
+    annotations: { destructiveHint: true },
     description:
       "Act on a workspace, a saved set of tabs with its own view: `switch` to one, `create` one " +
-      "(which switches to it and seeds a terminal), or `rename` one. `inspect workspaces` is the " +
-      "READ - it lists every workspace with the id these take. No command id reaches any of this, " +
-      "so this is the only route. Switching rebuilds every pane, so it always asks first.",
+      "(which switches to it and seeds a terminal), `rename` one, or `remove` one, which closes its " +
+      "tabs and ENDS every terminal in it (the last workspace cannot be removed). `inspect " +
+      "workspaces` is the READ - it lists every workspace with the id these take. No command id " +
+      "reaches any of this, so this is the only route. Every action asks first.",
     schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["switch", "create", "rename"] },
-        id: { type: "string", description: "switch / rename: an id from `inspect workspaces`." },
+        action: { type: "string", enum: ["switch", "create", "rename", "remove"] },
+        id: {
+          type: "string",
+          description: "switch / rename / remove: an id from `inspect workspaces`.",
+        },
         name: { type: "string", description: "create / rename: max 60 chars." },
       },
       required: ["action"],

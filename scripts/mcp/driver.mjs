@@ -639,7 +639,7 @@ export class Driver {
     return this.#tedi("sshExec", Number(leafId), String(command));
   }
 
-  /** Workspaces: the read is `inspect workspaces`, these are the three writes.
+  /** Workspaces: the read is `inspect workspaces`, these are the four writes.
    *  Each answers `{ok}` or `{ok:false, error}`. */
   workspaceSwitch(wsId) {
     return this.#tedi("workspaceSwitch", String(wsId));
@@ -649,6 +649,9 @@ export class Driver {
   }
   workspaceRename(wsId, name) {
     return this.#tedi("workspaceRename", String(wsId), String(name ?? ""));
+  }
+  workspaceRemove(wsId) {
+    return this.#tedi("workspaceRemove", String(wsId));
   }
 
   /** Saved SSH connections. Never their keys or passphrases: those stay in the

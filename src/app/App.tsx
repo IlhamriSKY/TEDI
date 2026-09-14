@@ -678,9 +678,22 @@ export default function App() {
         wsRename(wsId, trimmed);
         return { ok: true };
       },
+      async (wsId) => {
+        const { workspaces } = useWorkspacesStore.getState();
+        if (!workspaces.some((w) => w.id === wsId)) {
+          return { ok: false, error: "workspace not found" };
+        }
+        // The panel hides Close on the last one; the store would silently seed a
+        // fresh "Workspace 1" in its place, which is not what "remove" means.
+        if (workspaces.length === 1) {
+          return { ok: false, error: "cannot remove the only workspace" };
+        }
+        closeWorkspace(wsId);
+        return { ok: true };
+      },
     );
     return () => setWorkspaceMgmtBridge(null, null);
-  }, [wsCreate, switchToWorkspace, wsRename]);
+  }, [wsCreate, switchToWorkspace, wsRename, closeWorkspace]);
 
   // Wire the tab-control bridge so the Remote Access extension can pin and
   // rename a mirrored terminal's tab from the browser. Both are

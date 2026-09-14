@@ -120,6 +120,8 @@ type Actions = {
   updateNote: (id: string, patch: Partial<Pick<Note, "title" | "body">>) => void;
   removeNote: (id: string) => void;
   addTodo: (text: string) => void;
+  /** Replace a todo's line. Blank input is ignored, like `addTodo`. */
+  updateTodo: (id: string, text: string) => void;
   /** Set, not flip. The AI tool completes a todo by id and a toggle there would
    *  reopen one that was already done; the checkbox passes its own next value. */
   setTodoDone: (id: string, done: boolean) => void;
@@ -191,6 +193,12 @@ export const useNotesStore = create<State & Actions>((set, get) => {
       if (!clean) return;
       const todo: Todo = { id: newId("td"), text: clean, done: false, createdAt: Date.now() };
       commit({ todos: [...get().todos, todo] });
+    },
+
+    updateTodo: (id, text) => {
+      const clean = normalizeLine(text);
+      if (!clean) return;
+      commit({ todos: get().todos.map((t) => (t.id === id ? { ...t, text: clean } : t)) });
     },
 
     setTodoDone: (id, done) =>

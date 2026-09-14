@@ -119,33 +119,21 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   mcp__tedi__workspace: (i) =>
     i.action === "switch"
       ? `Switching workspace`
-      : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
+      : i.action === "remove"
+        ? `Deleting workspace`
+        : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
   mcp__tedi__schedule: (i) =>
     i.action === "create"
       ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
       : `Scheduling ${String(i.action ?? "")}`.trim(),
   // The stdio server serves this to outside CLIs; the in-app agent uses native
   // `notes_read`/`notes_write` and does not reach it, but the surface check wants
-  // a label for every tedi tool. Reuses verbs that already own a gait, the same
-  // way `notes_write` above does - a new one would fail step-motion-verify.
-  mcp__tedi__notes: (i) =>
-    i.action === "complete_todo"
-      ? `Setting a todo done`
-      : i.action === "add_todo" || i.action === "add_note"
-        ? `Creating ${i.action === "add_note" ? "note" : "todo"}`
-        : `Reading your notes and todos`,
+  // a label for every tedi tool.
+  mcp__tedi__notes: (i) => notesStepLabel(String(i.action ?? "read")),
   mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   notes_read: () => `Reading your notes and todos`,
-  // Verbs that already own a gait in STEP_MOTIONS: adding a row is `Creating`,
-  // ticking one is `Setting`. A new verb here would fall through to the default
-  // sweep, which step-motion-verify refuses.
-  notes_write: (i) =>
-    i.op === "complete_todo"
-      ? `Setting a todo done`
-      : `Creating ${i.op === "add_note" ? "note" : "todo"}${
-          typeof i.text === "string" ? ` "${i.text}"` : ""
-        }`,
+  notes_write: (i) => notesStepLabel(String(i.op ?? "")),
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
     const tasks = Array.isArray(i.tasks) ? i.tasks : [];
@@ -161,6 +149,21 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
     return `Spawning ${tasks.length} subagent${tasks.length === 1 ? "" : "s"}${orchestrated ? " (orchestrated)" : " in parallel"}`;
   },
 };
+
+/** One label for the notes actions, shared by `notes_write` and the MCP `notes`
+ *  tool since both run the same `runNotesAction`. Every verb already owns a gait
+ *  in STEP_MOTIONS; a new one would fail step-motion-verify. */
+function notesStepLabel(action: string): string {
+  const [verb, thing] = action.split("_");
+  const noun = thing === "note" ? "note" : "todo";
+  if (verb === "add") return `Creating ${noun}`;
+  if (verb === "edit") return `Editing ${noun}`;
+  if (verb === "complete") return `Setting a todo done`;
+  if (verb === "reopen") return `Setting a todo open`;
+  if (verb === "delete") return `Deleting ${noun}`;
+  if (verb === "clear") return `Deleting done todos`;
+  return `Reading your notes and todos`;
+}
 
 function shortPath(p: unknown): string {
   if (typeof p !== "string") return "";

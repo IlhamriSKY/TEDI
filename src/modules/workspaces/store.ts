@@ -2,6 +2,7 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 import { registerBridge } from "@/modules/automation/bridge";
 import {
   createWorkspace,
+  removeWorkspace,
   renameWorkspace,
   setActiveWorkspace,
 } from "@/modules/extensions/workspaceMgmtBridge";
@@ -533,7 +534,7 @@ export function listWorkspacesForAgent(): Array<{
 }
 
 /**
- * The read, plus the three mutators, in one place.
+ * The read, plus the four mutators, in one place.
  *
  * The mutators live in `extensions/workspaceMgmtBridge` because an extension
  * reaches them too; they are registered HERE so both MCP transports get them
@@ -546,4 +547,5 @@ registerBridge({
   workspaceCreate: (name: string) => createWorkspace(String(name ?? "")),
   workspaceRename: (wsId: string, name: string) =>
     renameWorkspace(String(wsId), String(name ?? "")),
+  workspaceRemove: (wsId: string) => removeWorkspace(String(wsId)),
 });

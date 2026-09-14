@@ -360,7 +360,12 @@ const HANDLERS = {
       if (!r?.ok) throw new Error(String(r?.error ?? "could not rename"));
       return `renamed workspace ${a.id} to ${a.name}`;
     }
-    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename.`);
+    if (a.action === "remove") {
+      const r = await d.workspaceRemove(a.id);
+      if (!r?.ok) throw new Error(String(r?.error ?? "could not remove"));
+      return `removed workspace ${a.id}`;
+    }
+    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename, remove.`);
   },
 
   ssh: async (d, a) => {

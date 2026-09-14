@@ -341,8 +341,8 @@ const HANDLERS: Record<string, Handler> = {
     // The action first, so an unrecognised one is named as such rather than
     // falling through to "needs `id`", which sends the caller to fix the wrong
     // argument.
-    if (action !== "switch" && action !== "create" && action !== "rename") {
-      return fail(`Unknown action "${String(action)}". Have: switch, create, rename.`);
+    if (!["switch", "create", "rename", "remove"].includes(String(action))) {
+      return fail(`Unknown action "${String(action)}". Have: switch, create, rename, remove.`);
     }
     if (action === "create") {
       const r = await bridge<{ ok: boolean; wsId?: string; error?: string }>(
@@ -355,6 +355,10 @@ const HANDLERS: Record<string, Handler> = {
     if (action === "switch") {
       const r = await bridge<{ ok: boolean; error?: string }>("workspaceSwitch", String(id));
       return r.ok ? json({ ok: true, active: id }) : fail(String(r.error));
+    }
+    if (action === "remove") {
+      const r = await bridge<{ ok: boolean; error?: string }>("workspaceRemove", String(id));
+      return r.ok ? json({ ok: true, removed: id }) : fail(String(r.error));
     }
     if (!name) return fail('workspace "rename" needs `name`.');
     const r = await bridge<{ ok: boolean; error?: string }>(

@@ -29,18 +29,23 @@ export type RenameWorkspaceFn = (
   name: string,
 ) => Promise<{ ok: boolean; error?: string }>;
 
+export type RemoveWorkspaceFn = SetActiveWorkspaceFn;
+
 let creator: CreateWorkspaceFn | null = null;
 let activator: SetActiveWorkspaceFn | null = null;
 let renamer: RenameWorkspaceFn | null = null;
+let remover: RemoveWorkspaceFn | null = null;
 
 export function setWorkspaceMgmtBridge(
   create: CreateWorkspaceFn | null,
   setActive: SetActiveWorkspaceFn | null,
   rename: RenameWorkspaceFn | null = null,
+  remove: RemoveWorkspaceFn | null = null,
 ): void {
   creator = create;
   activator = setActive;
   renamer = rename;
+  remover = remove;
 }
 
 export async function createWorkspace(
@@ -76,4 +81,13 @@ export async function renameWorkspace(
     return { ok: false, error: "workspace bridge not ready" };
   }
   return renamer(wsId, name);
+}
+
+/** Close a workspace the way the panel's Close does: its terminals end. */
+export async function removeWorkspace(wsId: string): Promise<{ ok: boolean; error?: string }> {
+  if (!remover) {
+    console.warn("[extensions] removeWorkspace called before App wired the bridge; ignoring");
+    return { ok: false, error: "workspace bridge not ready" };
+  }
+  return remover(wsId);
 }

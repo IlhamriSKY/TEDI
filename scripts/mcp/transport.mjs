@@ -80,6 +80,7 @@ export const BRIDGED = {
   workspaceSwitch: "workspaceSwitch",
   workspaceCreate: "workspaceCreate",
   workspaceRename: "workspaceRename",
+  workspaceRemove: "workspaceRemove",
   setSetting: "setSetting",
   sshConnections: "sshConnections",
   sshConnect: "sshConnect",
@@ -151,6 +152,7 @@ const COERCE = {
   workspaceSwitch: (wsId) => [String(wsId)],
   workspaceCreate: (name) => [String(name ?? "")],
   workspaceRename: (wsId, name) => [String(wsId), String(name ?? "")],
+  workspaceRemove: (wsId) => [String(wsId)],
   aiMessages: (sessionId = null, maxChars = 8000) => [sessionId, Number(maxChars)],
   aiSend: (text) => [String(text)],
 };
