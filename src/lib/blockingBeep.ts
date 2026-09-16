@@ -6,6 +6,29 @@
 import { usePreferencesStore } from "@/modules/settings/preferences";
 
 let ctx: AudioContext | null = null;
+let closeTimer: ReturnType<typeof setTimeout> | null = null;
+
+/**
+ * Hand the context back once the last tone has finished.
+ *
+ * Chromium runs Web Audio in its own utility process and keeps that process
+ * resident for as long as ANY AudioContext is open - measured on this app at
+ * 25 MB, started mid-session and still there 40 minutes later, and this module
+ * never closed its context. Closing it lets the service shut down; the next
+ * beep reopens one in a few ms, which is free next to a resident process.
+ */
+function closeWhenSilent(afterSec: number): void {
+  if (closeTimer) clearTimeout(closeTimer);
+  closeTimer = setTimeout(
+    () => {
+      closeTimer = null;
+      const c = ctx;
+      ctx = null;
+      void c?.close().catch(() => {});
+    },
+    (afterSec + 0.5) * 1000,
+  );
+}
 
 function getCtx(): AudioContext | null {
   if (ctx && ctx.state !== "closed") return ctx;
@@ -40,6 +63,7 @@ function playToneSequence(freqs: Array<[number, number]>, gain = 0.15): void {
     o.stop(now + cursor + dur + 0.02);
     cursor += dur + 0.02;
   }
+  closeWhenSilent(cursor);
 }
 
 /** Rising two-tone: the built-in "needs approval" sound. */
