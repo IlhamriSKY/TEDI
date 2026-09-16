@@ -6,6 +6,7 @@
  */
 
 import { toForwardSlash } from "@/lib/path";
+import { forgetGitReads } from "@/modules/scm/api";
 
 export const FS_REFRESH_EVENT = "tedi:refresh-fs";
 
@@ -17,6 +18,10 @@ type FsRefreshDetail = { path?: string; file?: string };
  *  one instead of guessing from the directory. */
 export function dispatchFsRefresh(path?: string, file?: string): void {
   if (typeof window === "undefined") return;
+  // Before the event, not after: the explorer's git decorations answer it with
+  // an immediate `git_status`, which must not join a poll that started before
+  // this write landed.
+  forgetGitReads();
   window.dispatchEvent(
     new CustomEvent<FsRefreshDetail | undefined>(FS_REFRESH_EVENT, {
       detail: path ? { path, file } : undefined,

@@ -8,13 +8,9 @@ import {
   useState,
 } from "react";
 import { gitIgnored, gitStatus } from "@/modules/scm/api";
+import { useRepoRefresh, type RepoChange } from "@/modules/scm/repoWatch";
 import type { GitChangeStatus, GitStatus } from "@/modules/scm/types";
 import { FS_REFRESH_EVENT } from "./useFileTree";
-import { useVisibilityPoll } from "@/lib/windowResume";
-
-/** Poll cadence for git status while the window is focused. Mirrors the
- *  Source Control panel so explorer decorations stay in step with that view. */
-const GIT_STATUS_POLL_MS = 2500;
 
 /** Single letter shown at the right edge of a changed file row (VSCode-style).
  *  Keep in sync with scm/components/ChangeRow.tsx. */
@@ -67,6 +63,12 @@ export type GitDecorationData = { status: GitStatus | null; ignored: string[] };
 
 const EMPTY_DATA: GitDecorationData = { status: null, ignored: [] };
 
+const EVERYTHING: RepoChange = { tracked: true, ignored: true };
+
+function mergeChange(a: RepoChange | null, b: RepoChange): RepoChange {
+  return a ? { tracked: a.tracked || b.tracked, ignored: a.ignored || b.ignored } : b;
+}
+
 type Decorations = {
   file: (absPath: string) => GitDeco | null;
   folder: (absPath: string) => GitDeco | null;
@@ -88,10 +90,7 @@ function norm(p: string): string {
   return p.toLowerCase();
 }
 
-function higher(
-  current: GitChangeStatus | undefined,
-  next: GitChangeStatus,
-): GitChangeStatus {
+function higher(current: GitChangeStatus | undefined, next: GitChangeStatus): GitChangeStatus {
   if (!current) return next;
   return STATUS_RANK[next] < STATUS_RANK[current] ? next : current;
 }
@@ -100,10 +99,7 @@ function higher(
  *  Folder status rolls up from changed descendants and stops at `rootPath`;
  *  ignored matching treats each entry as a prefix so a collapsed ignored
  *  directory (e.g. `node_modules`) also dims its contents when expanded. */
-export function buildDecorations(
-  data: GitDecorationData,
-  rootPath: string | null,
-): Decorations {
+export function buildDecorations(data: GitDecorationData, rootPath: string | null): Decorations {
   if (!rootPath) return EMPTY_DECORATIONS;
   const rootNorm = norm(rootPath).replace(/\/+$/, "");
   const files = new Map<string, GitChangeStatus>();
@@ -195,26 +191,59 @@ export function useGitStatusPoll(rootPath: string | null): GitDecorationData {
   const rootRef = useRef(rootPath);
   rootRef.current = rootPath;
   const inFlight = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+  // What asks that landed while a fetch was running still need. They used to be
+  // dropped, which was harmless while every fetch read everything; now a
+  // dropped "the ignored list moved" would leave a new `dist/` undimmed.
+  const owed = useRef<RepoChange | null>(null);
 
   // `rootRef` is assigned during render, so a fetch that outlives the root it
   // was started for sees the new value and drops its own result.
-  const fetchNow = useCallback(async () => {
-    const cur = rootRef.current;
-    if (!cur || inFlight.current) return;
+  //
+  // `change` says which of the two reads can have moved; without one (first
+  // load, the poll, a return to the window, a write the app announced) both
+  // run. A watcher's edit re-reads status only, a new build folder the ignored
+  // list only, so neither pays for the other.
+  const fetchNow = useCallback(async (change?: RepoChange) => {
+    if (!rootRef.current) return;
+    let want: RepoChange | null = change ?? EVERYTHING;
+    if (inFlight.current) {
+      owed.current = mergeChange(owed.current, want);
+      return;
+    }
     inFlight.current = true;
     try {
-      const [status, ignored] = await Promise.all([gitStatus(cur), gitIgnored(cur)]);
-      if (rootRef.current !== cur) return;
-      const next: GitDecorationData = { status, ignored };
-      setData((prev) => (sameData(prev, next) ? prev : next));
-    } catch {
-      // Not a repo / git missing: leave decorations empty, keep polling.
+      while (want) {
+        const cur: string | null = rootRef.current;
+        if (!cur) return;
+        const prev = dataRef.current;
+        // Nothing to reuse before the first answer for this root.
+        const fresh = !prev.status;
+        try {
+          const [status, ignored] = await Promise.all([
+            want.tracked || fresh ? gitStatus(cur, { lineCounts: false }) : prev.status,
+            want.ignored || fresh ? gitIgnored(cur) : prev.ignored,
+          ]);
+          if (rootRef.current === cur) {
+            const next: GitDecorationData = { status, ignored };
+            setData((p) => (sameData(p, next) ? p : next));
+          }
+        } catch {
+          // Not a repo / git missing: leave decorations empty, keep polling.
+        }
+        want = owed.current;
+        owed.current = null;
+      }
     } finally {
       inFlight.current = false;
     }
   }, []);
 
-  useVisibilityPoll(() => void fetchNow(), GIT_STATUS_POLL_MS, Boolean(rootPath));
+  // Watched once the first fetch says which repository this is; the same
+  // cadence and focus rules as Source Control, which shares the watcher.
+  const watchRoot = data.status?.isRepo ? data.status.root : null;
+  useRepoRefresh((change) => void fetchNow(change), watchRoot, Boolean(rootPath));
 
   useEffect(() => {
     // New root: drop stale decorations until the first fetch lands.
@@ -241,9 +270,7 @@ export function GitDecorationsProvider({
   children: React.ReactNode;
 }) {
   const value = useMemo(() => buildDecorations(data, rootPath), [data, rootPath]);
-  return (
-    <GitDecorationsContext.Provider value={value}>{children}</GitDecorationsContext.Provider>
-  );
+  return <GitDecorationsContext.Provider value={value}>{children}</GitDecorationsContext.Provider>;
 }
 
 /** Git decoration for a single tree row: a tracked-change badge (`deco`) and/or

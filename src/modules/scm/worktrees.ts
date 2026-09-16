@@ -23,6 +23,7 @@
  */
 import { invoke } from "@tauri-apps/api/core";
 import { joinPath, toForwardSlash } from "@/lib/path";
+import { forgetGitReads } from "./api";
 
 /** One entry of `git worktree list --porcelain`. */
 export type Worktree = {
@@ -275,7 +276,9 @@ export function makeWorktreeOps(run: Runner): WorktreeOps {
 
 /** Worktree operations on the repository containing `repoPath`. */
 export function localWorktreeOps(repoPath: string): WorktreeOps {
-  return makeWorktreeOps((args) => invoke<string>("git_run", { repoPath, args }));
+  return makeWorktreeOps((args) =>
+    invoke<string>("git_run", { repoPath, args }).finally(forgetGitReads),
+  );
 }
 
 /**

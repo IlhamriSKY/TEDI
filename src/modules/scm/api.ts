@@ -12,8 +12,85 @@ import type { FsReadResult } from "@/lib/ipc";
 /** Mirrors Rust `fs::file::ReadResult` (git_file_head / git_file_at reuse it). */
 export type FileReadResult = FsReadResult;
 
-export function gitStatus(repoPath: string): Promise<GitStatus> {
-  return invoke<GitStatus>("git_status", { repoPath });
+/**
+ * `git_status` / `git_ignored` calls that are still running, shared by repo path.
+ *
+ * Every git view refreshes on the same trigger - one repository watcher message
+ * (`repoWatch.ts`), one return to the window, or the shared 2.5 s poll where no
+ * watcher runs - so each refresh is the Explorer, a second Explorer (the right
+ * slot, or an extension's folder tree through `ctx.ui.mountFolderTree`) and
+ * Source Control all asking about the SAME repository in the same millisecond.
+ * Measured over CDP when every view still polled: `status+0ms ignored+0ms
+ * status+1ms`, and six calls a tick with both explorers open. One `git_status`
+ * is four git processes and 160-250 ms of CPU, so the duplicates were most of
+ * the git load TEDI put on a machine: 28 statuses in 25 s where 10 would do.
+ *
+ * Joining a call that is already running changes nothing a caller can see. It
+ * asked for the state now, and the call it joins started at most one git status
+ * earlier. Only IN-FLIGHT calls are shared, never a settled result, and
+ * anything this app mutates drops them (`forgetGitReads`), so a refresh after a
+ * stage, a commit or a file save can never be handed a status that started
+ * before it.
+ */
+type Shared<T> = { call: Promise<T>; full: boolean };
+const inflightStatus = new Map<string, Shared<GitStatus>>();
+const inflightIgnored = new Map<string, Shared<string[]>>();
+
+function joinInflight<T>(
+  inflight: Map<string, Shared<T>>,
+  repoPath: string,
+  full: boolean,
+  start: () => Promise<T>,
+): Promise<T> {
+  const running = inflight.get(repoPath);
+  // A full answer serves a lean ask; a lean one cannot serve a full ask.
+  if (running && (running.full || !full)) return running.call;
+  const call = start().finally(() => {
+    // A mutation may have dropped this entry and a newer call taken the slot.
+    if (inflight.get(repoPath)?.call === call) inflight.delete(repoPath);
+  });
+  inflight.set(repoPath, { call, full });
+  return call;
+}
+
+/**
+ * How many open views draw the `+N -M` chips. Only Source Control does, and it
+ * is usually closed, while the Explorer refreshes on every change to the tree -
+ * so a status skips the two `diff --numstat` behind those chips (45-57% of its
+ * cost) unless one of these is open. While one IS open, every ask is upgraded
+ * to the full one, so the Explorer and Source Control still share a single call
+ * instead of running a lean and a full status side by side.
+ */
+let lineCountViews = 0;
+
+/** Hold line counts on for as long as a view that draws them is showing.
+ *  Returns the release; calling it twice releases once. */
+export function retainLineCounts(): () => void {
+  lineCountViews++;
+  let released = false;
+  return () => {
+    if (released) return;
+    released = true;
+    lineCountViews--;
+  };
+}
+
+/** Stop sharing every running read, so the next caller starts a fresh one.
+ *  Called after anything this app does that changes what `git status` says. */
+export function forgetGitReads(): void {
+  inflightStatus.clear();
+  inflightIgnored.clear();
+}
+
+/** `lineCounts: false` for a view that draws no `+N` chip; see `retainLineCounts`. */
+export function gitStatus(
+  repoPath: string,
+  { lineCounts = true }: { lineCounts?: boolean } = {},
+): Promise<GitStatus> {
+  const full = lineCounts || lineCountViews > 0;
+  return joinInflight(inflightStatus, repoPath, full, () =>
+    invoke<GitStatus>("git_status", { repoPath, lineCounts: full }),
+  );
 }
 
 /** `git status` for the repo an SSH terminal is sitting in, run over that
@@ -33,7 +110,9 @@ export function gitFindRepos(root: string): Promise<string[]> {
 /** Gitignored working-tree entries as forward-slash absolute paths (fully
  *  ignored directories collapsed to the directory). Drives explorer dimming. */
 export function gitIgnored(repoPath: string): Promise<string[]> {
-  return invoke<string[]>("git_ignored", { repoPath });
+  return joinInflight(inflightIgnored, repoPath, true, () =>
+    invoke<string[]>("git_ignored", { repoPath }),
+  );
 }
 
 export function gitFileHead(repoPath: string, relative: string): Promise<FileReadResult> {
@@ -424,7 +503,12 @@ export function makeOps(run: Runner): GitOps {
 
 /** Operate on the workspace repository containing `repoPath`. */
 export function localOps(repoPath: string): GitOps {
-  const base = makeOps((args) => invoke<string>("git_run", { repoPath, args }));
+  // `.finally(forgetGitReads)` on every command, reads included: telling a
+  // mutating `git_run` from a reading one would be a second list to keep right,
+  // and a read that drops the shared calls only costs one dedupe.
+  const base = makeOps((args) =>
+    invoke<string>("git_run", { repoPath, args }).finally(forgetGitReads),
+  );
   // The local reader is richer: it appends the untracked-file list, which is
   // what tells the AI generator a new file was added at all. `applyPatch` is
   // its own command because the patch goes in on STDIN, which `git_run` closes.
@@ -432,7 +516,7 @@ export function localOps(repoPath: string): GitOps {
     ...base,
     diff: (maxBytes) => gitDiffFull(repoPath, maxBytes),
     applyPatch: (patch, cached, reverse) =>
-      invoke<void>("git_apply_patch", { repoPath, patch, cached, reverse }),
+      invoke<void>("git_apply_patch", { repoPath, patch, cached, reverse }).finally(forgetGitReads),
   };
 }
 

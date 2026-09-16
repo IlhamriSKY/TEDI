@@ -26,12 +26,14 @@ import {
   isBranchSwitch,
   localOps,
   remoteOps,
+  retainLineCounts,
   type GitOps,
 } from "./api";
 import { DIFF_BYTE_CAP, fallbackCommitMessage, generateCommitMessage } from "./commitAi";
 import { GitGraphView } from "./GitGraphView";
 import type { CommitAction } from "./CommitDetailPane";
 import { PullRequestsView } from "./PullRequestsView";
+import { useRepoRefresh } from "./repoWatch";
 import { ChangeSection } from "./components/ChangeSection";
 import { CommitBox, type ScmBusy, type ScmMoreAction } from "./components/CommitBox";
 import { PanelHeader } from "./components/PanelHeader";
@@ -58,7 +60,6 @@ import { openWorktree as openWorktreeOf, removeWorktreeAt } from "./worktreeBrid
 import type { GitChange, GitChangeStatus, GitInProgress, GitStatus, OpenDiffInput } from "./types";
 import { cn } from "@/lib/utils";
 import { CircleAlert, FolderGit2, X } from "lucide-react";
-import { useVisibilityPoll } from "@/lib/windowResume";
 
 type Props = {
   rootPath: string | null;
@@ -124,8 +125,6 @@ const STATUS_ORDER: Record<GitChangeStatus, number> = {
   untracked: 6,
   ignored: 7,
 };
-
-const AUTO_REFRESH_MS = 2500;
 
 type GitOp =
   | "commit"
@@ -448,12 +447,24 @@ export function SourceControlPanel({
   }, [fetchStatus, collapsed, paused, sshSessionId, sshAnchor]);
 
   // Nobody can see the change list or the graph: collapsed to a header, or
-  // sitting behind another tab. Either way, stop spawning a git subprocess
-  // every 2.5s for it. Un-pausing re-runs the effect above, which refetches.
-  useVisibilityPoll(
-    () => void fetchStatus(true),
-    AUTO_REFRESH_MS,
-    (Boolean(rootPath) || Boolean(remote)) && !collapsed && !paused,
+  // sitting behind another tab. Either way, stop running git for it.
+  // Un-pausing re-runs the effect above, which refetches.
+  const showingRows = (Boolean(rootPath) || Boolean(remote)) && !collapsed && !paused;
+
+  // The change rows draw `+N -M`. While a LOCAL list is on screen, every status
+  // the app runs (the Explorer's too) carries line counts, so the two views
+  // share one call. A remote list reads over SSH and has no counts.
+  useEffect(() => (showingRows && !remote ? retainLineCounts() : undefined), [showingRows, remote]);
+
+  // A local repository is refreshed when it changes rather than on a timer; a
+  // remote one has no watcher and keeps the poll.
+  useRepoRefresh(
+    // A change that only moved the ignored list cannot change a status.
+    (change) => {
+      if (!change || change.tracked) void fetchStatus(true);
+    },
+    !remote && status?.isRepo ? status.root : null,
+    showingRows,
   );
 
   const sorted = useMemo(() => {

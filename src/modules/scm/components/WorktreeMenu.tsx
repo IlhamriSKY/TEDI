@@ -87,7 +87,7 @@ export function WorktreeMenu({
       // (a prunable entry whose folder is gone) simply keeps no summary.
       for (const w of next) {
         if (w.prunable || w.bare) continue;
-        void gitStatus(w.path).then(
+        void gitStatus(w.path, { lineCounts: false }).then(
           (s) => {
             if (reqRef.current !== req) return;
             // Read through optionals rather than trusting the shape. This is a

@@ -681,18 +681,23 @@ fn count_file_lines(path: &str) -> Option<u32> {
 }
 
 #[tauri::command]
-pub async fn git_status(repo_path: String) -> Result<GitStatus, String> {
+pub async fn git_status(repo_path: String, line_counts: Option<bool>) -> Result<GitStatus, String> {
     // A sync `#[tauri::command]` runs on the WebView2 UI (main) thread on
     // Windows, so the blocking git subprocesses + per-file reads below can
     // freeze the entire app - a minidump caught this exact stack stuck in
     // `NtCreateFile` opening an untracked working-tree file. Offload the whole
     // body to the blocking pool so the UI thread keeps pumping messages.
-    tauri::async_runtime::spawn_blocking(move || git_status_inner(repo_path))
-        .await
-        .map_err(|e| format!("git_status join error: {e}"))?
+    // Line counts are opt-OUT: every existing caller keeps getting them, and
+    // only a view that draws no `+N` chip (the Explorer's decorations, the
+    // worktree menu's change count) says so.
+    tauri::async_runtime::spawn_blocking(move || {
+        git_status_inner(repo_path, line_counts.unwrap_or(true))
+    })
+    .await
+    .map_err(|e| format!("git_status join error: {e}"))?
 }
 
-fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
+fn git_status_inner(repo_path: String, line_counts: bool) -> Result<GitStatus, String> {
     let start = PathBuf::from(&repo_path);
     let Some(root) = find_repo_root(&start) else {
         return Ok(GitStatus {
@@ -757,7 +762,18 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
         // HEAD, so a partially-staged file showed the same total twice.
         // Sequential on purpose: the poller's git.exe fan-out is what the
         // comment above is guarding against.
-        thread::spawn(move || (numstat(&root, true), numstat(&root, false)))
+        //
+        // Skipped outright when nobody will draw the counts. The two `diff
+        // --numstat` are 45-57% of a whole status (measured 67-78 ms against
+        // 41-62 ms for the status itself), and the Explorer refreshes on every
+        // change to the tree while Source Control is usually closed.
+        thread::spawn(move || {
+            if line_counts {
+                (numstat(&root, true), numstat(&root, false))
+            } else {
+                (HashMap::new(), HashMap::new())
+            }
+        })
     };
 
     let (raw, cut_short, collapsed) = status_handle
@@ -803,7 +819,8 @@ fn git_status_inner(repo_path: String) -> Result<GitStatus, String> {
             c.added = s.added;
             c.removed = s.removed;
             c.binary = s.binary;
-        } else if c.status == "untracked"
+        } else if line_counts
+            && c.status == "untracked"
             // A collapsed listing reports whole untracked directories, which
             // git prints with a trailing slash. Opening one as a file fails,
             // so without this each would cost a futile open and come back
@@ -1846,6 +1863,75 @@ mod tests {
         // The subcommand being allowed does not unpin the option rules.
         assert!(check_args(&v(&["worktree", "add", "--exec=calc", "/r/x"])).is_err());
         assert!(check_args(&v(&["worktree", "add", "/r/x\0y"])).is_err());
+    }
+
+    /// Opting out of line counts must change ONLY the counts: the same rows, in
+    /// the same states, just without the two `diff --numstat` behind the chips.
+    /// Skipped when `git` is absent, like the worktree test below.
+    #[test]
+    fn status_without_line_counts_lists_the_same_changes() {
+        if std::process::Command::new("git")
+            .arg("--version")
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .status()
+            .is_err()
+        {
+            eprintln!("skipping: no git on PATH");
+            return;
+        }
+        let tmp = std::env::temp_dir().join(format!("tedi-status-lc-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&tmp);
+        std::fs::create_dir_all(&tmp).expect("create temp repo dir");
+        let root = tmp.to_string_lossy().to_string();
+        git_run_inner(root.clone(), vec!["init".into(), "-q".into(), ".".into()]).expect("init");
+        std::fs::write(tmp.join("a.txt"), "one\ntwo\nthree\n").expect("seed");
+        git_run_inner(
+            root.clone(),
+            vec!["add".into(), "-A".into(), "--".into(), "a.txt".into()],
+        )
+        .expect("add");
+        let commit = git(&tmp)
+            .args([
+                "-c",
+                "user.email=t@t",
+                "-c",
+                "user.name=t",
+                "commit",
+                "-qm",
+                "init",
+            ])
+            .output()
+            .expect("commit");
+        assert!(commit.status.success(), "commit failed");
+        std::fs::write(tmp.join("a.txt"), "one\ntwo\nthree\nfour\nfive\n").expect("modify");
+        std::fs::write(tmp.join("b.txt"), "x\ny\n").expect("untracked");
+
+        let full = super::git_status_inner(root.clone(), true).expect("full status");
+        let lean = super::git_status_inner(root.clone(), false).expect("lean status");
+        let rows = |s: &super::GitStatus| {
+            let mut v: Vec<(String, String, bool)> = s
+                .changes
+                .iter()
+                .map(|c| (c.relative.clone(), c.status.clone(), c.staged))
+                .collect();
+            v.sort();
+            v
+        };
+        assert_eq!(rows(&full), rows(&lean), "the same rows either way");
+        assert_eq!(rows(&full).len(), 2, "one modified, one untracked");
+        assert!(
+            full.changes.iter().any(|c| c.added > 0),
+            "the full status carries line counts"
+        );
+        assert!(
+            lean.changes
+                .iter()
+                .all(|c| c.added == 0 && c.removed == 0 && !c.binary),
+            "the lean status carries none"
+        );
+        assert_eq!(full.branch, lean.branch);
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     /// The whole `git_run` path against a REAL repository, not just the
