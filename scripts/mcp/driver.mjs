@@ -306,6 +306,68 @@ export class Cdp {
   }
 }
 
+/**
+ * The same CDP client surface as `Cdp`, carried by TEDI's local bridge instead
+ * of a DevTools socket.
+ *
+ * TEDI answers the `devtools` capability in Rust by calling the protocol on its
+ * own main webview in-process (`mcp_devtools.rs`), so the six tools that need
+ * real input or the compositor no longer need the automation port - which was a
+ * restart to turn on and brought renderer flags that cost memory and CPU the
+ * whole time TEDI ran. Console events are buffered on that side too, as raw
+ * `{ method, params }`, and described here with the same function the socket
+ * client uses, so `inspect logs` reads identically either way.
+ */
+export class BridgeCdp {
+  #bridge;
+
+  constructor(bridge) {
+    this.#bridge = bridge;
+  }
+
+  send(method, params = {}) {
+    return this.#bridge.call("devtools", [method, params]);
+  }
+
+  /**
+   * @param {string | null} [level]
+   * @returns {Promise<{ level: string, text: string }[]>}
+   */
+  async logs(level = null) {
+    const events = await this.#bridge.call("devtoolsLogs", []);
+    const list = (Array.isArray(events) ? events : []).map(describeLogEvent).filter(Boolean);
+    return level ? list.filter((l) => l.level === level) : list;
+  }
+
+  /** The bridge session belongs to the transport, which closes it. */
+  close() {
+    return Promise.resolve();
+  }
+}
+
+/**
+ * The settle `connect` waits for, BOUNDED. With no port there are no occlusion
+ * flags either, so a window that Chromium decides is hidden runs no animation
+ * frames at all, and the unbounded two-frame wait would park the first input
+ * call until the bridge gave up on it. Exported for `devtools-bridge-verify`,
+ * which parses it.
+ */
+export const BRIDGE_SETTLE =
+  "Promise.race([new Promise((r) => requestAnimationFrame(() => requestAnimationFrame(() => r(1)))), new Promise((r) => setTimeout(r, 150, 0))])";
+
+/**
+ * A `Driver` whose DevTools calls go through the bridge and whose capability
+ * calls go straight to it. Rejects with the bridge's own message when this TEDI
+ * cannot do it (an older build without `devtools`, macOS or Linux, the misc pack
+ * switched off), which is how the transport decides what to do next.
+ */
+export async function bridgeDevtoolsDriver(bridge) {
+  const d = new Driver(new BridgeCdp(bridge), { url: "tedi-bridge://main", type: "page" });
+  d.bridgeCall = (name, args) => bridge.call(name, args);
+  await d.eval(BRIDGE_SETTLE);
+  return d;
+}
+
 /** Ask the debug port what pages exist. Also the liveness check. */
 export async function listTargets(port) {
   let res;

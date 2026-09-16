@@ -19,6 +19,7 @@ pub mod local_socket;
 pub mod lockext;
 pub mod mcp;
 pub mod mcp_bridge;
+pub mod mcp_devtools;
 pub mod net;
 pub mod preview;
 pub mod procs;

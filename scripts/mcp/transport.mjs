@@ -14,17 +14,19 @@
  *     makes it one.
  *
  * So: the socket is the default, and CDP is pulled up lazily, only for the calls
- * that actually need it. A session that never touches `keys`, `click`, `drag`,
- * `type_text`, `screenshot`, `eval_js`, `state` or `read source:"dom"` never
- * opens a DevTools connection at all - which on macOS and Linux is the
- * difference between working and not, because the port is never opened there
- * (`apply_webview2_browser_args_env` is `#[cfg(windows)]`).
+ * that actually need it. And CDP itself now ALSO comes through the socket: TEDI
+ * answers a `devtools` capability by speaking the protocol to its own webview
+ * in-process, so the debug port is only a fallback for a TEDI build that
+ * predates that (see `openDevtools`). A session that never touches `keys`,
+ * `click`, `drag`, `type_text`, `screenshot` or `eval_js` never opens a DevTools
+ * session at all, and on macOS and Linux those six are simply unavailable:
+ * WKWebView and WebKitGTK do not implement the protocol.
  *
  * The handlers in `server.mjs` are unchanged and unaware. They call `d.method()`
  * exactly as before; this decides where that lands.
  */
 
-import { bridgeOnlyDriver, connect, COMPOSITE } from "./driver.mjs";
+import { bridgeDevtoolsDriver, bridgeOnlyDriver, connect, COMPOSITE } from "./driver.mjs";
 import { connectBridge } from "./socket.mjs";
 
 /**
@@ -104,7 +106,9 @@ export const BRIDGED = {
 };
 
 /**
- * WHAT IS STILL CDP-ONLY, AND WHY.
+ * WHAT STILL NEEDS CDP, AND WHY. "CDP" here means the protocol, not the port:
+ * `openDevtools` reaches it through the bridge on any TEDI that has the
+ * in-process `devtools` capability.
  *
  *   `keys`, `type`, `click`, `drag`, `screenshot`  need a TRUSTED input event or
  *                the compositor. `Input.dispatchKeyEvent` produces an event the
@@ -158,6 +162,43 @@ const COERCE = {
 };
 
 /**
+ * Open the DevTools half: through the bridge when TEDI can, through the port only
+ * when it is an older build that cannot.
+ *
+ * The bridge is not merely preferred, it is the only path taken when it gives a
+ * REAL answer. "The misc pack is switched off" and "DevTools is Windows only" are
+ * answers, and a port that happened to be open must not be used to get around
+ * the first one. Only "no such capability" - a TEDI from before in-process
+ * DevTools - falls back, because there the port is still how it was done.
+ *
+ * Dependencies are passed in, so `devtools-bridge-verify` can drive every branch
+ * without an app, a socket or a port.
+ */
+export async function openDevtools({ getBridge, bridgeError, port, connectPort }) {
+  const bridge = await getBridge();
+  let why = bridgeError()?.message ?? null;
+  if (bridge) {
+    try {
+      return await bridgeDevtoolsDriver(bridge);
+    } catch (e) {
+      if (!/No capability "devtools"/.test(e.message)) throw e;
+      why = "this TEDI build predates in-process DevTools";
+    }
+  }
+  if (!port) {
+    throw new Error(
+      bridge
+        ? `Real input, screenshots and eval_js need a newer TEDI: ${why}. Update TEDI, or turn on its ` +
+            "automation channel (header, Install MCP, Automation channel; it takes effect on the next " +
+            "restart). Everything else works without either."
+        : `Real input, screenshots and eval_js reach TEDI through its local bridge, which is not ` +
+            `available: ${why ?? "unknown reason"}.`,
+    );
+  }
+  return connectPort(port);
+}
+
+/**
  * A driver that answers from whichever transport can.
  *
  * Both connections are made at most once and only on demand. A bridged call
@@ -188,17 +229,16 @@ export function makeTransport({ port } = {}) {
   async function getCdp() {
     if (cdp) return cdp;
     // No port means the profile this server was pointed at has its automation
-    // channel switched OFF. Say that, rather than falling back to the usual
-    // 9222 and driving whichever OTHER TEDI happens to be listening there -
-    // real keystrokes into the wrong window is not a fallback, it is a bug.
-    if (!port) {
-      throw new Error(
-        "TEDI's automation channel is off for this profile, so real input, screenshots and " +
-          "eval_js have no way in. Turn it on in TEDI: header, Install MCP, Automation channel " +
-          "(it takes effect on the next restart). Everything else works without it.",
-      );
-    }
-    cdpPromise ??= connect({ port }).then(
+    // channel switched OFF, and `openDevtools` then says so rather than falling
+    // back to the usual 9222 and driving whichever OTHER TEDI happens to be
+    // listening there - real keystrokes into the wrong window is not a fallback,
+    // it is a bug.
+    cdpPromise ??= openDevtools({
+      getBridge,
+      bridgeError: () => bridgeErr,
+      port,
+      connectPort: (p) => connect({ port: p }),
+    }).then(
       (d) => {
         cdp = d;
         cdpPromise = null;

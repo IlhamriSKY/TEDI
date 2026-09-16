@@ -54,7 +54,8 @@
 //! agent's reach. It sees top-level navigations only, so it could never have
 //! covered an iframe on its own.
 
-mod cdp;
+// `pub(crate)` for `mcp_devtools`, which drives the MAIN window the same way.
+pub(crate) mod cdp;
 
 use serde::{Deserialize, Serialize};
 use tauri::Manager;

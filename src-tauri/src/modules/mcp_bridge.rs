@@ -24,13 +24,16 @@
 //! same per-user isolation - so there is no port, no firewall prompt, and the OS
 //! enforces who may connect before a single byte is read.
 //!
-//! WHAT IT DOES NOT REPLACE. Real keyboard and mouse input, and window capture,
-//! still need CDP: `Input.dispatchKeyEvent` produces a TRUSTED event and a
-//! synthetic DOM event is not the same thing. Those five tools (`keys`,
-//! `type_text`, `click`, `drag`, `screenshot`) and the `eval_js` escape hatch are
-//! the `misc` pack, which is switchable and off-able on its own. Everything else
-//! - state, reads, shell, settings, extensions, ssh, browser, the built-in agent
-//! - comes through here.
+//! THE DEVTOOLS TOOLS COME THROUGH HERE TOO. Real keyboard and mouse input, and
+//! window capture, still need CDP: `Input.dispatchKeyEvent` produces a TRUSTED
+//! event and a synthetic DOM event is not the same thing. Those five tools
+//! (`keys`, `type_text`, `click`, `drag`, `screenshot`) and the `eval_js` escape
+//! hatch are the `misc` pack. They used to need the automation port; they now
+//! reach the main window's DevTools in-process, answered in Rust by
+//! `mcp_devtools` before a call would otherwise go to the webview, so no MCP
+//! tool needs the port - or the restart and the renderer flags that came with
+//! it. Everything else - state, reads, shell, settings, extensions, ssh, browser,
+//! the built-in agent - goes to the webview as described below.
 //!
 //! HOW A CALL FLOWS. The handlers live in the webview, because that is where the
 //! capabilities are (`src/modules/automation/bridge.ts`). Rust owns the socket
@@ -55,6 +58,7 @@ use tokio::sync::oneshot;
 use uuid::Uuid;
 
 use crate::modules::ids::app_data_dir;
+use crate::modules::mcp_devtools;
 
 /// Event the webview listens on. One per call.
 const CALL_EVENT: &str = "tedi://bridge-call";
@@ -241,6 +245,14 @@ async fn serve(
     }
     tx.write_all(b"{\"ok\":true}\n").await?;
 
+    // Releases this connection's share of the DevTools console capture on EVERY
+    // way out of this function, including the `?` on a write to a client that
+    // has gone - which is the usual way a session ends.
+    let mut devtools = DevtoolsLease {
+        app: app.clone(),
+        armed: false,
+    };
+
     while let Some(line) = lines.next_line().await? {
         if line.trim().is_empty() {
             continue;
@@ -253,7 +265,26 @@ async fn serve(
                 continue;
             }
         };
-        let reply = call_webview(&app, &req.name, req.args).await;
+        let reply = match req.name.as_str() {
+            // Answered here, in Rust: these are the DevTools Protocol, which the
+            // webview cannot speak to itself. See `mcp_devtools`.
+            mcp_devtools::CAPABILITY => match mcp_devtools::refusal(&req.args) {
+                Some(why) => failure(why),
+                None => {
+                    // Capturing the console is a side benefit here: a failure to
+                    // start it must not cost the click or the screenshot.
+                    let _ = devtools.arm().await;
+                    outcome(mcp_devtools::call(&app, &req.args).await)
+                }
+            },
+            // Here it is the whole answer, so a failure to capture IS the reply
+            // ("Windows only"), not an empty list that reads as a quiet page.
+            mcp_devtools::LOGS_CAPABILITY => match devtools.arm().await {
+                Ok(()) => outcome(Ok(serde_json::Value::Array(mcp_devtools::logs()))),
+                Err(why) => failure(why),
+            },
+            _ => call_webview(&app, &req.name, req.args).await,
+        };
         let out = serde_json::json!({
             "id": req.id,
             "ok": reply.ok,
@@ -263,6 +294,52 @@ async fn serve(
         tx.write_all(format!("{out}\n").as_bytes()).await?;
     }
     Ok(())
+}
+
+/// One connection's hold on the DevTools console capture.
+struct DevtoolsLease {
+    app: AppHandle,
+    armed: bool,
+}
+
+impl DevtoolsLease {
+    /// Start capturing for this connection, once. A failure (not Windows, window
+    /// gone) leaves it unarmed so the next call tries again.
+    async fn arm(&mut self) -> Result<(), String> {
+        if !self.armed {
+            mcp_devtools::arm(&self.app).await?;
+            self.armed = true;
+        }
+        Ok(())
+    }
+}
+
+impl Drop for DevtoolsLease {
+    fn drop(&mut self) {
+        if self.armed {
+            let app = self.app.clone();
+            tauri::async_runtime::spawn(async move { mcp_devtools::disarm(&app).await });
+        }
+    }
+}
+
+fn failure(error: String) -> BridgeReply {
+    BridgeReply {
+        ok: false,
+        result: None,
+        error: Some(error),
+    }
+}
+
+fn outcome(result: Result<serde_json::Value, String>) -> BridgeReply {
+    match result {
+        Ok(value) => BridgeReply {
+            ok: true,
+            result: Some(value),
+            error: None,
+        },
+        Err(error) => failure(error),
+    }
 }
 
 /// Ask the webview to run one capability and wait for its answer.

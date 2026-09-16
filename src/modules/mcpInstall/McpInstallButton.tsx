@@ -1,14 +1,18 @@
 /**
  * Header button that wires TEDI's MCP server into the AI CLIs on this machine,
- * and shows at a glance whether the channel is actually live.
+ * and shows at a glance whether the DevTools port is open as well.
  *
- * The indicator dot is the point of putting this in the header at all. The
- * automation channel opens a DevTools port with no authentication - anything
- * already running as this user can drive the window - so a session where that is
- * ON must never look like a session where it is off. Amber is the other half of
- * the same honesty: the config is written but WebView2 fixes its browser
- * arguments when it creates its environment, so nothing is listening until TEDI
- * restarts, and a green light there would be a lie.
+ * MCP itself needs no port and no restart: every tool, the real-input and
+ * screenshot ones included, reaches TEDI through the authenticated local bridge
+ * (`mcp_bridge.rs`, `mcp_devtools.rs`), which is always on. So installing turns
+ * nothing else on, and an installed server is ready - green.
+ *
+ * The automation channel is a separate, optional thing: a DevTools port with no
+ * authentication, for tooling outside MCP. Anything already running as this user
+ * can drive the window through it, and it keeps renderer flags on that cost
+ * memory and CPU for as long as TEDI runs. A session where that is ON must never
+ * look like one where it is off, so the dot turns amber while the port is open -
+ * and switching it off is the action amber is asking for.
  */
 import { useCallback, useEffect, useState } from "react";
 import { Plug, PlugZap, RotateCw } from "lucide-react";
@@ -169,24 +173,19 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
         await (next
           ? install(row, scope, root, port || DEFAULT_PORT)
           : uninstall(row, scope, root));
-        // Writing a config is only half of it: with the channel off, that config
-        // points at a port nothing is listening on. Turning it on here is what
-        // makes one click enough - it takes effect on the next launch.
-        if (next && !port) await setAutomationPort(DEFAULT_PORT);
+        // No port is switched on here any more: the bridge carries every tool,
+        // so the config works the moment it is written, with no restart.
         await refresh();
-        toast(
-          next
-            ? `${row.name}: MCP installed${live ? "" : " - restart TEDI to open the channel"}`
-            : `${row.name}: MCP removed`,
-          { variant: next && !live ? "default" : "success" },
-        );
+        toast(next ? `${row.name}: MCP installed` : `${row.name}: MCP removed`, {
+          variant: "success",
+        });
       } catch (err) {
         toast(err instanceof Error ? err.message : String(err), { variant: "error" });
       } finally {
         setBusy(null);
       }
     },
-    [port, live, refresh, scope, root],
+    [port, refresh, scope, root],
   );
 
   /** One click to wire every found CLI in the current scope. Skips the ones
@@ -197,20 +196,16 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
     setBusy("all");
     try {
       for (const row of targets) await install(row, scope, root, port || DEFAULT_PORT);
-      if (!port) await setAutomationPort(DEFAULT_PORT);
       await refresh();
-      toast(
-        `MCP installed for ${targets.length} CLI${targets.length === 1 ? "" : "s"}${
-          live ? "" : " - restart TEDI to open the channel"
-        }`,
-        { variant: live ? "success" : "default" },
-      );
+      toast(`MCP installed for ${targets.length} CLI${targets.length === 1 ? "" : "s"}`, {
+        variant: "success",
+      });
     } catch (err) {
       toast(err instanceof Error ? err.message : String(err), { variant: "error" });
     } finally {
       setBusy(null);
     }
-  }, [rows, scope, root, port, live, refresh]);
+  }, [rows, scope, root, port, refresh]);
 
   const setChannel = useCallback(async (on: boolean) => {
     await setAutomationPort(on ? DEFAULT_PORT : 0);
@@ -229,8 +224,8 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
         label={
           installed
             ? live
-              ? "MCP installed and running"
-              : "MCP installed - restart TEDI to open the channel"
+              ? `MCP installed - the DevTools port ${port || DEFAULT_PORT} is also open`
+              : "MCP installed and ready"
             : "Install MCP"
         }
       >
@@ -245,7 +240,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
           onClick={() => setOpen(true)}
           aria-label="Install MCP"
         >
-          {installed && live ? (
+          {installed ? (
             <PlugZap size={16} strokeWidth={1.75} />
           ) : (
             <Plug size={16} strokeWidth={1.75} />
@@ -258,11 +253,11 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
               // reads the same in a warm preset and a monochrome one, which is
               // how the usage meter once shipped fixed bars into twenty themes.
               // `diff-added` is the documented success colour; `icon-blocked` is
-              // "awaiting an action", which a pending restart is.
+              // "awaiting an action", which switching an open port off is.
               // (`theme-verify` greps this file's TEXT, comments included.)
               className={cn(
                 "ring-card absolute right-0.5 bottom-0.5 size-1.5 rounded-full ring-2",
-                live ? "bg-diff-added" : "bg-icon-blocked",
+                live ? "bg-icon-blocked" : "bg-diff-added",
               )}
               aria-hidden
             />
@@ -475,10 +470,10 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                 <span className="text-sm">Automation channel</span>
                 <span className="text-muted-foreground block text-xs">
                   {live
-                    ? `Open on port ${port || DEFAULT_PORT}. Anything running as you can drive this window.`
+                    ? `Open on port ${port || DEFAULT_PORT}. Anything running as you can drive this window, and it keeps TEDI heavier. MCP does not need it.`
                     : port
-                      ? `Opens on port ${port} after a restart.`
-                      : "Off. Required for any of the above to connect."}
+                      ? `Opens on port ${port} after a restart. MCP does not need it.`
+                      : "Off. MCP works fully without it; only DevTools tooling outside MCP needs it."}
                 </span>
               </span>
               <Switch
@@ -493,7 +488,12 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
             <span className="text-muted-foreground flex items-center gap-1.5 text-xs">
               {port > 0 && !live && (
                 <>
-                  <RotateCw size={12} /> Restart TEDI to finish.
+                  <RotateCw size={12} /> Restart TEDI to open the port.
+                </>
+              )}
+              {port === 0 && live && (
+                <>
+                  <RotateCw size={12} /> Restart TEDI to close the port.
                 </>
               )}
             </span>
