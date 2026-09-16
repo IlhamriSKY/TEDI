@@ -277,19 +277,24 @@ export const MessageBranchPage = ({ className, ...props }: MessageBranchPageProp
 function TerminalRefChip({ children }: { children?: ReactNode }) {
   const label = Array.isArray(children) ? children.join("") : String(children ?? "");
   const ordinal = Number(label.replace("#", ""));
+  const tooltip = `Go to terminal ${ordinal}`;
   return (
-    <button
-      type="button"
-      title={`Go to terminal ${ordinal}`}
-      onClick={() => {
-        if (!useChatStore.getState().live.focusTerminal(ordinal)) {
-          toast(`Terminal ${ordinal} is no longer open`, { variant: "info" });
-        }
-      }}
-      className="bg-primary/12 text-primary hover:bg-primary/25 cursor-pointer rounded px-1 font-mono font-medium"
-    >
-      {label}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={() => {
+            if (!useChatStore.getState().live.focusTerminal(ordinal)) {
+              toast(`Terminal ${ordinal} is no longer open`, { variant: "info" });
+            }
+          }}
+          className="bg-primary/12 text-primary hover:bg-primary/25 cursor-pointer rounded px-1 font-mono font-medium"
+        >
+          {label}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 

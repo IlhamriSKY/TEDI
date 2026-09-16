@@ -34,6 +34,7 @@ import type { LucideIcon } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { MessageResponse } from "./message";
 import { Spinner } from "@/components/ui/spinner";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useChatStore } from "@/modules/ai/store/chatStore";
 import { requestReveal } from "@/modules/editor/lib/reveal";
@@ -1127,12 +1128,14 @@ function SubagentResultRow({ result }: { result: Record<string, unknown> }) {
           <span className="text-muted-foreground shrink-0 text-[10px] font-medium">skipped</span>
         ) : null}
         {skipped && reason ? (
-          <span
-            title={reason}
-            className="text-muted-foreground/80 max-w-[45%] shrink-0 truncate text-[10px]"
-          >
-            {reason}
-          </span>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <span className="text-muted-foreground/80 max-w-[45%] shrink-0 truncate text-[10px]">
+                {reason}
+              </span>
+            </TooltipTrigger>
+            <TooltipContent side="top">{reason}</TooltipContent>
+          </Tooltip>
         ) : stats ? (
           <span className="text-muted-foreground shrink-0 font-mono text-[10px]">{stats}</span>
         ) : null}
@@ -1279,16 +1282,21 @@ function FileLineButton({ path, line, label }: { path: string; line?: number; la
     if (line != null) requestReveal(path, { line });
     getExtensionWorkspaceBridge()?.openFile(path, { pin: true });
   };
+  const tooltip = `Open ${path}${line != null ? ` at line ${line}` : ""}`;
   return (
-    <button
-      type="button"
-      onClick={open}
-      title={`Open ${path}${line != null ? ` at line ${line}` : ""}`}
-      className="text-muted-foreground hover:bg-muted hover:text-foreground min-w-0 cursor-pointer truncate rounded px-1 py-0.5 text-left transition-colors"
-    >
-      {label}
-      {line != null ? ` · L${line}` : ""}
-    </button>
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={open}
+          className="text-muted-foreground hover:bg-muted hover:text-foreground min-w-0 cursor-pointer truncate rounded px-1 py-0.5 text-left transition-colors"
+        >
+          {label}
+          {line != null ? ` · L${line}` : ""}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="top">{tooltip}</TooltipContent>
+    </Tooltip>
   );
 }
 

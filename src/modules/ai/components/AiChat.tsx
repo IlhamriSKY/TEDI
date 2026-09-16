@@ -106,23 +106,26 @@ function UserAttachmentChips({
         // Images render the picture itself; click to enlarge.
         if (isImage) {
           return (
-            <button
-              key={`f-${i}-${f.name}`}
-              type="button"
-              onClick={() => {
-                if (f.url) setLightboxUrl(f.url);
-              }}
-              className="block shrink-0 cursor-zoom-in"
-              aria-label={`Enlarge ${f.name}`}
-              title={f.name}
-            >
-              {/* Small inline preview at the image's real aspect ratio. */}
-              <img
-                src={f.url}
-                alt={f.name}
-                className="border-border/60 hover:border-foreground/30 max-h-10 w-auto max-w-full rounded-md border object-contain transition-colors"
-              />
-            </button>
+            <Tooltip key={`f-${i}-${f.name}`}>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (f.url) setLightboxUrl(f.url);
+                  }}
+                  className="block shrink-0 cursor-zoom-in"
+                  aria-label={`Enlarge ${f.name}`}
+                >
+                  {/* Small inline preview at the image's real aspect ratio. */}
+                  <img
+                    src={f.url}
+                    alt={f.name}
+                    className="border-border/60 hover:border-foreground/30 max-h-10 w-auto max-w-full rounded-md border object-contain transition-colors"
+                  />
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="top">{f.name}</TooltipContent>
+            </Tooltip>
           );
         }
         return (
@@ -671,14 +674,14 @@ const RenderedPart = memo(function RenderedPart({
   }
 
   if (part.type === "reasoning") {
-    return (
-      <Reasoning>
-        <ReasoningTrigger />
     const reasoningText = (part as unknown as { text?: string }).text ?? "";
     // Some providers emit a reasoning part with only start/end markers when
     // summaries are disabled. Do not leave an empty "Reasoned" disclosure in
     // the transcript; show it as soon as a text delta arrives.
     if (!reasoningText.trim()) return null;
+    return (
+      <Reasoning>
+        <ReasoningTrigger />
         <ReasoningContent>{reasoningText}</ReasoningContent>
       </Reasoning>
     );
@@ -777,9 +780,12 @@ function RunningIndicator({ waiting, activity }: { waiting: boolean; activity: s
         motion={waiting ? "wait" : stepMotion(activity)}
         className={effortTextClass(effort)}
       />
-      <span className="min-w-0 flex-1 truncate leading-none" title={label}>
-        {label}
-      </span>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <span className="min-w-0 flex-1 truncate leading-none">{label}</span>
+        </TooltipTrigger>
+        <TooltipContent side="top">{label}</TooltipContent>
+      </Tooltip>
       {elapsed >= 1000 ? (
         <span
           aria-hidden

@@ -2,6 +2,7 @@ import { ChevronDown } from "lucide-react";
 ("use client");
 
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { useControllableState } from "@radix-ui/react-use-controllable-state";
 import type { ComponentProps, ReactNode } from "react";
@@ -151,25 +152,36 @@ export const ReasoningTrigger = memo(
   }: ReasoningTriggerProps) => {
     const { isStreaming, isOpen, duration } = useReasoning();
 
+    const tooltip = isStreaming
+      ? "Thinking in progress"
+      : isOpen
+        ? "Hide reasoning"
+        : "Show reasoning";
+
     return (
-      <CollapsibleTrigger
-        className={cn(
-          "text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-[11px] transition-colors select-none",
-          className,
-        )}
-        {...props}
-      >
-        {children ?? (
-          <>
-            {getThinkingMessage(isStreaming, duration)}
-            <ChevronDown
-              size={11}
-              strokeWidth={1.75}
-              className={cn("transition-transform", isOpen ? "rotate-180" : "rotate-0")}
-            />
-          </>
-        )}
-      </CollapsibleTrigger>
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <CollapsibleTrigger
+            className={cn(
+              "text-muted-foreground hover:text-foreground flex cursor-pointer items-center gap-1.5 text-[11px] transition-colors select-none",
+              className,
+            )}
+            {...props}
+          >
+            {children ?? (
+              <>
+                {getThinkingMessage(isStreaming, duration)}
+                <ChevronDown
+                  size={11}
+                  strokeWidth={1.75}
+                  className={cn("transition-transform", isOpen ? "rotate-180" : "rotate-0")}
+                />
+              </>
+            )}
+          </CollapsibleTrigger>
+        </TooltipTrigger>
+        <TooltipContent side="top">{tooltip}</TooltipContent>
+      </Tooltip>
     );
   },
 );

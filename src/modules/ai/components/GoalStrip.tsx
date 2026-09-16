@@ -1,4 +1,5 @@
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { Check, Target, X } from "lucide-react";
 import { useEffect } from "react";
@@ -44,21 +45,29 @@ export function GoalStrip({ sessionId }: Props) {
           className={cn("shrink-0", running ? "text-foreground" : "text-muted-foreground")}
         />
         <span className="text-foreground text-[11px] font-medium">Goal</span>
-        <span
-          className={cn(
-            "min-w-0 flex-1 truncate text-[11px]",
-            running ? "text-muted-foreground" : "text-muted-foreground line-through",
-          )}
-          title={goal.text}
-        >
-          {goal.text}
-        </span>
-        <span
-          className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums"
-          title={running ? "Time on this goal" : "Time it took"}
-        >
-          {formatElapsed(elapsed)}
-        </span>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span
+              className={cn(
+                "min-w-0 flex-1 truncate text-[11px]",
+                running ? "text-muted-foreground" : "text-muted-foreground line-through",
+              )}
+            >
+              {goal.text}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">{goal.text}</TooltipContent>
+        </Tooltip>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <span className="text-muted-foreground shrink-0 font-mono text-[11px] tabular-nums">
+              {formatElapsed(elapsed)}
+            </span>
+          </TooltipTrigger>
+          <TooltipContent side="top">
+            {running ? "Time on this goal" : "Time it took"}
+          </TooltipContent>
+        </Tooltip>
         {/* Both controls are for a goal still in flight: mark it done by hand,
             or get the strip out of the way. A finished goal needs neither - it
             closed itself - so the done state is just the text and what it took.
