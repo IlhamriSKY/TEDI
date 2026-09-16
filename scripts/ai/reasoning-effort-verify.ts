@@ -98,20 +98,28 @@ async function bodyFor(
 }
 
 /** Pull the effort back out, wherever this provider puts it. */
+function getField(value: unknown, key: string): unknown {
+  return value && typeof value === "object" ? (value as Record<string, unknown>)[key] : undefined;
+}
+
 function effortIn(provider: ProviderId, body: Record<string, unknown>): unknown {
-  const get = (o: unknown, k: string): unknown =>
-    o && typeof o === "object" ? (o as Record<string, unknown>)[k] : undefined;
   switch (provider) {
     case "openai":
     case "chatgpt":
-      return get(body.reasoning, "effort");
+      return getField(body.reasoning, "effort");
     case "anthropic":
-      return get(body.output_config, "effort");
+      return getField(body.output_config, "effort");
     case "google":
-      return get(get(body.generationConfig, "thinkingConfig"), "thinkingLevel");
+      return getField(getField(body.generationConfig, "thinkingConfig"), "thinkingLevel");
     default:
       return body.reasoning_effort;
   }
+}
+
+function summaryIn(provider: ProviderId, body: Record<string, unknown>): unknown {
+  return provider === "openai" || provider === "chatgpt"
+    ? getField(body.reasoning, "summary")
+    : undefined;
 }
 
 // ---------------------------------------------------------------------------
@@ -135,10 +143,21 @@ for (const m of supported) {
   }
 }
 
-console.log("\n[auto] the default sends NO reasoning parameter at all");
+console.log("\n[auto] Auto sends no effort; OpenAI Responses also returns a summary");
 for (const m of supported) {
   const body = await bodyFor(m.provider, m.id, REASONING_AUTO);
-  check(`${m.provider}/${m.id} auto is absent`, effortIn(m.provider, body) === undefined, { body });
+  // Spelled out, not re-derived from the table: a none-default model does not
+  // think under Auto, so asking it for a summary is pointless.
+  const wantsSummary =
+    (m.provider === "openai" || m.provider === "chatgpt") && !/^gpt-5\.4/.test(m.id);
+  check(`${m.provider}/${m.id} auto effort is absent`, effortIn(m.provider, body) === undefined, {
+    body,
+  });
+  check(
+    `${m.provider}/${m.id} auto summary ${wantsSummary ? "is requested" : "is absent"}`,
+    summaryIn(m.provider, body) === (wantsSummary ? "auto" : undefined),
+    { body },
+  );
 }
 
 console.log("\n[unsupported models] never receive the parameter");
@@ -152,6 +171,55 @@ for (const m of unsupported) {
   check(`${m.provider}/${m.id} ignores a stale "high"`, effortIn(m.provider, body) === undefined, {
     body,
   });
+  // The API refuses `reasoning.summary` on a non-reasoning model like any other
+  // unknown reasoning parameter, so Auto must not smuggle one in either.
+  const auto = await bodyFor(m.provider, m.id, REASONING_AUTO);
+  check(
+    `${m.provider}/${m.id} auto asks for no summary`,
+    summaryIn(m.provider, auto) === undefined,
+    {
+      body: auto,
+    },
+  );
+}
+
+console.log("\n[summary] only the chat turn asks for one");
+{
+  const summaryOf = (o: ReturnType<typeof providerRequestOptions>) =>
+    o.providerOptions?.openai?.reasoningSummary;
+  check(
+    "chat turn on chatgpt/gpt-5.6-luna at xhigh asks for it",
+    summaryOf(providerRequestOptions("chatgpt", "s", "gpt-5.6-luna", "xhigh")) === "auto",
+  );
+  // A sub-agent passes no choice. It uses `reasoningText` as a fallback ANSWER,
+  // so a summary there would stand in for the recovery pass.
+  check(
+    "sub-agent (no choice) does not",
+    summaryOf(providerRequestOptions("chatgpt", "s", "gpt-5.6-luna")) === undefined,
+  );
+  // Autocomplete builds its options from the effort fragment alone.
+  check(
+    "the effort fragment autocomplete uses carries no summary",
+    reasoningProviderOptions("openai", "gpt-5.6-luna", "low")?.openai?.reasoningSummary ===
+      undefined,
+  );
+  // No shipped OpenAI model lacks a control, so the loop above never reaches
+  // this case. A typed-in id the table does not know gets nothing, Auto included.
+  check(
+    "an unknown openai model on Auto asks for no summary",
+    summaryOf(providerRequestOptions("openai", "s", "gpt-4.1", REASONING_AUTO)) === undefined,
+  );
+  check(
+    "gpt-5.4-mini asks once a level makes it think",
+    summaryOf(providerRequestOptions("openai", "s", "gpt-5.4-mini", "low")) === "auto",
+  );
+  check(
+    "a stale level on gpt-5.4-mini sends no effort, so no summary",
+    summaryOf(providerRequestOptions("openai", "s", "gpt-5.4-mini", "max")) === undefined,
+  );
+  const merged = providerRequestOptions("chatgpt", "s", "gpt-5.6-luna", "high").providerOptions
+    ?.openai;
+  check("store:false survives the summary merge", merged?.store === false, merged);
 }
 
 console.log("\n[merge] reasoning never clobbers a mandatory provider option");

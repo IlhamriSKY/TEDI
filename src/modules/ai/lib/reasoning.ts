@@ -29,6 +29,8 @@ import { parseOpenAICompatibleModelId, type ProviderId } from "../config";
  * knows; it means TEDI omits the parameter entirely and the provider's own
  * default applies. So enabling this feature changes no request until the user
  * picks a level, and no model ever receives a parameter it did not ask for.
+ * The one exception is the reasoning SUMMARY, which is not a level: see
+ * `wantsReasoningSummary`.
  */
 
 /** The "let the provider decide" choice. Selecting it sends NO parameter. */
@@ -217,4 +219,29 @@ export function reasoningProviderOptions(
     default:
       return undefined;
   }
+}
+
+/**
+ * Should this turn ask the Responses API for a reasoning summary?
+ *
+ * Without one, OpenAI returns each reasoning item with an EMPTY `summary` and
+ * only `encrypted_content`, so the SDK emits a reasoning part with no text and
+ * the chat has nothing to show. Measured live on the ChatGPT lane
+ * (gpt-5.6-luna, high): no summary -> 0 summary parts; `summary: "auto"` ->
+ * readable text.
+ *
+ * Only for a model this table knows reasons, and not when it would not think
+ * anyway (Auto, or a stale level, on a `none`-default model). An id the table
+ * does not know gets nothing, by the same rule as the effort.
+ */
+export function wantsReasoningSummary(
+  provider: ProviderId,
+  modelId: string | undefined,
+  choice: string,
+): boolean {
+  if (provider !== "openai" && provider !== "chatgpt") return false;
+  const control = reasoningControlFor(provider, modelId);
+  if (!control) return false;
+  const effortSent = choice !== REASONING_AUTO && isValidReasoningChoice(provider, modelId, choice);
+  return effortSent || control.providerDefault !== "none";
 }

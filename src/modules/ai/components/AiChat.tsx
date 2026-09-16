@@ -674,7 +674,12 @@ const RenderedPart = memo(function RenderedPart({
     return (
       <Reasoning>
         <ReasoningTrigger />
-        <ReasoningContent>{(part as unknown as { text: string }).text}</ReasoningContent>
+    const reasoningText = (part as unknown as { text?: string }).text ?? "";
+    // Some providers emit a reasoning part with only start/end markers when
+    // summaries are disabled. Do not leave an empty "Reasoned" disclosure in
+    // the transcript; show it as soon as a text delta arrives.
+    if (!reasoningText.trim()) return null;
+        <ReasoningContent>{reasoningText}</ReasoningContent>
       </Reasoning>
     );
   }

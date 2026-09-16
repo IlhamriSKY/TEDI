@@ -1,7 +1,7 @@
 import type { JSONValue, ModelMessage } from "ai";
 import { findLastIndex } from "@/lib/utils";
 import type { ProviderId } from "../config";
-import { reasoningProviderOptions } from "./reasoning";
+import { reasoningProviderOptions, wantsReasoningSummary } from "./reasoning";
 
 /**
  * Provider-aware prompt-cache adapter. A new provider needs only a case here.
@@ -71,6 +71,12 @@ export function providerRequestOptions(
     : undefined;
   for (const [ns, opts] of Object.entries(reasoning ?? {})) {
     base[ns] = { ...(base[ns] ?? {}), ...opts };
+  }
+  // A chat turn passes a choice ("" for Auto); a sub-agent passes none. Only the
+  // chat renders reasoning, and a sub-agent falls back to `reasoningText` as its
+  // ANSWER, so a summary there would replace the recovery pass with a headline.
+  if (reasoningChoice !== undefined && wantsReasoningSummary(provider, modelId, reasoningChoice)) {
+    base.openai = { ...base.openai, reasoningSummary: "auto" };
   }
 
   return Object.keys(base).length > 0 ? { providerOptions: base } : {};
