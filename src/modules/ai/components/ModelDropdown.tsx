@@ -222,7 +222,7 @@ export function ModelDropdown() {
                 // `shrink` overrides the Button base `shrink-0` so this trigger
                 // is the element that gives up width when the composer toolbar
                 // is narrow - the action buttons (incl. Send) stay full-size.
-                "my-1 h-5.5 max-w-52 min-w-0 shrink gap-1.5 rounded-md px-1.5 text-xs",
+                "tedi-ai-model-trigger my-1 h-5.5 max-w-52 min-w-0 shrink gap-1.5 rounded-md px-1.5 text-xs",
                 currentProviderHasKey ? "text-muted-foreground" : "text-icon-working",
               )}
             >

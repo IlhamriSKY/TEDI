@@ -79,14 +79,18 @@ export function AgentSwitcher({ isMiniWindow }: { isMiniWindow?: boolean }) {
               aria-label={agentTooltip}
               className={cn(
                 !isMiniWindow
-                  ? "border-border/60 bg-card text-muted-foreground hover:border-border flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
+                  ? "tedi-ai-agent-trigger border-border/60 bg-card text-muted-foreground hover:border-border flex h-6 max-w-28 min-w-0 items-center gap-1 rounded-md border px-1.5 text-[10.5px] transition-colors"
                   : "mr-1 text-xs",
                 !isMiniWindow && TOOLBAR_HOVER,
               )}
             >
               <ActiveIcon size={11} strokeWidth={2} className="shrink-0" />
-              <span className="truncate">{chatMode ? "Chat" : active.name}</span>
-              <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
+              <span className="tedi-ai-agent-name truncate">{chatMode ? "Chat" : active.name}</span>
+              <ChevronDown
+                size={10}
+                strokeWidth={2}
+                className="tedi-ai-agent-chevron shrink-0 opacity-70"
+              />
             </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>

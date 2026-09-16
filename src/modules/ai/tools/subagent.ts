@@ -4,6 +4,7 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { runSubagent } from "../agents/runSubagent";
 import { READ_ONLY_TOOLS } from "../agents/registry";
 import { resolveSubagentDef } from "../agents/resolveSubagent";
+import { describeProviderError } from "../lib/errors";
 import { getAllSubagentDefs } from "../store/subagentsStore";
 import { useSubagentRunStore } from "../store/subagentRunStore";
 import {
@@ -15,6 +16,20 @@ import {
 } from "@/modules/settings/store";
 import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
 import { coerceInt, flexArrayOpt, flexIntOpt } from "./schedule";
+
+/**
+ * One readable sentence for a failed sub-agent, with local paths masked.
+ *
+ * `scrubErrorPath` alone reads `e.message`, and a provider error often has none:
+ * the AI SDK only fills it from an OpenAI-shaped body, so the ChatGPT-account
+ * endpoint's `{"detail": "..."}` arrives as "". That reached the orchestrator as
+ * `{"error": ""}` - nothing to act on, so it just called the same tool again.
+ * `describeProviderError` digs out the body/status; scrubbing its STRING result
+ * still masks paths, since `scrubErrorPath` stringifies whatever it is given.
+ */
+function describeSubagentFailure(e: unknown, ctx: ToolContext): string {
+  return scrubErrorPath(describeProviderError(e), ctx) || "the provider rejected the request";
+}
 
 /**
  * Schema ceiling for the sub-agent fields the RUNTIME clamps.
@@ -186,7 +201,7 @@ export function buildSubagentTools(ctx: ToolContext) {
             durationMs: r.durationMs,
           };
         } catch (e) {
-          const msg = scrubErrorPath(e, ctx);
+          const msg = describeSubagentFailure(e, ctx);
           if (sessionId && runId) runStore.fail(sessionId, runId, msg);
           return { error: msg, type };
         }
@@ -398,7 +413,10 @@ export function buildSubagentTools(ctx: ToolContext) {
             void runOne(i, depResults).then(
               ({ result, failed }) => settle(result, failed),
               (err) => {
-                settle({ index: i, type: batch[i].type, error: scrubErrorPath(err, ctx) }, true);
+                settle(
+                  { index: i, type: batch[i].type, error: describeSubagentFailure(err, ctx) },
+                  true,
+                );
               },
             );
           }

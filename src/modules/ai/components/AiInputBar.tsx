@@ -374,7 +374,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const dragOver = useComposerFileDrop(dropZoneRef, onDropPaths);
 
   return (
-    <div className="border-border/60 bg-background/40 shrink-0 border-t p-2">
+    <div className="tedi-ai-composer border-border/60 bg-background/40 min-w-0 shrink-0 border-t p-2">
       <SessionHistoryDialog />
       <InfoModal />
       <div
@@ -595,12 +595,12 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         {/* Bottom toolbar wraps at the group level: when narrower than
             (meta) + (action), the action group drops to a new row.
             Per-button wrapping used to cascade into 4 rows. */}
-        <div className="border-border/40 flex flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
-          <div className="flex min-w-0 shrink items-center gap-1">
+        <div className="tedi-ai-composer-toolbar border-border/40 flex min-w-0 flex-wrap items-center justify-between gap-x-2 gap-y-1.5 border-t pt-1.5">
+          <div className="tedi-ai-composer-meta flex min-w-0 shrink items-center gap-1">
             <AgentSwitcher />
             {/* Hide the percent label from `ContextTrigger` so the chip stays
                 compact while the hovercard focuses on context details. */}
-            <div className="shrink-0 [&_button>span:first-child]:hidden">
+            <div className="tedi-ai-context shrink-0 [&_button>span:first-child]:hidden">
               <ContextIndicator messages={messages ?? []} />
             </div>
           </div>

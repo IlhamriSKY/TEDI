@@ -1,4 +1,4 @@
-import { generateText, stepCountIs, type ModelMessage, type ToolSet } from "ai";
+import { stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
 import {
   resolveModelInfo,
   tryGetModel,
@@ -7,7 +7,11 @@ import {
   type ProviderId,
 } from "../config";
 import { buildLanguageModel, describeStep, noProgressStop, noToolRepetition } from "../lib/agent";
-import { applyCacheBreakpoints, applyStepCacheBreakpoints } from "../lib/cache";
+import {
+  applyCacheBreakpoints,
+  applyStepCacheBreakpoints,
+  providerRequestOptions,
+} from "../lib/cache";
 import { compactStepMessages } from "../lib/compact";
 import { classifyError, TediErrorCode } from "../lib/errors";
 import type { ProviderKeys } from "../lib/keyring";
@@ -145,6 +149,15 @@ export async function runSubagent({
     openaiCompatibleBaseURL,
   });
 
+  // The SAME per-provider request options the main loop sends. Not optional
+  // polish: the ChatGPT-account endpoint REFUSES a request that omits
+  // `store: false` ("Store must be set to false"), exactly as it refuses one
+  // that omits `stream: true`. A sub-agent that skips these is dead on that
+  // provider no matter how correct the rest of the call is. No reasoning choice
+  // is passed - a sub-agent's effort comes from its own def/temperature, not
+  // from the chat picker.
+  const requestOptions = providerRequestOptions(info.provider, toolContext.getSessionId(), info.id);
+
   // Explicit messages so we can attach provider-cache markers (Experimental_Agent hides this).
   const baseMessages: ModelMessage[] = [
     { role: "system", content: systemPrompt },
@@ -175,8 +188,15 @@ export async function runSubagent({
   // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
   let liveSteps = 0;
-  const result = await withRateLimitRetry(() =>
-    generateText({
+  const result = await withRateLimitRetry(async () => {
+    // `streamText`, never `generateText`: the Responses `doGenerate` posts
+    // WITHOUT `stream: true`, and the ChatGPT-account endpoint
+    // (chatgpt.com/backend-api/codex) speaks SSE and nothing else, so it
+    // refused every sub-agent request while the streaming main loop worked on
+    // the same model and token. One transport for both paths, so a provider
+    // that only streams can no longer be dead on one of them.
+    let streamError: unknown;
+    const stream = streamText({
       model,
       messages,
       tools: filtered as never,
@@ -209,6 +229,7 @@ export async function runSubagent({
         return stepNumber === 0 ? { messages, toolChoice: "required" } : { messages };
       },
       ...(temperature !== undefined ? { temperature } : {}),
+      ...requestOptions,
       // Own the retry (jittered) in withRateLimitRetry below. The SDK's default
       // retry is lockstep (no jitter), so a parallel fan-out that all trips a
       // rate limit at once backs off in unison and collides on the same tick.
@@ -223,8 +244,34 @@ export async function runSubagent({
         liveSteps += 1;
         onStep?.(describeStep(step), liveSteps);
       },
-    } as never),
-  );
+      // A streaming failure is delivered as an error PART, not a throw, and when
+      // no step completed the SDK then rejects `steps` with its own generic
+      // NoOutputGeneratedError. Keep the provider's real one or the retry
+      // classifier below has nothing to read and the caller reports an empty
+      // string.
+      onError: ({ error }: { error: unknown }) => {
+        streamError = error;
+      },
+    } as never);
+
+    let steps: Awaited<typeof stream.steps>;
+    let text: Awaited<typeof stream.text>;
+    let reasoningText: Awaited<typeof stream.reasoningText>;
+    try {
+      // Awaiting `steps` is what consumes the stream; `text` and `reasoningText`
+      // derive from the final step, so both have settled by the time it returns.
+      steps = await stream.steps;
+      text = await stream.text;
+      reasoningText = await stream.reasoningText;
+    } catch (e) {
+      throw streamError ?? e;
+    }
+    // Steps DID complete but the stream still errored (a rate limit part-way,
+    // say). Surface it: withRateLimitRetry has to see it to back off, and half a
+    // summary that reads as success is worse than a retry.
+    if (streamError) throw streamError;
+    return { steps, text, reasoningText };
+  });
   const durationMs = Date.now() - start;
   const stepCount = result.steps?.length ?? 0;
 
@@ -286,8 +333,10 @@ export async function runSubagent({
     try {
       // No tools offered: the model must answer in prose. This is what recovers
       // output from any model that goes silent once tool calls are in the
-      // history. Cast as elsewhere in this file.
-      const fu = await generateText({
+      // history. Streaming for the same reason as the main run above: this is a
+      // recovery path, so a provider that refuses a non-streamed call must not
+      // turn "went quiet" into "failed outright". Cast as elsewhere in this file.
+      const fu = streamText({
         model,
         messages: applyCacheBreakpoints(
           [
@@ -300,9 +349,12 @@ export async function runSubagent({
           info.provider,
         ),
         ...(temperature !== undefined ? { temperature } : {}),
+        ...requestOptions,
         abortSignal,
       } as never);
-      return fu.text?.trim() ?? "";
+      // Awaiting the promise is what consumes the stream; a failure here rejects
+      // and the catch below turns it back into "(no output)", as before.
+      return (await fu.text)?.trim() ?? "";
     } catch {
       return "";
     }

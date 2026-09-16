@@ -330,9 +330,15 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // servers would be connected for a turn that cannot call them. Skipping
       // is both the token saving and a latency one.
       const skip = snapshot.chatMode;
+      // Both of these land in the SYSTEM PROMPT, so they are read against the
+      // session-pinned root, not the live one. Reading them live meant that
+      // focusing a terminal in another project dropped the `## PROJECT` block
+      // mid-session and re-priced every cached token. Tools stay live via the
+      // turn pin above; only the prompt holds still.
+      const promptWorkspaceRoot = deps.toolContext.pinSessionWorkspaceRoot(live.workspaceRoot);
       const [projectMemory, memory, mcpTools] = await Promise.all([
-        skip ? null : readTediMd(live.workspaceRoot),
-        skip ? null : readMemory(live.workspaceRoot),
+        skip ? null : readTediMd(promptWorkspaceRoot),
+        skip ? null : readMemory(promptWorkspaceRoot),
         skip ? undefined : buildMcpToolsAsync(deps.toolContext),
       ]);
 

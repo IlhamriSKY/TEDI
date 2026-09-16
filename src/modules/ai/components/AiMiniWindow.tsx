@@ -1,4 +1,3 @@
-import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -6,12 +5,13 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
+import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { useChat, type UIMessage } from "@ai-sdk/react";
-import { memo, useEffect, useMemo, useRef, type ReactNode } from "react";
+import { memo, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { SessionMeta } from "../lib/sessions";
 import { getOrCreateChat, useChatStore } from "../store/chatStore";
 import { deriveAiState, useAiSessionStatus } from "../lib/sessionStatus";
@@ -88,7 +88,7 @@ export const AiSidebarPanel = memo(function AiSidebarPanel({
     <div
       data-ai-sidebar
       className={cn(
-        "border-border/60 bg-background tedi-glass-panel relative flex h-full min-h-0 flex-col overflow-hidden rounded-md border",
+        "tedi-ai-surface border-border/60 bg-background tedi-glass-panel relative flex h-full min-h-0 min-w-0 flex-col overflow-hidden rounded-md border",
         "text-[12px]",
       )}
     >
@@ -136,7 +136,7 @@ export const AiPanePanel = memo(function AiPanePanel({ sessionId }: { sessionId:
         // focusing a terminal clears its agent's.
         useAiSessionStatus.getState().acknowledge(sessionId);
       }}
-      className="flex h-full min-h-0 flex-col overflow-hidden text-[12px]"
+      className="tedi-ai-surface flex h-full min-h-0 min-w-0 flex-col overflow-hidden text-[12px]"
     >
       <Body sessionId={sessionId} surface="pane" live={live} />
     </div>
@@ -310,15 +310,19 @@ function Header({ onClose, dragHandle }: { onClose: () => void; dragHandle?: Rea
     // written as the class: Tailwind scans comments too, and the literal was
     // enough to keep emitting the dead utility after the class itself was gone.)
     <div className="tedi-panel-header relative">
-      {dragHandle}
+      <span className="tedi-ai-section-controls flex shrink-0">{dragHandle}</span>
       <Sparkles size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
       <SessionPicker />
       <span className="tedi-header-divider" aria-hidden />
-      <ToolsPicker />
+      <span className="tedi-ai-tools flex shrink-0">
+        <ToolsPicker />
+      </span>
       <span className="tedi-header-optional flex items-center">
         <DebugRequestViewer />
       </span>
-      <AiDockButton />
+      <span className="tedi-ai-dock flex shrink-0">
+        <AiDockButton />
+      </span>
       <IconTooltip label="Close (Esc)" side="bottom">
         <Button
           type="button"
@@ -376,6 +380,7 @@ function SessionPicker() {
   const switchSession = useChatStore((s) => s.switchSession);
   const newSession = useChatStore((s) => s.newSession);
   const deleteSession = useChatStore((s) => s.deleteSession);
+  const [open, setOpen] = useState(false);
 
   const active = sessions.find((s) => s.id === activeId) ?? null;
   // Sessions are still loading. Returning null used to leave the header with no
@@ -388,39 +393,39 @@ function SessionPicker() {
   const sorted = [...sessions].sort((a, b) => b.updatedAt - a.updatedAt);
 
   return (
-    <DropdownMenu>
+    <DropdownMenu open={open} onOpenChange={setOpen}>
       <Tooltip>
         <TooltipTrigger asChild>
           <DropdownMenuTrigger asChild>
-            <button
-              type="button"
+            <Button
+              variant="ghost"
               // The AI panel's session name IS its title, so it wears the same
               // type as every other header's (`text-xs`, `text-foreground/80`)
               // rather than the smaller muted style it had, and takes the same
               // `flex-1` slot. It stays a button: switching session is what you
               // click the title for.
-              className={cn(
-                "flex min-w-0 flex-1 cursor-pointer items-center gap-1 px-1 py-1",
-                "text-foreground/80 text-xs font-medium transition-colors",
-                "hover:bg-accent hover:text-accent-foreground",
-              )}
+              className="tedi-ai-session-trigger text-foreground/80 hover:border-border aria-expanded:border-border h-6 min-w-0 flex-1 justify-start gap-1 rounded-md px-1.5 text-xs font-medium"
               aria-label="Switch session"
             >
-              <span className="truncate">{active.title || "New chat"}</span>
-              <ChevronDown size={10} strokeWidth={2} className="shrink-0 opacity-70" />
-            </button>
+              <span className="tedi-ai-session-title truncate">{active.title || "New chat"}</span>
+              <ChevronDown
+                size={11}
+                strokeWidth={2.5}
+                className={cn(
+                  "text-muted-foreground ml-auto shrink-0 transition-transform",
+                  open && "rotate-180",
+                )}
+              />
+            </Button>
           </DropdownMenuTrigger>
         </TooltipTrigger>
         <TooltipContent side="top">Switch session</TooltipContent>
       </Tooltip>
       <DropdownMenuContent
         align="start"
-        sideOffset={6}
-        alignOffset={0}
-        collisionPadding={8}
-        className="max-w-[calc(var(--radix-popper-available-width)-8px)] min-w-56"
+        className="max-h-[60vh] w-[var(--radix-dropdown-menu-trigger-width)] min-w-56 overflow-y-auto"
       >
-        <DropdownMenuItem onSelect={() => newSession()} className="gap-2 text-xs">
+        <DropdownMenuItem onSelect={() => newSession()}>
           <Plus size={12} strokeWidth={2} />
           New session
         </DropdownMenuItem>
@@ -461,10 +466,7 @@ function SessionRow({
         }
         onSelect();
       }}
-      className={cn(
-        "group flex items-center justify-between gap-2 text-xs",
-        active && "bg-accent/40",
-      )}
+      className={cn("group", active && "bg-accent/40")}
     >
       <span className="min-w-0 flex-1 truncate">{session.title || "New chat"}</span>
       <IconTooltip label="Delete session" side="right">
@@ -494,16 +496,16 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
     // with other sections, so it is routinely shorter than this content. The
     // inner `min-h-full` is what keeps `justify-center` from pushing the top of
     // an overflowing column out of reach.
-    <div className="min-h-0 flex-1 overflow-y-auto">
-      <div className="flex min-h-full flex-col items-center justify-center gap-6 px-8 py-10 text-center">
+    <div className="tedi-ai-empty-scroll min-h-0 flex-1 overflow-x-hidden overflow-y-auto">
+      <div className="tedi-ai-empty-content flex min-h-full min-w-0 flex-col items-center justify-center gap-6 px-8 py-10 text-center">
         <img src="/icon.png" alt="TEDI" className="size-14 opacity-90" />
-        <div className="space-y-1.5">
+        <div className="tedi-ai-empty-copy space-y-1.5">
           <p className="text-[14px] font-semibold tracking-tight">Ask TEDI anything</p>
           <p className="text-muted-foreground max-w-[18rem] text-[11.5px] leading-relaxed">
             TEDI sees the active terminal: cwd, recent commands, and output.
           </p>
         </div>
-        <div className="flex w-full flex-col gap-2.5">
+        <div className="tedi-ai-suggestion-list flex w-full min-w-0 flex-col gap-2.5">
           {SUGGESTIONS.map((s) => {
             const Icon = s.icon;
             return (
@@ -512,16 +514,20 @@ function EmptyState({ onPick }: { onPick: (text: string) => void }) {
                 type="button"
                 onClick={() => onPick(s.text)}
                 className={cn(
-                  "group bg-card/70 border-border flex cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
+                  "tedi-ai-suggestion group bg-card/70 border-border flex w-full min-w-0 cursor-pointer items-center gap-2.5 rounded-lg border px-2.5 py-2 text-left",
                   "hover:bg-muted/50 hover:text-foreground transition-colors",
                 )}
               >
-                <div className="bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
+                <div className="tedi-ai-suggestion-icon bg-muted/70 text-muted-foreground group-hover:bg-foreground/5 group-hover:text-foreground flex size-7 shrink-0 items-center justify-center rounded-md transition-colors">
                   <Icon size={13} strokeWidth={2} />
                 </div>
-                <div className="min-w-0 flex-1">
-                  <div className="text-foreground text-[12px] font-medium">{s.label}</div>
-                  <div className="text-muted-foreground text-[10.5px]">{s.hint}</div>
+                <div className="tedi-ai-suggestion-copy min-w-0 flex-1">
+                  <div className="tedi-ai-suggestion-label text-foreground text-[12px] font-medium">
+                    {s.label}
+                  </div>
+                  <div className="tedi-ai-suggestion-hint text-muted-foreground text-[10.5px]">
+                    {s.hint}
+                  </div>
                 </div>
               </button>
             );

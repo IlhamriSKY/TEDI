@@ -411,6 +411,9 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   let turnPinned = false;
   let pinnedCwd: string | null = null;
   let pinnedWorkspaceRoot: string | null = null;
+  // Session-lifetime pin for the system prompt's workspace root. Separate from
+  // the per-turn pin above and never reset: see `pinSessionWorkspaceRoot`.
+  let promptWorkspaceRoot: string | null = null;
   const toolContext: ToolContext = {
     getCwd: () => (turnPinned ? pinnedCwd : useChatStore.getState().live.getCwd()),
     getWorkspaceRoot: () =>
@@ -419,6 +422,12 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       turnPinned = true;
       pinnedCwd = cwd;
       pinnedWorkspaceRoot = workspaceRoot;
+    },
+    // Only a REAL root pins. A session opened before any workspace is loaded
+    // would otherwise pin `null` and never see project memory at all.
+    pinSessionWorkspaceRoot: (liveWorkspaceRoot) => {
+      if (promptWorkspaceRoot === null) promptWorkspaceRoot = liveWorkspaceRoot;
+      return promptWorkspaceRoot;
     },
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
     openSshTab: (id, name, isPrivate) =>

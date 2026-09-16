@@ -1442,3 +1442,187 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   height: 0.875rem;
   background-color: color-mix(in srgb, var(--border) 70%, transparent);
 }
+
+/* The AI panel can now be resized below the width it was originally designed
+ * for. Keep that compact mode local to the panel's own container: a window
+ * resize must not make a wide AI panel hide controls when another pane happens
+ * to be narrow. */
+.tedi-ai-surface {
+  container-type: inline-size;
+}
+
+@container (max-width: 17rem) {
+  /* Header: keep the identity and close action, while optional tools and the
+   * move action disappear before they can squeeze the session title into the
+   * edge. They remain available at the normal panel width. */
+  .tedi-ai-surface .tedi-ai-tools,
+  .tedi-ai-surface .tedi-ai-dock,
+  .tedi-ai-surface .tedi-header-divider {
+    display: none;
+  }
+
+  /* Empty state: the previous 2rem side padding left only a few characters of
+   * usable width in a 140px panel. Cards are full-width, copy can shrink, and
+   * secondary hints give way before text starts wrapping one character at a
+   * time. */
+  .tedi-ai-surface .tedi-ai-empty-content {
+    gap: 1rem;
+    padding: 1.25rem 0.75rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-empty-copy {
+    max-width: 100%;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion-list {
+    gap: 0.5rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion {
+    gap: 0.5rem;
+    padding: 0.375rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion-copy,
+  .tedi-ai-surface .tedi-ai-suggestion-label {
+    min-width: 0;
+    overflow-wrap: break-word;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion-hint {
+    display: none;
+  }
+
+  /* Composer: use two intentional rows instead of allowing the model and send
+   * controls to push each other past the right edge. */
+  .tedi-ai-surface .tedi-ai-composer {
+    padding: 0.375rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-composer-toolbar {
+    align-items: center;
+    justify-content: flex-start;
+    gap: 0.375rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-composer-meta,
+  .tedi-ai-surface .tedi-ai-status-controls {
+    width: 100%;
+    max-width: 100%;
+  }
+
+  .tedi-ai-surface .tedi-ai-composer-meta {
+    flex: 1 1 100%;
+    justify-content: space-between;
+  }
+
+  .tedi-ai-surface .tedi-ai-status-controls {
+    flex: 1 1 100%;
+    margin-left: 0;
+    flex-wrap: wrap;
+    justify-content: flex-end;
+    gap: 0.125rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-model-control {
+    display: flex;
+    min-width: 0;
+    flex: 1 1 2rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-model-trigger {
+    min-width: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+
+  .tedi-ai-surface .tedi-ai-agent-trigger {
+    max-width: 8rem;
+    min-width: 0;
+  }
+}
+
+@container (max-width: 12rem) {
+  /* At the smallest useful width, the section grip and session text are
+   * expendable. The collapse button, menu chevron, and close button remain
+   * reachable, so the header still has clear controls instead of clipped ones. */
+  .tedi-ai-surface .tedi-ai-section-controls > span > button:first-child {
+    display: none;
+  }
+
+  .tedi-ai-surface .tedi-ai-session-title {
+    display: none;
+  }
+
+  .tedi-ai-surface .tedi-ai-session-trigger {
+    flex: 0 0 1.5rem;
+    width: 1.5rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .tedi-ai-surface .tedi-ai-session-trigger .ml-auto {
+    margin-left: 0;
+  }
+
+  .tedi-ai-surface .tedi-ai-empty-content {
+    gap: 0.75rem;
+    padding-inline: 0.5rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-empty-content > img {
+    width: 2.75rem;
+    height: 2.75rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion-icon {
+    width: 1.5rem;
+    height: 1.5rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-suggestion-label {
+    font-size: 0.6875rem;
+    line-height: 1rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-agent-name,
+  .tedi-ai-surface .tedi-ai-agent-chevron,
+  .tedi-ai-surface .tedi-ai-context {
+    display: none;
+  }
+
+  .tedi-ai-surface .tedi-ai-agent-trigger {
+    width: 1.5rem;
+    max-width: 1.5rem;
+    flex: 0 0 1.5rem;
+    justify-content: center;
+    padding-inline: 0;
+  }
+
+  .tedi-ai-surface .tedi-ai-model-control {
+    flex: 0 1 2rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-model-trigger {
+    width: 2rem;
+    flex: 0 1 2rem;
+    justify-content: center;
+    padding-inline: 0.25rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-model-trigger > span {
+    display: none;
+  }
+
+  .tedi-ai-surface .tedi-ai-send-button {
+    padding-inline: 0.375rem;
+  }
+
+  .tedi-ai-surface .tedi-ai-send-label {
+    display: none;
+  }
+
+  .tedi-ai-surface .tedi-ai-status-divider {
+    margin-inline: 0.125rem;
+  }
+}

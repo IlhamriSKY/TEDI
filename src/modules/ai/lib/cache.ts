@@ -103,6 +103,13 @@ export function providerHasPromptCache(provider: ProviderId): boolean {
   switch (provider) {
     case "anthropic": // explicit cacheControl
     case "openai": // implicit prefix cache >= 1024 tokens
+    // Same OpenAI Responses backend as `openai`, so the same implicit prefix
+    // cache. Tabling it matters at COLD START: `observedPromptCache` is empty
+    // until a usage report lands, so turn 1 of a resumed session would send
+    // history in the cache-less shape (no replayed `<env>`, freely compacted)
+    // and turn 2, after the first report, in the cached shape - changing bytes
+    // already sent and voiding the whole prefix exactly once per app run.
+    case "chatgpt":
     case "xai":
     case "deepseek":
     case "google":

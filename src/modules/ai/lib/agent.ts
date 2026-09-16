@@ -37,6 +37,7 @@ import {
   type ProviderId,
 } from "../config";
 import { getChatGptAccess } from "./chatgptAuth";
+import { recordChatGptUsage } from "./codexUsage";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
@@ -921,6 +922,12 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
           cachedInputTokens,
         });
       }
+      // The ChatGPT backend reports plan usage as `x-codex-*` headers on EVERY
+      // response, so this costs no request. Without it ai-native is invisible to
+      // the AI Usage Meter, whose only other source is the Codex CLI's own
+      // session logs - which TEDI never writes. Fire-and-forget: it swallows its
+      // own errors, and a usage meter must never be able to fail a turn.
+      if (provider === "chatgpt") void recordChatGptUsage(step.response?.headers);
     },
     onFinish: (result) => {
       opts.onStep?.(null);

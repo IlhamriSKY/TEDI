@@ -86,6 +86,18 @@ export type ToolContext = {
   /** Absolute paths read this session via `read_file`. `edit`/`multi_edit`
    *  enforce read-before-edit by checking membership. */
   readCache: Set<string>;
+  /** Workspace root the SYSTEM PROMPT is built against, pinned for the LIFE of
+   *  the session (not the turn). Pass the live root; the first non-null one
+   *  wins and is returned from then on.
+   *
+   *  The system prompt is the head of the cached prefix, so anything that
+   *  changes it re-prices the whole conversation. Project memory is read from
+   *  the workspace root, and the root follows the ACTIVE TERMINAL: clicking a
+   *  terminal in another project used to drop the `## PROJECT` block and cost a
+   *  full uncached re-send of every message so far. Deliberately session-scoped
+   *  while `pinTurnCwd` stays turn-scoped: tools should still follow the user
+   *  into the other project, only the prompt has to hold still. */
+  pinSessionWorkspaceRoot: (liveWorkspaceRoot: string | null) => string | null;
   /** Active chat session id. Used by tools that persist per-session state. */
   getSessionId: () => string | null;
   /** Provider API keys + selected model, read lazily so tools never import the

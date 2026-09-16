@@ -76,7 +76,7 @@ export function AiStatusBarControls() {
     // ml-auto keeps the group flush-right on BOTH the shared row and, once the
     // toolbar wraps, its own row (justify-between would otherwise flush a lone
     // wrapped item to the left, pulling Send off the bottom-right).
-    <div className="ml-auto flex min-w-0 items-center gap-0.5">
+    <div className="tedi-ai-status-controls ml-auto flex min-w-0 items-center gap-0.5">
       <input
         ref={fileInputRef}
         type="file"
@@ -121,13 +121,17 @@ export function AiStatusBarControls() {
         </IconBtn>
       )}
 
-      <ModelDropdown />
+      <span className="tedi-ai-model-control min-w-0">
+        <ModelDropdown />
+      </span>
 
       {/* Renders nothing unless the selected model has a real reasoning
           parameter, so the toolbar gains no width for models without one. */}
-      <ReasoningDropdown />
+      <span className="tedi-ai-reasoning-control">
+        <ReasoningDropdown />
+      </span>
 
-      <span className="bg-border mx-1 h-5 w-px" aria-hidden />
+      <span className="tedi-ai-status-divider bg-border mx-1 h-5 w-px" aria-hidden />
 
       {c.isActive ? (
         <>
@@ -147,11 +151,14 @@ export function AiStatusBarControls() {
                     type="button"
                     size="sm"
                     disabled={!c.value.trim()}
-                    className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
+                    className={cn(
+                      "tedi-ai-send-button h-6 gap-1 rounded-md px-2 text-[11px]",
+                      sendTone,
+                    )}
                     aria-label="Send options"
                   >
                     <Send size={12} strokeWidth={2} />
-                    Send
+                    <span className="tedi-ai-send-label">Send</span>
                   </Button>
                 </DropdownMenuTrigger>
               </TooltipTrigger>
@@ -193,11 +200,11 @@ export function AiStatusBarControls() {
             size="sm"
             onClick={c.submit}
             disabled={!c.canSend}
-            className={cn("h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
+            className={cn("tedi-ai-send-button h-6 gap-1 rounded-md px-2 text-[11px]", sendTone)}
             aria-label="Send (Enter)"
           >
             <Send size={12} strokeWidth={2} />
-            Send
+            <span className="tedi-ai-send-label">Send</span>
           </Button>
         </IconTooltip>
       )}
