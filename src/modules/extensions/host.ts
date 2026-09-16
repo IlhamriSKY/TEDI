@@ -242,6 +242,24 @@ export type InvokeResults = {
   };
   /** The new background handle. */
   shell_bg_spawn_direct: number;
+  /**
+   * The OS process table, read by the host itself - no shell, no spawn.
+   * Memory is the private working set on Windows (what Task Manager shows)
+   * and RSS elsewhere; CPU time is cumulative microseconds.
+   */
+  process_sample: {
+    /** Physical RAM in bytes, 0 when unknown. */
+    totalMem: number;
+    procs: {
+      pid: number;
+      ppid: number;
+      name: string;
+      cmd: string;
+      rss: number;
+      cpuUs: number;
+      startMs: number;
+    }[];
+  };
   /** `shell::background::BackgroundLogResponse` */
   shell_bg_logs: {
     bytes: string;

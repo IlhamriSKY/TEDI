@@ -21,6 +21,7 @@ pub mod mcp;
 pub mod mcp_bridge;
 pub mod net;
 pub mod preview;
+pub mod procs;
 pub mod pty;
 pub mod pty_daemon;
 pub mod secrets;

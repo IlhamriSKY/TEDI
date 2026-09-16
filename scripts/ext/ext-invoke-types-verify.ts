@@ -102,6 +102,7 @@ const shellMod = rust("modules/shell/mod.rs");
 const shellBg = rust("modules/shell/background.rs");
 const sshMod = rust("modules/ssh/mod.rs");
 const fsGrep = rust("modules/fs/grep.rs");
+const procsMod = rust("modules/procs.rs");
 
 /** command in `InvokeResults` -> the Rust struct that produces it. */
 const CASES: { command: string; struct: string; source: string }[] = [
@@ -110,6 +111,7 @@ const CASES: { command: string; struct: string; source: string }[] = [
   { command: "shell_bg_list", struct: "BackgroundProcInfo", source: shellBg },
   { command: "ssh_list_sessions", struct: "SshSessionInfo", source: sshMod },
   { command: "fs_glob", struct: "GlobResponse", source: fsGrep },
+  { command: "process_sample", struct: "ProcessSample", source: procsMod },
 ];
 
 console.log("\n[A] every documented invoke result still matches its Rust struct");

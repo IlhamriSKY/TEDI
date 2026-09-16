@@ -65,8 +65,8 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
     automation, backup, browser, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard,
-    extensions, format, fs, git, mcp, mcp_bridge, net, preview, pty, pty_daemon, secrets, shell,
-    snapshot, ssh,
+    extensions, format, fs, git, mcp, mcp_bridge, net, preview, procs, pty, pty_daemon, secrets,
+    shell, snapshot, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -756,6 +756,7 @@ pub fn run() {
             git::watch::git_watch,
             git::watch::git_unwatch,
             pty::path_probe::terminal_probe_path,
+            procs::process_sample,
             shell::shell_run_command,
             shell::shell_session_open,
             shell::shell_session_run,
