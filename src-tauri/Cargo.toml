@@ -158,6 +158,20 @@ minisign-verify = "0.2"
 # Stable session ids for the sidecar PTY daemon. v4 (random) is plenty - we
 # only need uniqueness across the daemon's lifetime, not global ordering.
 uuid = { version = "1", features = ["v4", "serde"] }
+# Change notifications for `modules/git/watch.rs`, so the git views refresh when
+# the working tree changes instead of spawning `git status` every 2.5s. One
+# crate over ReadDirectoryChangesW, FSEvents and inotify; `walkdir`, `mio` and
+# windows-sys 0.60 were already in the tree, so this adds notify itself and
+# its Linux/macOS backend bindings.
+notify = "8"
+# The OS process table for `modules/procs.rs`, so the Process Monitor extension
+# can stop spawning a PowerShell to read it. Taken as a dependency rather than
+# hand-rolled because the three backends are the whole job: /proc on Linux,
+# libproc + sysctl on macOS, and a PEB read for the command line on Windows.
+# The defaults add disks, networks, users and hardware sensors (`component`,
+# which pulls WMI in on Windows); `system` alone is the process table and the
+# RAM figure.
+sysinfo = { version = "0.37", default-features = false, features = ["system"] }
 # Cross-platform local IPC for the sidecar PTY daemon. Wraps Unix domain
 # sockets and Windows named pipes behind one API so the daemon protocol does
 # not need parallel transport implementations.
@@ -180,6 +194,10 @@ windows-sys = { version = "0.59", features = [
 	"Win32_System_Console",
 	"Win32_System_Diagnostics_ToolHelp",
 	"Win32_System_JobObjects",
+	# `GetProcessMemoryInfo` + `PROCESS_MEMORY_COUNTERS_EX2` for the private
+	# working set in `modules/procs.rs` - the number Task Manager shows, which
+	# sysinfo does not report on Windows.
+	"Win32_System_ProcessStatus",
 	"Win32_System_Threading",
 	"Win32_UI_Input_KeyboardAndMouse",
 	"Win32_Graphics_Dwm",
