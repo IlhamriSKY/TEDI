@@ -5,6 +5,7 @@ import { native } from "../lib/native";
 import { checkShellCommand } from "../lib/security";
 import {
   clampForModel,
+  stripAnsi,
   isReadOutsideScope,
   scrubErrorPath,
   throwIfAborted,
@@ -133,17 +134,23 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(sid, cwd);
           const r = await native.shellSessionRun(shellId, vetted.command, cwd, timeout_secs);
-          // Trim head+tail before the output re-enters context every step; the
-          // Rust side already hard-caps, this is the smaller model-facing trim.
-          const stdout = clampForModel(r.stdout);
-          const stderr = clampForModel(r.stderr);
+          // Colour first, then trim head+tail before the output re-enters
+          // context every step; the Rust side already hard-caps, this is the
+          // smaller model-facing trim. `truncated` compares against the STRIPPED
+          // text, not the raw stream: stripping always changes the string, so
+          // comparing to `r.stdout` would report a coloured build as truncated
+          // and send the model hunting for output that is all there.
+          const outPlain = stripAnsi(r.stdout);
+          const errPlain = stripAnsi(r.stderr);
+          const stdout = clampForModel(outPlain);
+          const stderr = clampForModel(errPlain);
           return {
             command,
             stdout,
             stderr,
             exit_code: r.exit_code,
             timed_out: r.timed_out,
-            truncated: r.truncated || stdout !== r.stdout || stderr !== r.stderr,
+            truncated: r.truncated || stdout !== outPlain || stderr !== errPlain,
             cwd_after: r.cwd_after,
           };
         } catch (e) {
@@ -196,8 +203,12 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
           const r = await native.shellBgLogs(handle, since_offset);
           // The ring buffer holds up to 4MB; tail it before it floods context.
           // next_offset still points at the true stream position to resume from.
-          const bytes = clampForModel(r.bytes);
-          return bytes === r.bytes ? r : { ...r, bytes, truncated_for_model: true };
+          // A dev server's log is the most colour-dense output the agent reads,
+          // so strip first - and compare against the STRIPPED text, or every
+          // coloured log would claim to be truncated when nothing was cut.
+          const plain = stripAnsi(r.bytes);
+          const bytes = clampForModel(plain);
+          return bytes === plain ? { ...r, bytes } : { ...r, bytes, truncated_for_model: true };
         } catch (e) {
           return { error: scrubErrorPath(e, ctx) };
         }

@@ -13,6 +13,7 @@
  * the same `zodSchema()` path) and fails on the invariants that keep them from
  * silently regressing.
  */
+import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { ToolSet } from "ai";
 import { builtinGroup } from "../../src/modules/ai/tools/catalog";
@@ -118,7 +119,7 @@ const rows = names.map((n) => {
 const totalChars = rows.reduce((a, r) => a + r.total, 0);
 
 console.log("[report] built-in tool surface, as serialized to the provider");
-console.log(`  tools: ${rows.length} (sub-agent tools excluded - see above)`);
+console.log(`  tools: ${rows.length} (sub-agent and notes tools excluded - see above)`);
 console.log(`  description chars: ${rows.reduce((a, r) => a + r.desc, 0)}`);
 console.log(`  JSON Schema chars: ${rows.reduce((a, r) => a + r.schema, 0)}`);
 console.log(`  TOTAL: ${totalChars} chars ~ ${tok(totalChars)} tokens, every step of every turn`);
@@ -153,19 +154,25 @@ console.log(
 // unmeasured. Their definitions come from `scripts/mcp/tools.mjs`, a data-only
 // table with zero imports, so the cost can be read straight out of it.
 // ---------------------------------------------------------------------------
+//
+// The list is READ OUT OF the server's own `HANDLERS` block, not hand-kept
+// beside it. Hand-kept is what it was, and it drifted: `open_file`, `workspace`
+// and `worktree` gained handlers and this report went on billing eleven tools,
+// so ~700 tokens a step went unmeasured and those three names never met the
+// shared-table check below - in the one script whose job is to notice that.
+// Source text rather than an import because `tediMcpServer.ts` reaches React
+// and the Tauri window at module load.
+const serverSrc = readFileSync(
+  new URL("../../src/modules/ai/lib/tediMcpServer.ts", import.meta.url),
+  "utf8",
+);
+const handlerBlock = serverSrc.slice(serverSrc.indexOf("const HANDLERS"));
 const IN_PROCESS = [
-  "state",
-  "inspect",
-  "read",
-  "run_command",
-  "set_setting",
-  "extension",
-  "wait_for_terminal",
-  "sh",
-  "focus_pane",
-  "pane",
-  "ssh",
-];
+  ...handlerBlock.slice(0, handlerBlock.indexOf("\n};")).matchAll(/^ {2}([a-z_]+):/gm),
+].map((m) => m[1]);
+check("the in-process handler list was read from tediMcpServer.ts", IN_PROCESS.length > 5, {
+  found: IN_PROCESS.length,
+});
 let mcpChars = 0;
 for (const n of IN_PROCESS) {
   const def = TOOL_DEFS[n];
@@ -179,6 +186,30 @@ console.log(
 console.log(
   `  built-ins + MCP: ${totalChars + mcpChars} chars ~ ${tok(totalChars + mcpChars)} tokens`,
 );
+
+console.log("[coverage] every built-in builder is measured or named as an exclusion");
+// `notes` was added to `buildToolsRaw` and never added here, so two tools the
+// model is sent every step cost nothing as far as this report was concerned.
+// The builder list is the honest boundary: adding one to `tools.ts` now either
+// gets measured or has to be declared unmeasurable, on purpose, right here.
+const MEASURED_BUILDERS = new Set(["Fs", "Edit", "Fetch", "Search", "Shell", "Todo", "Schedule"]);
+// Sub-agents: measured by the `subagent-*` checks instead (and the builder
+// reaches xterm). Notes: `@/modules/notes` calls `getCurrentWebviewWindow()` at
+// module load, so importing it here needs a DOM that this script has no reason
+// to fake for ~500 chars.
+const EXCLUDED_BUILDERS = new Set(["Subagent", "Notes"]);
+const composed = new Set(
+  [
+    ...readFileSync(
+      new URL("../../src/modules/ai/tools/tools.ts", import.meta.url),
+      "utf8",
+    ).matchAll(/\.\.\.build(\w+)Tools\(/g),
+  ].map((m) => m[1]),
+);
+const unaccounted = [...composed].filter(
+  (n) => !MEASURED_BUILDERS.has(n) && !EXCLUDED_BUILDERS.has(n),
+);
+check("no builder in tools.ts goes unbilled", unaccounted.length === 0, unaccounted);
 
 console.log("[one surface] no capability is offered twice");
 // THE regression this whole consolidation exists to prevent. A built-in named

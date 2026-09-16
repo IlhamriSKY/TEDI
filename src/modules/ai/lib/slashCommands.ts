@@ -345,7 +345,7 @@ function compactActiveChat(): SlashOutcome {
   state.patchAgentMeta({
     lastCompact: {
       at: Date.now(),
-      stages: { lossless: 0, elided: 0, dropped: info.dropped },
+      stages: { lossless: 0, reasoning: 0, elided: 0, dropped: info.dropped },
     },
   });
   return {

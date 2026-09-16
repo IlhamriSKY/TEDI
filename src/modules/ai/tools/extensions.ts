@@ -1,7 +1,7 @@
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { aiToolsRegistry } from "@/modules/extensions/registries";
 import { scrubErrorPath } from "./context";
-import { clampToolKey, sanitizeToolName } from "./mcp";
+import { extensionToolKey } from "./toolKey";
 import { extToolMedia } from "@mcp/tools.mjs";
 
 type ExtToolHandler = (args: Record<string, unknown>) => Promise<unknown> | unknown;
@@ -38,7 +38,7 @@ export function buildExtensionTools(
     // Sanitize to the provider-safe charset (Anthropic/Gemini reject spaces &
     // punctuation in tool names — a bad one 400s the whole request). Only the
     // model-facing KEY is sanitized; dispatch still uses the original `name`.
-    const toolName = clampToolKey(sanitizeToolName(name));
+    const toolName = extensionToolKey(name);
     if (!toolName || out[toolName]) continue;
     extensionOf?.set(toolName, extensionId);
     const schema =

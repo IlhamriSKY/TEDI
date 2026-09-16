@@ -4,6 +4,21 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.60] - 16-09-2026
+
+### Security
+
+- **An extension's AI tool that you switched off could still be run.** The tool picker's switches are the one preference an agent is forbidden to write, because that list decides what it may do rather than merely what it is shown. An extension's AI tool was the single capability with two doors into it: its own entry in the tool list, which the picker removed, and `run_command` with an extension id, which it never reached. Switching off a SQL Explorer query or an API Client request therefore hid it and left it callable by name, and `run_command`'s own description points a model straight at that second door. Both doors now resolve the tool's key through one function and refuse a switched-off tool the same way. See [toolKey.ts](src/modules/ai/tools/toolKey.ts), [tediMcpServer.ts](src/modules/ai/lib/tediMcpServer.ts).
+
+### Changed
+
+- **A long conversation now gives up its old thinking before it gives up what it read.** When a session nears the point where TEDI has to start removing things to fit the model's window, it went straight for tool results, which is the file content and command output the agent still needs to do the work. Measured on one real eight-turn session, reasoning was 35% of everything sent, and 86% of that belonged to turns already answered: 58,600 tokens of finished thinking re-sent to reach a live turn of 9,300. Finished reasoning now goes first, at the same point the old cleanup began and ahead of it, so every token it frees is a file the agent keeps. The turn in progress is untouched, because a model needs its own reasoning beside the tool call it is making. A conversation that is nowhere near the limit is not rewritten at all. See [compact.ts](src/modules/ai/lib/compact.ts).
+- **Terminal colour codes no longer reach the AI.** A command the agent runs for itself comes back as the raw stream, escape codes and all, and a coloured build log is the densest source of them: encoded into the request, one invisible colour marker costs six characters of your quota, and a model sometimes copies them back into its answer. They are stripped now. The same output was also being reported as truncated whenever it changed at all, so removing the colour would have made every coloured build claim to be cut short and sent the agent hunting for output that was already complete; the flag now compares against the cleaned text. See [context.ts](src/modules/ai/tools/context.ts), [shell.ts](src/modules/ai/tools/shell.ts).
+
+### Fixed
+
+- **The check that measures what an AI turn costs was blind to a fifth of it.** Its list of TEDI's own in-process tools was kept by hand and had been left at eleven while the server grew to fourteen, so `open_file`, `workspace` and `worktree` went unmeasured, about 700 tokens on every step, and those three never met the check's own assertion that a tool matches the shared table. It now reads the list out of the server's source. A second gap went with it: the notes tools were added to the agent and never to the report, so a new group of tools must now either be measured or be named as a deliberate exclusion. The honest figure for a turn's tool definitions is 6,251 tokens, not the 5,555 it had been claiming. See [tool-budget-verify.ts](scripts/ai/tool-budget-verify.ts).
+
 ## [0.4.59] - 16-09-2026
 
 ### Fixed

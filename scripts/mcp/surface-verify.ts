@@ -218,6 +218,18 @@ if (!/AGENT_DENIED_PREFS\.has\(key as PrefKey\)/.test(storeSrc)) {
   fail("_writePreference does not consult AGENT_DENIED_PREFS");
 } else ok("the deny-set is declared and enforced in _writePreference");
 
+// The other half of that switch. An extension's AI tool has TWO doors - its own
+// tool key, and `run_command {extensionId, id}` - and `applyToolFilter` only
+// ever reached the first, so switching one off in the picker hid it and left it
+// callable by name. `disabledTools` is denied to the agent precisely because it
+// decides what the agent MAY DO; a door that ignores it makes that meaningless.
+if (!/disabledTools\.includes\(key\)/.test(tediSrc)) {
+  fail("run_command does not check the tool picker - a switched-off extension tool is callable");
+} else ok("run_command refuses an extension AI tool the picker switched off");
+if (!/extensionToolKey/.test(tediSrc)) {
+  fail("run_command resolves the picker key some other way than extensionToolKey");
+} else ok("both doors resolve the picker key through one definition");
+
 // ---------------------------------------------------------------------------
 // 6. The installed app ships every file `server.mjs` reaches.
 // ---------------------------------------------------------------------------

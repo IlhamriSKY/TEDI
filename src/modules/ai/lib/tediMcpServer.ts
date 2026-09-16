@@ -70,7 +70,8 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { TOOL_DEFS, validateArgs } from "@mcp/tools.mjs";
-import { readSettings, writeSetting } from "@/modules/settings/preferences";
+import { readSettings, usePreferencesStore, writeSetting } from "@/modules/settings/preferences";
+import { extensionToolKey } from "../tools/toolKey";
 import { controlExtension, listExtensions, runExtensionCommand } from "@/modules/extensions/store";
 import { listCommands, runCommand } from "@/modules/shortcuts/lib/commandRegistry";
 import { listConnections } from "@/modules/ssh/connections";
@@ -309,6 +310,19 @@ const HANDLERS: Record<string, Handler> = {
 
   run_command: async ({ id, extensionId, args }) => {
     if (extensionId) {
+      // An extension's AI tool is reachable TWO ways: as its own tool key, and
+      // through here. The tool picker could only ever remove the first, so
+      // switching one off hid it and left it callable by name - the same bug
+      // the stdio server shipped with, and the reason `disabledTools` sits in
+      // `AGENT_DENIED_PREFS`: that list decides what the agent MAY DO, not what
+      // it is shown. The key comes from `extensionToolKey`, the one definition
+      // `buildExtensionTools` registers under, so the two cannot disagree.
+      const key = extensionToolKey(String(id));
+      if (usePreferencesStore.getState().disabledTools.includes(key)) {
+        return fail(
+          `"${id}" is switched off in the tool picker. Ask the user to turn it back on; do not route around it.`,
+        );
+      }
       const out = await runExtensionCommand(
         String(extensionId),
         String(id),

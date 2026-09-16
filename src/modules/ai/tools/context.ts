@@ -157,6 +157,25 @@ export function scrubErrorPath(e: unknown, ctx: ToolContext): string {
 }
 
 /**
+ * Strip ANSI colour/cursor escapes from output bound for the model.
+ *
+ * Only for the RAW process streams (`bash_run`, `bash_logs`). A terminal pane
+ * is read through xterm's buffer, which is already resolved text - there is no
+ * escape left there to strip.
+ *
+ * These cost real tokens and carry no information a model can use: JSON-encoded
+ * each `ESC` alone becomes the six characters ``, so one `pnpm build` in a
+ * measured session spent 4055 characters on colour nobody reads. Worse than
+ * free, in fact - the model sees them as content and sometimes copies them back
+ * into an answer.
+ */
+export function stripAnsi(s: string): string {
+  // CSI (colour, cursor) plus OSC (title, hyperlink) terminated by BEL or ST.
+  // eslint-disable-next-line no-control-regex
+  return s.replace(/\[[0-9;?]*[ -/]*[@-~]|\][^]*(?:|\\)/g, "");
+}
+
+/**
  * Clamp a long string a tool re-feeds into context every step (shell output,
  * logs, subagent summaries). Keeps head AND tail, since setup lands at the start
  * and errors at the end, so a chatty build cannot flood the window. The native

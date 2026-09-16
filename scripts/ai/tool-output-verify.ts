@@ -21,6 +21,7 @@
 import { convertToModelMessages } from "ai";
 import { buildEditTools, leanEditOutput } from "../../src/modules/ai/tools/edit";
 import { buildSearchTools, formatGrep, truncateText } from "../../src/modules/ai/tools/search";
+import { stripAnsi } from "../../src/modules/ai/tools/context";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -190,6 +191,30 @@ assert(
   withTools.c3.length < withTools.c2.length,
   "output_mode is read back off the replayed tool INPUT (files < content)",
 );
+
+console.log("\n[6] shell colour never reaches the model");
+// A coloured build log is the densest ANSI the agent reads, and JSON-encoded
+// one ESC costs six characters. Nothing here may touch the TEXT, only the
+// escapes: `bash_run`'s truncation flag is keyed off "did the string change",
+// so a stripper that also ate a character would report every coloured build as
+// truncated and send the model hunting for output that is all there.
+const E = String.fromCharCode(27);
+const BEL = String.fromCharCode(7);
+const coloured = `${E}[2m$ tsc && vite build${E}[22m\n${E}[33mwarning${E}[39m: one\n${E}[32m built in 3.61s${E}[39m`;
+const plain = stripAnsi(coloured);
+assert(!plain.includes(E), "no ESC survives");
+assert(
+  plain === "$ tsc && vite build\nwarning: one\n built in 3.61s",
+  `text is byte-identical minus the escapes (got ${JSON.stringify(plain)})`,
+);
+assert(stripAnsi("plain text") === "plain text", "output with no colour is returned unchanged");
+// OSC 0 (title) and OSC 8 (hyperlink): a dev server prints both.
+const osc = `${E}]0;dev server${BEL}ready on ${E}]8;;http://x${BEL}link${E}]8;;${BEL}`;
+assert(
+  stripAnsi(osc) === "ready on link",
+  `OSC sequences go too (got ${JSON.stringify(stripAnsi(osc))})`,
+);
+assert(plain.length < coloured.length, "it actually removes bytes");
 
 console.log(failed === 0 ? "\nAll tool-output checks passed." : `\n${failed} check(s) FAILED.`);
 process.exit(failed === 0 ? 0 : 1);

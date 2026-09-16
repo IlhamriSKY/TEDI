@@ -7,6 +7,7 @@ import { TOOL_DEFS } from "@mcp/tools.mjs";
 import { type TediMcpDeps } from "../lib/tediMcpServer";
 import { getMcpSurface } from "@/modules/settings/store";
 import type { ToolContext } from "./context";
+import { clampToolKey, sanitizeToolName } from "./toolKey";
 
 /** Image/audio payload carried out of an MCP tool result so toModelOutput can
  *  hand it to a multimodal model as a real file part. */
@@ -44,35 +45,6 @@ function capMedia(media: McpMedia[]): McpMedia[] {
 function capResult(text: string): string {
   if (text.length <= MAX_RESULT_CHARS) return text;
   return `${text.slice(0, MAX_RESULT_CHARS)}\n... truncated at ${MAX_RESULT_CHARS} characters. Ask for something narrower.`;
-}
-
-/** Sanitize a tool name to the provider-safe charset for use as an AI SDK tool
- *  key (also reused by extension tools). */
-export function sanitizeToolName(name: string): string {
-  return name
-    .replace(/[^a-zA-Z0-9_-]/g, "_")
-    .replace(/^[0-9]/, "_$&")
-    .toLowerCase();
-}
-
-function fnv1a(s: string): number {
-  let h = 0x811c9dc5;
-  for (let i = 0; i < s.length; i++) {
-    h ^= s.charCodeAt(i);
-    h = Math.imul(h, 0x01000193);
-  }
-  return h >>> 0;
-}
-
-/** Clamp a tool key to the provider limit (Anthropic/OpenAI cap names at
- *  `^[A-Za-z0-9_-]{1,64}$`; an over-long key 400s the WHOLE request, not just
- *  that tool). Over the cap, truncate and append a short stable hash so two long
- *  keys sharing a 64-char prefix don't collapse to one. Reused by extension
- *  tools, whose names are equally unbounded. */
-export function clampToolKey(key: string, max = 64): string {
-  if (key.length <= max) return key;
-  const hash = fnv1a(key).toString(36).slice(0, 6);
-  return `${key.slice(0, max - 1 - hash.length)}_${hash}`;
 }
 
 /**

@@ -128,6 +128,62 @@ function collectLastReadIdxPerKey(messages: ModelMessage[]): Map<string, number>
   return lastIdx;
 }
 
+/**
+ * Strip reasoning blocks from turns the user has already moved past.
+ *
+ * Measured on a real 8-turn session: reasoning was 35% of the whole request,
+ * and 86% of THAT was reasoning from turns that had already been answered -
+ * 58.6K tokens re-sent to reach a 9.3K-token current turn. It is the cheapest
+ * content in the payload to lose: a finished turn's chain of thought is not an
+ * observation the model needs back, unlike the tool results Stage 2 eats.
+ *
+ * Everything after the LAST user message is untouched. That is the live tool
+ * loop, where the reasoning block IS load-bearing: Anthropic needs the latest
+ * assistant turn's thinking intact alongside its `tool_use`, and the Responses
+ * API chains reasoning items within one turn.
+ *
+ * A reasoning-ONLY assistant message is left exactly as it is. Emptying it is
+ * not an option (a blank assistant message is a provider error) and removing it
+ * would break the contract between-step compaction is built on: no message is
+ * ever added or removed, only tool-result output is rewritten, which is what
+ * keeps an active AI SDK tool loop safe to feed. The common shape is
+ * `[reasoning, tool-call]` or `[reasoning, text]`, so skipping the rare
+ * reasoning-only message costs almost nothing and keeps the count invariant
+ * exactly - `scripts/ai/compact-step-verify.ts` asserts both.
+ */
+function dropPriorTurnReasoning(messages: ModelMessage[]): {
+  out: ModelMessage[];
+  touched: boolean;
+} {
+  let lastUser = -1;
+  for (let i = messages.length - 1; i >= 0; i--) {
+    if (messages[i].role === "user") {
+      lastUser = i;
+      break;
+    }
+  }
+  if (lastUser <= 0) return { out: messages, touched: false };
+
+  let touched = false;
+  const out: ModelMessage[] = [];
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (i >= lastUser || m.role !== "assistant" || !Array.isArray(m.content)) {
+      out.push(m);
+      continue;
+    }
+    const parts = m.content as ToolPart[];
+    const kept = parts.filter((p) => p.type !== "reasoning");
+    if (kept.length === parts.length || kept.length === 0) {
+      out.push(m);
+      continue;
+    }
+    touched = true;
+    out.push({ ...m, content: kept } as ModelMessage);
+  }
+  return { out, touched };
+}
+
 /** Replace stale read_file tool-results with an elision marker. Stale = there
  *  is a later read of the same path, or the path has been mutated since.
  *  Keeps the freshest read so the agent's view stays current. */
@@ -185,6 +241,9 @@ function dropSupersededReads(messages: ModelMessage[]): {
 export type CompactStages = {
   /** Stage 1: superseded read_file results elided. Lossless. */
   lossless: number;
+  /** Stage 1.5: assistant messages whose prior-turn reasoning was stripped.
+   *  Housekeeping like Stage 1, not user-facing compaction. */
+  reasoning: number;
   /** Stage 2: older tool-result blocks elided to reclaim context. */
   elided: number;
   /** Stage 3: oldest non-system messages hard-dropped. Loses information. */
@@ -222,7 +281,7 @@ export function compactModelMessagesDetailed(
   contextLimit: number,
   opts?: { skipHardDrop?: boolean },
 ): CompactResult {
-  const stages: CompactStages = { lossless: 0, elided: 0, dropped: 0 };
+  const stages: CompactStages = { lossless: 0, reasoning: 0, elided: 0, dropped: 0 };
   let working = messages;
 
   // Stage 1: elide superseded reads. Runs every turn (anti-loop, not just budget).
@@ -234,6 +293,23 @@ export function compactModelMessagesDetailed(
     }
   }
   let approxTokens = approxBytes(working) / 4;
+
+  // Stage 1.5: at the SAME threshold Stage 2 uses, and before it. Once we are
+  // here something is going to be taken out of the payload; prior-turn
+  // reasoning goes first because it is the only content in the window that the
+  // model never needs back. It is deliberately not tied to whether the provider
+  // has a prompt cache: by this point Stage 2 is about to rewrite the history
+  // anyway, so there is no byte-stable prefix left to protect - and every token
+  // freed here is a tool result Stage 2 does not have to eat, or a message
+  // Stage 3 does not have to drop.
+  if (approxTokens >= 0.72 * contextLimit) {
+    const r = dropPriorTurnReasoning(working);
+    if (r.touched) {
+      working = r.out;
+      stages.reasoning++;
+      approxTokens = approxBytes(working) / 4;
+    }
+  }
 
   // Stage 2: elide older tool-result blocks until under 60% or KEEP_TAIL reached.
   if (approxTokens >= 0.72 * contextLimit) {
@@ -309,7 +385,7 @@ export function compactModelMessagesDetailed(
     }
   }
 
-  const total = stages.lossless + stages.elided + stages.dropped;
+  const total = stages.lossless + stages.reasoning + stages.elided + stages.dropped;
   return {
     messages: working,
     compacted: total > 0,
