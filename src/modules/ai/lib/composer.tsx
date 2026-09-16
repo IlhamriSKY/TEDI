@@ -1,4 +1,5 @@
 import { invoke } from "@tauri-apps/api/core";
+import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
@@ -124,6 +125,21 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (status === "awaiting-approval") return;
     if (firingRef.current) return;
     if (!sessionId) return;
+    // Approving a tool makes the SDK send the continuation itself
+    // (`sendAutomaticallyWhen`), but `status` is a mirror that passes through
+    // `idle` on the way from awaiting-approval to thinking. Firing in that gap
+    // put two requests on one chat: the SDK's stream re-pushed the assistant
+    // message after our user message, duplicating every tool call in the thread
+    // and in every request after it. Ask the live chat instead.
+    const chat = getChat(sessionId);
+    if (
+      chat &&
+      (chat.status === "submitted" ||
+        chat.status === "streaming" ||
+        lastAssistantMessageIsCompleteWithApprovalResponses({ messages: chat.messages }))
+    ) {
+      return;
+    }
     const send = (text: string) => {
       firingRef.current = true;
       void getOrCreateChat(sessionId).sendMessage({ text });
@@ -141,7 +157,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
       send(next.text);
       return;
     }
-    const messages = getChat(sessionId)?.messages ?? [];
+    const messages = chat?.messages ?? [];
     if (settleGoal(sessionId, messages)) {
       toast("Goal reached", { variant: "success" });
       return;

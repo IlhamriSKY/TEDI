@@ -27,7 +27,10 @@ import {
   nextGoalStep,
   settleGoal,
 } from "../../src/modules/ai/lib/goalRunner";
-import type { UIMessage } from "ai";
+import { lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from "ai";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -205,6 +208,44 @@ console.log("\n[runner] an unattended run is bounded");
   assert(activeGoalText(B) === "boil the ocean", "the goal itself survives, so it can be re-run");
   armGoalRun(B);
   assert(nextGoalStep(B, working)?.kind === "send", "re-arming refills the budget");
+}
+
+console.log("\n[composer] an approved tool is the SDK's send, not a settle");
+{
+  // The captured shape: the user approved focus_pane, the part is responded but
+  // has no output yet. The goal loop saw an assistant tail + `idle` status and
+  // sent "Continue" 52 ms after the SDK's own continuation, duplicating the turn.
+  const approved = [
+    {
+      id: "a",
+      role: "assistant",
+      parts: [
+        { type: "step-start" },
+        {
+          type: "tool-focus_pane",
+          toolCallId: "c1",
+          state: "approval-responded",
+          input: { leafId: 4 },
+          approval: { id: "ap1", approved: true },
+        },
+      ],
+    },
+  ] as unknown as UIMessage[];
+  assert(
+    lastAssistantMessageIsCompleteWithApprovalResponses({ messages: approved }),
+    "the SDK will auto-send this tail",
+  );
+  const src = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "../../src/modules/ai/lib/composer.tsx"),
+    "utf8",
+  );
+  const gate = src.indexOf("lastAssistantMessageIsCompleteWithApprovalResponses({ messages");
+  assert(
+    gate !== -1 &&
+      gate < src.indexOf("consumeNextQueuedPrompt()") &&
+      gate < src.indexOf("nextGoalStep(sessionId"),
+    "the composer checks it before the queue and the goal can send",
+  );
 }
 
 console.log(failed === 0 ? "\nAll goal checks passed." : `\n${failed} check(s) FAILED.`);
