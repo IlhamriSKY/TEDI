@@ -24,6 +24,8 @@ import { native } from "./native";
 /** `~/.tedi/` is the established app-to-extension hand-off directory. */
 const DIR_REL = ".tedi";
 const FILE_REL = `${DIR_REL}/chatgpt-usage.json`;
+const ACTIVITY_FILE_REL = `${DIR_REL}/chatgpt-activity.json`;
+const MAX_ACTIVITY_EVENTS = 5_000;
 
 /** Re-stamp an unchanged reading at most this often. The percentage moves
  *  slowly, but the extension compares this file's freshness against the CLI's
@@ -49,10 +51,55 @@ export type ChatGptUsage = {
 };
 
 let dirPromise: Promise<string> | null = null;
+let activityWriteQueue: Promise<void> = Promise.resolve();
 /** Last payload written, minus `capturedAt`, so a ticking clock alone never
  *  triggers a write. */
 let lastFingerprint = "";
 let lastWriteAt = 0;
+
+/**
+ * Record one completed ChatGPT-account turn for the AI Usage Meter activity
+ * heatmap. Codex CLI rollouts are not created by TEDI, so the extension cannot
+ * otherwise see prompts sent from ai-native. The queue serializes read/modify/
+ * write cycles when two turns finish close together and keeps only enough
+ * history for the meter's 12-month grid.
+ */
+export function recordChatGptActivity(capturedAt = Date.now()): void {
+  activityWriteQueue = activityWriteQueue.then(async () => {
+    try {
+      const home = await (dirPromise ??= homeDir().then((h) => h.replace(/[\\/]+$/, "")));
+      await native.createDir(`${home}/${DIR_REL}`).catch(() => {});
+
+      let events: number[] = [];
+      const existing = await native.readFile(`${home}/${ACTIVITY_FILE_REL}`).catch(() => null);
+      if (existing?.kind === "text" && existing.content) {
+        try {
+          const parsed: unknown = JSON.parse(existing.content);
+          const saved =
+            parsed && typeof parsed === "object" && "events" in parsed
+              ? (parsed as { events?: unknown }).events
+              : null;
+          if (Array.isArray(saved)) {
+            events = saved.filter(
+              (value): value is number => typeof value === "number" && Number.isFinite(value),
+            );
+          }
+        } catch {
+          // A malformed activity file is replaced by the next valid event.
+        }
+      }
+
+      events.push(capturedAt);
+      if (events.length > MAX_ACTIVITY_EVENTS) events = events.slice(-MAX_ACTIVITY_EVENTS);
+      await native.writeFile(
+        `${home}/${ACTIVITY_FILE_REL}`,
+        `${JSON.stringify({ version: 1, events }, null, 2)}\n`,
+      );
+    } catch {
+      // Activity is best effort and must never affect the agent turn.
+    }
+  });
+}
 
 /**
  * Parse `x-codex-*` headers and persist them if they are new.

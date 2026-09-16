@@ -37,7 +37,7 @@ import {
   type ProviderId,
 } from "../config";
 import { getChatGptAccess } from "./chatgptAuth";
-import { recordChatGptUsage } from "./codexUsage";
+import { recordChatGptActivity, recordChatGptUsage } from "./codexUsage";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
@@ -930,6 +930,7 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       if (provider === "chatgpt") void recordChatGptUsage(step.response?.headers);
     },
     onFinish: (result) => {
+      if (provider === "chatgpt") void recordChatGptActivity();
       opts.onStep?.(null);
       const finishReason = (result as { finishReason?: string } | undefined)?.finishReason ?? "";
       opts.onFinishMeta?.({
