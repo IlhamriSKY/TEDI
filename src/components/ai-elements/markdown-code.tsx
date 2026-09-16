@@ -31,13 +31,17 @@ import { MermaidDiagram } from "./mermaid-diagram";
 export function MarkdownCode({
   className,
   children,
+  node: _node,
+  "data-block": isBlock,
   ...rest
 }: {
   className?: string;
   children?: ReactNode;
+  node?: unknown;
+  "data-block"?: boolean | string;
 }) {
   const match = className?.match(/language-(\w+)/);
-  if (!match) {
+  if (!isBlock) {
     return (
       <code
         className="bg-muted/70 text-foreground rounded px-1.5 py-0.5 font-mono text-[11px]"
@@ -48,7 +52,10 @@ export function MarkdownCode({
     );
   }
 
-  const lang = match[1] ?? null;
+  // Streamdown marks fenced blocks on the cloned `<code>` element with
+  // `data-block`, including fences without a language. Do not mistake those
+  // for inline code: they still need the block chrome and streaming renderer.
+  const lang = match?.[1] ?? null;
   const code = String(children ?? "").replace(/\n$/, "");
   if (lang?.toLowerCase() === "mermaid") {
     return <MermaidDiagram code={code} />;

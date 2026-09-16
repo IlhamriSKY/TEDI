@@ -7,7 +7,6 @@ import { useChatStore } from "@/modules/ai/store/chatStore";
 import { ChevronRight, CircleCheck, Copy, Terminal } from "lucide-react";
 import { createContext, memo, use, useEffect, useRef, useState } from "react";
 
-import { Shimmer } from "./shimmer";
 import { highlight, isHighlightable, type HighlightedNode } from "./chat-code-lezer";
 
 // Shell langs that get the CommandCard UI (prompt prefix + Run button).
@@ -16,9 +15,8 @@ const POSIX_SHELL = new Set(["bash", "sh", "zsh", "shell", "console", "shellscri
 const WINDOWS_SHELL = new Set(["powershell", "pwsh", "ps1", "ps", "cmd", "bat", "batch"]);
 const SHELL_LANGS = new Set([...POSIX_SHELL, ...WINDOWS_SHELL]);
 
-// True while the parent message is still streaming from the model. We hide
-// fenced-code contents during this phase: parsing partial code is wasted
-// work and a flashing skeleton is calmer UI than text that grows char-by-char.
+// True while the parent message is still streaming from the model. Code blocks
+// remain visible during this phase so the response can be read progressively.
 const StreamingCtx = createContext(false);
 export const ChatStreamingProvider = StreamingCtx.Provider;
 
@@ -51,7 +49,9 @@ export function ChatCodeBlock({ code, lang }: ChatCodeBlockProps) {
   const label = normalizeLangLabel(lang ?? "");
 
   if (streaming) {
-    return <GeneratingPlaceholder label={label} />;
+    // Keep partial code visible while the model is writing it. Shell blocks use
+    // a plain pre here, deliberately hiding Run until the response is complete.
+    return <StreamingCodeBlock code={code} lang={label} />;
   }
 
   if (SHELL_LANGS.has(label)) {
@@ -61,14 +61,13 @@ export function ChatCodeBlock({ code, lang }: ChatCodeBlockProps) {
   return <FinalizedCodeBlock code={code} lang={label} />;
 }
 
-function GeneratingPlaceholder({ label }: { label: string }) {
+function StreamingCodeBlock({ code, lang }: { code: string; lang: string }) {
   return (
-    <div className="not-prose border-border/50 bg-muted/30 text-muted-foreground my-2 flex items-center gap-2 rounded-lg border px-3 py-2 text-[11px]">
-      <span className="bg-muted-foreground/60 inline-block size-1.5 animate-pulse rounded-full" />
-      <Shimmer duration={1.2}>
-        {label === "text" ? "Generating code" : `Generating ${label}`}
-      </Shimmer>
-    </div>
+    <BlockChrome label={lang} code={code}>
+      <pre className="text-foreground m-0 overflow-x-auto px-3 py-2.5 font-mono text-[11.5px] leading-relaxed whitespace-pre">
+        {code}
+      </pre>
+    </BlockChrome>
   );
 }
 
