@@ -248,6 +248,11 @@ impl Batch {
             self.rescan = true;
             return;
         };
+        // inotify also reports opens and closes, so on Linux every file git
+        // status reads would come back as a change and refresh it again.
+        if ev.kind.is_access() {
+            return;
+        }
         if ev.need_rescan() {
             self.rescan = true;
         }
@@ -572,7 +577,9 @@ mod tests {
 
     #[test]
     fn a_batch_reports_only_what_it_can_have_moved() {
-        use notify::event::{CreateKind, DataChange, ModifyKind, RemoveKind};
+        use notify::event::{
+            AccessKind, AccessMode, CreateKind, DataChange, ModifyKind, RemoveKind,
+        };
         let root = scratch("batch");
         let f = IgnoreFilter::build(&root);
         let write = notify::EventKind::Modify(ModifyKind::Data(DataChange::Any));
@@ -602,6 +609,12 @@ mod tests {
             change(vec![(write, ".git/objects/ab/cd")]),
             none,
             "the object store alone moves nothing"
+        );
+        let open = notify::EventKind::Access(AccessKind::Open(AccessMode::Any));
+        assert_eq!(
+            change(vec![(open, ".git/index"), (open, ".gitignore")]),
+            none,
+            "git status reading the index and ignore files moves nothing"
         );
         assert_eq!(
             change(vec![(create, "new.log")]),
