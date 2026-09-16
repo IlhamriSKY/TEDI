@@ -18,7 +18,7 @@ import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
 import { compactUiMessages } from "./compact";
-import { getMcpServers, TEDI_MCP_SERVER_NAME } from "./mcpConfig";
+import { getMcpServers, getMcpServersEnabled, TEDI_MCP_SERVER_NAME } from "./mcpConfig";
 import { connectedMcpServers } from "./mcpClient";
 import { saveMessages } from "./sessions";
 
@@ -229,7 +229,7 @@ function showListModal<T>(
  *     config alone cannot tell a dead server from a working one.
  */
 function showMcpList(): void {
-  void getMcpServers().then((servers) => {
+  void Promise.all([getMcpServers(), getMcpServersEnabled()]).then(([servers, serversOn]) => {
     const live = connectedMcpServers();
     // The built-in is listed UNCONDITIONALLY, not just when a client happens to
     // be up. It is synthesized fresh each turn and torn down when idle, so
@@ -250,7 +250,8 @@ function showMcpList(): void {
         .filter((s) => s.name !== TEDI_MCP_SERVER_NAME)
         .map((s) => ({
           name: s.name,
-          enabled: s.enabled,
+          // The master switch wins: a server ticked on under it is not started.
+          enabled: serversOn && s.enabled,
           cmd: `${s.command} ${s.args.join(" ")}`.trim(),
         })),
     ];
@@ -258,7 +259,9 @@ function showMcpList(): void {
       "slash-mcp",
       "MCP servers",
       rows,
-      `${live.size} connected, ${rows.length} listed. Manage in Settings → Agents → MCP Servers.`,
+      serversOn
+        ? `${live.size} connected, ${rows.length} listed. Manage in Settings → Agents → MCP Servers.`
+        : `MCP servers are OFF: only the built-in one runs. Turn them on in Settings → Agents → MCP Servers.`,
       "None configured. Add one in Settings → Agents → MCP Servers.",
       (r) => {
         const tools = live.get(r.name);

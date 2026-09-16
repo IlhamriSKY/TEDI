@@ -80,6 +80,44 @@ export async function removeMcpServer(name: string): Promise<void> {
   await saveConfigs(configs);
 }
 
+/**
+ * The master switch over every configured server, beside each server's own.
+ *
+ * Off means no configured server is started for any turn, the main agent's or a
+ * sub-agent's, and whatever is running is stopped by the caller that flips it.
+ * It deliberately leaves each server's `enabled` alone, so turning MCP back on
+ * restores exactly the set that was on, instead of the user re-enabling servers
+ * one by one after an off/on.
+ *
+ * TEDI's own `tedi` server is NOT under it. It runs in-process, so it costs no
+ * process to switch off, and it is where the agent's terminal and pane tools
+ * live; its tools are gated by the tool packs instead.
+ */
+const KEY_SERVERS_ENABLED = "serversEnabled";
+
+export async function getMcpServersEnabled(): Promise<boolean> {
+  try {
+    return (await store.get<boolean>(KEY_SERVERS_ENABLED)) ?? true;
+  } catch {
+    return true;
+  }
+}
+
+export async function setMcpServersEnabled(on: boolean): Promise<void> {
+  await store.set(KEY_SERVERS_ENABLED, on);
+  await store.save();
+}
+
+/** The configured servers a turn should connect: none while the master switch
+ *  is off, otherwise the enabled ones, never a config shadowing the built-in. */
+export function serversToConnect(
+  servers: McpServerConfig[],
+  serversEnabled: boolean,
+): McpServerConfig[] {
+  if (!serversEnabled) return [];
+  return servers.filter((s) => s.enabled && s.name !== TEDI_MCP_SERVER_NAME);
+}
+
 /** Toggle enabled state of an MCP server. */
 export async function toggleMcpServer(name: string): Promise<boolean> {
   const configs = await loadConfigs();

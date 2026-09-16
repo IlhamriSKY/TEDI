@@ -13,14 +13,17 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Input } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
+import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { SettingsCard } from "../../components/SettingsCard";
 import {
   getMcpServers,
+  getMcpServersEnabled,
   removeMcpServer,
   saveMcpServer,
+  setMcpServersEnabled,
   toggleMcpServer,
   type McpServerConfig,
 } from "@/modules/ai/lib/mcpConfig";
@@ -81,9 +84,11 @@ export function McpServersCard() {
   const [envText, setEnvText] = useState("");
   const [showEnv, setShowEnv] = useState(false);
   const [pendingDelete, setPendingDelete] = useState<string | null>(null);
+  const [serversEnabled, setServersEnabled] = useState(true);
 
   const refresh = useCallback(() => {
     void getMcpServers().then(setServers);
+    void getMcpServersEnabled().then(setServersEnabled);
   }, []);
 
   useEffect(() => {
@@ -169,6 +174,21 @@ export function McpServersCard() {
     setStatus({ kind: "ok", msg: `${name} ${enabled ? "enabled" : "disabled"}.` });
   };
 
+  const handleMaster = async (on: boolean) => {
+    setServersEnabled(on);
+    await setMcpServersEnabled(on);
+    // Off stops every running server now rather than at its 5-minute idle
+    // sweep: turning MCP off is how a user gets those processes back. On
+    // starts nothing - the next agent turn connects what is enabled.
+    if (!on) for (const s of servers) void refreshMcpTools(s.name);
+    setStatus({
+      kind: "ok",
+      msg: on
+        ? "MCP servers on. Enabled servers start with the next agent turn."
+        : "MCP servers off. Running servers were stopped; each server's own setting is kept.",
+    });
+  };
+
   const handleDelete = async (name: string) => {
     await removeMcpServer(name);
     void refreshMcpTools(name); // stop the removed server's process now
@@ -181,11 +201,20 @@ export function McpServersCard() {
     <SettingsCard
       title="MCP Servers"
       badge={
-        servers.length > 0 ? (
+        !serversEnabled ? (
+          <span className="text-muted-foreground text-[10px]">off</span>
+        ) : servers.length > 0 ? (
           <span className="text-muted-foreground text-[10px]">
             {servers.filter((s) => s.enabled).length}/{servers.length} enabled
           </span>
         ) : null
+      }
+      headerRight={
+        <Switch
+          checked={serversEnabled}
+          onCheckedChange={(v) => void handleMaster(v)}
+          aria-label="Enable MCP servers"
+        />
       }
       description="Connect external tool servers via the Model Context Protocol. Each server exposes tools the AI agent can use (e.g. browser automation, database access)."
     >
@@ -226,6 +255,14 @@ export function McpServersCard() {
         </div>
       )}
 
+      {!serversEnabled && (
+        <div className="text-muted-foreground text-[10.5px] leading-relaxed">
+          MCP servers are off: none is started for the agent or its sub-agents. Each server&apos;s
+          own setting below is kept for when you turn them back on. TEDI&apos;s built-in tools are
+          not affected.
+        </div>
+      )}
+
       {/* Server list */}
       {servers.length === 0 ? (
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
@@ -233,7 +270,12 @@ export function McpServersCard() {
           <span className="font-mono">npx -y chrome-devtools-mcp</span>) to add one.
         </div>
       ) : (
-        <div className="border-border/40 flex flex-col gap-1.5 border-t pt-2">
+        <div
+          className={cn(
+            "border-border/40 flex flex-col gap-1.5 border-t pt-2",
+            !serversEnabled && "opacity-60",
+          )}
+        >
           {servers.map((s) => (
             <div
               key={s.name}

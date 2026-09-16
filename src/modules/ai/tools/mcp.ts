@@ -2,7 +2,13 @@ import { tool, jsonSchema, type Tool } from "ai";
 import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { toast } from "@/components/ui/toast";
 import { getMcpClient } from "../lib/mcpClient";
-import { getMcpServers, TEDI_MCP_SERVER_NAME, type McpServerConfig } from "../lib/mcpConfig";
+import {
+  getMcpServers,
+  getMcpServersEnabled,
+  serversToConnect,
+  TEDI_MCP_SERVER_NAME,
+  type McpServerConfig,
+} from "../lib/mcpConfig";
 import { TOOL_DEFS } from "@mcp/tools.mjs";
 import { type TediMcpDeps } from "../lib/tediMcpServer";
 import { getMcpSurface } from "@/modules/settings/store";
@@ -209,7 +215,11 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   // the stdio one an outside CLI connects to. One surface, one set of switches:
   // turning the Settings pack off has to take `set_setting` away from TEDI's own
   // agent as well, or the switch is trivially bypassed from inside.
-  const [servers, surface] = await Promise.all([getMcpServers(), getMcpSurface()]);
+  const [servers, surface, serversEnabled] = await Promise.all([
+    getMcpServers(),
+    getMcpSurface(),
+    getMcpServersEnabled(),
+  ]);
   const disabledTools = surface.disabledTools;
   // TEDI's own control surface is an MCP server like any other (see
   // `lib/tediMcpServer.ts`) - it just runs in-process. Listing it first keeps it
@@ -217,7 +227,7 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   // suffixes theirs on conflict rather than dropping either.
   const enabled: McpServerConfig[] = [
     { name: TEDI_MCP_SERVER_NAME, command: "", args: [], enabled: true, builtin: true },
-    ...servers.filter((s) => s.enabled && s.name !== TEDI_MCP_SERVER_NAME),
+    ...serversToConnect(servers, serversEnabled),
   ];
 
   const tools: Record<string, Tool> = {};
