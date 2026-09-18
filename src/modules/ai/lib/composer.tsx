@@ -10,8 +10,20 @@ import { toast } from "@/components/ui/toast";
 import { basename } from "@/lib/path";
 import type { FsReadResult } from "@/lib/ipc";
 import { getChat, getOrCreateChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
-import { MAX_GOAL_TURNS, disarmGoalRun, nextGoalStep, settleGoal } from "./goalRunner";
+import {
+  MAX_GOAL_TURNS,
+  beginGoalJudge,
+  isGoalRunArmed,
+  markerVerdict,
+  nextGoalStep,
+  pauseGoalRun,
+  recordGoalVerdict,
+  settleGoal,
+} from "./goalRunner";
+import { activeGoalText, useGoalStore } from "../store/goalStore";
 import { useSnippetsStore } from "../store/snippetsStore";
+import { usePlanStore } from "../store/planStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
 
 export type FileAttachment = {
   id: string;
@@ -87,7 +99,10 @@ export function AiComposerProvider({ children }: ProviderProps) {
   // Active = anything but `idle`. Includes awaiting-approval and error so
   // Stop stays reachable when a hung approval or post-error handle blocks Send.
   const isActive = status !== "idle";
-  const queueLen = useChatStore((s) => s.promptQueue.length);
+  // This chat's queue only: the queue is shared by every chat.
+  const queueLen = useChatStore(
+    (s) => s.promptQueue.filter((q) => q.sessionId === s.activeSessionId).length,
+  );
   const consumeNextQueuedPrompt = useChatStore((s) => s.consumeNextQueuedPrompt);
 
   const [value, setValue] = useState("");
@@ -116,6 +131,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
   // An armed `/goal` rides the SAME settle point (after the queue, which is the
   // user's own backlog and outranks it). Everything the auto-send needs is
   // already here: the busy gate, the approval gate and the restore checkpoint.
+  const goalRun = useGoalStore((s) => (sessionId ? s.runs[sessionId] : undefined));
   const firingRef = useRef(false);
   useEffect(() => {
     if (isBusy) {
@@ -144,6 +160,27 @@ export function AiComposerProvider({ children }: ProviderProps) {
       firingRef.current = true;
       void getOrCreateChat(sessionId).sendMessage({ text });
     };
+    // A command typed while the agent was busy (Ctrl+Enter queues it) is still
+    // a COMMAND. Sent as text it reached the model as a literal "/goal clear",
+    // and the loop it was meant to stop kept going.
+    const head =
+      useChatStore.getState().promptQueue.find((q) => q.sessionId === sessionId)?.text ?? "";
+    if (queueLen > 0 && /^[/>]/.test(head)) {
+      const outcome = tryRunSlashCommand(head);
+      if (outcome.kind !== "none") {
+        consumeNextQueuedPrompt(sessionId);
+        if (outcome.kind === "handled") {
+          if (outcome.toast) toast(outcome.toast, { variant: outcome.toastVariant ?? "info" });
+          return;
+        }
+        if (!openSendCheckpoint(sessionId)) return;
+        const marker = outcome.commandName
+          ? `<tedi-command name="${outcome.commandName}" />\n\n`
+          : "";
+        send(`${marker}${outcome.prompt}`);
+        return;
+      }
+    }
     if (queueLen > 0) {
       // Open the checkpoint first. If the session is mid-restore, leave the
       // queued item in the queue; consuming before the checkpoint passes
@@ -152,7 +189,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
         // Re-fires after `restoringSessions` clears via the existing deps.
         return;
       }
-      const next = consumeNextQueuedPrompt();
+      const next = consumeNextQueuedPrompt(sessionId);
       if (!next) return;
       send(next.text);
       return;
@@ -162,17 +199,57 @@ export function AiComposerProvider({ children }: ProviderProps) {
       toast("Goal reached", { variant: "success" });
       return;
     }
-    const step = nextGoalStep(sessionId, messages);
-    if (!step) return;
-    if (step.kind === "exhausted") {
-      toast(`Goal paused after ${MAX_GOAL_TURNS} automatic turns. Re-run /goal to continue.`, {
-        variant: "warning",
-      });
-      return;
+    // A goal cannot move in chat mode (no tools) or plan mode (edits only
+    // queue): pause instead of spending up to 25 turns and 25 checks on it.
+    // Covers a mid-run toggle as well as a resume from the strip.
+    if (isGoalRunArmed(sessionId)) {
+      const why = usePreferencesStore.getState().chatMode
+        ? "chat mode is on"
+        : usePlanStore.getState().active
+          ? "plan mode is on"
+          : null;
+      if (why) {
+        pauseGoalRun(sessionId, why);
+        toast(`Goal paused: ${why}.`, { variant: "warning" });
+        return;
+      }
     }
-    if (!openSendCheckpoint(sessionId)) return;
-    send(step.text);
-  }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt]);
+    const step = nextGoalStep(sessionId, messages, { failed: status === "error" });
+    if (!step) return;
+    switch (step.kind) {
+      case "judge": {
+        // Ask the evaluator, then settle again: the verdict lands in the goal
+        // store, whose change re-runs this effect (`goalRun` below).
+        const goal = activeGoalText(sessionId);
+        if (!goal) return;
+        const sid = sessionId;
+        beginGoalJudge(sid, step.messageId);
+        // Loaded lazily: the evaluator pulls in `agent.ts` and the whole tool
+        // tree, and a static import of that into the composer closes an import
+        // cycle - the context object reads as undefined and the AI panel falls
+        // into its error boundary (the `mcpConfig.ts` note describes the same).
+        void import("./goalJudge")
+          .then(({ judgeGoal }) => judgeGoal(sid, goal, messages))
+          .then((v) => recordGoalVerdict(sid, step.messageId, v))
+          .catch(() => recordGoalVerdict(sid, step.messageId, markerVerdict(messages)));
+        return;
+      }
+      case "done":
+        toast("Goal reached", { variant: "success" });
+        return;
+      case "paused":
+        toast(`Goal paused: ${step.reason}. Type /goal to resume.`, { variant: "warning" });
+        return;
+      case "exhausted":
+        toast(`Goal paused after ${MAX_GOAL_TURNS} automatic turns. Type /goal to resume.`, {
+          variant: "warning",
+        });
+        return;
+      case "send":
+        if (!openSendCheckpoint(sessionId)) return;
+        send(step.text);
+    }
+  }, [isBusy, status, queueLen, sessionId, consumeNextQueuedPrompt, goalRun]);
 
   const focusSignal = useChatStore((s) => s.focusSignal);
   const pendingPrefill = useChatStore((s) => s.pendingPrefill);
@@ -501,8 +578,8 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (!sessionId) return;
     // Stop has to mean stop. A stopped turn still leaves an assistant message at
     // the tail, so without this an armed `/goal` would settle and immediately
-    // send itself a continuation.
-    disarmGoalRun(sessionId);
+    // send itself a continuation. Paused, not dropped: `/goal` resumes it.
+    if (useGoalStore.getState().runs[sessionId]) pauseGoalRun(sessionId, "stopped by you");
     void getOrCreateChat(sessionId).stop();
     // Reset transient agent meta so a stuck error or step label doesn't linger.
     useChatStore.getState().resetAgentMeta();

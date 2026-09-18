@@ -22,11 +22,18 @@ import {
   GOAL_DONE_MARKER,
   MAX_GOAL_TURNS,
   armGoalRun,
+  beginGoalJudge,
+  declaredDone,
   disarmGoalRun,
+  goalJudgeInput,
   isGoalRunArmed,
+  markerVerdict,
   nextGoalStep,
+  parseGoalVerdict,
+  recordGoalVerdict,
   settleGoal,
 } from "../../src/modules/ai/lib/goalRunner";
+import { useTodosStore } from "../../src/modules/ai/store/todoStore";
 import { lastAssistantMessageIsCompleteWithApprovalResponses, type UIMessage } from "ai";
 import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
@@ -101,11 +108,14 @@ useGoalStore.getState().setGoal(S, "second");
 assert(!useGoalStore.getState().hidden.has(S), "a new goal is worth showing again");
 assert(activeGoalText(S) === "second", "and it replaced the old one");
 
-console.log("\n[runner] the loop only fires when it is armed AND a turn just finished");
+const NOT_MET = { met: false, blocked: false, reason: "tests not run" };
+const MET = { met: true, blocked: false, reason: "tests pass" };
+const msg = (role: "user" | "assistant", text: string, id = `${role}-${text}`): UIMessage =>
+  ({ id, role, parts: [{ type: "text", text }] }) as UIMessage;
+
+console.log("\n[runner] the loop only acts when it is armed AND a turn just finished");
 {
   const R = "s-run";
-  const msg = (role: "user" | "assistant", text: string): UIMessage =>
-    ({ id: `${role}-${text}`, role, parts: [{ type: "text", text }] }) as UIMessage;
   const working = [msg("user", "go"), msg("assistant", "did a thing")];
 
   useGoalStore.getState().setGoal(R, "ship it");
@@ -113,51 +123,187 @@ console.log("\n[runner] the loop only fires when it is armed AND a turn just fin
 
   armGoalRun(R);
   assert(isGoalRunArmed(R), "arming takes");
-  assert(nextGoalStep(R, [msg("user", "go")])?.kind === undefined, "a user tail is not a settle");
-  assert(nextGoalStep(R, [])?.kind === undefined, "and neither is an empty thread");
-  assert(nextGoalStep(R, working)?.kind === "send", "an assistant tail continues the run");
+  assert(nextGoalStep(R, [msg("user", "go")]) === null, "a user tail is not a settle");
+  assert(nextGoalStep(R, []) === null, "and neither is an empty thread");
+
+  // The evaluator, not the working model, decides. A finished turn first asks it.
+  const ask = nextGoalStep(R, working);
+  assert(ask?.kind === "judge", "a finished turn asks the evaluator first");
+  beginGoalJudge(R, "assistant-did a thing");
+  assert(nextGoalStep(R, working) === null, "and waits while that call is in flight");
+  recordGoalVerdict(R, "some-older-message", MET);
+  assert(
+    nextGoalStep(R, working) === null,
+    "a verdict for a message it is not judging is dropped (a resume superseded that call)",
+  );
+  recordGoalVerdict(R, "assistant-did a thing", NOT_MET);
+  const step = nextGoalStep(R, working);
+  assert(step?.kind === "send", "a NOT MET verdict continues the run");
+  assert(
+    step?.kind === "send" && step.text.includes("tests not run"),
+    "and the continue prompt carries the evaluator's reason",
+  );
+  assert(nextGoalStep(R, working) === null, "a verdict is used once, never double-sent");
+  assert(useGoalStore.getState().runs[R]?.turns === 1, "the turn is counted");
+
   // A turn stopped by the step cap ends on tool parts with no closing text. That
   // is the case that most needs continuing, so an empty tail must not stall it.
   const toolOnly = [
     { id: "t", role: "assistant", parts: [{ type: "dynamic-tool", toolName: "grep" }] },
   ] as unknown as UIMessage[];
-  assert(nextGoalStep(R, toolOnly)?.kind === "send", "a text-less assistant turn continues too");
+  assert(nextGoalStep(R, toolOnly)?.kind === "judge", "a text-less assistant turn is judged too");
 
-  // What the Stop button, Restore and /clear all do: end the RUN while leaving
-  // the goal set. A stopped turn still leaves an assistant message at the tail,
-  // so without disarming the loop would settle and re-send itself instantly.
+  // What /clear and /goal done do: end the RUN while leaving the goal set.
+  // (Stop and Restore PAUSE it instead - see the pause checks below.)
   disarmGoalRun(R);
   assert(nextGoalStep(R, working) === null, "disarming stops the loop");
   assert(activeGoalText(R) === "ship it", "and the goal itself is untouched");
 
-  // Clearing the goal must stop the loop even though it is still armed: this is
-  // the only thing standing between "/goal clear" and a run that keeps going.
+  // Clearing the goal must stop the loop even though it is still armed.
   armGoalRun(R);
   useGoalStore.getState().clearGoal(R);
   assert(nextGoalStep(R, working) === null, "clearing the goal stops the loop");
   assert(!isGoalRunArmed(R), "and disarms it");
 }
 
-console.log("\n[runner] the done marker has to be its own line");
+console.log("\n[runner] the evaluator's verdict decides, and open todos overrule it");
 {
-  const D = "s-done";
-  const tail = (text: string): UIMessage[] =>
-    [{ id: "a", role: "assistant", parts: [{ type: "text", text }] }] as UIMessage[];
+  const V = "s-verdict";
+  const tail = [msg("assistant", "all done", "a1")];
+  useGoalStore.getState().setGoal(V, "ship it");
+  armGoalRun(V);
+  assert(nextGoalStep(V, tail)?.kind === "judge", "asks");
+  beginGoalJudge(V, "a1");
+  recordGoalVerdict(V, "a1", MET);
+  assert(nextGoalStep(V, tail)?.kind === "done", "MET completes the goal");
+  assert(activeGoalText(V) === null, "the goal is completed, not just stopped");
+  assert(!isGoalRunArmed(V), "and the loop is disarmed");
 
+  const T = "s-todos";
+  useGoalStore.getState().setGoal(T, "ship it");
+  useTodosStore.getState().setTodos(T, [
+    { id: "1", title: "write tests", status: "completed" },
+    { id: "2", title: "run tests", status: "in_progress" },
+  ]);
+  armGoalRun(T);
+  const gated = nextGoalStep(T, [msg("assistant", `done\n${GOAL_DONE_MARKER}`, "b1")]);
+  assert(gated?.kind === "send", "open todos skip the evaluator and continue");
+  assert(
+    gated?.kind === "send" && gated.text.includes("run tests"),
+    "and the continue prompt lists the open todo",
+  );
+  assert(activeGoalText(T) === "ship it", "a sign-off line cannot complete it past an open todo");
+  beginGoalJudge(T, "b2");
+  recordGoalVerdict(T, "b2", MET);
+  assert(
+    nextGoalStep(T, [msg("assistant", "done", "b2")])?.kind === "send",
+    "even a MET verdict is overruled while a todo is open",
+  );
+
+  const B = "s-blocked";
+  useGoalStore.getState().setGoal(B, "deploy");
+  armGoalRun(B);
+  nextGoalStep(B, [msg("assistant", "need the prod key", "c1")]);
+  beginGoalJudge(B, "c1");
+  recordGoalVerdict(B, "c1", { met: false, blocked: true, reason: "needs the prod key" });
+  const blocked = nextGoalStep(B, [msg("assistant", "need the prod key", "c1")]);
+  assert(blocked?.kind === "paused", "BLOCKED pauses instead of nagging the model");
+  assert(useGoalStore.getState().runs[B]?.paused === true, "the run shows as paused");
+  assert(
+    useGoalStore.getState().runs[B]?.reason === "needs the prod key",
+    "with the evaluator's reason for the strip",
+  );
+  assert(activeGoalText(B) === "deploy", "and the goal stays open to resume");
+
+  const E = "s-error";
+  useGoalStore.getState().setGoal(E, "ship it");
+  armGoalRun(E);
+  assert(
+    nextGoalStep(E, [msg("assistant", "partial", "d1")], { failed: true })?.kind === "paused",
+    "a failed turn pauses the run instead of sending Continue over the error",
+  );
+  armGoalRun(E);
+  assert(isGoalRunArmed(E), "resuming re-arms it");
+
+  // An error before the first token leaves NO assistant message: the thread
+  // ends on the user's own prompt. It must still pause, not stay "running".
+  const E2 = "s-error-early";
+  useGoalStore.getState().setGoal(E2, "ship it");
+  armGoalRun(E2);
+  assert(
+    nextGoalStep(E2, [msg("user", "Continue working", "u1")], { failed: true })?.kind === "paused",
+    "a turn that failed before any output pauses too",
+  );
+
+  // A turn still waiting on its approval card is not finished.
+  const P = "s-pending";
+  useGoalStore.getState().setGoal(P, "ship it");
+  armGoalRun(P);
+  const pending = [
+    {
+      id: "p1",
+      role: "assistant",
+      parts: [{ type: "tool-edit", state: "approval-requested", approval: { id: "x" } }],
+    },
+  ] as unknown as UIMessage[];
+  assert(nextGoalStep(P, pending) === null, "a turn waiting on an approval card is not judged");
+}
+
+console.log("\n[runner] a PAUSED goal still closes on a newer sign-off, not on the judged one");
+{
+  const Q = "s-paused";
+  useGoalStore.getState().setGoal(Q, "ship it");
+  armGoalRun(Q);
+  const judged = [msg("assistant", `done\n${GOAL_DONE_MARKER}`, "j1")];
+  nextGoalStep(Q, judged);
+  beginGoalJudge(Q, "j1");
+  recordGoalVerdict(Q, "j1", { met: false, blocked: true, reason: "needs a token" });
+  assert(nextGoalStep(Q, judged)?.kind === "paused", "the evaluator ruled BLOCKED");
+  assert(
+    !settleGoal(Q, judged),
+    "the sign-off on the message it judged does not override the evaluator",
+  );
+  const later = [
+    ...judged,
+    msg("user", "here is the token"),
+    msg("assistant", `works\n${GOAL_DONE_MARKER}`, "j2"),
+  ];
+  assert(settleGoal(Q, later), "a sign-off on a NEWER message closes the paused goal");
+  assert(activeGoalText(Q) === null, "and the clock stops");
+  assert(useGoalStore.getState().runs[Q] === undefined, "and the run is dropped");
+}
+
+console.log("\n[runner] a hand-driven goal still closes on its own sign-off line");
+{
+  const tail = (text: string): UIMessage[] => [msg("assistant", text, "h")];
+  const D = "s-done";
   useGoalStore.getState().setGoal(D, "ship it");
-  armGoalRun(D);
   assert(
     !settleGoal(D, tail(`I will print ${GOAL_DONE_MARKER} when I am finished.`)),
-    "merely quoting the marker does not end the run",
+    "merely quoting the marker does not end it",
   );
-  assert(isGoalRunArmed(D), "so the run is still armed");
   assert(settleGoal(D, tail(`Built and tested.\n${GOAL_DONE_MARKER}`)), "its own line does");
-  assert(activeGoalText(D) === null, "the goal is completed, not just stopped");
-  assert(!isGoalRunArmed(D), "and the loop is disarmed");
+  assert(activeGoalText(D) === null, "the goal is completed");
   assert(!settleGoal(D, tail(GOAL_DONE_MARKER)), "settling a done goal again is a no-op");
 
-  // How models actually write that line. A byte-exact match left every one of
-  // these running until the turn budget ran out, with the strip still ticking.
+  const A = "s-armed";
+  useGoalStore.getState().setGoal(A, "ship it");
+  armGoalRun(A);
+  assert(!settleGoal(A, tail(`done\n${GOAL_DONE_MARKER}`)), "an ARMED run is the evaluator's call");
+
+  // A sign-off in its own text part must stay its own line.
+  const split = [
+    {
+      id: "p",
+      role: "assistant",
+      parts: [
+        { type: "text", text: "Build passed." },
+        { type: "text", text: GOAL_DONE_MARKER },
+      ],
+    },
+  ] as unknown as UIMessage[];
+  assert(markerVerdict(split).met, "a marker opening its own part still counts");
+
   const decorated = [
     `**${GOAL_DONE_MARKER}**`,
     `\`${GOAL_DONE_MARKER}\``,
@@ -167,13 +313,8 @@ console.log("\n[runner] the done marker has to be its own line");
     `  ${GOAL_DONE_MARKER}  `,
   ];
   for (const line of decorated) {
-    const id = `s-done-${line}`;
-    useGoalStore.getState().setGoal(id, "ship it");
-    armGoalRun(id);
-    assert(settleGoal(id, tail(`Done and verified.\n${line}`)), `sign-off "${line}" ends the run`);
+    assert(declaredDone(`Done and verified.\n${line}`), `sign-off "${line}" counts`);
   }
-
-  // ...and what must still NOT end it.
   const notDone = [
     `I will print ${GOAL_DONE_MARKER} when I am finished.`,
     `> ${GOAL_DONE_MARKER}`,
@@ -181,33 +322,50 @@ console.log("\n[runner] the done marker has to be its own line");
     `NOT ${GOAL_DONE_MARKER}`,
   ];
   for (const line of notDone) {
-    const id = `s-open-${line}`;
-    useGoalStore.getState().setGoal(id, "ship it");
-    armGoalRun(id);
-    assert(!settleGoal(id, tail(`Working on it.\n${line}`)), `"${line}" does NOT end the run`);
-    assert(isGoalRunArmed(id), "  (still armed)");
+    assert(!declaredDone(`Working on it.\n${line}`), `"${line}" does NOT count`);
   }
+}
+
+console.log("\n[judge] the evaluator's reply is parsed strictly");
+{
+  const v = (t: string) => parseGoalVerdict(t);
+  assert(v("MET: tests pass (12/12)")?.met === true, "MET");
+  assert(v("NOT MET: build fails")?.met === false, "NOT MET is not MET");
+  assert(v("NOT MET: build fails")?.reason === "build fails", "reason kept");
+  assert(v("**NOT MET**: no evidence")?.met === false, "bolded");
+  assert(v("BLOCKED: needs a token")?.blocked === true, "BLOCKED");
+  assert(v("Thinking...\nMET - verified by read-back")?.met === true, "on a later line");
+  assert(v("The goal is not met yet") === null, "prose is not a verdict");
+  assert(v("") === null, "empty is not a verdict");
+
+  const J = "s-judge";
+  const long = Array.from({ length: 40 }, (_, i) =>
+    msg(i % 2 ? "assistant" : "user", "x".repeat(2000), `m${i}`),
+  );
+  const input = goalJudgeInput(J, "ship it", long);
+  assert(input.length < 16_000, "the evaluator input is bounded");
+  assert(input.includes("<goal>\nship it\n</goal>"), "and carries the goal");
 }
 
 console.log("\n[runner] an unattended run is bounded");
 {
   const B = "s-budget";
-  const working = [
-    { id: "a", role: "assistant", parts: [{ type: "text", text: "still going" }] },
-  ] as UIMessage[];
   useGoalStore.getState().setGoal(B, "boil the ocean");
   armGoalRun(B);
   let sends = 0;
   for (let i = 0; i < MAX_GOAL_TURNS + 5; i++) {
-    const step = nextGoalStep(B, working);
-    if (step?.kind === "send") sends++;
+    const tail = [msg("assistant", "still going", `t${i}`)];
+    if (nextGoalStep(B, tail)?.kind !== "judge") break;
+    beginGoalJudge(B, `t${i}`);
+    recordGoalVerdict(B, `t${i}`, NOT_MET);
+    if (nextGoalStep(B, tail)?.kind === "send") sends++;
     else break;
   }
   assert(sends === MAX_GOAL_TURNS, `it stops after exactly ${MAX_GOAL_TURNS} automatic turns`);
-  assert(nextGoalStep(B, working) === null, "and stays stopped once the budget is spent");
-  assert(activeGoalText(B) === "boil the ocean", "the goal itself survives, so it can be re-run");
+  assert(!isGoalRunArmed(B), "and pauses once the budget is spent");
+  assert(activeGoalText(B) === "boil the ocean", "the goal itself survives, so it can be resumed");
   armGoalRun(B);
-  assert(nextGoalStep(B, working)?.kind === "send", "re-arming refills the budget");
+  assert(nextGoalStep(B, [msg("assistant", "x", "z")])?.kind === "judge", "resuming refills it");
 }
 
 console.log("\n[composer] an approved tool is the SDK's send, not a settle");
@@ -242,7 +400,7 @@ console.log("\n[composer] an approved tool is the SDK's send, not a settle");
   const gate = src.indexOf("lastAssistantMessageIsCompleteWithApprovalResponses({ messages");
   assert(
     gate !== -1 &&
-      gate < src.indexOf("consumeNextQueuedPrompt()") &&
+      gate < src.indexOf("consumeNextQueuedPrompt(sessionId)") &&
       gate < src.indexOf("nextGoalStep(sessionId"),
     "the composer checks it before the queue and the goal can send",
   );

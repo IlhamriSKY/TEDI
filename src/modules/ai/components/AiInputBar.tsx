@@ -45,7 +45,12 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   const c = useComposer();
   const snippets = useSnippetsStore((s) => s.snippets);
   const openEditorFiles = useChatStore((s) => s.openEditorFiles);
-  const promptQueue = useChatStore((s) => s.promptQueue);
+  const allQueued = useChatStore((s) => s.promptQueue);
+  const activeSessionId = useChatStore((s) => s.activeSessionId);
+  const promptQueue = useMemo(
+    () => allQueued.filter((q) => q.sessionId === activeSessionId),
+    [allQueued, activeSessionId],
+  );
   const enqueuePrompt = useChatStore((s) => s.enqueuePrompt);
   const removeQueuedPrompt = useChatStore((s) => s.removeQueuedPrompt);
 

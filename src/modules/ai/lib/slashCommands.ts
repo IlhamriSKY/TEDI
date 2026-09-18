@@ -6,14 +6,23 @@ import {
   ListChecks,
   Minimize2,
   Plus,
+  Repeat,
   Sparkles,
   Target,
   type LucideIcon,
 } from "lucide-react";
 import { getModelContextLimit } from "../config";
-import { flushPersist, getChat, useChatStore } from "../store/chatStore";
+import { flushPersist, getChat, openSendCheckpoint, useChatStore } from "../store/chatStore";
 import { useGoalStore } from "../store/goalStore";
-import { armGoalRun, disarmGoalRun, isGoalRunArmed } from "./goalRunner";
+import { useTodosStore } from "../store/todoStore";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import {
+  MAX_GOAL_TURNS,
+  armGoalRun,
+  disarmGoalRun,
+  isGoalRunArmed,
+  pauseGoalRun,
+} from "./goalRunner";
 import { showInfoModal, type InfoRow } from "../store/infoModalStore";
 import { usePlanStore } from "../store/planStore";
 import { discardCheckpoint } from "./checkpoint";
@@ -21,6 +30,7 @@ import { compactUiMessages } from "./compact";
 import { getMcpServers, getMcpServersEnabled, TEDI_MCP_SERVER_NAME } from "./mcpConfig";
 import { connectedMcpServers } from "./mcpClient";
 import { saveMessages } from "./sessions";
+import { MAX_LOOP_RUNS, formatInterval, loopOf, parseInterval, startLoop, stopLoop } from "./loop";
 
 /**
  * Outcome of intercepting a slash command.
@@ -124,14 +134,23 @@ export const SLASH_COMMANDS: Record<string, SlashCommandMeta> = {
     icon: CalendarPlus,
     argHint: "[time] [command]",
   },
+  loop: {
+    name: "loop",
+    invocation: "/loop",
+    label: "Repeat a prompt",
+    description:
+      "Send a prompt now and again every interval (min 1m), e.g. `/loop 10m check the CI run`. `/loop stop` ends it.",
+    icon: Repeat,
+    argHint: "[interval prompt | stop]",
+  },
   goal: {
     name: "goal",
     invocation: "/goal",
     label: "Session goal",
     description:
-      "Set a goal and let the agent work it end to end, with a timer. `/goal done` to finish, `/goal clear` to stop it.",
+      "Set a goal the agent works on until an independent check says it is met. Bare `/goal` resumes; `pause`, `done`, `clear`.",
     icon: Target,
-    argHint: "[text | done | clear]",
+    argHint: "[text | pause | done | clear]",
   },
 };
 
@@ -309,6 +328,9 @@ function clearActiveChat(): SlashOutcome {
   // Drop the restore checkpoint; without this, Restore after `/clear` would
   // still revert mutations recorded against the cleared turns.
   discardCheckpoint(sessionId);
+  // The plan belonged to the wiped thread; a stale "5/5 done" strip over an
+  // empty chat is a lie, and the goal gate would read it as open work.
+  void useTodosStore.getState().clearSession(sessionId);
   // Hard-flush so the on-disk store sees `[]` even if the debounced timer
   // was about to write a stale snapshot.
   flushPersist(sessionId);
@@ -368,12 +390,70 @@ function compactActiveChat(): SlashOutcome {
  * the run loop (see goalRunner), which keeps sending until the model reports
  * the goal met or the turn ceiling stops it.
  */
+/** Why a goal cannot run right now, or null. A loop needs tools and has to be
+ *  able to apply what it does. */
+function goalBlocker(): string | null {
+  if (usePreferencesStore.getState().chatMode) {
+    return "Chat mode has no tools, so a goal cannot run. Turn chat mode off first.";
+  }
+  if (usePlanStore.getState().active) {
+    return "Plan mode only queues edits, so a goal would never finish. `>plan off` first.";
+  }
+  return null;
+}
+
+/**
+ * Resume a paused goal: shared by bare `/goal`, `/goal resume` and the strip's
+ * play button. Returns an error to show, or null when it resumed.
+ *
+ * If the turn that paused it failed before the model said anything, the thread
+ * ends on a USER message and the settle effect (which acts only after an
+ * assistant turn) would never move: re-send that turn instead.
+ */
+export function resumeGoal(sessionId: string): string | null {
+  const goal = useGoalStore.getState().bySession[sessionId];
+  if (!goal || goal.completedAt !== null) return "No open goal to resume";
+  if (isGoalRunArmed(sessionId)) return "The goal is already running";
+  const blocker = goalBlocker();
+  if (blocker) return blocker;
+  const chatState = useChatStore.getState();
+  // The error that paused it must not pause it again on the first settle.
+  if (chatState.agentMeta.status === "error") {
+    chatState.patchAgentMeta({ status: "idle", error: null });
+  }
+  armGoalRun(sessionId);
+  const chat = getChat(sessionId);
+  const last = chat?.messages[chat.messages.length - 1];
+  if (chat && last?.role === "user" && chat.status !== "submitted" && chat.status !== "streaming") {
+    if (openSendCheckpoint(sessionId)) void chat.sendMessage();
+  }
+  return null;
+}
+
 function runGoalCommand(tail: string): SlashOutcome {
   const sessionId = useChatStore.getState().activeSessionId;
   if (!sessionId) return { kind: "handled", toast: "No active chat", toastVariant: "warning" };
   const store = useGoalStore.getState();
   const arg = tail.trim();
   const current = store.bySession[sessionId];
+  const open = !!current && current.completedAt === null;
+
+  if (arg === "pause" || arg === "stop") {
+    if (!isGoalRunArmed(sessionId)) {
+      return { kind: "handled", toast: "No goal is running", toastVariant: "info" };
+    }
+    pauseGoalRun(sessionId, "paused by you");
+    return { kind: "handled", toast: "Goal paused. /goal to resume", toastVariant: "info" };
+  }
+  // Bare `/goal` RESUMES a paused goal (after Stop, an error, the turn budget,
+  // or a restart), keeping its clock. It used to only report, so "re-run /goal
+  // to continue" meant retyping the goal and restarting its timer.
+  if (arg === "resume" || (!arg && open && !isGoalRunArmed(sessionId))) {
+    const err = resumeGoal(sessionId);
+    return err
+      ? { kind: "handled", toast: err, toastVariant: "warning" }
+      : { kind: "handled", toast: `Goal resumed: ${current!.text}`, toastVariant: "info" };
+  }
 
   if (arg === "done" || arg === "complete") {
     disarmGoalRun(sessionId);
@@ -393,22 +473,61 @@ function runGoalCommand(tail: string): SlashOutcome {
     if (!current) {
       return { kind: "handled", toast: "No goal. Use /goal <text>", toastVariant: "info" };
     }
-    const running = isGoalRunArmed(sessionId) ? ", running" : "";
-    const state = current.completedAt === null ? `Goal${running}` : "Goal (done)";
+    const run = useGoalStore.getState().runs[sessionId];
+    const state = open
+      ? `Goal, running (turn ${run?.turns ?? 0}/${MAX_GOAL_TURNS})`
+      : "Goal (done)";
     return { kind: "handled", toast: `${state}: ${current.text}`, toastVariant: "info" };
   }
+  const blocker = goalBlocker();
+  if (blocker) return { kind: "handled", toast: blocker, toastVariant: "warning" };
   const goal = store.setGoal(sessionId, arg);
   if (!goal) {
     return { kind: "handled", toast: "Goal text is empty", toastVariant: "warning" };
   }
   armGoalRun(sessionId);
-  // The goal itself is already in the system prompt from this turn on; the
-  // prompt below is the "start now" the loop needs to have something to
-  // continue FROM.
+  // The goal is in the system prompt from this turn on, with the instructions
+  // for driving it; the opening turn is the goal itself. Plain text on purpose:
+  // it titles the session, and a wrapper ("work on it end to end") both became
+  // the title and read as a fan-out cue to `wantsForcedFanout`.
+  return { kind: "send-prompt", prompt: goal.text, commandName: "goal" };
+}
+
+/** `/loop <interval> <prompt>` starts, `/loop stop` ends, bare `/loop` reports. */
+function runLoopCommand(tail: string): SlashOutcome {
+  const sessionId = useChatStore.getState().activeSessionId;
+  if (!sessionId) return { kind: "handled", toast: "No active chat", toastVariant: "warning" };
+  const arg = tail.trim();
+  if (arg === "stop" || arg === "off" || arg === "clear") {
+    return stopLoop(sessionId)
+      ? { kind: "handled", toast: "Loop stopped", toastVariant: "info" }
+      : { kind: "handled", toast: "No loop running", toastVariant: "info" };
+  }
+  if (!arg) {
+    const l = loopOf(sessionId);
+    return {
+      kind: "handled",
+      toast: l
+        ? `Every ${formatInterval(l.everyMs)} (${l.runs}/${MAX_LOOP_RUNS} runs): ${l.prompt}`
+        : "No loop. Usage: /loop 10m <prompt>",
+      toastVariant: "info",
+    };
+  }
+  const [first, ...rest] = arg.split(/\s+/);
+  const everyMs = parseInterval(first);
+  const prompt = rest.join(" ").trim();
+  if (everyMs === null || !prompt) {
+    return {
+      kind: "handled",
+      toast: "Usage: /loop <interval> <prompt>, interval like 5m, 1h or 1h30m (at least 1m)",
+      toastVariant: "warning",
+    };
+  }
+  startLoop(sessionId, everyMs, prompt, useChatStore.getState);
   return {
-    kind: "send-prompt",
-    prompt: `Work on the session goal now, end to end: ${goal.text}`,
-    commandName: "goal",
+    kind: "handled",
+    toast: `Looping every ${formatInterval(everyMs)}. /loop stop to end it.`,
+    toastVariant: "success",
   };
 }
 
@@ -447,11 +566,13 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
         store.disable();
         return { kind: "handled", toast: "Plan mode off", toastVariant: "info" };
       }
-      store.toggle();
-      const nowActive = usePlanStore.getState().active;
+      // ON, not a toggle: typing `>plan` to make sure it is on used to turn it
+      // OFF and silently drop every queued edit. `>plan off` is the way out.
+      const wasOn = store.active;
+      store.enable();
       return {
         kind: "handled",
-        toast: nowActive ? "Plan mode on" : "Plan mode off",
+        toast: wasOn ? "Plan mode is already on (`>plan off` to leave it)" : "Plan mode on",
         toastVariant: "info",
       };
     }
@@ -463,8 +584,16 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
       };
     case "goal":
       return runGoalCommand(tail);
+    case "loop":
+      return runLoopCommand(tail);
     case "schedule": {
-      if (!tail) return { kind: "none" };
+      if (!tail) {
+        return {
+          kind: "handled",
+          toast: "Usage: /schedule <when> <command>, e.g. /schedule in 10m pnpm test",
+          toastVariant: "info",
+        };
+      }
       return {
         kind: "send-prompt",
         prompt: `Schedule a terminal command: ${tail}\n\nUse the schedule_command tool. Parse the time from the input (e.g., "in 5 minutes", "at 3pm", "tomorrow at 9am") and the command to run. If no terminal is specified, use the active terminal.`,

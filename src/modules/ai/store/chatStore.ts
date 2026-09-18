@@ -22,7 +22,7 @@ import { useAgentsStore } from "./agentsStore";
 import { usePlanStore } from "./planStore";
 import { useSubagentRunStore } from "./subagentRunStore";
 import { useGoalStore } from "./goalStore";
-import { disarmGoalRun } from "../lib/goalRunner";
+import { disarmGoalRun, isGoalRunArmed, pauseGoalRun } from "../lib/goalRunner";
 import { settleInterruptedToolParts } from "../lib/toolHistory";
 import { useTodosStore } from "./todoStore";
 import { toast } from "@/components/ui/toast";
@@ -150,6 +150,10 @@ export type QueuedPrompt = {
   id: string;
   text: string;
   enqueuedAt: number;
+  /** The chat it was queued in. The queue is shared, and without this a prompt
+   *  queued (or a `/loop` tick fired) in one chat drained into whichever chat
+   *  was open next - a queued `/goal clear` hit the WRONG goal. */
+  sessionId: string | null;
 };
 
 export type ApprovalResponder = (approvalId: string, approved: boolean) => void;
@@ -201,9 +205,11 @@ type StoreState = {
   /** Prompts queued via Ctrl/Cmd+Enter while the agent is busy. Fired
    *  one-by-one on idle. Text-only; attachments bind at send time. */
   promptQueue: QueuedPrompt[];
-  enqueuePrompt: (text: string) => void;
+  /** Queue for `sessionId` (default: the active chat). */
+  enqueuePrompt: (text: string, sessionId?: string | null) => void;
   removeQueuedPrompt: (id: string) => void;
-  consumeNextQueuedPrompt: () => QueuedPrompt | null;
+  /** Take the next prompt queued for `sessionId`, leaving other chats' alone. */
+  consumeNextQueuedPrompt: (sessionId: string) => QueuedPrompt | null;
   clearPromptQueue: () => void;
 
   agentMeta: AgentMeta;
@@ -552,6 +558,11 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       }
     },
     onFinishMeta: (info) => {
+      // A repetition stop means the model is stuck. Continuing an armed goal
+      // from there only buys it more turns of the same call.
+      if (info.stopReason === "tool-repetition" && isGoalRunArmed(sessionId)) {
+        pauseGoalRun(sessionId, "the model kept repeating the same tool call");
+      }
       if (!isActiveSession()) return;
       // Surface non-normal stop reasons so the user sees why the agent paused.
       if (info.stopReason === "step-cap") {
@@ -682,23 +693,25 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   promptQueue: [],
-  enqueuePrompt: (text) => {
+  enqueuePrompt: (text, sessionId) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     const item: QueuedPrompt = {
       id: `q-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       text: trimmed,
       enqueuedAt: Date.now(),
+      sessionId: sessionId === undefined ? get().activeSessionId : sessionId,
     };
     set((s) => ({ promptQueue: [...s.promptQueue, item] }));
   },
   removeQueuedPrompt: (id) =>
     set((s) => ({ promptQueue: s.promptQueue.filter((p) => p.id !== id) })),
-  consumeNextQueuedPrompt: () => {
+  consumeNextQueuedPrompt: (sessionId) => {
     const queue = get().promptQueue;
-    if (queue.length === 0) return null;
-    const [next, ...rest] = queue;
-    set({ promptQueue: rest });
+    const i = queue.findIndex((q) => q.sessionId === sessionId);
+    if (i === -1) return null;
+    const next = queue[i];
+    set({ promptQueue: queue.filter((_, j) => j !== i) });
     return next;
   },
   clearPromptQueue: () => set({ promptQueue: [] }),
@@ -959,8 +972,8 @@ export async function sendMessage(text: string): Promise<boolean> {
 export function stop(): void {
   const id = useChatStore.getState().activeSessionId;
   if (!id) return;
-  // Also cancels an armed `/goal` run; see the composer's own stop for why.
-  disarmGoalRun(id);
+  // Also pauses an armed `/goal` run; see the composer's own stop for why.
+  if (isGoalRunArmed(id)) pauseGoalRun(id, "stopped by you");
   void chats.get(id)?.stop();
 }
 
@@ -1000,7 +1013,7 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
   // An undo hands control back to the user. Trimming history leaves an older
   // assistant message at the tail, which an armed `/goal` would read as "a turn
   // just finished" and continue from, immediately re-doing what was undone.
-  disarmGoalRun(sessionId);
+  if (isGoalRunArmed(sessionId)) pauseGoalRun(sessionId, "restored to a checkpoint");
   try {
     // Stop any in-flight stream before mutating its message list.
     try {

@@ -16,12 +16,34 @@ import {
  * `buildSystemPrompt` reads this synchronously via `getState()`, which is why
  * `hydrated` is tracked: an un-hydrated session must not look like "no goal".
  */
+/**
+ * The unattended loop driving a goal (see `goalRunner`). IN MEMORY ONLY: a
+ * restart leaves the goal standing and the loop off. Lives in the store rather
+ * than a module Map so the strip can show it and the composer re-runs its
+ * settle effect when an evaluator verdict lands.
+ */
+export type GoalRun = {
+  /** Automatic continue turns spent. */
+  turns: number;
+  /** An evaluator call is in flight for the latest assistant turn. */
+  judging: boolean;
+  /** Stopped without the goal being met (error, blocked, budget, Stop). */
+  paused: boolean;
+  /** The evaluator's latest "not met" reason, or why it paused. */
+  reason: string | null;
+  /** Id of the assistant message the loop last judged. A verdict for any other
+   *  message is stale, and a paused run honours a sign-off only on a NEWER one. */
+  lastSeen: string | null;
+};
+
 type GoalState = {
   /** sessionId -> goal, or null when that session has none. */
   bySession: Record<string, Goal | null>;
   hydrated: Set<string>;
   /** sessionIds where the user dismissed the strip. Cleared when a new goal is set. */
   hidden: Set<string>;
+  /** sessionId -> run state, present only while armed or paused. */
+  runs: Record<string, GoalRun>;
   hydrate: (sessionId: string) => Promise<void>;
   /** Set (or replace) the goal. Returns the stored goal, or null if `text` was blank. */
   setGoal: (sessionId: string, text: string) => Goal | null;
@@ -29,12 +51,23 @@ type GoalState = {
   completeGoal: (sessionId: string) => void;
   clearGoal: (sessionId: string) => void;
   hideStrip: (sessionId: string) => void;
+  setRun: (sessionId: string, run: GoalRun | null) => void;
 };
 
 export const useGoalStore = create<GoalState>((set, get) => ({
   bySession: {},
   hydrated: new Set(),
   hidden: new Set(),
+  runs: {},
+
+  setRun(sessionId, run) {
+    set((s) => {
+      const runs = { ...s.runs };
+      if (run) runs[sessionId] = run;
+      else delete runs[sessionId];
+      return { runs };
+    });
+  },
 
   async hydrate(sessionId) {
     if (get().hydrated.has(sessionId)) return;

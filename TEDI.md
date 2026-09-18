@@ -404,11 +404,24 @@ and write), `cache.ts` (Anthropic cache breakpoints), `compact.ts`, `checkpoint.
 records via `MediaRecorder` and transcribes with OpenAI `whisper-1`, so it needs
 an OpenAI API key (`apiKeys.openai` in the chat store).
 
-**Agent loop**: `MAX_AGENT_STEPS = 15` plus two more stop guards, identical
+**Agent loop**: `MAX_AGENT_STEPS = 50` (the last step is forced to text, so a capped turn still ends with a summary) plus two more stop guards, identical
 tool+input three times (`noToolRepetition`) and two consecutive text-only steps
-(`noProgressStop`); whichever trips is surfaced as a `stopReason`. `>plan` toggles
-**plan mode**, which queues mutations into `planStore` for one review diff.
+(`noProgressStop`); whichever trips is surfaced as a `stopReason`. `>plan` turns on
+**plan mode** (`>plan off` leaves it), which queues mutations into `planStore` for one review diff.
 Typing `ultrathink` appends a deeper-reasoning directive for that turn.
+
+**`/goal`** (`goalRunner.ts`, `goalJudge.ts`): after every turn an EVALUATOR call on
+the chat model reads the goal, the todos and the transcript tail and answers MET /
+NOT MET / BLOCKED; the working model's `GOAL COMPLETE` is only evidence. Open todos
+block completion without a model call, NOT MET feeds its reason into the next
+continue prompt, BLOCKED / an errored turn / Stop / tool repetition PAUSE the run
+(bare `/goal` or the strip's play button resumes), 25 turns max, run state in
+`goalStore.runs`. **`/loop <interval> <prompt>`** (`loop.ts`) re-queues a prompt
+every interval (min 1m, 48 runs, in memory). **Stop** kills a running `bash_run`
+(`shell_session_cancel`) and `settleInterruptedToolParts` closes the turn's
+unfinished tool parts, or the SDK re-sends an approved call after a graceful abort.
+Every request also passes `closeDanglingToolCalls` (a call with no result is a 400
+on every provider) and, on OpenAI-compatible gateways, `stripToolResultMedia`.
 
 **Context**: `compact.ts` is elide-first in three stages (drop superseded
 `read_file` results, then old tool results at 72% of the window, then hard-drop at
