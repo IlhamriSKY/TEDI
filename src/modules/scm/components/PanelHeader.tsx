@@ -17,6 +17,8 @@ import {
   GitBranch,
   PanelLeft,
   PanelRight,
+  PanelTopClose,
+  PanelTopOpen,
   RefreshCw,
   X,
 } from "lucide-react";
@@ -47,6 +49,9 @@ type PanelHeaderProps = {
    *  can switch to from one another worktree already holds. */
   worktrees?: Worktree[];
   onOpenWorktree?: (w: Worktree) => void;
+  /** Tabs + commit box folded away. The toggle shows only when this is passed. */
+  compact?: boolean;
+  onToggleCompact?: () => void;
 };
 
 export function PanelHeader({
@@ -67,6 +72,8 @@ export function PanelHeader({
   worktreeMenu,
   worktrees,
   onOpenWorktree,
+  compact,
+  onToggleCompact,
 }: PanelHeaderProps) {
   // No change count here: each section header already carries its own, and the
   // one that mattered sat right of the branch name where it read as part of it.
@@ -134,6 +141,24 @@ export function PanelHeader({
             aria-label="Discard all changes"
           >
             <CornerUpLeft size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
+      ) : null}
+      {onToggleCompact ? (
+        <IconTooltip label={compact ? "Show commit box" : "Hide commit box"} side="bottom">
+          <Button
+            variant="ghost"
+            size="icon"
+            className="text-muted-foreground hover:text-foreground size-6"
+            onClick={onToggleCompact}
+            aria-label={compact ? "Show commit box and tabs" : "Hide commit box and tabs"}
+            aria-pressed={compact}
+          >
+            {compact ? (
+              <PanelTopOpen size={13} strokeWidth={2} />
+            ) : (
+              <PanelTopClose size={13} strokeWidth={2} />
+            )}
           </Button>
         </IconTooltip>
       ) : null}

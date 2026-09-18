@@ -115,6 +115,9 @@ type Props = {
 /** Changed-file count at which the filter box appears. */
 const FILTER_MIN_CHANGES = 10;
 
+/** localStorage key for the folded tabs + commit box, shared by every instance. */
+const COMPACT_KEY = "tedi.scm.compactHeader";
+
 const STATUS_ORDER: Record<GitChangeStatus, number> = {
   conflicted: 0,
   modified: 1,
@@ -266,6 +269,9 @@ export function SourceControlPanel({
   const [fileFilter, setFileFilter] = useState("");
   const [busy, setBusy] = useState<ScmBusy>(null);
   const [tab, setTab] = useState<"changes" | "graph" | "prs">("changes");
+  /** Tabs, commit message and push row folded up so the file list gets the room. */
+  const [compact, setCompact] = useState(() => localStorage.getItem(COMPACT_KEY) === "1");
+  useEffect(() => localStorage.setItem(COMPACT_KEY, compact ? "1" : "0"), [compact]);
   // Bumped after commit/push and on manual refresh so the Graph tab refetches
   // without us wiring a direct ref into the child.
   const [graphRefreshToken, setGraphRefreshToken] = useState(0);
@@ -1109,6 +1115,10 @@ export function SourceControlPanel({
         busy={busy !== null}
         worktrees={worktrees}
         onOpenWorktree={openWorktree}
+        compact={compact}
+        onToggleCompact={
+          status?.isRepo && !historyOnly && !collapsed ? () => setCompact((c) => !c) : undefined
+        }
         worktreeMenu={
           worktreeOps ? (
             <WorktreeMenu
@@ -1243,45 +1253,7 @@ export function SourceControlPanel({
                Changes view alone rather than a tab that would query the wrong
                repository. */
             <div className="flex min-h-0 flex-1 flex-col">
-              <CommitBox
-                status={status}
-                message={message}
-                setMessage={setMessage}
-                changeCount={sorted.length}
-                stagedCount={staged.length}
-                busy={busy}
-                doCommit={doCommit}
-                doGenerate={doGenerate}
-                doPush={doPush}
-                doPull={doPull}
-                doFetch={doFetch}
-                onMore={onMore}
-                canUseGithub={!remote}
-              />
-              {sections}
-            </div>
-          ) : (
-            <Tabs
-              value={tab}
-              onValueChange={(v) => setTab(v as "changes" | "graph" | "prs")}
-              className="flex min-h-0 flex-1 flex-col gap-0"
-            >
-              <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
-                <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                  Changes
-                </TabsTrigger>
-                <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                  History
-                </TabsTrigger>
-                {/* "PRs" rather than "Pull Requests": three full words do not
-                    fit this row at sidebar width, and a truncated tab label is
-                    worse than the abbreviation GitHub itself uses. */}
-                <TabsTrigger value="prs" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                  PRs
-                </TabsTrigger>
-              </TabsList>
-
-              <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
+              {compact ? null : (
                 <CommitBox
                   status={status}
                   message={message}
@@ -1297,6 +1269,50 @@ export function SourceControlPanel({
                   onMore={onMore}
                   canUseGithub={!remote}
                 />
+              )}
+              {sections}
+            </div>
+          ) : (
+            <Tabs
+              value={tab}
+              onValueChange={(v) => setTab(v as "changes" | "graph" | "prs")}
+              className="flex min-h-0 flex-1 flex-col gap-0"
+            >
+              {compact ? null : (
+                <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
+                  <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                    Changes
+                  </TabsTrigger>
+                  <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                    History
+                  </TabsTrigger>
+                  {/* "PRs" rather than "Pull Requests": three full words do not
+                      fit this row at sidebar width, and a truncated tab label is
+                      worse than the abbreviation GitHub itself uses. */}
+                  <TabsTrigger value="prs" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                    PRs
+                  </TabsTrigger>
+                </TabsList>
+              )}
+
+              <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
+                {compact ? null : (
+                  <CommitBox
+                    status={status}
+                    message={message}
+                    setMessage={setMessage}
+                    changeCount={sorted.length}
+                    stagedCount={staged.length}
+                    busy={busy}
+                    doCommit={doCommit}
+                    doGenerate={doGenerate}
+                    doPush={doPush}
+                    doPull={doPull}
+                    doFetch={doFetch}
+                    onMore={onMore}
+                    canUseGithub={!remote}
+                  />
+                )}
                 {sections}
               </TabsContent>
 
