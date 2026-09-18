@@ -1,6 +1,6 @@
 import { jsonSchema, tool, type ToolSet } from "ai";
 import { aiToolsRegistry } from "@/modules/extensions/registries";
-import { scrubErrorPath } from "./context";
+import { clampForModel, scrubErrorPath } from "./context";
 import { extensionToolKey } from "./toolKey";
 import { extToolMedia } from "@mcp/tools.mjs";
 
@@ -84,7 +84,14 @@ export function buildExtensionTools(
           return { type: "text", value: String((output as { error: unknown }).error) };
         }
         const media = extToolMedia(output);
-        if (!media) return { type: "text", value: JSON.stringify(output ?? { ok: true }) };
+        // Capped like MCP and `run_command` results: a third-party tool's big JSON
+        // otherwise sat in the window at full size and was replayed every step.
+        if (!media) {
+          return {
+            type: "text",
+            value: clampForModel(JSON.stringify(output ?? { ok: true }), 20_000),
+          };
+        }
         return {
           type: "content",
           value: [

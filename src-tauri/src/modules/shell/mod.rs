@@ -6,7 +6,7 @@ pub mod session;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Command;
-use std::sync::atomic::{AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
 
@@ -64,7 +64,7 @@ pub async fn shell_run_command(
     // wrapper. The earlier hand-rolled `thread::spawn` + `rx.recv()` moved
     // work off-thread but then blocked the async future on the channel,
     // defeating the runtime.
-    tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur))
+    tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur, None))
         .await
         .map_err(|e| format!("join error: {e}"))?
 }
@@ -73,6 +73,7 @@ pub(crate) fn run_blocking(
     command: String,
     cwd: Option<PathBuf>,
     dur: Duration,
+    cancel: Option<Arc<AtomicBool>>,
 ) -> Result<CommandOutput, String> {
     let mut cmd = build_oneshot_command(&command);
     if let Some(dir) = cwd {
@@ -86,6 +87,7 @@ pub(crate) fn run_blocking(
             poll: POLL_INTERVAL,
             stdin: None,
             what: "shell_run_command",
+            cancel,
         },
     )?;
     Ok(CommandOutput {
@@ -163,6 +165,17 @@ pub async fn shell_session_run(
     tauri::async_runtime::spawn_blocking(move || session.run(command, cwd, dur))
         .await
         .map_err(|e| format!("join error: {e}"))?
+}
+
+/// Kill the command a session is running right now, if any. The agent's Stop
+/// button: without it an aborted turn left its `bash_run` running to the end,
+/// and the turn's stream only closed when it did.
+#[tauri::command]
+pub fn shell_session_cancel(state: tauri::State<ShellState>, id: u32) -> Result<(), String> {
+    if let Some(s) = state.sessions.read().unwrap().get(&id) {
+        s.cancel();
+    }
+    Ok(())
 }
 
 #[tauri::command]

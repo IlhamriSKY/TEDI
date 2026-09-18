@@ -109,6 +109,16 @@ export function classifyError(err: unknown): TediErrorCode {
   // HTTP status wins over the string heuristics: it's reliable and works
   // regardless of the provider's error-body language.
   const status = extractHttpStatus(err);
+  // A statusless error the fetch layer marked retryable is a dropped
+  // connection (`httpProxy.ts`). Sub-agents retry on this code, not on the
+  // SDK's own flag.
+  if (
+    status === undefined &&
+    (err as { isRetryable?: unknown } | null)?.isRetryable === true &&
+    (err as { name?: unknown }).name === "AI_APICallError"
+  ) {
+    return TediErrorCode.PROVIDER_UNAVAILABLE;
+  }
   if (status === 429) return TediErrorCode.RATE_LIMITED;
   if (status === 401 || status === 403) return TediErrorCode.AUTH_FAILED;
   if (status !== undefined && status >= 500) return TediErrorCode.PROVIDER_UNAVAILABLE;
@@ -210,7 +220,7 @@ export function humanizeChatErrorMessage(raw: string): string {
     msg.includes("image input") ||
     (msg.includes("no endpoints") && msg.includes("image")) ||
     msg.includes("does not support image") ||
-    msg.includes("vision")
+    /\bvision\b/.test(msg)
   ) {
     return "This model can't read images on the current provider. Switch to a vision-capable model (e.g. Gemini, Claude, or GPT) or remove the image attachment, then resend.";
   }

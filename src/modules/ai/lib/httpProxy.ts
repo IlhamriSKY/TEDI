@@ -1,4 +1,5 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
+import { APICallError } from "ai";
 
 /**
  * CORS-bypassing HTTP fetch for AI provider calls.
@@ -238,6 +239,50 @@ const STREAM_IDLE_TIMEOUT_MS = 300_000;
  * (retryable), not a user abort. Also rejects an HTML body on a 2xx - every call
  * site here is an OpenAI-wire JSON/SSE endpoint.
  */
+const QUOTA_BODY =
+  /usage_limit_reached|usage_not_included|insufficient_quota|exceeded your current quota|quota has been exhausted|insufficient[ _]balance|usage limit has been reached/i;
+
+/**
+ * A spent QUOTA is not a rate limit. The SDK retries every 429, so ChatGPT's
+ * "The usage limit has been reached" (and OpenAI's insufficient_quota, a
+ * gateway's "budget pool quota has been exhausted") was sent three times with
+ * backoff and then surfaced as "Failed after 3 attempts". Detect it from the
+ * body and throw a PLAIN error, which the SDK does not retry. The message avoids
+ * the words "429" and "rate limit" on purpose: `classifyError` would read those
+ * as retryable and the sub-agent retry loop would try again.
+ */
+export async function quotaExhausted(res: Response): Promise<string | null> {
+  if (res.status !== 429 && res.status !== 402 && res.status !== 403) return null;
+  let body = "";
+  try {
+    body = await res.clone().text();
+  } catch {
+    return null;
+  }
+  if (!QUOTA_BODY.test(body)) return null;
+  let detail = "";
+  let resets = "";
+  try {
+    const j = JSON.parse(body) as { error?: Record<string, unknown> } & Record<string, unknown>;
+    const e = (j.error ?? j) as Record<string, unknown>;
+    detail = typeof e.message === "string" ? e.message : "";
+    const secs =
+      typeof e.resets_in_seconds === "number"
+        ? e.resets_in_seconds
+        : typeof e.resets_at === "number"
+          ? e.resets_at - Date.now() / 1000
+          : NaN;
+    if (Number.isFinite(secs) && secs > 0) {
+      const h = Math.floor(secs / 3600);
+      const m = Math.ceil((secs % 3600) / 60);
+      resets = ` It resets in about ${h ? `${h}h ` : ""}${m}m.`;
+    }
+  } catch {
+    detail = body.slice(0, 200);
+  }
+  return `Quota exhausted on this provider${detail ? `: ${detail}` : ""}.${resets} Not retrying - switch to another model or provider, or wait for the reset.`;
+}
+
 export function withStreamIdleTimeout(
   baseFetch: typeof globalThis.fetch,
   idleMs: number = STREAM_IDLE_TIMEOUT_MS,
@@ -287,7 +332,20 @@ export function withStreamIdleTimeout(
     } catch (e) {
       clear();
       if (stalled.hit) throw new Error("upstream stalled before response (idle timeout)");
-      throw e;
+      // A WebView `TypeError: Failed to fetch` is a connection that dropped
+      // before any reply (the commonest SumoPod failure): nothing was received,
+      // so resending is safe, and the SDK only retries an `APICallError` marked
+      // retryable. ONLY that: the user's Stop, a stall (already 300 s) and the
+      // Rust proxy's refusals (a blocked address, a malformed header) must not
+      // be sent three more times.
+      if (outer?.aborted || !(e instanceof TypeError)) throw e;
+      throw new APICallError({
+        message: `connection failed before a response: ${e.message}`,
+        url: input instanceof Request ? input.url : String(input),
+        requestBodyValues: {},
+        cause: e,
+        isRetryable: true,
+      });
     }
     clear();
     // A 2xx carrying HTML is the gateway's own site answering, usually a base
@@ -302,6 +360,8 @@ export function withStreamIdleTimeout(
         `${reqUrl} returned an HTML page, not an API response - check the endpoint's base URL (it usually ends in /v1)`,
       );
     }
+    const quota = await quotaExhausted(res);
+    if (quota) throw new Error(quota);
     if (!res.body) return res;
 
     const reader = res.body.getReader();

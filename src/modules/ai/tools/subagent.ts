@@ -458,7 +458,9 @@ export function buildSubagentTools(ctx: ToolContext) {
             if (usable.length > 0) {
               const each = Math.floor(perItemCap / usable.length);
               const blocks = usable.map((r) => {
-                const txt = (r.summary ?? "").slice(0, Math.max(each, 512));
+                // Head AND tail: an explorer's <answer> / <next_steps> sit at the
+                // END, and a head-only cut dropped exactly them.
+                const txt = clampForModel(r.summary ?? "", Math.max(each, 512));
                 // A summary is model output built from files the sub-agent read,
                 // so treat it as hostile. Blocklisting `</result>` alone left
                 // three escapes: closing `</dependency_results>`, forging a

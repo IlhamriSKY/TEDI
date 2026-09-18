@@ -46,6 +46,9 @@ pub struct Options {
     pub stdin: Option<String>,
     /// Names the process in the spawn-failure log line.
     pub what: &'static str,
+    /// Set from another thread to kill the child early, exactly as a timeout
+    /// does. How the agent's Stop button reaches a running `bash_run`.
+    pub cancel: Option<Arc<AtomicBool>>,
 }
 
 pub struct Captured {
@@ -72,10 +75,9 @@ pub fn run(mut cmd: Command, opts: Options) -> Result<Captured, String> {
     .stderr(Stdio::piped());
     #[cfg(windows)]
     cmd.creation_flags(CREATE_NO_WINDOW);
-    // Unix: make the child its own process-group leader so a future group-kill
-    // could reach a backgrounded grandchild. Nothing kills the group today -
-    // neither `libc` nor `nix` is a dependency, so there is no std-only
-    // `kill(-pgid)` - and the bounded drain below is the portable mitigation.
+    // Unix: make the child its own process-group leader, so a timeout or a
+    // cancel can kill the whole group (see below): the child is the user's
+    // shell, and the real command runs as ITS child.
     #[cfg(unix)]
     {
         use std::os::unix::process::CommandExt;
@@ -133,7 +135,20 @@ pub fn run(mut cmd: Command, opts: Options) -> Result<Captured, String> {
             Ok(None) => {}
             Err(e) => return Err(e.to_string()),
         }
-        if started.elapsed() >= opts.timeout {
+        let cancelled = opts
+            .cancel
+            .as_ref()
+            .is_some_and(|c| c.load(Ordering::Acquire));
+        if cancelled || started.elapsed() >= opts.timeout {
+            // Killing only the shell left the command it forked running (and
+            // writing) after the agent was told it stopped. Neither `libc` nor
+            // `nix` is a dependency, so the group is killed through `kill(1)`.
+            #[cfg(unix)]
+            {
+                let _ = Command::new("kill")
+                    .args(["-s", "KILL", "--", &format!("-{}", child.id())])
+                    .status();
+            }
             let _ = child.kill();
             let _ = child.wait();
             timed_out = true;
@@ -229,7 +244,44 @@ mod tests {
             poll: Duration::from_millis(10),
             stdin: None,
             what: "test",
+            cancel: None,
         }
+    }
+
+    #[test]
+    fn cancel_kills_a_running_command_before_its_timeout() {
+        // A 30s sleep, cancelled after 200ms, must come back in well under the
+        // 10s test timeout. This is the agent's Stop button reaching `bash_run`.
+        let sleeper = if cfg!(windows) {
+            let mut c = Command::new("ping");
+            c.args(["-n", "30", "127.0.0.1"]);
+            c
+        } else {
+            let mut c = Command::new("sleep");
+            c.arg("30");
+            c
+        };
+        let flag = Arc::new(AtomicBool::new(false));
+        let raise = flag.clone();
+        thread::spawn(move || {
+            thread::sleep(Duration::from_millis(200));
+            raise.store(true, Ordering::Release);
+        });
+        let started = Instant::now();
+        let got = run(
+            sleeper,
+            Options {
+                cancel: Some(flag),
+                ..opts()
+            },
+        )
+        .expect("spawn");
+        assert!(got.timed_out, "a cancelled run reports as cut short");
+        assert!(
+            started.elapsed() < Duration::from_secs(8),
+            "cancel took {:?}",
+            started.elapsed()
+        );
     }
 
     #[test]

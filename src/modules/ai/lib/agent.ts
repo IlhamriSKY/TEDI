@@ -22,6 +22,7 @@ import {
   isLoopbackBaseURL,
   LMSTUDIO_DEFAULT_BASE_URL,
   MAX_AGENT_STEPS,
+  acceptsForcedToolChoice,
   ORCHESTRATION_PROMPT_BODY,
   ORCHESTRATION_PROMPT_BODY_LITE,
   pickSystemPromptVariant,
@@ -64,6 +65,12 @@ import { getPromptOverrides } from "../store/promptsStore";
 import { useDebugStore } from "../store/debugStore";
 import { activeGoalText } from "../store/goalStore";
 import { GOAL_DONE_MARKER } from "./goalRunner";
+import {
+  TEXT_ONLY_TOOL_RESULTS,
+  closeDanglingToolCalls,
+  historyToolSet,
+  stripToolResultMedia,
+} from "./toolHistory";
 
 export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => string> = {
   read_file: (i) => `Reading ${shortPath(i.path)}`,
@@ -607,8 +614,13 @@ function buildSystemPrompt(opts: {
   // Standing goal from `/goal`. Last, so it is the final thing read before the
   // conversation, and stable across turns until the user changes it, which keeps
   // the cached prefix byte-stable the same way planBlock does.
+  // ONE text whether the run is armed or paused: this is the system prompt, and
+  // changing it re-prices the WHOLE cached conversation (every message comes
+  // after it). What differs per turn - "continue, do the next step", the
+  // evaluator's reason - rides in the continue prompt, a user message.
+  const goalRun = `\n\nDrive it to completion on your own. While the goal run is active TEDI continues you after each turn, and an independent check reads your transcript to decide whether the goal is met, so show evidence (command output, test or build results, a read-back of what you changed) rather than just claiming it. Do not end a turn with a plan you could have executed. Stop early only if you are BLOCKED on something only the user can decide or authorize, and then say plainly what you need.`;
   const goalBlock = opts.goal?.trim()
-    ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal. Do not restate it back to the user unprompted.\n\nDrive it to completion on your own. You will be asked to continue automatically after each turn, so do not stop to ask whether to proceed, and do not end a turn with a plan you could have executed. Stop early only if you are BLOCKED on something only the user can decide or authorize, and then say plainly what you need.\n\nWhen the goal is fully met AND you have verified it (tests, a build, or reading back what you changed), end that message with this exact line and nothing after it:\n${GOAL_DONE_MARKER}\nNever write that line for any other reason - it is what stops the run.`
+    ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal. Do not restate it back to the user unprompted.${goalRun}\n\nWhen the goal is fully met AND you have verified it, end that message with this exact line and nothing after it:\n${GOAL_DONE_MARKER}\nNever write that line for any other reason.`
     : "";
   return `${hostBlock}${base}${memoryBlock}${memBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
 }
@@ -671,16 +683,16 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
   // is the only place a picker-disabled tool cannot slip through another path.
   // Built FIRST: the system prompt is composed from what survives here, and the
   // history conversion below needs it too - see there.
-  const tools = chatMode
+  const merged = chatMode
     ? undefined
-    : applyToolFilter(
-        {
-          ...buildExtensionTools(opts.toolContext),
-          ...opts.mcpTools,
-          ...buildTools(opts.toolContext),
-        },
-        new Set(usePreferencesStore.getState().disabledTools),
-      );
+    : {
+        ...buildExtensionTools(opts.toolContext),
+        ...opts.mcpTools,
+        ...buildTools(opts.toolContext),
+      };
+  const tools = merged
+    ? applyToolFilter(merged, new Set(usePreferencesStore.getState().disabledTools))
+    : undefined;
   const allToolNames = new Set(Object.keys(tools ?? {}));
 
   // Every assembled tool is sent. Nothing is withheld per turn: browser control
@@ -719,12 +731,27 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
   // just to this turn's live results. Without it the SDK re-sends the raw
   // `execute` return for every past call. An unknown tool name (uninstalled
   // extension, dropped MCP server) just misses the lookup, so old sessions load.
-  const rawHistory = await convertToModelMessages(opts.uiMessages, { tools });
+  // `closeDanglingToolCalls`: a call left without a result (Stop mid-tool, a
+  // typed reply instead of an approval answer) is a 400 on every provider.
+  const rawHistory = closeDanglingToolCalls(
+    // The UNFILTERED set (plus stubs for vanished tools) so every past result
+    // still goes through its own `toModelOutput`; see `historyToolSet`.
+    await convertToModelMessages(opts.uiMessages, {
+      tools: merged ? historyToolSet(merged, opts.uiMessages) : undefined,
+    }),
+  );
   // Chat mode declares no tools, so a history still carrying tool calls and
   // results is both the bulk of the payload and, on Anthropic, a hard error
   // ("tool_use without tools"). Strip it whenever the toggle is flipped
   // mid-session; the text of the conversation survives.
-  const history = chatMode ? stripToolTraffic(rawHistory) : rawHistory;
+  // Media is stripped BEFORE compaction on text-only providers too: the
+  // compactor counts base64 as text and would trim real history to make room
+  // for an image the provider is never sent.
+  const history = chatMode
+    ? stripToolTraffic(rawHistory)
+    : TEXT_ONLY_TOOL_RESULTS.has(provider)
+      ? stripToolResultMedia(rawHistory)
+      : rawHistory;
   // The system prompt and the per-turn <env> block are both added AFTER
   // compaction, so the compactor cannot see them. Reserve their cost or the
   // thresholds understate the real request. The floor caps the reservation at
@@ -827,7 +854,15 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
   // toolChoice are unaffected. Only step 0, so the model still synthesizes.
   // `"run_subagents" in tools` already covers the picker: applyToolFilter ran
   // before this, so a switched-off spawn tool is simply absent.
-  const forceSpawnStep0 = !!tools && "run_subagents" in tools && wantsForcedFanout(latestUserText);
+  // Only on a USER turn. An approval continuation is a new `streamText` at step
+  // 0 whose latest user text is still the original "audit the repo", so every
+  // approved edit re-ran the whole fan-out (and a worker's card re-forced it).
+  const forceSpawnStep0 =
+    !!tools &&
+    "run_subagents" in tools &&
+    acceptsForcedToolChoice(modelInfo.id) &&
+    opts.uiMessages.at(-1)?.role === "user" &&
+    wantsForcedFanout(latestUserText);
 
   // Debug capture: snapshot the assembled request (no secrets) when the user
   // turned Debug on, so they can inspect / download exactly what TEDI sends.
@@ -885,15 +920,27 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
       // Provider-aware: on a caching provider this only compacts once the
       // payload is genuinely large, because eliding an old result invalidates
       // the cached prefix after it.
-      const compacted = compactStepMessages(stepMessages, provider);
+      const textOnly = TEXT_ONLY_TOOL_RESULTS.has(provider)
+        ? stripToolResultMedia(stepMessages)
+        : stepMessages;
+      const compacted = compactStepMessages(textOnly, provider);
       // Re-mark per step so the rolling BP3 has a tool tail to land on; at turn
       // start there is none, and the tail was re-sent uncached every step.
       const messages = applyStepCacheBreakpoints(compacted, provider);
       // Step 0 only, and it OVERRIDES the turn's `activeTools` on purpose: the
       // point is to force the first call to be a fan-out. Every later step falls
       // back to the turn-stable set passed to `streamText`.
-      return forceSpawnStep0 && stepNumber === 0
-        ? { messages, activeTools: ["run_subagents"], toolChoice: "required" }
+      if (forceSpawnStep0 && stepNumber === 0) {
+        return { messages, activeTools: ["run_subagents"], toolChoice: "required" };
+      }
+      // The final allowed step answers in text: ending on a bare tool call left
+      // the user with no summary of 50 steps of work.
+      // Not on Anthropic: its SDK turns "none" into NO tools, and a request
+      // carrying tool_use blocks without tools is a 400 there.
+      return stepNumber === MAX_AGENT_STEPS - 1 &&
+        provider !== "anthropic" &&
+        acceptsForcedToolChoice(modelInfo.id)
+        ? { messages, toolChoice: "none" }
         : { messages };
     }) as never,
     abortSignal: opts.abortSignal,

@@ -237,13 +237,14 @@ function Body({
 function useReportAiState(sessionId: string, status: string, messages: UIMessage[]): void {
   const report = useAiSessionStatus((s) => s.report);
   const forget = useAiSessionStatus((s) => s.forget);
+  // The LAST message only, as in AgentRunBridge: a card abandoned further up
+  // can never be answered, and counting it kept the chat "blocking" forever.
   const approvals = useMemo(() => {
+    const last = messages[messages.length - 1];
+    if (last?.role !== "assistant") return 0;
     let n = 0;
-    for (const m of messages) {
-      if (m.role !== "assistant") continue;
-      for (const part of m.parts) {
-        if ((part as { state?: string }).state === "approval-requested") n++;
-      }
+    for (const part of last.parts) {
+      if ((part as { state?: string }).state === "approval-requested") n++;
     }
     return n;
   }, [messages]);

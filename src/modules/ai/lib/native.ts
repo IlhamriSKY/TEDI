@@ -117,6 +117,8 @@ export const native = {
       timeoutSecs: timeoutSecs ?? null,
     }),
   shellSessionClose: (id: number) => invoke<void>("shell_session_close", { id }),
+  /** Kill the command a session is running (the Stop button). No-op when idle. */
+  shellSessionCancel: (id: number) => invoke<void>("shell_session_cancel", { id }),
   shellBgSpawn: (command: string, cwd?: string | null) =>
     invoke<number>("shell_bg_spawn", { command, cwd: cwd ?? null }),
   shellBgLogs: (handle: number, sinceOffset?: number) =>

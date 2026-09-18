@@ -124,11 +124,16 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   const messageStats = useMemo(() => {
     let approvals = 0;
     let mutationFp = "";
+    // Only the LAST message can hold a card that is still waiting. A request
+    // abandoned further up (the user typed a new message instead of answering)
+    // kept the status at "awaiting-approval" forever, which blocks the prompt
+    // queue and any `/goal` loop; the history repair answers it on the next send.
+    const tail = messages[messages.length - 1];
     for (const m of messages) {
       if (m.role !== "assistant") continue;
       for (const p of m.parts as AnyPart[]) {
         const state = (p as { state?: string }).state;
-        if (state === "approval-requested") approvals++;
+        if (state === "approval-requested" && m === tail) approvals++;
         const t = (p as { type?: string }).type;
         if (t === "tool-write_file" || t === "tool-edit" || t === "tool-multi_edit") {
           const id = (p as { approval?: { id?: string } }).approval?.id ?? "";

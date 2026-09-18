@@ -48,6 +48,9 @@ export function injectContext(
   live: LiveSnapshot,
   sentEnv: SentEnvBlocks,
   replayPast = true,
+  /** False while CONTINUING a turn (after an approval): keep the block the
+   *  turn started with instead of rebuilding it from live state. */
+  refresh = true,
 ): UIMessage[] {
   const lastUserIdx = findLastIndex(messages, (m) => m.role === "user");
   if (lastUserIdx === -1) return messages;
@@ -59,8 +62,11 @@ export function injectContext(
     if (!present.has(id)) sentEnv.delete(id);
   }
 
-  const fresh = formatEnvBlock(live);
-  if (fresh) sentEnv.set(messages[lastUserIdx].id, fresh);
+  const lastId = messages[lastUserIdx].id;
+  if (refresh || !sentEnv.has(lastId)) {
+    const fresh = formatEnvBlock(live);
+    if (fresh) sentEnv.set(lastId, fresh);
+  }
 
   const newestId = messages[lastUserIdx].id;
   return messages.map((m) => {
@@ -102,5 +108,18 @@ export function formatEnvBlock(live: LiveSnapshot): string | null {
     }
   }
   if (lines.length === 0) return null;
+  // The model has no clock. Without this "/schedule at 3pm" or "tomorrow 9am"
+  // was a guess at today's date, and a `Z` suffix put it hours off. Per turn,
+  // in <env> rather than the system prompt, so the cached prefix is untouched.
+  lines.unshift(`local_time: ${localTimeStamp(new Date())}`);
   return `<env>\n${lines.join("\n")}\n</env>\n\n`;
+}
+
+/** `2026-09-18 23:41 (UTC+07:00)`: local wall time plus the offset, so an ISO
+ *  time the model derives from it can carry the right zone. */
+export function localTimeStamp(d: Date): string {
+  const p = (n: number) => String(Math.abs(n)).padStart(2, "0");
+  const off = -d.getTimezoneOffset();
+  const zone = `UTC${off >= 0 ? "+" : "-"}${p(Math.trunc(off / 60))}:${p(off % 60)}`;
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(d.getMinutes())} (${zone})`;
 }

@@ -87,7 +87,6 @@ const REAL_TOOLS = [
   "bash_list",
   "run_subagent",
   "run_subagents",
-  "skill",
   "todo_write",
   "notes_read",
   "notes_write",

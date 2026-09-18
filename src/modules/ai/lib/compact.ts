@@ -11,6 +11,15 @@ const ELISION_TEXT =
   "[elided - newer output for this call is already further down in the conversation. Do not retry.]";
 const ELISION_TEXT_MUTATED =
   "[elided - this file has been modified since; the post-mutation read is below. Do not re-read this snapshot.]";
+/** Mutated with NO later read in the thread. Claiming "the post-mutation read
+ *  is below" there was false - an edit returns no content - so the model's next
+ *  edit had to guess `old_string` or re-read against the instruction. */
+const ELISION_TEXT_MUTATED_UNREAD =
+  "[elided - this file was modified after this read, so this snapshot is stale. read_file it again before editing or relying on it.]";
+/** Stage 2: aged out to save context. Nothing newer exists, so "do not retry"
+ *  would be a lie that costs the model the content for good. */
+const ELISION_TEXT_AGED =
+  "[elided to save context - re-run this call if you still need its output.]";
 
 type ToolPart = {
   type: string;
@@ -53,7 +62,7 @@ function approxBytes(messages: ModelMessage[]): number {
 
 function elideToolResult(
   part: ToolPart,
-  reason: "superseded" | "mutated" = "superseded",
+  reason: "superseded" | "mutated" | "mutated-unread" | "aged" = "superseded",
 ): { changed: boolean; part: ToolPart } {
   if (part.type !== "tool-result") return { changed: false, part };
   if (
@@ -63,7 +72,14 @@ function elideToolResult(
   ) {
     return { changed: false, part };
   }
-  const value = reason === "mutated" ? ELISION_TEXT_MUTATED : ELISION_TEXT;
+  const value =
+    reason === "mutated"
+      ? ELISION_TEXT_MUTATED
+      : reason === "mutated-unread"
+        ? ELISION_TEXT_MUTATED_UNREAD
+        : reason === "aged"
+          ? ELISION_TEXT_AGED
+          : ELISION_TEXT;
   return {
     changed: true,
     part: {
@@ -210,6 +226,19 @@ function dropSupersededReads(messages: ModelMessage[]): {
     }
   }
 
+  // Where each path was last READ (its result's message index), to tell a
+  // mutated read that has a fresher read below from one that has none.
+  const lastReadOfPath = new Map<string, number>();
+  for (let i = 0; i < messages.length; i++) {
+    const m = messages[i];
+    if (!Array.isArray(m.content)) continue;
+    for (const part of m.content as ToolPart[]) {
+      if (part.type !== "tool-result" || typeof part.toolCallId !== "string") continue;
+      const e = callIdxToRead.get(part.toolCallId);
+      if (e) lastReadOfPath.set(e.path, i);
+    }
+  }
+
   let touched = false;
   const out = messages.map((m, i): ModelMessage => {
     if (!Array.isArray(m.content)) return m;
@@ -227,7 +256,11 @@ function dropSupersededReads(messages: ModelMessage[]): {
       const wasSuperseded =
         lastReadKey.has(entry.key) && (lastReadKey.get(entry.key) as number) > i;
       if (!wasMutated && !wasSuperseded) return part;
-      const r = elideToolResult(part, wasMutated ? "mutated" : "superseded");
+      const reread = (lastReadOfPath.get(entry.path) ?? -1) > (mutationIdx ?? Infinity);
+      const r = elideToolResult(
+        part,
+        wasMutated ? (reread ? "mutated" : "mutated-unread") : "superseded",
+      );
       if (r.changed) local = true;
       return r.part;
     });
@@ -320,7 +353,7 @@ export function compactModelMessagesDetailed(
       if (!Array.isArray(out[i].content)) continue;
       let local = false;
       const next = (out[i].content as ToolPart[]).map((part) => {
-        const r = elideToolResult(part);
+        const r = elideToolResult(part, "aged");
         if (r.changed) local = true;
         return r.part;
       });

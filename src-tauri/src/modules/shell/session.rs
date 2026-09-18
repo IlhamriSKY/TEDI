@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::Serialize;
@@ -16,6 +16,10 @@ pub struct ShellSession {
     pub cwd: Mutex<PathBuf>,
     /// While pristine (no `run` yet), caller-provided cwd hints reseed `cwd`.
     pub pristine: AtomicBool,
+    /// One kill flag per command in flight, raised together by `cancel`. Per
+    /// command, not one shared flag: parallel tool calls (and sub-agents) share
+    /// a session, and a flag reset by each new `run` could swallow a Stop.
+    running: Mutex<Vec<Arc<AtomicBool>>>,
 }
 
 #[derive(Serialize)]
@@ -38,6 +42,14 @@ impl ShellSession {
         Self {
             cwd: Mutex::new(initial_cwd),
             pristine: AtomicBool::new(true),
+            running: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// Kill every command this session is running right now, if any.
+    pub fn cancel(&self) {
+        for flag in self.running.lock().unwrap().iter() {
+            flag.store(true, Ordering::Release);
         }
     }
 
@@ -69,7 +81,14 @@ impl ShellSession {
         // Already on Tauri's blocking pool (see the single caller in mod.rs), and
         // run_blocking is a self-contained sync fn, so call it directly instead of
         // hopping to a throwaway thread and blocking on a channel.
-        let raw = run_blocking(wrapped, Some(cwd), timeout)?;
+        let flag = Arc::new(AtomicBool::new(false));
+        self.running.lock().unwrap().push(flag.clone());
+        let raw = run_blocking(wrapped, Some(cwd), timeout, Some(flag.clone()));
+        self.running
+            .lock()
+            .unwrap()
+            .retain(|f| !Arc::ptr_eq(f, &flag));
+        let raw = raw?;
         self.pristine.store(false, Ordering::Release);
 
         let (stdout_clean, cwd_after) = strip_cwd_sentinel(&raw.stdout);

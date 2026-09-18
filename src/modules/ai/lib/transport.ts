@@ -315,12 +315,17 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       };
 
       const live = deps.getLive();
+      // An approval answer is a new `sendMessages` call that CONTINUES the turn
+      // (the thread ends on the assistant). It must keep the turn's pin and env
+      // block: re-pinning read the cwd live, and with the ai-diff tab active that
+      // is the right-most tab's terminal, so an approved relative write could
+      // land in another project. The rebuilt <env> also re-priced the turn tail.
+      const continuing = messages[messages.length - 1]?.role === "assistant";
       // Pin cwd + workspace root for the turn so a mid-turn tab switch cannot
       // move the agent into another folder - every tool resolves through
       // `ctx.getCwd()`, which otherwise reads the active terminal live. Mutate
       // the stable ctx rather than clone, to keep buildTools' cache hitting.
-      // UI and <env> read live cwd directly, so they stay live.
-      deps.toolContext.pinTurnCwd?.(live.cwd, live.workspaceRoot);
+      if (!continuing) deps.toolContext.pinTurnCwd?.(live.cwd, live.workspaceRoot);
       // Memory reads and MCP loading are independent, so race them together in
       // one batch rather than awaiting memory then MCP - shaves a round of
       // pre-first-token latency off every turn. Pass the same cwd to both MCP
@@ -367,6 +372,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
                 // a prompt cache needs. Without one it is N stale blocks of
                 // waste per request, so send just the newest.
                 providerHasPromptCache(snapshot.provider ?? "sumopod"),
+                !continuing,
               );
           const result = await runAgentStream({
             keys: snapshot.keys,

@@ -1,5 +1,8 @@
 import { stepCountIs, streamText, type ModelMessage, type ToolSet } from "ai";
+import { TEXT_ONLY_TOOL_RESULTS, stripToolResultMedia } from "../lib/toolHistory";
+import { HOST_PROMPT_LINE } from "../lib/osTag";
 import {
+  acceptsForcedToolChoice,
   resolveModelInfo,
   tryGetModel,
   type DynamicModelId,
@@ -22,7 +25,7 @@ import {
   type PromptId,
 } from "../lib/prompts";
 import { getPromptOverrides } from "../store/promptsStore";
-import type { ToolContext } from "../tools/context";
+import { scrubErrorPath, type ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
 import { buildSearchTools } from "../tools/search";
 import { buildEditTools } from "../tools/edit";
@@ -31,6 +34,7 @@ import { READ_ONLY_TOOLS } from "./registry";
 import { resolveSubagentDef } from "./resolveSubagent";
 import { useDebugStore } from "../store/debugStore";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { usePlanStore } from "../store/planStore";
 
 /** Runaway backstop only: termination normally comes from a natural finish or
  *  the same tool-repetition / no-progress guards the main agent uses. Kept
@@ -83,8 +87,11 @@ export async function runSubagent({
   const def = resolveSubagentDef(type);
 
   // A worker (its tool list includes anything beyond READ_ONLY_TOOLS, e.g.
-  // Odyssey) gets the mutating + shell tools; a read-only agent does not.
-  const isWorker = def.tools.some((t) => !READ_ONLY_TOOLS.includes(t));
+  // Odyssey) gets the mutating + shell tools; a read-only agent does not. In
+  // PLAN MODE nobody writes: a worker used to write straight to disk past the
+  // review diff the user turned plan mode on to get.
+  const planMode = usePlanStore.getState().active;
+  const isWorker = !planMode && def.tools.some((t) => !READ_ONLY_TOOLS.includes(t));
 
   // No approval responder in this generateText loop, so a gated read would stall
   // rather than run; a worker also gets mutating tools with autoApprove for the
@@ -114,9 +121,17 @@ export async function runSubagent({
         }
       : {}),
   };
+  // The tool picker's off-switches apply here too. A switched-off `bash_run`
+  // or `delete_file` reached the disk anyway through a worker, auto-approved:
+  // the same "two doors" class as the extension-tool bug.
+  const off = new Set(usePreferencesStore.getState().disabledTools);
   const filtered: Record<string, unknown> = {};
   for (const t of def.tools) {
-    if (t in available) filtered[t] = available[t];
+    // Plan mode offers a worker only its read tools: `buildFsTools` still
+    // returns the write tools, un-approved, and with no approver in this loop
+    // the run would end on its first write and report a false "cut off".
+    if (planMode && !READ_ONLY_TOOLS.includes(t)) continue;
+    if (t in available && !off.has(t)) filtered[t] = available[t];
   }
 
   // User overrides: system prompt, model, and (opt-in) temperature per sub-agent.
@@ -158,9 +173,15 @@ export async function runSubagent({
   // from the chat picker.
   const requestOptions = providerRequestOptions(info.provider, toolContext.getSessionId(), info.id);
 
+  // Host (OS + shell) and the workspace root, which the parent sees in its own
+  // prompt and <env> but a sub-agent never did: a worker on Windows wrote POSIX
+  // commands into PowerShell. Both are stable per session, so caching holds.
+  const root = toolContext.getWorkspaceRoot();
+  const hostedPrompt = `${HOST_PROMPT_LINE}${root ? `\nworkspace_root: ${root}` : ""}\n\n${systemPrompt}`;
+
   // Explicit messages so we can attach provider-cache markers (Experimental_Agent hides this).
   const baseMessages: ModelMessage[] = [
-    { role: "system", content: systemPrompt },
+    { role: "system", content: hostedPrompt },
     { role: "user", content: prompt },
   ];
   const messages = applyCacheBreakpoints(baseMessages, info.provider);
@@ -176,7 +197,7 @@ export async function runSubagent({
         ...(temperature !== undefined ? { temperature } : {}),
         stepBudget: SUBAGENT_STEP_BUDGET,
       },
-      system: systemPrompt,
+      system: hostedPrompt,
       messages,
       tools: Object.entries(filtered).map(([name, t]) => ({
         name,
@@ -188,100 +209,134 @@ export async function runSubagent({
   // Casts because the SDK infers `never` for the tools generic on a dynamic record.
   const start = Date.now();
   let liveSteps = 0;
-  const result = await withRateLimitRetry(async () => {
-    // `streamText`, never `generateText`: the Responses `doGenerate` posts
-    // WITHOUT `stream: true`, and the ChatGPT-account endpoint
-    // (chatgpt.com/backend-api/codex) speaks SSE and nothing else, so it
-    // refused every sub-agent request while the streaming main loop worked on
-    // the same model and token. One transport for both paths, so a provider
-    // that only streams can no longer be dead on one of them.
-    let streamError: unknown;
-    const stream = streamText({
-      model,
-      messages,
-      tools: filtered as never,
-      // No low step cap (powerful sub-agents): natural finish plus the main
-      // agent's anti-loop guards terminate; the count is just a runaway backstop.
-      stopWhen: [
-        stepCountIs(SUBAGENT_STEP_BUDGET),
-        noToolRepetition<ToolSet>(3),
-        noProgressStop<ToolSet>(2),
-      ] as never,
-      // Two jobs per step:
-      //  1. Compact the read pile BETWEEN steps. Re-sending every file read so
-      //     far, on every one of SUBAGENT_STEP_BUDGET steps, is the largest cost
-      //     of a "study" task. KEEP_TAIL leaves the freshest reads intact.
-      //  2. Force a tool call on step 0: some models answer an agentic brief with
-      //     one text-only step. Every sub-agent starts by reading or searching,
-      //     so this is always correct. Auto afterwards.
-      prepareStep: ({
-        stepNumber,
-        messages: stepMessages,
-      }: {
-        stepNumber: number;
-        messages: ModelMessage[];
-      }) => {
-        // Same provider-aware treatment as the main loop: skip compaction while
-        // it would only bust a cached prefix, and re-mark breakpoints per step
-        // so the rolling tool-result one actually lands.
-        const compacted = compactStepMessages(stepMessages, info.provider);
-        const messages = applyStepCacheBreakpoints(compacted, info.provider);
-        return stepNumber === 0 ? { messages, toolChoice: "required" } : { messages };
-      },
-      ...(temperature !== undefined ? { temperature } : {}),
-      ...requestOptions,
-      // Own the retry (jittered) in withRateLimitRetry below. The SDK's default
-      // retry is lockstep (no jitter), so a parallel fan-out that all trips a
-      // rate limit at once backs off in unison and collides on the same tick.
-      maxRetries: 0,
-      abortSignal,
-      // Surface live progress: each finished step reports what the subagent just
-      // did + the running step count to the optional onStep callback.
-      onStepFinish: (step: {
-        toolCalls?: Array<{ toolName: string; input?: unknown }>;
-        text?: string;
-      }) => {
-        liveSteps += 1;
-        onStep?.(describeStep(step), liveSteps);
-      },
-      // A streaming failure is delivered as an error PART, not a throw, and when
-      // no step completed the SDK then rejects `steps` with its own generic
-      // NoOutputGeneratedError. Keep the provider's real one or the retry
-      // classifier below has nothing to read and the caller reports an empty
-      // string.
-      onError: ({ error }: { error: unknown }) => {
-        streamError = error;
-      },
-    } as never);
+  // Every completed step, so a run that fails PART-WAY can still report the
+  // work it did instead of throwing it away (or, worse, retrying it).
+  const collected: unknown[] = [];
+  let stopped: string | null = null;
+  type Outcome = { steps?: unknown[]; text?: string; reasoningText?: string };
+  let result: Outcome;
+  try {
+    result = await withRateLimitRetry(async (): Promise<Outcome> => {
+      // `streamText`, never `generateText`: the Responses `doGenerate` posts
+      // WITHOUT `stream: true`, and the ChatGPT-account endpoint
+      // (chatgpt.com/backend-api/codex) speaks SSE and nothing else, so it
+      // refused every sub-agent request while the streaming main loop worked on
+      // the same model and token. One transport for both paths, so a provider
+      // that only streams can no longer be dead on one of them.
+      let streamError: unknown;
+      const stream = streamText({
+        model,
+        messages,
+        tools: filtered as never,
+        // No low step cap (powerful sub-agents): natural finish plus the main
+        // agent's anti-loop guards terminate; the count is just a runaway backstop.
+        stopWhen: [
+          stepCountIs(SUBAGENT_STEP_BUDGET),
+          noToolRepetition<ToolSet>(3),
+          noProgressStop<ToolSet>(2),
+        ] as never,
+        // Two jobs per step:
+        //  1. Compact the read pile BETWEEN steps. Re-sending every file read so
+        //     far, on every one of SUBAGENT_STEP_BUDGET steps, is the largest cost
+        //     of a "study" task. KEEP_TAIL leaves the freshest reads intact.
+        //  2. Force a tool call on step 0: some models answer an agentic brief with
+        //     one text-only step. Every sub-agent starts by reading or searching,
+        //     so this is always correct. Auto afterwards.
+        prepareStep: ({
+          stepNumber,
+          messages: stepMessages,
+        }: {
+          stepNumber: number;
+          messages: ModelMessage[];
+        }) => {
+          // Same provider-aware treatment as the main loop: skip compaction while
+          // it would only bust a cached prefix, and re-mark breakpoints per step
+          // so the rolling tool-result one actually lands.
+          const textOnly = TEXT_ONLY_TOOL_RESULTS.has(info.provider)
+            ? stripToolResultMedia(stepMessages)
+            : stepMessages;
+          const compacted = compactStepMessages(textOnly, info.provider);
+          const messages = applyStepCacheBreakpoints(compacted, info.provider);
+          // Not on a model that refuses a forced choice (DeepSeek thinking):
+          // there the prompt alone has to get the first call made.
+          return stepNumber === 0 && acceptsForcedToolChoice(info.id)
+            ? { messages, toolChoice: "required" }
+            : { messages };
+        },
+        ...(temperature !== undefined ? { temperature } : {}),
+        ...requestOptions,
+        // Own the retry (jittered) in withRateLimitRetry below. The SDK's default
+        // retry is lockstep (no jitter), so a parallel fan-out that all trips a
+        // rate limit at once backs off in unison and collides on the same tick.
+        maxRetries: 0,
+        abortSignal,
+        // Surface live progress: each finished step reports what the subagent just
+        // did + the running step count to the optional onStep callback.
+        onStepFinish: (step: {
+          toolCalls?: Array<{ toolName: string; input?: unknown }>;
+          text?: string;
+        }) => {
+          liveSteps += 1;
+          collected.push(step);
+          onStep?.(describeStep(step), liveSteps);
+        },
+        // A streaming failure is delivered as an error PART, not a throw, and when
+        // no step completed the SDK then rejects `steps` with its own generic
+        // NoOutputGeneratedError. Keep the provider's real one or the retry
+        // classifier below has nothing to read and the caller reports an empty
+        // string.
+        onError: ({ error }: { error: unknown }) => {
+          streamError = error;
+        },
+      } as never);
 
-    let steps: Awaited<typeof stream.steps>;
-    let text: Awaited<typeof stream.text>;
-    let reasoningText: Awaited<typeof stream.reasoningText>;
-    try {
-      // Awaiting `steps` is what consumes the stream; `text` and `reasoningText`
-      // derive from the final step, so both have settled by the time it returns.
-      steps = await stream.steps;
-      text = await stream.text;
-      reasoningText = await stream.reasoningText;
-    } catch (e) {
-      throw streamError ?? e;
-    }
-    // Steps DID complete but the stream still errored (a rate limit part-way,
-    // say). Surface it: withRateLimitRetry has to see it to back off, and half a
-    // summary that reads as success is worse than a retry.
-    if (streamError) throw streamError;
-    return { steps, text, reasoningText };
-  });
+      let steps: Awaited<typeof stream.steps>;
+      let text: Awaited<typeof stream.text>;
+      let reasoningText: Awaited<typeof stream.reasoningText>;
+      try {
+        // Awaiting `steps` is what consumes the stream; `text` and `reasoningText`
+        // derive from the final step, so both have settled by the time it returns.
+        steps = await stream.steps;
+        text = await stream.text;
+        reasoningText = await stream.reasoningText;
+      } catch (e) {
+        throw streamError ?? e;
+      }
+      // Steps DID complete but the stream still errored (a rate limit part-way,
+      // say). Surface it: withRateLimitRetry has to see it to back off, and half a
+      // summary that reads as success is worse than a retry.
+      if (streamError) throw streamError;
+      return { steps, text, reasoningText } as Outcome;
+    });
+  } catch (err) {
+    // Steps already ran (edits made, commands run): report them as a partial
+    // result. Rethrowing made the parent re-spawn and do the same edits twice.
+    if (!collected.length || abortSignal?.aborted) throw err;
+    stopped = `failed after ${collected.length} step(s): ${scrubErrorPath(err, toolContext)}`;
+    result = { steps: collected };
+  }
   const durationMs = Date.now() - start;
   const stepCount = result.steps?.length ?? 0;
+
+  // Cut off by the step budget or a loop guard, the last step is a TOOL step,
+  // and its text is a fragment ("Let me check the tests.") that used to be
+  // returned as the answer. Summarize what was gathered instead.
+  const last = result.steps?.[result.steps.length - 1] as { finishReason?: string } | undefined;
+  if (!stopped && last?.finishReason === "tool-calls") {
+    stopped = "cut off by the step budget or a loop guard before it finished";
+  }
 
   // An agentic run can end with no assistant text: some models return empty
   // `content` once the conversation holds tool calls (seen on glm-5-2), or the
   // step budget cut it off mid-exploration. `reasoningText` covers models that
   // answer in reasoning; if both are empty, re-summarize in a clean tool-free
   // turn with the activity flattened to text, which any chat model will answer.
-  let summary = result.text?.trim() || result.reasoningText?.trim() || "";
-  if (!summary) summary = (await summarizeToolRun()) || "(no output)";
+  let summary = stopped ? "" : result.text?.trim() || result.reasoningText?.trim() || "";
+  if (!summary) summary = await summarizeToolRun();
+  // Nothing at all is a FAILURE, so dependent tasks are skipped instead of
+  // being handed "(no output)" as if it were an answer.
+  if (!summary) throw new Error(stopped ? `sub-agent ${stopped}` : "sub-agent produced no output");
+  if (stopped) summary = `[PARTIAL: ${stopped}]\n${summary}`;
 
   return { summary, stepCount, durationMs };
 
@@ -294,6 +349,7 @@ export async function runSubagent({
     let lastErr: unknown;
     for (let attempt = 0; attempt <= SUBAGENT_MAX_RETRIES; attempt++) {
       if (abortSignal?.aborted) throw new Error("aborted");
+      const stepsBefore = liveSteps;
       try {
         return await fn();
       } catch (err) {
@@ -302,7 +358,10 @@ export async function runSubagent({
         const code = classifyError(err);
         const transient =
           code === TediErrorCode.RATE_LIMITED || code === TediErrorCode.PROVIDER_UNAVAILABLE;
-        if (!transient || attempt === SUBAGENT_MAX_RETRIES) throw err;
+        // A retry restarts from the BRIEF. Once a step has run it would redo
+        // auto-approved writes and commands on a half-edited tree, so only a
+        // failure before any step is retried; later ones are salvaged above.
+        if (!transient || attempt === SUBAGENT_MAX_RETRIES || liveSteps > stepsBefore) throw err;
         const base = SUBAGENT_RETRY_BASE_MS * Math.pow(2, attempt);
         const wait = Math.round(base * (0.75 + Math.random() * 0.5));
         onStep?.(`Rate limited - retrying in ${Math.round(wait / 1000)}s`, liveSteps);
@@ -314,7 +373,7 @@ export async function runSubagent({
 
   async function summarizeToolRun(): Promise<string> {
     const lines: string[] = [];
-    for (const s of result.steps ?? []) {
+    for (const s of (result.steps ?? []) as Array<{ text?: string; toolResults?: unknown[] }>) {
       const t = s.text?.trim();
       if (t) lines.push(t);
       for (const tr of (s.toolResults ?? []) as Array<{
@@ -340,7 +399,7 @@ export async function runSubagent({
         model,
         messages: applyCacheBreakpoints(
           [
-            { role: "system", content: systemPrompt },
+            { role: "system", content: hostedPrompt },
             {
               role: "user",
               content: `${prompt}\n\nHere is what you gathered while exploring:\n${findings}\n\nNow write your final summary in prose. Do not call tools; do not mention tools.`,
@@ -354,9 +413,12 @@ export async function runSubagent({
       } as never);
       // Awaiting the promise is what consumes the stream; a failure here rejects
       // and the catch below turns it back into "(no output)", as before.
-      return (await fu.text)?.trim() ?? "";
+      return (await fu.text)?.trim() || findings;
     } catch {
-      return "";
+      // The provider that just failed the run usually fails this call too.
+      // Returning "" threw away finished work (and its auto-approved edits),
+      // so the parent re-spawned and repeated them. The raw log is still true.
+      return findings;
     }
   }
 }

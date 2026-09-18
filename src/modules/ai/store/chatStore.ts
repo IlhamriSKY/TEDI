@@ -23,6 +23,7 @@ import { usePlanStore } from "./planStore";
 import { useSubagentRunStore } from "./subagentRunStore";
 import { useGoalStore } from "./goalStore";
 import { disarmGoalRun } from "../lib/goalRunner";
+import { settleInterruptedToolParts } from "../lib/toolHistory";
 import { useTodosStore } from "./todoStore";
 import { toast } from "@/components/ui/toast";
 import { EMPTY_PROVIDER_KEYS, type ProviderKeys } from "../lib/keyring";
@@ -572,16 +573,27 @@ function makeChat(sessionId: string): Chat<UIMessage> {
   const initialMessages = seedMessages.get(sessionId);
   seedMessages.delete(sessionId);
 
-  return new Chat<UIMessage>({
+  const chat: Chat<UIMessage> = new Chat<UIMessage>({
     id: sessionId,
     transport,
     messages: initialMessages,
     sendAutomaticallyWhen: lastAssistantMessageIsCompleteWithApprovalResponses,
-    onFinish: ({ messages }) => {
+    onFinish: ({ messages, isAbort }) => {
+      // Runs in `makeRequest`'s finally, BEFORE its auto-send check: settling
+      // the stopped tool parts here is what keeps Stop from re-running the
+      // command it just stopped (see `settleInterruptedToolParts`).
+      let final = messages;
+      if (isAbort) {
+        const settled = settleInterruptedToolParts(messages);
+        if (settled !== messages) {
+          chat.messages = settled;
+          final = settled;
+        }
+      }
       // Persist regardless of which session is active: AgentRunBridge mirrors
       // only the active one, so a background turn would be lost on restart.
       // persistMessages is debounced, so the active path shares this entry.
-      useChatStore.getState().persistMessages(sessionId, messages);
+      useChatStore.getState().persistMessages(sessionId, final);
     },
     onError: (e) => {
       // Only reflect the error on the global meta if this is the active
@@ -594,6 +606,7 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       });
     },
   });
+  return chat;
 }
 
 export const useChatStore = create<StoreState>((set, get) => ({

@@ -187,31 +187,47 @@ export const MODELS = [
 
 export type ModelId = (typeof MODELS)[number]["id"];
 export type DynamicModelId = ModelId | (string & {});
+// Keyed by PROVIDER + id, not id alone: two gateways serve the same ids
+// (`claude-opus-5` on SumoPod AND AgentRouter), and an id-keyed map let the last
+// catalogue to load overwrite the other - the picker then labelled an AgentRouter
+// pick "via SumoPod", and clearing one gateway's key deleted the other's entry.
 const dynamicModels = new Map<string, ModelInfo>();
+const dynKey = (provider: ProviderId, id: string) => `${provider}::${id}`;
 export function setDetectedModels(p: ProviderId, models: ModelInfo[]): void {
-  for (const [id, i] of dynamicModels) if (i.provider === p) dynamicModels.delete(id);
-  for (const m of models) dynamicModels.set(m.id, m);
+  for (const [k, i] of dynamicModels) if (i.provider === p) dynamicModels.delete(k);
+  for (const m of models) dynamicModels.set(dynKey(m.provider, m.id), m);
 }
 export function setDetectedModelsForInstance(instanceId: string, models: ModelInfo[]): void {
-  for (const [id, i] of dynamicModels) {
+  for (const [k, i] of dynamicModels) {
     if (i.provider !== "openai-compatible") continue;
-    const parsed = parseOpenAICompatibleModelId(id);
-    if (parsed?.instanceId === instanceId) dynamicModels.delete(id);
+    const parsed = parseOpenAICompatibleModelId(i.id);
+    if (parsed?.instanceId === instanceId) dynamicModels.delete(k);
   }
-  for (const m of models) dynamicModels.set(m.id, m);
+  for (const m of models) dynamicModels.set(dynKey(m.provider, m.id), m);
 }
 export function getDetectedModels(p: ProviderId): ModelInfo[] {
   const o: ModelInfo[] = [];
   for (const m of dynamicModels.values()) if (m.provider === p) o.push(m);
   return o;
 }
+function firstDynamic(id: string): ModelInfo | undefined {
+  for (const m of dynamicModels.values()) if (m.id === id) return m;
+  return undefined;
+}
 export function getModel(id: DynamicModelId): ModelInfo {
-  const m = MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
+  const m = tryGetModel(id);
   if (!m) throw new Error(`Unknown model: ${id}`);
   return m;
 }
 export function tryGetModel(id: DynamicModelId): ModelInfo | undefined {
-  return MODELS.find((x) => x.id === id) ?? dynamicModels.get(id);
+  return MODELS.find((x) => x.id === id) ?? firstDynamic(id);
+}
+/** The entry THIS provider serves for `id`, never another provider's. */
+function tryGetModelFor(id: DynamicModelId, provider: ProviderId): ModelInfo | undefined {
+  return (
+    MODELS.find((x) => x.id === id && x.provider === provider) ??
+    dynamicModels.get(dynKey(provider, id))
+  );
 }
 // Every provider that serves a model with this exact id (static table + dynamic registry). Lets the model builder fall back to a configured provider when an id is shared across providers (e.g. deepseek-v4-pro on native DeepSeek and SumoPod).
 export function providersServingModel(id: DynamicModelId): ProviderId[] {
@@ -222,8 +238,11 @@ export function providersServingModel(id: DynamicModelId): ProviderId[] {
       seen.add(m.provider);
       out.push(m.provider);
     }
-  const dyn = dynamicModels.get(id);
-  if (dyn && !seen.has(dyn.provider)) out.push(dyn.provider);
+  for (const m of dynamicModels.values())
+    if (m.id === id && !seen.has(m.provider)) {
+      seen.add(m.provider);
+      out.push(m.provider);
+    }
   return out;
 }
 
@@ -233,9 +252,10 @@ export function resolveModelInfo(
   provider: ProviderId,
   known: ModelInfo | undefined = tryGetModel(id),
 ): ModelInfo {
-  return known && known.provider === provider
-    ? known
-    : { id, provider, label: known?.label ?? id, hint: known?.hint ?? "" };
+  const own = known?.provider === provider ? known : tryGetModelFor(id, provider);
+  // Borrow only the other provider's LABEL: its hint ("via SumoPod") names the
+  // wrong gateway.
+  return own ?? { id, provider, label: known?.label ?? id, hint: "" };
 }
 
 // OpenAI-style `/models` response, and the valid {id, owned_by} rows it carries. Shared by the SumoPod + OpenAI-compatible detectors.
@@ -555,7 +575,24 @@ export const OPENAI_COMPATIBLE_PRESETS = [
   },
 ] as const;
 
-export const MAX_AGENT_STEPS = 15;
+// A runaway backstop, not a work budget. At 15 an ordinary multi-file task hit
+// it mid-edit and ended on a tool call with no answer; modern harnesses have no
+// small per-turn cap. The last step is forced to text (see agent.ts), so a turn
+// that does reach it closes with a summary the user can continue from.
+export const MAX_AGENT_STEPS = 50;
+
+/**
+ * Whether a model takes a FORCED `tool_choice` ("required", one named tool,
+ * "none"). DeepSeek thinks by default and its thinking mode refuses everything
+ * but auto with a 400, `Thinking mode does not support this tool_choice` -
+ * measured live on SumoPod deepseek-v4-flash, where it failed EVERY turn the
+ * fan-out was forced on ("study / audit the repo") and every sub-agent's first
+ * step. Keyed on the model id, so the same model behind SumoPod, AgentRouter
+ * or the native API is covered alike.
+ */
+export function acceptsForcedToolChoice(modelId: string): boolean {
+  return !/deepseek/i.test(modelId);
+}
 export const PLAN_MODE_PROMPT_BODY = `## PLAN MODE\nQueue all mutations for one review diff. Do NOT use bash_run or bash_background. Allowed work: read_file, grep, glob, list_directory, and queued mutations only. After queueing the intended edits, stop and return a brief summary. Wait for accept/reject before continuing.`;
 export const ORCHESTRATION_PROMPT_BODY = `## SUB-AGENT ORCHESTRATION\nMANDATE: when the user asks you to study, explore, understand, review, audit, map, explain, scope a refactor or migration, analyze tests or docs, or trace a bug - anything touching more than one file - your FIRST tool call MUST be a single \`run_subagents\` call that fans the work out. Do NOT read or list files one by one for these tasks. At most one cheap orienting step is allowed first: a single root \`list_directory\`, or \`git diff\` / \`git status\` for a review.\nDo NOT narrate the plan in prose and stop. Saying you will use sub-agents is not using them: emit the \`run_subagents\` tool call as your actual first action this turn, without asking permission.\n\nExample - asked to "study this project", your first call is \`run_subagents\` with several parallel exploration tasks (one per area: app/UI, core modules, build/tooling) plus a dependency-research task. Then you synthesize their summaries. You never open files one at a time for this.\n\nPrinciple: work from the goal, not a recipe. Default to delegation and parallel execution; do not stop until the result is verified. Stay efficient: do small, single-file, or trivial work inline.\n\n\`run_subagent\` runs ONE isolated question; \`run_subagents\` fans out in parallel and may use \`depends_on\` for scatter -> gather. Each runs with a fresh history and its own tools, so every prompt must be self-contained.\n\nRoster - the available sub-agents, their categories, and specialties are listed in the \`run_subagents\` / \`run_subagent\` tool description; pick the one whose id fits each task by its category:\n- exploration (read-only): locate files, code, and patterns in this codebase, or research third-party libraries and dependencies from their installed source and docs.\n- advisor (read-only): hard debugging, architecture and trade-off decisions, security/perf concerns, self-review, pre-planning analysis of an ambiguous request, producing a decision-complete plan, or reviewing a plan / proposed changes before you commit.\n- utility (read-only): analyze images, screenshots, diagrams, and charts - anything whose answer is in a picture rather than in text.\n- specialist: autonomously IMPLEMENT changes end to end - edits/creates/moves/deletes files and runs commands, then verifies. Variants range from one focused change to executing a whole multi-step plan. Runs without approval cards (changes are checkpointed), so hand it a tight, self-contained brief.\n\nDelegate by area, module, or concern, picking the agent that fits each task. Do not survey the codebase inline.\n\nTo carry out implementation work without cluttering your own context, delegate to worker agents. MANDATE for a multi-file build, or any task with several independent files/modules: do NOT hand the whole build to one worker - one worker implements serially and is the SLOW path. Split it into MULTIPLE worker tasks in ONE \`run_subagents\` call, each owning a DISJOINT set of files (one per module or layer - e.g. markup, styles, content, logic, assets), so they implement in PARALLEL. Add a final \`depends_on\` integration or review task only when the pieces must be wired together at the end. Reserve a single worker for a genuinely single-file or tightly-coupled change.\n\nSynthesize returned summaries yourself. Add a final gather task only when the synthesis must read more files. This rule also applies in plan mode before queueing mutations.\n\nWork inline only for small single-file or single-symbol questions or edits, command execution, or trivial requests.`;
 export const ORCHESTRATION_PROMPT_BODY_LITE = `## SUB-AGENT ORCHESTRATION (enabled)\nMANDATE: for ANY task touching more than one file (study, explore, understand, review, audit, explain, refactor/migration scope, test or doc analysis, bug tracing), your FIRST tool call MUST be ONE \`run_subagents\` call - do NOT read files one by one. e.g. "study this project" -> \`run_subagents\` with a parallel explore task per area, then synthesize. Do NOT just say you will use sub-agents: emit the \`run_subagents\` call as your actual first action, without asking permission.\nAgents are listed in the \`run_subagents\` tool: read-only exploration agents (search this codebase or research dependencies), advisor agents (debugging/architecture, pre-planning, planning, plan/change review), a visual analyst (images/screenshots/diagrams), and autonomous workers that edit files + run commands to IMPLEMENT changes (from one focused change up to a full multi-step plan; checkpointed). For a multi-file build, split implementation across PARALLEL workers in one \`run_subagents\` call - each owns a DISJOINT file set (one per module/layer); handing a whole build to one serial worker is the slow path. A single worker only for a single-file or tightly-coupled change. Synthesize results yourself. Do small/single-file work inline.`;

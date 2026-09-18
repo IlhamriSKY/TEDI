@@ -77,6 +77,7 @@ fn run_blocking(
             poll: POLL_INTERVAL,
             stdin: stdin_content,
             what: "fmt_run_external",
+            cancel: None,
         },
     )?;
     Ok(FormatOutput {

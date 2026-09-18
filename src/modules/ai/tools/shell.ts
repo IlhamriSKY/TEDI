@@ -133,7 +133,22 @@ export function buildShellTools(ctx: ToolContext, opts: { autoApprove?: boolean 
         try {
           const cwd = ctx.getCwd();
           const shellId = await getSessionShell(sid, cwd);
-          const r = await native.shellSessionRun(shellId, vetted.command, cwd, timeout_secs);
+          // Stop has to reach the RUNNING command. Checking the signal only
+          // before starting left a stopped turn's command running to the end,
+          // and the turn's stream open until it finished.
+          const signal = ctx.abortSignal;
+          const onAbort = () => void native.shellSessionCancel(shellId).catch(() => {});
+          signal?.addEventListener("abort", onAbort, { once: true });
+          // An abort that landed while the shell was still opening fired no
+          // event: `addEventListener` on an aborted signal never calls back.
+          if (signal?.aborted) onAbort();
+          let r: Awaited<ReturnType<typeof native.shellSessionRun>>;
+          try {
+            r = await native.shellSessionRun(shellId, vetted.command, cwd, timeout_secs);
+          } finally {
+            signal?.removeEventListener("abort", onAbort);
+          }
+          if (signal?.aborted) return { error: "Stopped by the user before the command finished." };
           // Colour first, then trim head+tail before the output re-enters
           // context every step; the Rust side already hard-caps, this is the
           // smaller model-facing trim. `truncated` compares against the STRIPPED
