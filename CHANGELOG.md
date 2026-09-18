@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.62] - 18-09-2026
+
+### Added
+
+- **An extension can size and place its floating windows.** An extension could open a floating window but never change it afterwards, so a window showing a phone stayed portrait when the phone turned landscape, and several opened at once all landed on top of each other in the middle of TEDI. A new host command resizes a floating window, keeping its center so it turns in place, or moves it to a given spot, and always keeps it inside the monitor it lands on. It only reaches floating windows and needs the extension's own `invoke:set_float_window_bounds` permission. Android Mirror uses it so a detached phone follows its rotation and Detach All lays every phone out side by side. See [lib.rs](src-tauri/src/lib.rs).
+- **Settings > Extensions has a search box.** It filters the installed extensions by name, id, description or author, and Esc clears it. See [ExtensionsSection.tsx](src/settings/sections/ExtensionsSection.tsx).
+- **Source Control can fold away its commit box and tabs** with a button in its header, so the file list gets the whole panel. The choice is remembered. See [SourceControlPanel.tsx](src/modules/scm/SourceControlPanel.tsx), [PanelHeader.tsx](src/modules/scm/components/PanelHeader.tsx).
+
+### Changed
+
+- **Double-clicking a file in the Explorer keeps it open, as in VS Code.** A click opens a preview that the next file replaces; a double-click now keeps it, so the next file opens beside it. It used to start a rename, which is now **F2** on the selected item (the context menu still has Rename). See [FileTreeNode.tsx](src/modules/explorer/FileTreeNode.tsx), [FileExplorer.tsx](src/modules/explorer/FileExplorer.tsx).
+
 ## [0.4.61] - 16-09-2026
 
 ### Changed
