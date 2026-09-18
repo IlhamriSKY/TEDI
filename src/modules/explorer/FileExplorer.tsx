@@ -354,6 +354,11 @@ export function FileExplorer({
           else onOpenFile(item.path);
         }
         break;
+      case "F2":
+        if (currentIdx < 0) return;
+        e.preventDefault();
+        tree.beginRename(flat[currentIdx].path);
+        break;
     }
   };
 
