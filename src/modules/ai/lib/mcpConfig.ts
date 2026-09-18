@@ -35,27 +35,46 @@ export type McpServerConfig = {
  */
 export const TEDI_MCP_SERVER_NAME = "tedi";
 
+/**
+ * Split a typed command line into command + args, honouring quotes. A plain
+ * whitespace split turned `"C:/Users/IT STAFF/bin/fff.exe" mcp` into command
+ * `"C:/Users/IT` - and opening Edit then Save on a working server did exactly
+ * that to it, since the edit field is filled by joining with spaces.
+ */
+export function splitCommandLine(raw: string): string[] {
+  const out: string[] = [];
+  for (const m of raw.matchAll(/"([^"]*)"|'([^']*)'|(\S+)/g)) out.push(m[1] ?? m[2] ?? m[3]);
+  return out;
+}
+
+/** The inverse, for filling the edit field: quote any part with whitespace. */
+export function joinCommandLine(parts: string[]): string {
+  return parts.map((p) => (/\s/.test(p) || p === "" ? `"${p}"` : p)).join(" ");
+}
+
 /** Persisted MCP server configs. Stored in its own LazyStore. */
 const STORE_PATH = "tedi-mcp-servers.json";
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 type StoreShape = Record<string, McpServerConfig>;
 
-let cachedConfigs: StoreShape | null = null;
-
+/**
+ * NO cache on this side. Settings is its own webview and is where servers are
+ * added, edited and switched off; a JS copy cached on first read meant none of
+ * that reached the agent until a restart. The Rust store behind it is ONE
+ * instance per path shared by every webview, so a plain `get` already sees
+ * Settings' `set`. Do not `reload()` here: it merges the file on disk over that
+ * shared copy and can undo a Settings write that has not been saved yet.
+ */
 async function loadConfigs(): Promise<StoreShape> {
-  if (cachedConfigs) return cachedConfigs;
   try {
-    const raw = await store.get<StoreShape>("servers");
-    cachedConfigs = raw ?? {};
+    return (await store.get<StoreShape>("servers")) ?? {};
   } catch {
-    cachedConfigs = {};
+    return {};
   }
-  return cachedConfigs;
 }
 
 async function saveConfigs(configs: StoreShape): Promise<void> {
-  cachedConfigs = configs;
   await store.set("servers", configs);
   await store.save();
 }

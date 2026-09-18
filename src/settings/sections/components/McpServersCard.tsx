@@ -21,6 +21,8 @@ import { SettingsCard } from "../../components/SettingsCard";
 import {
   getMcpServers,
   getMcpServersEnabled,
+  joinCommandLine,
+  splitCommandLine,
   removeMcpServer,
   saveMcpServer,
   setMcpServersEnabled,
@@ -98,9 +100,8 @@ export function McpServersCard() {
   const handleAdd = async () => {
     const raw = cmd.trim();
     if (!raw || busy) return;
-    // Note: whitespace split — MCP run commands rarely carry quoted/spaced
-    // args; edit the server afterward for the rare one that does.
-    const [command, ...args] = raw.split(/\s+/);
+    // Quote-aware: a Windows profile path ("C:/Users/IT STAFF/...") has a space.
+    const [command, ...args] = splitCommandLine(raw);
     const name = deriveName(args, command, servers);
     const config: McpServerConfig = { name, command, args, env: {}, enabled: true };
     setBusy(true);
@@ -138,16 +139,22 @@ export function McpServersCard() {
 
   const handleSave = async () => {
     if (!editing) return;
-    const [command, ...args] = editCmd.trim().split(/\s+/);
+    const [command, ...args] = splitCommandLine(editCmd.trim());
     if (!command) return;
     const config: McpServerConfig = { ...editing, command, args, env: parseEnv(envText) };
     setBusy(true);
     setStatus({ kind: "ok", msg: `Connecting to "${editing.name}"` });
     try {
       // An edit is an explicit user action (often fixing a broken server), so
-      // the change is always persisted; validation only decides whether the
-      // result is reported as connected or as a save with a connection error.
+      // it is persisted even when the handshake fails - except when the command
+      // cannot launch at all, which is a typo rather than a fix.
       const result = await validateMcpServer(config);
+      // An edit whose command cannot even LAUNCH is a typo, not a fix: keep the
+      // working config instead of overwriting it with one that cannot start.
+      if (!result.ok && result.reason === "spawn") {
+        setStatus({ kind: "err", msg: `Not saved: couldn't start "${command}": ${result.error}` });
+        return;
+      }
       await saveMcpServer(config);
       void refreshMcpTools(editing.name); // drop the stale connection so edits take effect next turn
       setEditing(null);
@@ -299,7 +306,7 @@ export function McpServersCard() {
                   </span>
                 </div>
                 <span className="text-muted-foreground truncate font-mono text-[10.5px]">
-                  {s.command} {s.args.join(" ")}
+                  {joinCommandLine([s.command, ...s.args])}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
@@ -329,7 +336,7 @@ export function McpServersCard() {
                     className="text-muted-foreground hover:bg-muted/50 size-7"
                     onClick={() => {
                       setEditing({ ...s });
-                      setEditCmd(`${s.command} ${s.args.join(" ")}`.trim());
+                      setEditCmd(joinCommandLine([s.command, ...s.args]));
                       setEnvText(envToText(s.env));
                       setShowEnv(Object.keys(s.env ?? {}).length > 0);
                     }}

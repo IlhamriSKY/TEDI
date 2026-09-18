@@ -1,7 +1,7 @@
 import { tool, jsonSchema, type Tool } from "ai";
 import type { Tool as McpTool } from "@modelcontextprotocol/sdk/types.js";
 import { toast } from "@/components/ui/toast";
-import { getMcpClient } from "../lib/mcpClient";
+import { dropUnwantedMcpClients, getMcpClient } from "../lib/mcpClient";
 import {
   getMcpServers,
   getMcpServersEnabled,
@@ -225,9 +225,11 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   // `lib/tediMcpServer.ts`) - it just runs in-process. Listing it first keeps it
   // ahead of a user server that happens to share the name; the loop below then
   // suffixes theirs on conflict rather than dropping either.
+  const configured = serversToConnect(servers, serversEnabled);
+  dropUnwantedMcpClients(configured);
   const enabled: McpServerConfig[] = [
     { name: TEDI_MCP_SERVER_NAME, command: "", args: [], enabled: true, builtin: true },
-    ...serversToConnect(servers, serversEnabled),
+    ...configured,
   ];
 
   const tools: Record<string, Tool> = {};

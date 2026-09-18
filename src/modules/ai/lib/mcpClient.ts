@@ -2,11 +2,7 @@ import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { TauriStdioTransport } from "./mcpTransport";
 import { startTediMcpServer, type TediMcpDeps } from "./tediMcpServer";
-import type { McpServerConfig } from "./mcpConfig";
-
-// Monotonic suffix so each connection gets a distinct backend process key,
-// even across reconnects of the same server name.
-let connSeq = 0;
+import { TEDI_MCP_SERVER_NAME, type McpServerConfig } from "./mcpConfig";
 
 /**
  * Per-call ceiling for `tools/call`, in ms.
@@ -47,7 +43,10 @@ export class McpClient {
     private cwd?: string,
     private builtinDeps?: TediMcpDeps,
   ) {
-    this.id = `${config.name}#${++connSeq}`;
+    // Random, not a per-webview counter: Rust's process table is GLOBAL, and a
+    // Settings validation minting the same `fff#2` as the main window killed the
+    // agent's live server mid-call.
+    this.id = `${config.name}#${crypto.randomUUID()}`;
     this.client = new Client({ name: "tedi-mcp-host", version: "1.0.0" }, { capabilities: {} });
   }
 
@@ -78,7 +77,12 @@ export class McpClient {
     // Client.connect() calls transport.start() internally (which spawns the
     // server process); stderr is drained backend-side, so nothing to wire here.
     try {
-      await this.client.connect(transport);
+      // Bounded handshake. The SDK default is 60s, so a server that spawns but
+      // never answers added a minute before the first token of EVERY turn.
+      await this.client.connect(
+        transport,
+        this.config.builtin ? undefined : { timeout: CONNECT_TIMEOUT_MS },
+      );
 
       // Fetch server info (optional) and tools.
       try {
@@ -260,6 +264,41 @@ const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 const clientKey = (name: string, cwd?: string, variant?: string): string =>
   `${name}\x1f${cwd ?? ""}\x1f${variant ?? ""}`;
 
+/** What the process is launched FROM. In the key, so an edited command, args or
+ *  env yields a new process instead of the old one being reused forever. */
+const configFingerprint = (c: McpServerConfig): string =>
+  JSON.stringify([c.command, c.args, c.env ?? {}]);
+
+/** Handshake budget for a spawned server (see `McpClient.connect`). Matches
+ *  `validateMcpServer`'s allowance for an `npx -y` / `uvx` first run. */
+const CONNECT_TIMEOUT_MS = 30_000;
+/** A server that failed to start is not re-spawned on every turn for this long. */
+const FAILURE_BACKOFF_MS = 120_000;
+const failedUntil = new Map<string, number>();
+
+/**
+ * Stop clients for servers that are no longer wanted: removed, switched off, or
+ * edited (their fingerprint moved). Without this they ran until the 5-minute
+ * idle sweep, and the master switch's "running servers were stopped" was false.
+ * A client with a call in flight is left to finish.
+ */
+export function dropUnwantedMcpClients(wanted: McpServerConfig[]): void {
+  const keep = new Map(wanted.map((c) => [c.name, configFingerprint(c)]));
+  // A server switched off (or removed) and later back on starts fresh: that is
+  // how a user retries after fixing what made it fail. Settings runs in its own
+  // webview, so its `refreshMcpTools` never reaches this window's backoff map.
+  for (const k of [...failedUntil.keys()]) {
+    if (!keep.has(k.split("\x1f")[0])) failedUntil.delete(k);
+  }
+  for (const [key, entry] of activeClients.entries()) {
+    const [name, , variant] = key.split("\x1f");
+    if (name === TEDI_MCP_SERVER_NAME || entry.client.busy) continue;
+    if (keep.get(name) === variant) continue;
+    void entry.client.disconnect();
+    activeClients.delete(key);
+  }
+}
+
 /**
  * What is CONNECTED right now: server name -> how many tools it gave.
  *
@@ -311,8 +350,16 @@ export async function getMcpClient(
     // re-run `tools/list` for a byte-identical answer. It was the one place MCP
     // work repeated per turn.
     config.builtin ? undefined : cwd,
-    config.builtin ? [...(builtinDeps?.disabledTools ?? [])].sort().join(",") : undefined,
+    config.builtin
+      ? [...(builtinDeps?.disabledTools ?? [])].sort().join(",")
+      : configFingerprint(config),
   );
+  const until = failedUntil.get(key);
+  if (until && until > Date.now()) {
+    throw new Error(
+      `"${config.name}" failed to start moments ago; retrying in ${Math.ceil((until - Date.now()) / 1000)}s`,
+    );
+  }
 
   const existing = activeClients.get(key);
   if (existing && existing.client.connected) {
@@ -334,7 +381,13 @@ export async function getMcpClient(
   connectGen.set(key, myGen);
   const promise = (async () => {
     const client = new McpClient(config, cwd, builtinDeps);
-    await client.connect();
+    try {
+      await client.connect();
+      failedUntil.delete(key);
+    } catch (e) {
+      if (!config.builtin) failedUntil.set(key, Date.now() + FAILURE_BACKOFF_MS);
+      throw e;
+    }
     // If a refresh (edit/disable/remove) superseded this connect mid-flight,
     // don't publish the now-stale client — disconnect it instead.
     if (connectGen.get(key) !== myGen) {
@@ -383,6 +436,7 @@ export async function disconnectAllMcpClients(): Promise<void> {
 
 export async function refreshMcpTools(serverName: string): Promise<void> {
   const prefix = `${serverName}\x1f`;
+  for (const key of [...failedUntil.keys()]) if (key.startsWith(prefix)) failedUntil.delete(key);
   for (const [key, entry] of activeClients.entries()) {
     if (key.startsWith(prefix)) {
       void entry.client.disconnect();
