@@ -287,8 +287,10 @@ async fn open_debug_window(app: tauri::AppHandle) -> Result<(), String> {
 }
 
 /// Open (or reveal) an always-on-top floating window that hosts a single pane
-/// (a live terminal mirror or a file editor). Labeled `float-<leafId>` so each
-/// leaf reveals its own window instead of duplicating. Unlike Settings/Debug it
+/// (a live terminal mirror, a file editor, a table, a board or an extension
+/// panel). Labeled `float-<leafId>` so each leaf reveals its own window instead
+/// of duplicating; an extension that floats something that is not a leaf picks
+/// its own negative id. Unlike Settings/Debug it
 /// is NOT owner-parented - it floats above other apps (YouTube-PiP style) and
 /// carries the leaf params in its URL for the float-window React app.
 #[tauri::command]
@@ -354,6 +356,86 @@ async fn open_float_window(
     disable_windows_corner_rounding(&window);
     recenter_over_main(&app, &window);
     Ok(())
+}
+
+/// Resize, and optionally move, a float window, so an extension can fit one to
+/// what it shows (a phone screen that rotated, several phones side by side).
+/// Logical pixels of the window's visible area, never its outer rect, which on
+/// Windows also holds invisible resize borders. No `leaf_id` means the calling
+/// window; no position keeps the window's center, so a resize turns in place.
+/// Only `float-*` windows, and the result is no bigger than, and stays inside,
+/// the work area of the monitor it lands on.
+#[tauri::command]
+async fn set_float_window_bounds(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    leaf_id: Option<i64>,
+    width: f64,
+    height: f64,
+    x: Option<f64>,
+    y: Option<f64>,
+) -> Result<(), String> {
+    let err = |e: tauri::Error| e.to_string();
+    // The numbers are in the CALLING window's logical pixels (the main window's
+    // screen for a layout, the float's own for a resize in place), so they
+    // convert with its scale, not the target's, on mixed-DPI monitors too.
+    let scale = window.scale_factor().map_err(err)?;
+    let target = match leaf_id {
+        Some(id) => app
+            .get_webview_window(&format!("float-{id}"))
+            .ok_or("That floating window is not open")?,
+        None => window,
+    };
+    if !target.label().starts_with("float-") {
+        return Err("Only a floating window can be resized".into());
+    }
+    let mut w = (width.max(120.0) * scale).round() as i32;
+    let mut h = (height.max(120.0) * scale).round() as i32;
+    // Several phones side by side can each be narrower than a float's usual 320x200 minimum.
+    let own = target.scale_factor().map_err(err)?;
+    target
+        .set_min_size(Some(tauri::PhysicalSize::new(
+            w.min((320.0 * own) as i32) as u32,
+            h.min((200.0 * own) as i32) as u32,
+        )))
+        .map_err(err)?;
+    let outer = target.outer_position().map_err(err)?;
+    let pos = target.inner_position().map_err(err)?;
+    let size = target.inner_size().map_err(err)?;
+    let (mut left, mut top) = match (x, y) {
+        (Some(x), Some(y)) => ((x * scale).round() as i32, (y * scale).round() as i32),
+        _ => (
+            pos.x + (size.width as i32 - w) / 2,
+            pos.y + (size.height as i32 - h) / 2,
+        ),
+    };
+    let monitor = target
+        .monitor_from_point(
+            f64::from(left) + f64::from(w) / 2.0,
+            f64::from(top) + f64::from(h) / 2.0,
+        )
+        .ok()
+        .flatten()
+        .or_else(|| target.current_monitor().ok().flatten());
+    if let Some(monitor) = monitor {
+        let area = monitor.work_area();
+        let (ax, ay) = (area.position.x, area.position.y);
+        let (aw, ah) = (area.size.width as i32, area.size.height as i32);
+        w = w.min(aw);
+        h = h.min(ah);
+        left = left.min(ax + aw - w).max(ax);
+        top = top.min(ay + ah - h).max(ay);
+    }
+    target
+        .set_size(tauri::PhysicalSize::new(w as u32, h as u32))
+        .map_err(err)?;
+    // `set_position` places the outer rect; shift by its border so the visible area lands at (left, top).
+    target
+        .set_position(tauri::PhysicalPosition::new(
+            left - (pos.x - outer.x),
+            top - (pos.y - outer.y),
+        ))
+        .map_err(err)
 }
 
 /// Open (or reveal) an owner-parented child window with our custom chrome.
@@ -771,6 +853,7 @@ pub fn run() {
             open_settings_window,
             open_debug_window,
             open_float_window,
+            set_float_window_bounds,
             cli::cli_initial_target,
             cli::cli_classify_path,
             cli::cli_take_initial_update_request,
