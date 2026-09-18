@@ -16,6 +16,9 @@ export type SchedulerBridge = {
   notify: (message: string, level: "info" | "success" | "warning" | "error") => void;
 };
 
+/** How late a schedule may still fire after a restart. Beyond it, missed. */
+const MISSED_GRACE_MS = 5 * 60_000;
+
 const NOOP_BRIDGE: SchedulerBridge = {
   listTerminals: () => [],
   injectIntoTerminal: () => false,
@@ -88,15 +91,29 @@ class SchedulerEngine {
 
   private async load(): Promise<void> {
     const loaded = await loadSchedules();
-    this.schedules = loaded;
     const now = Date.now();
-    for (const s of loaded) {
+    // A command scheduled for 3pm that TEDI was closed for must NOT run days
+    // later, 1.5s after boot, into whatever terminal has focus (only `ordinal`
+    // survives a restart; a `leafId` target may now name a different pane).
+    // Past the grace window it is recorded as missed instead.
+    let missed = false;
+    this.schedules = loaded.map((s) => {
+      if (s.status !== "pending" || s.fireAt >= now - MISSED_GRACE_MS) return s;
+      missed = true;
+      return {
+        ...s,
+        status: "failed",
+        error: "missed: TEDI was not running at the scheduled time",
+      };
+    });
+    for (const s of this.schedules) {
       if (s.status !== "pending") continue;
-      // Past-due schedules wait 1.5s so terminals can mount and to bunch
+      // Just-past-due schedules wait 1.5s so terminals can mount and to bunch
       // multiple stale schedules.
       const delay = Math.max(0, s.fireAt - now);
       this.arm(s.id, delay > 0 ? delay : 1500);
     }
+    if (missed) await this.persist();
     this.emit();
   }
 

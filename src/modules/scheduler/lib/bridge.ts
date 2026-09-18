@@ -85,13 +85,14 @@ async function createSchedule(input: {
     return "Refused: a shell transformer introduced a newline; an inject schedule cannot run extra lines.";
   }
 
+  // The absolute time wins over a stray `delay: 0` (see tools/schedule.ts).
   let fireAt: number;
-  if (typeof input.delay === "number" && Number.isFinite(input.delay) && input.delay >= 0) {
-    fireAt = Date.now() + Math.round(input.delay * 1000);
-  } else if (typeof input.at === "string" && input.at.trim()) {
+  if (typeof input.at === "string" && input.at.trim()) {
     const ms = Date.parse(input.at);
     if (Number.isNaN(ms)) return `Could not parse \`at\` as a timestamp: "${input.at}".`;
     fireAt = ms;
+  } else if (typeof input.delay === "number" && Number.isFinite(input.delay) && input.delay >= 0) {
+    fireAt = Date.now() + Math.round(input.delay * 1000);
   } else {
     return "schedule create needs `delay` (seconds from now) or `at` (an ISO-8601 timestamp).";
   }

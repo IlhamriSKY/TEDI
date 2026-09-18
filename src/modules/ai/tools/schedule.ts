@@ -223,13 +223,15 @@ export function buildScheduleTools() {
           };
         }
 
+        // The absolute time wins: a model that fills both fields often sends a
+        // stray `delay_seconds: 0`, which ran "at 3pm" immediately.
         let fireAt: number;
-        if (typeof delay_seconds === "number" && delay_seconds >= 0) {
-          fireAt = Date.now() + Math.round(delay_seconds * 1000);
-        } else if (typeof fire_at_iso === "string" && fire_at_iso.trim()) {
+        if (typeof fire_at_iso === "string" && fire_at_iso.trim()) {
           const ms = Date.parse(fire_at_iso);
           if (Number.isNaN(ms)) return { error: `could not parse fire_at_iso "${fire_at_iso}".` };
           fireAt = ms;
+        } else if (typeof delay_seconds === "number" && delay_seconds >= 0) {
+          fireAt = Date.now() + Math.round(delay_seconds * 1000);
         } else {
           return { error: "supply delay_seconds (relative) or fire_at_iso (absolute)." };
         }
