@@ -402,6 +402,16 @@ export function ExtensionsSection() {
     () => [...list].sort((a, b) => a.manifest.name.localeCompare(b.manifest.name)),
     [list],
   );
+  const [query, setQuery] = useState("");
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return sorted;
+    return sorted.filter((e) =>
+      [e.manifest.name, e.id, e.manifest.description ?? "", e.manifest.author ?? ""].some((s) =>
+        s.toLowerCase().includes(q),
+      ),
+    );
+  }, [sorted, query]);
 
   return (
     <div className="flex flex-col gap-6">
@@ -508,12 +518,31 @@ export function ExtensionsSection() {
             </Button>
           ) : null}
         </div>
+        {sorted.length > 0 ? (
+          <Input
+            placeholder="Search installed extensions"
+            aria-label="Search installed extensions"
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === "Escape" && query) {
+                e.stopPropagation();
+                setQuery("");
+              }
+            }}
+            className="h-8 text-[11.5px]"
+          />
+        ) : null}
         {!hydrated ? (
           <span className="text-muted-foreground text-[11px]">Loading</span>
         ) : sorted.length === 0 ? (
           <span className="text-muted-foreground text-[11px]">No extensions installed yet.</span>
+        ) : shown.length === 0 ? (
+          <span className="text-muted-foreground text-[11px]">
+            No extension matches "{query.trim()}".
+          </span>
         ) : (
-          sorted.map((ext) => (
+          shown.map((ext) => (
             <ExtensionCard
               key={ext.id}
               ext={ext}
