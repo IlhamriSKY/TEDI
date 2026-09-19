@@ -109,7 +109,7 @@ console.log("\n[prompt] the system prompt does not move when the user clicks ano
 const transportSrc = src("modules/ai/lib/transport.ts");
 check(
   "project memory is read from the session-pinned root",
-  transportSrc.includes("readTediMd(promptWorkspaceRoot)"),
+  transportSrc.includes("readProjectMemory(promptWorkspaceRoot)"),
 );
 check(
   "so is saved memory - it lands in the same system prompt",
@@ -117,7 +117,7 @@ check(
 );
 check(
   "neither reads the live root any more (that was the 607K-char re-price)",
-  !transportSrc.includes("readTediMd(live.workspaceRoot)") &&
+  !transportSrc.includes("readProjectMemory(live.workspaceRoot)") &&
     !transportSrc.includes("readMemory(live.workspaceRoot)"),
 );
 check(

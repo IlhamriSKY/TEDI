@@ -577,7 +577,7 @@ function buildSystemPrompt(opts: {
   const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
   const memoryBlock =
     opts.projectMemory && opts.projectMemory.trim().length > 0
-      ? `\n\n## PROJECT - TEDI.md\n${opts.projectMemory.trim()}`
+      ? `\n\n## PROJECT - AGENTS.md / TEDI.md\n${opts.projectMemory.trim()}`
       : "";
   // Persistent memory (Claude-CLI style): files under .tedi/memory are loaded as
   // durable context. The saved content is context and always goes out; the

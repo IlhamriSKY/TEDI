@@ -4,6 +4,57 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.64] - 19-09-2026
+
+### Added
+
+- **The agent reads `AGENTS.md`, not just `TEDI.md`.** `AGENTS.md` is the file
+  every other coding agent already looks for, so a project that has one now gets
+  TEDI's agent oriented without writing a second document. Both are loaded when
+  both exist, each under its own heading, with `TEDI.md` last so it wins where
+  the two disagree. They **share** one preload budget rather than taking one
+  each, so adding the second file cannot double what every request costs, and
+  either one being edited refreshes it. `/init` now offers to update an existing
+  `AGENTS.md` instead of writing a competing file beside it. See
+  [projectMemory.ts](src/modules/ai/lib/projectMemory.ts),
+  [transport.ts](src/modules/ai/lib/transport.ts).
+
+### Changed
+
+- **TEDI.md is a third of its old size.** The project map the agent carries in
+  every request had grown to 758 lines and was mostly history: why a thing had
+  been built that way, what it used to be, which bug it came from. It is 500
+  lines now, ordered so the part that gets preloaded is the part a task needs
+  first, and the wide tables are lists, because Prettier pads a table out to its
+  widest row and 7 KB of that padding was eating the budget. Nothing about the
+  app changed; the agent just spends less to know where things are. See
+  [TEDI.md](TEDI.md).
+
+### Fixed
+
+- **A project document whose first section is long preloaded almost nothing.**
+  The reader cut at the last heading that fitted, and fell back to the last line
+  break only when that left nothing at all. A document opening with one very
+  long line therefore passed the fallback and delivered about six characters out
+  of a twelve-kilobyte budget, silently, with no sign anything was missing. Both
+  cuts now answer to the same floor and a document that has no usable boundary
+  is simply cut at the budget. See
+  [projectMemory.ts](src/modules/ai/lib/projectMemory.ts).
+- **The documentation said there is a kind of pane that does not exist.** Both
+  the architecture map and the module reference listed an `ssh` leaf among the
+  pane kinds; there are six, and SSH is a terminal pane carrying a saved
+  connection. Anything reading a pane's title instead of asking for its label
+  shows a bare "ssh" for every remote pane, which is the bug that claim was
+  hiding. The backend command count, the provider count, the step cap, the
+  module lists and the theme and scheduler descriptions were all stale too, and
+  now match the code. See [ARCHITECTURE.md](ARCHITECTURE.md), [TEDI.md](TEDI.md).
+- **The contributing guide asked for the wrong checks before a pull request.**
+  It left out `pnpm verify` and `pnpm build`, which CI does gate on, and asked
+  for `pnpm format:check`, which CI does not run and which already fails on
+  files nobody touched, so following it meant reformatting other people's code
+  and still missing the check that would fail the PR. See
+  [CONTRIBUTING.md](CONTRIBUTING.md).
+
 ## [0.4.63] - 19-09-2026
 
 ### Changed

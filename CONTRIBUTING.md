@@ -22,11 +22,26 @@ Run these and make sure they pass:
 ```bash
 pnpm exec tsc --noEmit          # frontend types
 pnpm lint:imports               # module import discipline (no cross-module relative imports)
-pnpm format:check               # frontend format (Prettier)
-cd src-tauri && cargo clippy    # Rust lint
+pnpm verify                     # the invariant suite (scripts/**/*-verify.ts)
+pnpm build                      # frontend build
+cd src-tauri && cargo clippy    # Rust lint (CI runs it as -D warnings)
 cd src-tauri && cargo fmt       # Rust format
-cd src-tauri && cargo test      # Rust unit tests (CI runs these too)
+cd src-tauri && cargo test      # Rust unit tests
 ```
+
+CI runs exactly those. Two notes on `pnpm verify`: it discovers every
+`*-verify.ts` under `scripts/`, so `pnpm verify ai` runs just one folder while
+you iterate, and it must be run through `pnpm` (bare
+`node scripts/verify-all.mjs` cannot find the `tsx` shim and reports every check
+as failed). Most of those checks assert on SOURCE TEXT, so renaming a covered
+symbol fails them by design: re-point the assertion at the new name, never
+delete it.
+
+`pnpm format:check` is deliberately **not** in the list. CI does not run it and
+it already fails on a handful of files at HEAD, so "make it pass" would mean
+reformatting code you did not touch. Format only your own paths
+(`pnpm exec prettier --write <your files>`), and note that `pnpm format` is
+repo-wide.
 
 To auto-fix formatting:
 
@@ -179,22 +194,28 @@ See [ARCHITECTURE.md](ARCHITECTURE.md) for the full picture (the two-process mod
 
 ```
 src-tauri/        Rust backend (every #[tauri::command] is registered in src/lib.rs)
-  src/modules/    pty, pty_daemon, fs, shell, git, ssh, extensions, preview (+
-                  cli*.rs, format.rs, secrets.rs, net.rs)
+  src/modules/    pty, pty_daemon, fs, shell, git, ssh, extensions, browser,
+                  preview, cli_ext (+ mcp*.rs, local_socket.rs, automation.rs,
+                  chatgpt_auth.rs, snapshot.rs, procs.rs, cli*.rs, format.rs,
+                  secrets.rs, net.rs, backup.rs, clipboard.rs)
   tedi-cli/       Windows console-subsystem `tedi` launcher
 src/
   app/App.tsx     Top-level coordinator (cross-module wiring, not feature logic)
   settings/       Settings UI (a SEPARATE Tauri webview; distinct from src/modules/settings/)
   components/      shadcn/ui + Vercel AI Elements, scaffolded then OWNED (many carry TEDI edits)
   lib/            Shared helpers
-  modules/        20 self-contained features:
+  modules/        22 self-contained features:
                   ai, automation, commandPalette, editor, explorer, extensions,
-                  header, mcpInstall, panes, scheduler, scm, settings,
-                  shortcuts, ssh, statusbar, tabs, terminal, theme, updater,
-                  workspaces
+                  header, mcpInstall, notes, panes, scheduler, scm, settings,
+                  shortcuts, snapshot, ssh, statusbar, tabs, terminal, theme,
+                  updater, workspaces
 ```
 
-For the exhaustive per-file reference (every command, every gotcha) see [TEDI.md](TEDI.md).
+For the exhaustive per-file reference (every command, every gotcha) see
+[TEDI.md](TEDI.md). That file is also preloaded as the AI agent's project memory,
+beside an `AGENTS.md` if the workspace has one, and the two share one 12 KB
+budget: keep TEDI.md under 500 lines, and put long prose in paragraphs rather
+than markdown tables, which Prettier pads out to the widest row.
 
 ## Security issues
 

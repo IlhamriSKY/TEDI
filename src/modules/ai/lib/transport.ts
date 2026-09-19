@@ -1,4 +1,3 @@
-import { basename, dirname } from "@/lib/path";
 import type { UIMessage } from "@ai-sdk/react";
 import type { ChatTransport } from "ai";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -20,54 +19,15 @@ import {
 import type { ProviderKeys } from "./keyring";
 import { native, type DirEntry } from "./native";
 import { subscribeMemoryPathChanges } from "./memoryCache";
+import {
+  assembleProjectMemory,
+  projectMemoryRootOf,
+  selectProjectMemoryDocs,
+} from "./projectMemory";
 import type { ToolContext } from "../tools/tools";
 
-// Preload budget for the workspace-root memory file (TEDI.md). It lands in the
-// cacheable system-prompt prefix every turn, so an exhaustive doc (this repo's
-// own TEDI.md is >100 KB) would dominate the prompt even for a "hi". Bound it to
-// a compact head; the full doc stays one read_file away (see boundProjectMemory).
-const TEDI_MD_PRELOAD_BYTES = 12 * 1024;
-const PROJECT_MEMORY_TRUNCATION_NOTE =
-  "\n\n[TEDI.md is large; only its header is preloaded here. Full architecture reference (backend/frontend internals, PTY daemon, module layout) is on disk - use read_file on TEDI.md when a task needs subsystem depth.]";
-
-/** Bound the preloaded project-memory doc so it cannot dominate the prompt. Over
- *  budget, cut at the last markdown header at or before it so a table or
- *  sentence is never severed, then append a read-on-demand pointer; falls back
- *  to a line break, then a hard slice. The line fallback only fires on a doc
- *  whose sections are so long the header cut would deliver almost nothing; it can
- *  land between two table rows, which is the price of not delivering 10 bytes.
- *  Head-truncation, not section-aware pruning - fine because the head leads. */
-function boundProjectMemory(content: string, budget = TEDI_MD_PRELOAD_BYTES): string {
-  const trimmed = content.trim();
-  if (trimmed.length <= budget) return trimmed;
-  const window = trimmed.slice(0, budget);
-  let sectionCut = -1;
-  for (const m of window.matchAll(/\n#{1,6} /g)) sectionCut = m.index ?? sectionCut;
-  // A section boundary is preferred - it never severs a table or a sentence -
-  // but it must not silently deliver almost nothing. The cut was "the last
-  // header at or before the budget" with no floor, so a doc whose FIRST section
-  // runs past the budget preloaded a handful of characters and said so nowhere;
-  // the amount also moved every time somebody edited a heading.
-  //
-  // The floor is a QUARTER of the budget, chosen to catch that collapse and
-  // nothing else: an ordinary doc keeps the section cut it already had (this
-  // repo's TEDI.md still preloads its usual ~5.7 KB), and only the pathological
-  // shape falls through to a line boundary - which severs no line and is always
-  // no worse than the paragraph break it replaces. A higher floor would
-  // "fix" documents that were never broken, at real cost: this text sits in the
-  // cached system prefix of every single request.
-  const cut = sectionCut > budget * 0.25 ? sectionCut : window.lastIndexOf("\n");
-  const head = (cut > 0 ? trimmed.slice(0, cut) : window).trimEnd();
-  return head + PROJECT_MEMORY_TRUNCATION_NOTE;
-}
-type FileSignature = { mtime: number; size: number };
-type ProjectMemoryCacheEntry = {
-  content: string | null;
-  cachedAt: number;
-  signature?: FileSignature;
-};
-type FolderMemoryCacheEntry = { content: string | null; cachedAt: number; signature?: string };
-const projectMemoryCache = new Map<string, ProjectMemoryCacheEntry>();
+type MemoryCacheEntry = { content: string | null; cachedAt: number; signature?: string };
+const projectMemoryCache = new Map<string, MemoryCacheEntry>();
 
 /** Cache key for the per-workspace memory caches. The live workspaceRoot is
  *  already forward-slashed; fold trailing slash + case so it matches the
@@ -80,9 +40,9 @@ function memoryCacheKey(workspaceRoot: string): string {
 
 function clearMemoryCachesForPath(path: string): void {
   const normalized = path.replace(/\/$/, "").toLowerCase();
-  if (normalized.endsWith("/tedi.md")) {
-    const workspaceRoot = normalized.slice(0, -"/tedi.md".length);
-    projectMemoryCache.delete(workspaceRoot);
+  const docRoot = projectMemoryRootOf(normalized);
+  if (docRoot !== null) {
+    projectMemoryCache.delete(docRoot);
     return;
   }
   const marker = "/.tedi/memory/";
@@ -97,70 +57,37 @@ function clearMemoryCachesForPath(path: string): void {
 
 subscribeMemoryPathChanges(clearMemoryCachesForPath);
 
-async function readFileSignature(path: string): Promise<FileSignature | null> {
-  // `.` rather than "" for a bare filename: this is a `readDir` argument, and
-  // the shared `dirname` answers "" where the backend wants the cwd.
-  const dir = dirname(path) || ".";
-  const name = basename(path);
-  try {
-    const entries = await native.readDir(dir);
-    const match = entries.find((entry) => entry.name === name);
-    return match ? { mtime: match.mtime, size: match.size } : null;
-  } catch {
-    return null;
-  }
-}
-
-async function readTediMd(workspaceRoot: string | null): Promise<string | null> {
+/** Read the workspace-root memory docs (AGENTS.md, TEDI.md) as one block, each
+ *  under its own "### name" header. ONE readDir serves both: the entries carry
+ *  the mtime/size signature that decides whether the 30s cache can be kept, so
+ *  adding the second file costs no extra round trip. */
+async function readProjectMemory(workspaceRoot: string | null): Promise<string | null> {
   if (!workspaceRoot) return null;
+  const root = workspaceRoot.replace(/\/$/, "");
   const key = memoryCacheKey(workspaceRoot);
-  const path = `${workspaceRoot.replace(/\/$/, "")}/TEDI.md`;
   const cached = projectMemoryCache.get(key);
   // Cache for 30s. Re-read after that to pick up edits.
   if (cached && Date.now() - cached.cachedAt < 30_000) return cached.content;
   try {
-    const signature = await readFileSignature(path);
-    if (
-      cached &&
-      signature &&
-      cached.signature &&
-      cached.signature.mtime === signature.mtime &&
-      cached.signature.size === signature.size
-    ) {
-      projectMemoryCache.set(key, {
-        content: cached.content,
-        cachedAt: Date.now(),
-        signature,
-      });
+    const found = selectProjectMemoryDocs(await native.readDir(root));
+    // The readDir entries carry the signature, so the cache check costs nothing
+    // extra and a second doc adds no round trip.
+    const signature = memorySignature(found);
+    if (cached && cached.signature === signature) {
+      projectMemoryCache.set(key, { content: cached.content, cachedAt: Date.now(), signature });
       return cached.content;
     }
-    const r = await native.readFile(path);
-    if (r.kind !== "text") {
-      projectMemoryCache.set(key, {
-        content: null,
-        cachedAt: Date.now(),
-        signature: signature ?? undefined,
-      });
-      return null;
-    }
-    const content = boundProjectMemory(r.content);
-    projectMemoryCache.set(key, {
-      content,
-      cachedAt: Date.now(),
-      signature: signature ?? undefined,
-    });
+    const content = await assembleProjectMemory(root, found, native.readFile);
+    projectMemoryCache.set(key, { content, cachedAt: Date.now(), signature });
     return content;
   } catch {
-    projectMemoryCache.set(key, {
-      content: null,
-      cachedAt: Date.now(),
-    });
+    projectMemoryCache.set(key, { content: null, cachedAt: Date.now() });
     return null;
   }
 }
 
 const MEMORY_MAX_BYTES = 32 * 1024;
-const memoryCache = new Map<string, FolderMemoryCacheEntry>();
+const memoryCache = new Map<string, MemoryCacheEntry>();
 type MemoryFileCacheEntry = { content: string; mtime: number; size: number };
 const memoryFileCache = new Map<string, MemoryFileCacheEntry>();
 
@@ -174,7 +101,7 @@ function memoryFileCacheKey(workspaceRoot: string, name: string): string {
 
 /** Read durable project memory from `.tedi/memory/*.md` (Claude-CLI style),
  *  concatenated oldest-name first under per-file headers and capped in total.
- *  Cached 30s, mirroring readTediMd. Null when the folder is absent or empty. */
+ *  Cached 30s, mirroring readProjectMemory. Null when the folder is absent or empty. */
 async function readMemory(workspaceRoot: string | null): Promise<string | null> {
   if (!workspaceRoot) return null;
   const dir = `${workspaceRoot.replace(/\/$/, "")}/.tedi/memory`;
@@ -342,7 +269,7 @@ export function createContextAwareTransport(deps: Deps): ChatTransport<UIMessage
       // turn pin above; only the prompt holds still.
       const promptWorkspaceRoot = deps.toolContext.pinSessionWorkspaceRoot(live.workspaceRoot);
       const [projectMemory, memory, mcpTools] = await Promise.all([
-        skip ? null : readTediMd(promptWorkspaceRoot),
+        skip ? null : readProjectMemory(promptWorkspaceRoot),
         skip ? null : readMemory(promptWorkspaceRoot),
         skip ? undefined : buildMcpToolsAsync(deps.toolContext),
       ]);

@@ -25,7 +25,7 @@ runs a `#[tauri::command]` function in Rust. Long-lived output (terminal bytes,
 SSH events, install progress) streams back over a Tauri `Channel`. Every command
 is registered in one place, the `invoke_handler` block in
 [`src-tauri/src/lib.rs`](src-tauri/src/lib.rs), so that one file is the complete
-index of the backend API surface (113 commands today).
+index of the backend API surface (121 commands today).
 
 ```mermaid
 flowchart LR
@@ -90,53 +90,63 @@ These invariants shape the whole codebase. Violating one is almost always a bug.
 is a thin shim. Logic is split into `modules/` (folders for multi-file
 subsystems, flat files for single-purpose ones).
 
-| Module                                              | Responsibility                                                                                                                                                    |
-| --------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `pty/`                                              | Interactive PTYs (xterm <-> `portable-pty`), shell integration scripts, Windows Job Objects.                                                                      |
-| `pty_daemon/`                                       | Sidecar process that owns PTYs across GUI restarts (see Section 6). Same binary, `--pty-daemon`.                                                                  |
-| `fs/`                                               | Explorer and editor IO, fuzzy finder, content search (`ignore` + `grep-*` crates).                                                                                |
-| `shell/`                                            | One-shot exec for AI tools, a persistent agent shell, and bounded-log background processes.                                                                       |
-| `git/`                                              | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs. |
-| `ssh/`                                              | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                                                                                    |
-| `extensions/`                                       | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).                                                                      |
-| `cli_ext/`                                          | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring.                             |
-| `preview/`                                          | The `tedi-frame://` proxy scheme (`proxy`, `util`).                                                                                                               |
-| `format.rs`                                         | Direct-spawn external formatter executor (`fmt_run_external`).                                                                                                    |
-| `secrets.rs`                                        | OS keychain bridge (`keyring` crate; Linux file-store fallback).                                                                                                  |
-| `net.rs`                                            | Minimal HTTP probe (dev-server detection).                                                                                                                        |
-| `mcp.rs`                                            | Model Context Protocol support for the AI subsystem.                                                                                                              |
-| `backup.rs`                                         | Encrypted (AES-256-GCM) SSH connection export/import blobs.                                                                                                       |
-| `clipboard.rs`                                      | Host-process clipboard read (`clipboard_read_text`), works around a Linux WebKitGTK paste gap.                                                                    |
-| `cli.rs`                                            | `tedi` CLI entry, single-instance forwarding, PATH shim install.                                                                                                  |
-| `cli_theme.rs` / `cli_update.rs`                    | Headless `tedi theme` and `tedi --update` handlers.                                                                                                               |
-| `cli_paint.rs`, `events.rs`, `ids.rs`, `lockext.rs` | CLI color output, event-name constants, id helpers, lock extensions.                                                                                              |
+| Module                                                | Responsibility                                                                                                                                                                     |
+| ----------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `pty/`                                                | Interactive PTYs (xterm <-> `portable-pty`), shell integration scripts, Windows Job Objects.                                                                                       |
+| `pty_daemon/`                                         | Sidecar process that owns PTYs across GUI restarts (see Section 6). Same binary, `--pty-daemon`.                                                                                   |
+| `fs/`                                                 | Explorer and editor IO, fuzzy finder, content search (`ignore` + `grep-*` crates).                                                                                                 |
+| `shell/`                                              | One-shot exec for AI tools, a persistent agent shell, and bounded-log background processes.                                                                                        |
+| `git/`                                                | Backend for the SCM panel: runs `git` and parses status/diff into structured payloads. `gh.rs` adds an allowlisted `gh` runner for pull requests and stacked PRs.                  |
+| `ssh/`                                                | SSH/SFTP sessions (`russh` + `russh-sftp`), including ProxyJump host chaining.                                                                                                     |
+| `extensions/`                                         | Extension install pipeline, manifest validation, state store, GitHub resolution (Section 7).                                                                                       |
+| `cli_ext/`                                            | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring.                                              |
+| `browser/`                                            | Browser panes: a Tauri CHILD WEBVIEW per pane, placed on the pane's rect and driven over the DevTools Protocol in-process (`cdp.rs`), so there is no debugging port. Windows only. |
+| `mcp_bridge.rs`, `local_socket.rs`, `mcp_devtools.rs` | The local socket (named pipe / unix socket) an outside AI CLI drives a running window through, plus the in-process CDP the MCP tools use instead of an automation port.            |
+| `automation.rs`                                       | Reads `automationPort` from the settings file at startup, because WebView2 fixes its browser arguments before the first webview exists.                                            |
+| `chatgpt_auth.rs`                                     | OAuth PKCE sign-in with a ChatGPT account (loopback listener, refresh token straight to the keychain).                                                                             |
+| `snapshot.rs`                                         | Watches the OS screenshot folders by directory mtime, and starts native file drags out of the preview card.                                                                        |
+| `procs.rs`                                            | Host-side process sampler (`process_sample`), so an extension needs no per-tick spawn.                                                                                             |
+| `preview/`                                            | The `tedi-frame://` proxy scheme (`proxy`, `util`).                                                                                                                                |
+| `format.rs`                                           | Direct-spawn external formatter executor (`fmt_run_external`).                                                                                                                     |
+| `secrets.rs`                                          | OS keychain bridge (`keyring` crate; Linux file-store fallback).                                                                                                                   |
+| `net.rs`                                              | Minimal HTTP probe (dev-server detection).                                                                                                                                         |
+| `mcp.rs`                                              | Model Context Protocol support for the AI subsystem.                                                                                                                               |
+| `backup.rs`                                           | Encrypted (AES-256-GCM) SSH connection export/import blobs.                                                                                                                        |
+| `clipboard.rs`                                        | Host-process clipboard read (`clipboard_read_text`), works around a Linux WebKitGTK paste gap.                                                                                     |
+| `cli.rs`                                              | `tedi` CLI entry, single-instance forwarding, PATH shim install.                                                                                                                   |
+| `cli_theme.rs` / `cli_update.rs`                      | Headless `tedi theme` and `tedi --update` handlers.                                                                                                                                |
+| `cli_paint.rs`, `events.rs`, `ids.rs`, `lockext.rs`   | CLI color output, event-name constants, id helpers, lock extensions.                                                                                                               |
 
 ## 4. Frontend (React, `src/`)
 
 Single-window React app (plus the Settings webview), path alias `@/*` -> `src/*`.
 `app/App.tsx` is the ~1200-line coordinator described in Section 2. Feature code
-lives in 19 self-contained modules.
+lives in 22 self-contained modules.
 
-| Module            | Responsibility                                                                                                             |
-| ----------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `terminal/`       | xterm.js sessions, PTY bridge, OSC 7/133 shell-integration handlers, terminal themes.                                      |
-| `editor/`         | CodeMirror 6 stack, language modes, format-on-save, AI inline autocomplete, vim mode.                                      |
-| `explorer/`       | File tree, Material/Catppuccin icons, fuzzy search, keyboard nav, inline rename.                                           |
-| `panes/`          | Split-pane orchestration (horizontal/vertical) via `react-resizable-panels`.                                               |
-| `tabs/`           | The tab model (source of truth): `useTabs`, workspace-cwd derivation, serialization.                                       |
-| `workspaces/`     | Workspace persistence and switching (tab layout + cwd).                                                                    |
-| `header/`         | Top bar, inline search, custom window controls (Linux/Windows).                                                            |
-| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                            |
-| `shortcuts/`      | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).                                            |
-| `commandPalette/` | Ctrl+Shift+P palette over the shared command registry.                                                                     |
-| `settings/`       | Shared settings store and preferences (state layer read by both windows).                                                  |
-| `theme/`          | `next-themes` provider.                                                                                                    |
-| `ai/`             | The AI agent subsystem (Section 5), the largest module.                                                                    |
-| `scm/`            | Source-control panel, diffs, and the pull-request / stacked-PR view (frontend for the Rust `git_*` and `gh_run` commands). |
-| `ssh/`            | SSH connection manager and remote SFTP explorer.                                                                           |
-| `scheduler/`      | In-conversation task/timer surface used by the AI agent.                                                                   |
-| `updater/`        | In-app updater UI on top of `tauri-plugin-updater`.                                                                        |
-| `extensions/`     | The extension host: install UI, permission-gated `ctx` API, contribution registries.                                       |
+| Module            | Responsibility                                                                                                                               |
+| ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
+| `terminal/`       | xterm.js sessions, PTY bridge, OSC 7/133 shell-integration handlers, terminal themes.                                                        |
+| `editor/`         | CodeMirror 6 stack, language modes, format-on-save, AI inline autocomplete, vim mode.                                                        |
+| `explorer/`       | File tree, Material/Catppuccin icons, fuzzy search, keyboard nav, inline rename.                                                             |
+| `panes/`          | Split-pane orchestration via `react-resizable-panels`, plus the workspace canvas view (every pane as a free-floating window on one surface). |
+| `tabs/`           | The tab model (source of truth): `useTabs`, workspace-cwd derivation, serialization.                                                         |
+| `workspaces/`     | Workspace persistence and switching (tab layout + cwd).                                                                                      |
+| `header/`         | Top bar, inline search, custom window controls (Linux/Windows).                                                                              |
+| `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                              |
+| `shortcuts/`      | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).                                                              |
+| `commandPalette/` | Ctrl+Shift+P palette over the shared command registry.                                                                                       |
+| `settings/`       | Shared settings store and preferences (state layer read by both windows).                                                                    |
+| `theme/`          | TEDI's own `ThemeProvider`; one preset covers app chrome AND terminal colors.                                                                |
+| `ai/`             | The AI agent subsystem (Section 5), the largest module.                                                                                      |
+| `scm/`            | Source-control panel, diffs, and the pull-request / stacked-PR view (frontend for the Rust `git_*` and `gh_run` commands).                   |
+| `ssh/`            | SSH connection manager and remote SFTP explorer.                                                                                             |
+| `scheduler/`      | Deferred commands: fire a command into a terminal later, surviving restarts. Reached by the agent and over MCP.                              |
+| `notes/`          | The user's own notes and todos panel; one action handler shared by the agent and the MCP `notes` tool.                                       |
+| `snapshot/`       | Screenshot preview card with a native drag-out.                                                                                              |
+| `automation/`     | The capability bridge: one registry of everything an outside driver can call in-realm.                                                       |
+| `mcpInstall/`     | The Install MCP button: registers the stdio server with the installed AI CLIs, global or per-project.                                        |
+| `updater/`        | In-app updater UI on top of `tauri-plugin-updater`.                                                                                          |
+| `extensions/`     | The extension host: install UI, permission-gated `ctx` API, contribution registries.                                                         |
 
 ### Tab model
 
@@ -147,13 +157,15 @@ Tab = PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab
 ```
 
 `PaneTab` (`kind: "pane"`) holds a split-pane tree whose leaves are one of
-`terminal`, `editor`, `ssh`, `board`, `scm`, `ai`, or `extension-panel`. The other kinds
-(`ai-diff`, `git-diff`, `ext`, `scm`) are whole-tab surfaces. Tabs are never
-unmounted on switch.
+exactly six kinds (`LeafState` in `terminal/lib/panes.ts`): `terminal`, `editor`,
+`extension-panel`, `board`, `scm`, or `ai`. **There is no `ssh` leaf** - SSH is a
+TERMINAL leaf carrying `sshConnectionId`, and `leafKindTag` only renders "ssh" as
+a display tag. The other `Tab` kinds (`ai-diff`, `git-diff`, `ext`, `scm`) are
+whole-tab surfaces. Tabs are never unmounted on switch.
 
 ## 5. The AI subsystem (`src/modules/ai/`)
 
-Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Eleven providers are
+Bring-your-own-key, multi-provider via `@ai-sdk/*` (AI SDK v6). Twelve providers are
 declared in `config.ts` (`PROVIDERS`, `MODELS`), the single source of truth. Local
 models are first-class: LM Studio has its own provider, and the OpenAI-compatible
 provider accepts several endpoints at once (Ollama, llama.cpp, vLLM, OpenRouter,
@@ -167,8 +179,11 @@ explicit "add a key" error. The layering:
   prompt, runs `streamText` with the stop guards), `transport.ts` (retries,
   over-context recovery, the per-turn `<env>` block), `composer.tsx`, `sessions.ts`,
   history `compact.ts` / `checkpoint.ts`, prompt `cache.ts`,
-  `mcpClient.ts`, `prompts.ts` (every built-in prompt is user-overridable), and
-  `security.ts` (the symlink-resolved secret deny-list, on both read and write).
+  `mcpClient.ts`, `prompts.ts` (every built-in prompt is user-overridable),
+  `security.ts` (the symlink-resolved secret deny-list, on both read and write),
+  and `projectMemory.ts`, which decides that **`AGENTS.md` and `TEDI.md` are both
+  preloaded** from the workspace root, sharing one 12 KB budget so a second doc
+  cannot double what every request pays for its cached prefix.
 - **`tools/`**: the agent's tool definitions. Read-only tools auto-run; mutating tools are
   approval-gated and route AI-proposed edits through a side-by-side `ai-diff` tab
   that the user accepts or rejects per hunk before any write. Extension- and
@@ -181,9 +196,10 @@ explicit "add a key" error. The layering:
   Recursion is structurally impossible: sub-agents never receive `run_subagent`.
 - **`store/`, `hooks/`, `components/`**: state, React glue, UI.
 
-The agent loop stops on three conditions, not one: a 15-step cap, the same tool
-called with the same input three times, and two consecutive text-only steps.
-Whichever tripped is reported to the user.
+The agent loop stops on three conditions, not one: a 50-step cap
+(`MAX_AGENT_STEPS`, whose last step is forced to text so a capped turn still ends
+with a summary), the same tool called with the same input three times, and two
+consecutive text-only steps. Whichever tripped is reported to the user.
 
 App.tsx wires a **live-context bridge** (`setLive({ getCwd, getTerminalContext,
 openTerminal, ... })`) so tools read the active terminal's cwd and scrollback and
@@ -361,7 +377,8 @@ never silently widen a grant.
 
 - **Dense per-module map and navigation:** [TEDI.md](TEDI.md), including every
   Tauri command, platform gotcha, the PTY daemon, the CLI entry points, and the
-  formatter pipeline.
+  formatter pipeline. It is also preloaded as the agent's project memory, beside
+  an `AGENTS.md` if the workspace has one, so keep it under 500 lines.
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Writing an extension:** [extensions/README.md](extensions/README.md), the
   manifest schema and host-API reference.

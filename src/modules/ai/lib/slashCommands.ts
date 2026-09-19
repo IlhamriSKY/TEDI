@@ -50,7 +50,9 @@ const INIT_PROMPT = `Scan this workspace and produce TEDI.md at the workspace ro
 - Conventions worth knowing (naming, patterns, gotchas).
 - Paths to entry points.
 
-Use grep/glob/list_directory/read_file to explore. Cap TEDI.md under 200 lines. Use write_file to create it (will go through normal approval).`;
+Use grep/glob/list_directory/read_file to explore. Cap TEDI.md under 200 lines. Use write_file to create it (will go through normal approval).
+
+If AGENTS.md already exists at the root, UPDATE that file instead of writing a second one: both are preloaded as project memory and they would split one budget and contradict each other.`;
 
 export type SlashCommandMeta = {
   name: string;
