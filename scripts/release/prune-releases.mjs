@@ -28,6 +28,7 @@ const CORE = "TEDI";
 // how TEDI.dev-environment reached 11 published releases against a cap of 5.
 const EXTENSIONS = [
   "TEDI.ai-usage",
+  "TEDI.android-mirroring",
   "TEDI.api-client",
   "TEDI.beautify",
   "TEDI.browser",

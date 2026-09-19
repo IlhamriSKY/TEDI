@@ -404,8 +404,8 @@ either side; a name collision drops one, silently.
 - **`tedi.process-monitor`**: ONE streamed sampler over `shell_bg_spawn_direct` (not a spawn per tick), meter with a pixel-chart tooltip, process-tree tab
 - **`tedi.ai-usage`**: Status-bar meters: `statusbar:write` with label + progress, gated `invoke`
 
-Others in local copies: `remote-access` (terminal mirrors over a relay),
-`android-mirroring` (scrcpy + WebCodecs), `discord-rich-presence`, `devenv`, `network-monitor`, `screenshot`.
+Also published: `android-mirroring` (the only one shipping a runtime payload beside its bundle: a node relay plus the scrcpy server), `remote-access`,
+`discord-rich-presence`, `dev-environment`, `screenshot`. `network-monitor` is private, zip-only.
 
 There is **no cross-extension channel**: every API hard-wires the caller's id.
 Two extensions that must talk hand off through a file in `~/.tedi/`.
