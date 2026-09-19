@@ -24,6 +24,26 @@ CI runs exactly those. It does **not** run `pnpm format:check`, which already
 fails on files nobody touched, so format only your own paths
 (`pnpm exec prettier --write <files>`) and never repo-wide `pnpm format`.
 
+## Where things live
+
+- `src-tauri/src/lib.rs`: every Tauri command (`invoke_handler`), app boot and
+  CLI dispatch.
+- `src-tauri/src/modules/`: one folder or file per OS resource. `pty/` runs
+  terminals and `pty_daemon/` is the sidecar that keeps them alive across a
+  window close; also `fs/`, `shell/`, `git/`, `ssh/`, `extensions/`, `browser/`,
+  and `mcp_bridge.rs` (the local socket outside AI CLIs connect through).
+- `src/app/App.tsx`: cross-module wiring only.
+- `src/modules/<area>/`: every feature. `ai/` is the agent, `terminal/` the
+  xterm side, `tabs/` + `panes/` + `workspaces/` the layout model, `extensions/`
+  the extension host, `automation/bridge.ts` everything an outside driver may
+  call in-realm.
+- `src/settings/`: the Settings window, a SEPARATE webview. Its state layer is
+  `src/modules/settings/`, shared with the main window through the store.
+- `scripts/`: the verify suite (one folder per subsystem), `mcp/` (the stdio MCP
+  server and its shared tool table) and `release/`.
+- `extensions/`: gitignored working copies of the extension repos. Only
+  `README.md`, `tedi.d.ts` and `manifest.schema.json` are committed here.
+
 ## Architecture rules
 
 Load-bearing. Breaking one is a bug, not a style question.
@@ -41,6 +61,10 @@ Load-bearing. Breaking one is a bug, not a style question.
   `IntersectionObserver` never fires.
 - **Secrets live only in the OS keychain** (`secrets_*`, service `tedi`). Never on
   disk, in the settings store, or in `localStorage`.
+- **Extensions are not sandboxed.** Their JS runs in the main webview with full
+  privileges, and a raw `@tauri-apps/api` import skips every `ctx` permission
+  gate. The trust boundary is the install-time permission review, so a gate is a
+  guard rail, never a security boundary.
 - **`App.tsx` coordinates, it does not implement.** Feature logic belongs in
   `src/modules/<area>/`.
 - **Tauri commands must be async.** A sync one runs on the WebView2 UI thread and
@@ -60,7 +84,31 @@ Load-bearing. Breaking one is a bug, not a style question.
 - **shadcn/ui and AI Elements are OWNED, not generated.** Add a NEW component with
   the CLI; re-running it over an existing one silently reverts TEDI's tokens.
 - **Prose and docs: no em-dashes.** Use commas, colons or parentheses.
-- Commit messages carry **no AI attribution**, matching every commit on `main`.
+- Commit messages carry **no AI attribution**: no `Co-Authored-By` line for an
+  assistant.
+
+## Common changes
+
+- **New Tauri command**: an `async` `#[tauri::command]` in its module, registered
+  in `lib.rs` `invoke_handler`. A sync one fails the `ui_thread_guard` test. An
+  extension can only call it with an `invoke:<name>` permission.
+- **New AI tool**: a builder in `src/modules/ai/tools/` with an honest
+  `needsApproval`, added in `buildTools` (`tools.ts`); its picker group lives in
+  `catalog.ts`. Tool schemas are re-sent on every step of every turn, so
+  `tool-budget-verify` fails a chatty description.
+- **New AI provider or model**: `src/modules/ai/config.ts` (`PROVIDERS`,
+  `MODELS`) is the single source of truth.
+- **New setting**: a key in `DEFAULT_PREFERENCES` (`src/modules/settings/store.ts`).
+  If it decides what the agent may do or where credentials go, also add it to
+  `AGENT_DENIED_PREFS`, so an agent cannot grant it to itself.
+- **New shortcut**: an entry in `SHORTCUTS` (`shortcuts/shortcuts.ts`), handled by
+  id in `App.tsx`. A focused terminal keeps its own control chords.
+- **New MCP tool**: its name, description and JSON Schema go in
+  `scripts/mcp/tools.mjs`, which BOTH servers read. A capability registered with
+  `registerBridge` (`automation/bridge.ts`) then serves both transports at once.
+- **Extension API change**: `host.ts`, then `extensions/tedi.d.ts`, which `tsc`
+  checks for drift. A new OPTION field on an existing method also needs a
+  `HOST_FEATURES` entry, or an older host silently ignores it.
 
 ## Gotchas that have cost real time
 
@@ -88,8 +136,25 @@ Load-bearing. Breaking one is a bug, not a style question.
 - **The dev profile shares the PTY daemon with the installed app** unless you use
   `pnpm tauri:dev`. The daemon outlives the dev GUI; set `TEDI_PTYD_IDLE_SECS=60`
   while iterating on it.
+- **Git worktree writes run from the MAIN worktree** (`mainWorktreePath`), never
+  from the one being acted on: `git worktree remove` run inside its target
+  half-succeeds on Windows and strands a folder git no longer knows about.
 - When a shipped feature is reported broken, check the INSTALLED exe's
   FileVersion before debugging anything.
+
+## Working on the AI agent (`src/modules/ai/`)
+
+- **Keep the system prompt byte-stable across turns.** Providers cache the
+  prompt prefix, so any text that changes per turn re-prices the whole
+  conversation. Per-turn state (cwd, terminals, time) goes in the `<env>` block of
+  the user message, never in the system prompt.
+- Project memory is the workspace root's `AGENTS.md` plus `TEDI.md`, preloaded
+  together into one 12 KB budget (`lib/projectMemory.ts`), and read against the
+  SESSION-PINNED root: reading the live root once dropped it whenever a terminal
+  in another project took focus.
+- A tool call left without a result makes every provider reject the chat, so
+  interrupted calls are closed before each request (`closeDanglingToolCalls`).
+- Chat sessions are GLOBAL (`tedi-sessions.json`), not per workspace.
 
 ## Testing
 
