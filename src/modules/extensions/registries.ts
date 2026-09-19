@@ -38,8 +38,9 @@ export type StatusItemDetailChart = {
    *  `"cells"` is a calendar: one CELL per value, filling each column top to
    *  bottom before moving right, its shade set by the value. That is the
    *  GitHub contribution grid - `rows: 7` and a value per day draws a year of
-   *  activity. Send a multiple of `rows` values, oldest cell first, or the
-   *  columns come out misaligned. */
+   *  activity. Send values oldest cell first, every column full except the
+   *  LAST, which may be short (the week in progress, so days that have not
+   *  happened get no cell). A short column anywhere else misaligns the grid. */
   mode?: "columns" | "cells";
   /** Cells mode: one label per COLUMN, in a caption row above the grid. Null
    *  or empty leaves a column unlabelled, which is how a month name sits over
