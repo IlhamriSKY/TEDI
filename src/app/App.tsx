@@ -24,7 +24,7 @@
  *   - useTabSideEffects        - ai-diff reload, open-file chips, tab counts
  * Layout: AppSidebar / WorkspaceArea / AppRightSlot / AppDialogs.
  *
- * See ARCHITECTURE.md for the two-process model and TEDI.md for full detail.
+ * See ARCHITECTURE.md for the two-process model and AGENTS.md for the rules.
  */
 import { useBrowserExtensionReady } from "@/modules/extensions/browserBridge";
 import { openUrl } from "@tauri-apps/plugin-opener";

@@ -203,7 +203,7 @@ fn normalize_components(p: &Path) -> PathBuf {
 }
 
 /// Normalize to forward-slash form to match the frontend's canonical path
-/// representation (see TEDI.md, UI conventions).
+/// representation (see AGENTS.md, Conventions).
 fn to_forward_slash(p: &Path) -> String {
     p.to_string_lossy().replace('\\', "/")
 }

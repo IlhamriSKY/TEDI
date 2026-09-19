@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// Enforces the module import discipline documented in TEDI.md and CONTRIBUTING.md:
+// Enforces the module import discipline documented in AGENTS.md and CONTRIBUTING.md:
 //
 //   "Imports: always @/..., never relative across modules."
 //

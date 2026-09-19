@@ -2,8 +2,8 @@
 
 The authoritative technical reference for TEDI: how the system is structured
 and why it is built that way. Read this to understand the design; use
-[TEDI.md](TEDI.md) as the dense per-module map and navigation index, and
-[CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and PR conventions.
+[AGENTS.md](AGENTS.md) for the commands, rules and gotchas every agent needs,
+and [CONTRIBUTING.md](CONTRIBUTING.md) for build, test, and PR conventions.
 
 TEDI (Terminal Director) is a lightweight,
 cross-platform terminal with split panes, tab groups, workspaces, a CodeMirror
@@ -375,10 +375,9 @@ never silently widen a grant.
 
 ## 10. Where to go next
 
-- **Dense per-module map and navigation:** [TEDI.md](TEDI.md), including every
-  Tauri command, platform gotcha, the PTY daemon, the CLI entry points, and the
-  formatter pipeline. It is also preloaded as the agent's project memory, beside
-  an `AGENTS.md` if the workspace has one, so keep it under 500 lines.
+- **Working notes for agents and contributors:** [AGENTS.md](AGENTS.md): the
+  commands, the load-bearing rules, and the gotchas that have cost real time.
+  Every coding agent reads it, TEDI's own included.
 - **Contributing:** [CONTRIBUTING.md](CONTRIBUTING.md).
 - **Writing an extension:** [extensions/README.md](extensions/README.md), the
   manifest schema and host-API reference.

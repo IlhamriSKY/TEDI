@@ -3,7 +3,7 @@
  * Run: `npx tsx scripts/ai/tool-budget-verify.ts`.
  *
  * WHY THIS EXISTS. The tool definitions are the single largest fixed cost of a
- * turn - larger than the system prompt, TEDI.md and the conversation put
+ * turn - larger than the system prompt, project memory and the conversation put
  * together on an early turn - and they are re-sent on EVERY step, up to
  * `MAX_AGENT_STEPS` times. Nothing measured that, so it could only ever grow: a
  * tool added with a chatty description, or a `z.number().int()` with no bounds,

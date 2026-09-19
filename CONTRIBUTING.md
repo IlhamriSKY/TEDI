@@ -211,11 +211,10 @@ src/
                   updater, workspaces
 ```
 
-For the exhaustive per-file reference (every command, every gotcha) see
-[TEDI.md](TEDI.md). That file is also preloaded as the AI agent's project memory,
-beside an `AGENTS.md` if the workspace has one, and the two share one 12 KB
-budget: keep TEDI.md under 500 lines, and put long prose in paragraphs rather
-than markdown tables, which Prettier pads out to the widest row.
+For the commands, rules and gotchas every agent needs, see
+[AGENTS.md](AGENTS.md). Every coding agent loads it into its context on every
+turn, TEDI's own included, so keep it short and universally applicable: detail
+that only some tasks need belongs in ARCHITECTURE.md.
 
 ## Security issues
 

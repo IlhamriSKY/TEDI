@@ -1,5 +1,5 @@
 // Shared path helpers. The canonical path form on the frontend is forward-slash
-// (see TEDI.md), but paths can still arrive with backslashes from the OS / OSC 7,
+// (see AGENTS.md), but paths can still arrive with backslashes from the OS / OSC 7,
 // so anything that splits a path must handle BOTH separators. Defined once and
 // used everywhere so display logic and the AI secret-path guard cannot drift
 // apart (a divergent basename copy was a real correctness/security risk).

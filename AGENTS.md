@@ -107,9 +107,7 @@ subsystem and the runner picks it up.
 ## Releasing
 
 Version lives in **three** files: `package.json`, `src-tauri/Cargo.toml` and
-`src-tauri/tauri.conf.json`. This file deliberately carries no version, because a
-number that changes every release is the first thing to go stale in a doc the
-agent reads every turn. After bumping, run `cargo check` (not `--locked`) to
+`src-tauri/tauri.conf.json`. After bumping, run `cargo check` (not `--locked`) to
 write the lock, then text-diff it: git treats that lock as binary, so a byte
 count hides a stray dependency edge.
 
@@ -120,14 +118,6 @@ auto-updates every client irreversibly, so confirm first - and list drafts befor
 and after, because a release has silently stayed a draft while `releases/latest`
 kept serving the previous version. An EXTENSION tag auto-publishes, so there the
 tag push is the ship.
-
-## Project memory
-
-This file and `AGENTS.md` are both preloaded into the agent's system prompt from
-the workspace root, sharing one 12 KB budget (`ai/lib/projectMemory.ts`). Keep it
-under 200 lines and universally applicable: anything only some tasks need belongs
-in the docs below, which the agent reads on demand. Never name an unreleased
-feature or extension here.
 
 ## Where to read more
 

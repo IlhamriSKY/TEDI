@@ -104,7 +104,7 @@ If TEDI is already running, the request forwards to the existing window (no seco
 
 ## Architecture
 
-A Tauri 2 app: a React 19 webview (`src/`) talks to a Rust backend (`src-tauri/`) via `invoke()` and streaming `Channel`s. See **[ARCHITECTURE.md](ARCHITECTURE.md)** for a one-page map, then [TEDI.md](TEDI.md) for the per-module reference.
+A Tauri 2 app: a React 19 webview (`src/`) talks to a Rust backend (`src-tauri/`) via `invoke()` and streaming `Channel`s. See **[ARCHITECTURE.md](ARCHITECTURE.md)** for a one-page map, then [AGENTS.md](AGENTS.md) for the commands, rules and gotchas.
 
 ## Build from source
 
