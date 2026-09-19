@@ -1,1 +1,1 @@
-TEDI.md
+@TEDI.md
