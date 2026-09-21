@@ -42,6 +42,7 @@ import {
   AGENTROUTER_HEADERS,
   AGENTROUTER_USER_AGENT,
 } from "../../src/modules/ai/config";
+import { fillEmptyReasoning, withReasoningPassback } from "../../src/modules/ai/lib/agentrouter";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -156,6 +157,63 @@ async function main() {
     caseBody.includes("AGENTROUTER_HEADERS"),
     "passes the User-Agent header block to the provider",
   );
+
+  assert(
+    caseBody.includes("withReasoningPassback(proxyOnlyFetch)"),
+    "fills the reasoning DeepSeek there demands back for a tool call made without any",
+  );
+
+  console.log("\n[5] a DeepSeek tool call made with no reasoning goes back with a placeholder");
+  // Measured 2026-09-21: the step after one like this 400s with "The
+  // `content[].thinking` in the thinking mode must be passed back to the API",
+  // and an empty string is refused just the same.
+  const call = [{ id: "c1", type: "function", function: { name: "t", arguments: "{}" } }];
+  const body = (model: string, reasoning?: string) =>
+    JSON.stringify({
+      model,
+      messages: [
+        { role: "user", content: "hi" },
+        { role: "assistant", content: "", tool_calls: call, reasoning_content: reasoning },
+        { role: "tool", tool_call_id: "c1", content: "ok" },
+      ],
+    });
+  const sent = (b: string) => JSON.parse(fillEmptyReasoning(b)).messages[1].reasoning_content;
+  assert(sent(body("deepseek-v4-flash")) === " ", "a missing reasoning becomes one space");
+  assert(sent(body("deepseek-v4-flash", "")) === " ", "an empty reasoning becomes one space");
+  assert(sent(body("deepseek-v4-flash", "plan")) === "plan", "real reasoning is left alone");
+  assert(
+    sent(body("claude-opus-5")) === undefined,
+    "a non-DeepSeek model is untouched (Claude would read it as an unsigned thinking block)",
+  );
+  const plain = JSON.stringify({ model: "deepseek-v4-flash", messages: [] });
+  assert(fillEmptyReasoning(plain) === plain, "a body with no tool calls passes through as is");
+
+  console.log("\n[6] the same refusal is retried, any other error is not");
+  // The identical body, replayed, is refused about one time in five.
+  const replies = (...rs: Array<[number, string]>) => {
+    let calls = 0;
+    const f = (async () => {
+      const [status, text] = rs[Math.min(calls++, rs.length - 1)];
+      return new Response(text, { status });
+    }) as typeof globalThis.fetch;
+    return { f, calls: () => calls };
+  };
+  const refusal = `{"error":{"message":"The \`content[].thinking\` in the thinking mode must be passed back to the API."}}`;
+  const flaky = replies([400, refusal], [200, "{}"]);
+  const res = await withReasoningPassback(flaky.f)("u", { body: "{}" });
+  assert(
+    res.status === 200 && flaky.calls() === 2,
+    `a refusal then a success is a success (${flaky.calls()} calls)`,
+  );
+  const stuck = replies([400, refusal]);
+  await withReasoningPassback(stuck.f)("u", { body: "{}" });
+  assert(
+    stuck.calls() === 4,
+    `a refusal that keeps coming back gives up after 4 tries (${stuck.calls()})`,
+  );
+  const other = replies([400, `{"error":{"message":"bad model"}}`]);
+  await withReasoningPassback(other.f)("u", { body: "{}" });
+  assert(other.calls() === 1, "any other 400 is returned at once");
 
   if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
   console.log("\nAll AgentRouter checks passed.");

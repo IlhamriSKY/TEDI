@@ -130,6 +130,56 @@ export async function refreshAgentRouterModels(
   }
 }
 
+/**
+ * DeepSeek on AgentRouter sometimes makes a tool call with NO reasoning, then
+ * refuses the next step with "The `content[].thinking` in the thinking mode must
+ * be passed back to the API", because that step has nothing to pass back. The AI
+ * SDK omits empty reasoning, and an empty string is refused too; any non-empty
+ * value is accepted (measured 2026-09-21). So such a step goes out with a
+ * one-space placeholder. DeepSeek only: a Claude upstream would read the field as
+ * a thinking block with no signature.
+ */
+export function fillEmptyReasoning(body: string): string {
+  if (!body.includes('"tool_calls"')) return body;
+  let req: { model?: unknown; messages?: Array<Record<string, unknown>> };
+  try {
+    req = JSON.parse(body);
+  } catch {
+    return body;
+  }
+  if (typeof req.model !== "string" || !/deepseek/i.test(req.model)) return body;
+  let changed = false;
+  for (const m of req.messages ?? []) {
+    if (m.role === "assistant" && Array.isArray(m.tool_calls) && !m.reasoning_content) {
+      m.reasoning_content = " ";
+      changed = true;
+    }
+  }
+  return changed ? JSON.stringify(req) : body;
+}
+
+/** Refused before any generation, so a retry costs nothing but a round trip. */
+const PASSBACK_REFUSAL = "must be passed back to the API";
+const PASSBACK_ATTEMPTS = 4;
+
+/**
+ * Fills the placeholder above, and retries the same refusal when it comes back
+ * anyway: the gateway load-balances across upstreams and about one request in
+ * five draws one that refuses a body the rest accept (the identical body,
+ * replayed, measured 2026-09-21).
+ */
+export function withReasoningPassback(fetchFn: typeof globalThis.fetch): typeof globalThis.fetch {
+  return async (input, init) => {
+    const req =
+      typeof init?.body === "string" ? { ...init, body: fillEmptyReasoning(init.body) } : init;
+    for (let attempt = 1; ; attempt++) {
+      const res = await fetchFn(input, req);
+      if (res.status !== 400 || attempt >= PASSBACK_ATTEMPTS) return res;
+      if (!(await res.clone().text()).includes(PASSBACK_REFUSAL)) return res;
+    }
+  };
+}
+
 /** Reset AgentRouter state on key removal. Nothing stays in the registry: with
  *  no curated list there is nothing meaningful to show without a key. */
 export function clearAgentRouterModels(): void {
