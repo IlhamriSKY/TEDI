@@ -4,6 +4,94 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.65] - 21-09-2026
+
+### Added
+
+- **File references in terminal output are links.** A compiler error, a stack
+  trace or a failing test names a file and a line; click it and the file opens
+  in an editor pane at that line. It understands `src/app.ts:12:5`,
+  `App.cs(12,5)`, Python's `"app.py", line 12` and PHP's `on line 12`, finds a
+  Windows path that contains spaces, and only underlines a path that exists, so
+  a version number or a domain never becomes a link. Local terminals only. See
+  [fileLinks.ts](src/modules/terminal/lib/fileLinks.ts).
+- **A failed command is marked where you can see it.** Its prompt gets a red bar
+  in the gutter and a red mark on the scrollbar (green for one that passed), and
+  a pill shows the exit code with an **Ask AI** button that hands the command
+  and its output to the agent. `Ctrl+Up` / `Ctrl+Down` (`Cmd` on macOS) jump between commands in
+  a focused terminal and flash the one you land on. See
+  [commandBlocks.ts](src/modules/terminal/lib/commandBlocks.ts),
+  [FailedCommandPill.tsx](src/modules/terminal/FailedCommandPill.tsx).
+- **A long command tells you when it is done.** A command that ran for 20
+  seconds or more in a terminal you are not looking at ends with a toast, the
+  completion beep and a taskbar flash. Settings > General > Long-running
+  commands turns it off. See
+  [session-lifecycle.ts](src/modules/terminal/lib/session-lifecycle.ts).
+- **"Always allow" on an approval card.** Approving `pnpm test` once can now
+  cover every later `pnpm test` without switching the whole agent to a looser
+  mode. A rule is one tool plus one command prefix (or one host for a web
+  request), and it is never offered for file edits, for a line that chains,
+  pipes or redirects, or for commands such as `rm` whose prefix is too broad.
+  Rules are listed and removed in Settings > Agents, and the agent cannot write
+  one for itself. See [approvalRules.ts](src/modules/ai/lib/approvalRules.ts).
+- **Your own slash commands.** A markdown file in `.tedi/commands/`,
+  `.claude/commands/` or `~/.tedi/commands/` becomes `/<name>` in the chat, with
+  `$ARGUMENTS` and `$1` to `$9` filled from what you type after it. See
+  [fileCommands.ts](src/modules/ai/lib/fileCommands.ts).
+- **Rewind or fork from any prompt.** Every prompt in a chat has two icon
+  buttons: Restore puts the files the agent changed and the conversation back to
+  just before that prompt, and Fork starts a new chat from that point and leaves
+  this one alone. See [PromptActions.tsx](src/modules/ai/components/PromptActions.tsx),
+  [checkpoint.ts](src/modules/ai/lib/checkpoint.ts).
+- **Remote MCP servers.** Settings > Agents > MCP Servers accepts a URL as well
+  as a command. Headers such as a bearer token are kept in the OS keychain, and a
+  server that signs you in with OAuth opens the browser once, when you save it.
+  See [mcpAuth.ts](src/modules/ai/lib/mcpAuth.ts),
+  [mcpClient.ts](src/modules/ai/lib/mcpClient.ts).
+- **Merge conflicts resolve in the editor.** Each conflict gets Accept Current,
+  Accept Incoming and Accept Both, and a conflicted file in Source Control opens
+  in the editor instead of a diff. See
+  [conflicts.ts](src/modules/editor/lib/conflicts.ts).
+- **Inline blame.** The line under the cursor shows who last changed it, when
+  and why, after the cursor rests. Settings > Code Editor > Inline blame turns it
+  off. See [inlineBlame.ts](src/modules/editor/lib/inlineBlame.ts).
+- **Extensions can open a terminal that runs a command.**
+  `ctx.tabs.openTerminal({ cwd, command, title })`, detectable with
+  `ctx.has?.("openTerminal.command")`. See [host.ts](src/modules/extensions/host.ts),
+  [tedi.d.ts](extensions/tedi.d.ts).
+
+### Changed
+
+- **Settings > Models is quieter.** Signing out of a ChatGPT account is a small
+  icon at the top right of its card, editing an API key starts from the key you
+  already have instead of an empty field, and password fields no longer show the
+  browser's own reveal icon next to TEDI's. See
+  [ChatGptAccountCard.tsx](src/settings/components/ChatGptAccountCard.tsx),
+  [ProviderKeyCard.tsx](src/settings/components/ProviderKeyCard.tsx).
+- **Extension descriptions in Settings use TEDI's tooltip** rather than the
+  browser's plain one. See
+  [ExtensionCard.tsx](src/settings/sections/components/ExtensionCard.tsx).
+
+### Fixed
+
+- **DeepSeek on AgentRouter stopped mid-task with "The `content[].thinking` in
+  the thinking mode must be passed back to the API".** The model sometimes makes
+  a tool call with no reasoning at all, and the gateway then refuses the next
+  step because that call has no reasoning to send back; an empty value is
+  refused too. Such a call now goes back with a placeholder, and the same
+  refusal, which the gateway also returns at random for about one request in
+  five, is retried. A chat that already hit it continues on the next message.
+  See [agentrouter.ts](src/modules/ai/lib/agentrouter.ts).
+- **PowerShell reported an old failure after a command that succeeded.** The
+  prompt hook read `$LASTEXITCODE`, which keeps the last native command's code
+  forever, so one failed `git` made every later `ls` look failed too. It reads
+  `$?` first now. See
+  [profile.ps1](src-tauri/src/modules/pty/scripts/profile.ps1).
+- **Settings > Models could crash on open** when the saved inline-completion
+  provider was not one TEDI knows. It falls back to the default now, and an
+  unknown value is refused when written. See
+  [store.ts](src/modules/settings/store.ts).
+
 ## [0.4.64] - 19-09-2026
 
 ### Added
