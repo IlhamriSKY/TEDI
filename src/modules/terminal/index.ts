@@ -4,9 +4,11 @@ export {
   respawnSession,
   acknowledgeAiCli,
   focusedTerminalLeafId,
+  scrollTerminalToCommand,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";
+export { ASK_ABOUT_COMMAND_EVENT, type AskAboutCommandDetail } from "./lib/failedCommandStore";
 export {
   useTerminalFileDrop,
   ensureFsDragListener,

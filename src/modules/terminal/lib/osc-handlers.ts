@@ -18,9 +18,15 @@ export type PromptTrackerCallbacks = {
   onPromptStart?: () => void;
   /** Fires on OSC 133;C (pre-exec) - a foreground command has started. */
   onCommandStart?: () => void;
-  /** Fires on OSC 133;D (command-end). */
-  onCommandEnd?: () => void;
+  /** Fires on OSC 133;D (command-end), with the exit code when the shell sent one. */
+  onCommandEnd?: (exitCode: number | null) => void;
 };
+
+/** `D;1` -> 1, `D` -> null. */
+export function parseCommandEndCode(data: string): number | null {
+  const code = Number.parseInt(data.slice(2), 10);
+  return Number.isFinite(code) ? code : null;
+}
 
 export function registerPromptTracker(
   term: Terminal,
@@ -32,7 +38,7 @@ export function registerPromptTracker(
     } else if (data.startsWith("C")) {
       callbacks.onCommandStart?.();
     } else if (data.startsWith("D")) {
-      callbacks.onCommandEnd?.();
+      callbacks.onCommandEnd?.(parseCommandEndCode(data));
     }
     return true;
   });
@@ -76,6 +82,8 @@ export function registerProgressHandler(
 
 export type TediOpenInput = {
   file: string;
+  /** 1-indexed line to reveal, from a clicked `path:line` in the output. */
+  line?: number;
 };
 
 export function registerTediOpenHandler(

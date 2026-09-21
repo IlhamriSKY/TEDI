@@ -12,10 +12,11 @@ import { recallUserMessage } from "../lib/messageBody";
 import { forkChatBefore, rewindToPrompt, useChatStore } from "../store/chatStore";
 import { GitBranch, Undo2 } from "lucide-react";
 
+/** Icon-only: the name and what it does are in the tooltip. */
 const ACTION = cn(
-  "border-border/50 bg-card/60 inline-flex h-6 cursor-pointer items-center gap-1 rounded-md border px-1.5",
-  "text-muted-foreground text-[10.5px] transition-colors",
-  "hover:border-border hover:bg-accent hover:text-accent-foreground",
+  "inline-flex size-6 cursor-pointer items-center justify-center rounded-md",
+  "text-muted-foreground transition-colors",
+  "hover:bg-accent hover:text-accent-foreground",
   "disabled:cursor-not-allowed disabled:opacity-50",
 );
 
@@ -74,22 +75,22 @@ export function PromptActions({
     fileCount === 0
       ? "no files were changed"
       : `reverts up to ${fileCount} file${fileCount === 1 ? "" : "s"} (any you edited since are left alone)`;
-  const rewindTip = `Undo this prompt${later}: ${files}, and put the prompt back in the input to edit and resend.`;
+  const rewindTip = `${isLast ? "Restore" : "Rewind"}: undo this prompt${later}. ${files[0].toUpperCase()}${files.slice(1)}, and the prompt goes back in the input to edit and resend.`;
 
   return (
     <div
       className={cn(
         "flex items-center gap-1.5",
-        !isLast && "opacity-0 transition-opacity group-hover/prompt:opacity-100 focus-within:opacity-100",
+        !isLast &&
+          "opacity-0 transition-opacity group-hover/prompt:opacity-100 focus-within:opacity-100",
       )}
     >
       <IconTooltip
-        label="Open a new chat with everything before this prompt, and this prompt in the input. This chat and your files stay as they are."
+        label="Fork: open a new chat with everything before this prompt, and this prompt in the input. This chat and your files stay as they are."
         side="top"
       >
         <button type="button" onClick={onFork} aria-label="Fork from here" className={ACTION}>
-          <GitBranch size={11} strokeWidth={2} />
-          <span>Fork</span>
+          <GitBranch size={13} strokeWidth={2} />
         </button>
       </IconTooltip>
       {turns > 0 ? (
@@ -101,15 +102,7 @@ export function PromptActions({
             aria-label={isLast ? "Restore to last checkpoint" : "Rewind to this prompt"}
             className={ACTION}
           >
-            <Undo2 size={11} strokeWidth={2} />
-            <span>{isLast ? "Restore" : "Rewind"}</span>
-            {fileCount > 0 ? (
-              // Spell out the unit: a bare "· 2" next to an undo arrow reads as a
-              // count of steps to undo, not of files that would be reverted.
-              <span className="text-muted-foreground/70 font-mono">
-                · {fileCount} file{fileCount === 1 ? "" : "s"}
-              </span>
-            ) : null}
+            <Undo2 size={13} strokeWidth={2} />
           </button>
         </IconTooltip>
       ) : null}

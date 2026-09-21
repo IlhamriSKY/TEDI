@@ -883,6 +883,7 @@ pub fn run() {
             mcp::mcp_spawn,
             mcp::mcp_write,
             mcp::mcp_kill,
+            mcp::mcp_oauth_callback,
             mcp_bridge::mcp_bridge_reply,
             ssh::ssh_open,
             ssh::ssh_write,

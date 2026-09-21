@@ -4,6 +4,7 @@ import { memo, useEffect, useMemo, useRef } from "react";
 import type { AiDiffStatus } from "@/modules/tabs";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
+import { ruleAllows } from "../lib/approvalRules";
 import { checkReadable, checkShellCommand } from "../lib/security";
 import { resolvePath } from "../tools/tools";
 import {
@@ -70,11 +71,13 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   //   ask  - every mutating tool needs the user
   //   semi - shell auto-approves if plainly read-only; file mutations still ask
   //   yolo - everything auto-approves
+  // and, in every mode, on an "Always allow" rule the user made from a card.
   // Dedup by approvalId so re-renders don't fire twice.
   const approvalMode = usePreferencesStore((s) => s.approvalMode);
+  const approvalRules = usePreferencesStore((s) => s.approvalRules);
   const autoRespondedRef = useRef<Set<string>>(new Set());
   useEffect(() => {
-    if (approvalMode === "ask") return;
+    if (approvalMode === "ask" && approvalRules.length === 0) return;
     // Track which approval IDs are still in `approval-requested` this pass so
     // entries whose part has transitioned (responded / output-*) can be pruned
     // from the dedup set. Without this, a long-running yolo session accrues
@@ -93,7 +96,10 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
         stillRequested.add(approvalId);
         if (autoRespondedRef.current.has(approvalId)) continue;
         const input = (part as ToolPartLike).input as Record<string, unknown> | undefined;
-        if (shouldAutoApprove(approvalMode, toolName, input)) {
+        const allowed =
+          (approvalMode !== "ask" && shouldAutoApprove(approvalMode, toolName, input)) ||
+          approvalRules.some((r) => ruleAllows(r, toolName, input));
+        if (allowed) {
           autoRespondedRef.current.add(approvalId);
           addToolApprovalResponse({ id: approvalId, approved: true });
         }
@@ -102,7 +108,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     for (const id of autoRespondedRef.current) {
       if (!stillRequested.has(id)) autoRespondedRef.current.delete(id);
     }
-  }, [messages, approvalMode, addToolApprovalResponse]);
+  }, [messages, approvalMode, approvalRules, addToolApprovalResponse]);
 
   useEffect(() => {
     persistMessages(sessionId, messages);

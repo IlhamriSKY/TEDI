@@ -140,7 +140,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   const {
     openAiDiffTab,
     setAiDiffStatus,
-    openGitDiffTab,
+    openGitDiffTab: openGitDiffTabRaw,
     openScmTab,
     openBoardTab,
     openScmPane,
@@ -461,6 +461,20 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       return targetTabId as number | null;
     },
     [findEditorLeafIn],
+  );
+
+  // A conflicted file is resolved in the EDITOR, where each block carries its
+  // Accept Current / Incoming / Both bar; a diff against HEAD only shows the
+  // markers. One place, so every Source Control surface opens it the same way.
+  const openGitDiffTab = useCallback(
+    (input: Parameters<typeof openGitDiffTabRaw>[0]) => {
+      if (input.changeStatus === "conflicted" && !input.commitSha) {
+        openFileTab(input.path, input.pin ?? false);
+        return;
+      }
+      openGitDiffTabRaw(input);
+    },
+    [openFileTab, openGitDiffTabRaw],
   );
 
   /** Promote the active leaf of `id` out of preview. */

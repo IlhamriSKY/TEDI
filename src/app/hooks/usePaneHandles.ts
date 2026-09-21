@@ -1,6 +1,7 @@
 import { registerBridge } from "@/modules/automation/bridge";
 
 import { type EditorPaneHandle } from "@/modules/editor";
+import { requestReveal } from "@/modules/editor/lib/reveal";
 import { activeLeaf, type Tab } from "@/modules/tabs";
 import {
   hasLeaf,
@@ -455,6 +456,9 @@ export function usePaneHandles({
 
   const handleTediOpen = useCallback(
     (_leafId: number, input: TediOpenInput) => {
+      // Same path string for both, so the editor that opens (or is focused)
+      // finds its reveal target under its own key.
+      if (input.line) requestReveal(input.file, { line: input.line });
       openFileTab(input.file);
     },
     [openFileTab],

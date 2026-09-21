@@ -2,7 +2,12 @@ import { type EditorPaneHandle } from "@/modules/editor";
 import { useChatStore } from "@/modules/ai";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { activeChatIsPaned, activeLeaf, type Tab } from "@/modules/tabs";
-import { type TerminalPaneHandle } from "@/modules/terminal";
+import {
+  ASK_ABOUT_COMMAND_EVENT,
+  findLeaf,
+  type AskAboutCommandDetail,
+  type TerminalPaneHandle,
+} from "@/modules/terminal";
 import {
   useCallback,
   useEffect,
@@ -115,6 +120,29 @@ export function useSelectionAskAi({
       activeLeafKindCurrent === "editor" ? "editor" : "terminal";
     attachSelection(selection, source);
   }, [hasComposer, captureActiveSelection, focusInput, attachSelection, activeLeafKindCurrent]);
+
+  // A failed command's "Ask AI" pill (terminal module). Its output rides in as
+  // an attached terminal selection, like a highlighted block would, and the
+  // question is prefilled rather than sent so it can be edited first.
+  useEffect(() => {
+    const onAsk = (e: Event) => {
+      const { leafId, exitCode, output } = (e as CustomEvent<AskAboutCommandDetail>).detail;
+      if (!hasComposer) {
+        void openSettingsWindow("models");
+        return;
+      }
+      for (const t of tabs) {
+        if (t.kind !== "pane") continue;
+        if (findLeaf(t.paneTree, leafId)?.private) return;
+      }
+      if (output.trim()) attachSelection(output, "terminal");
+      focusInput(
+        `This command failed with exit code ${exitCode}. What went wrong, and how do I fix it?`,
+      );
+    };
+    window.addEventListener(ASK_ABOUT_COMMAND_EVENT, onAsk);
+    return () => window.removeEventListener(ASK_ABOUT_COMMAND_EVENT, onAsk);
+  }, [hasComposer, tabs, attachSelection, focusInput]);
 
   const [askPopup, setAskPopup] = useState<{ x: number; y: number } | null>(null);
 

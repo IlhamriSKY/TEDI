@@ -18,6 +18,7 @@ import {
   type TerminalPaneHandle,
 } from "@/modules/terminal";
 import { openUrlInBrowser } from "@/modules/extensions/browserBridge";
+import { setOpenTerminalTab } from "@/modules/extensions/tabsBridge";
 import {
   useCallback,
   useEffect,
@@ -351,18 +352,28 @@ export function useTabActions({
    * terminal leaf's label is `basename(cwd)` and a worktree folder is named
    * after its branch.
    */
-  const openWorktree = useCallback(
-    ({ path, command, tool, title }: OpenWorktreeInput) => {
-      const { tabId } = newTab(path, title ? { title } : undefined);
-      if (!command) return;
-      setTimeout(() => {
-        const tab = tabsRef.current.find((x) => x.id === tabId);
-        if (!tab || tab.kind !== "pane") return;
-        const leaf = activeLeaf(tab);
-        if (leaf?.leafKind === "terminal") launchAtPrompt(leaf.id, command, tool ?? null);
-      }, 120);
+  /** A new terminal tab at `cwd`, typing `command` at its first prompt. */
+  const openTerminalRunning = useCallback(
+    (cwd: string | undefined, command?: string | null, tool?: AiCliKind | null, title?: string) => {
+      const { tabId } = newTab(cwd, title ? { title } : undefined);
+      if (command) {
+        setTimeout(() => {
+          const tab = tabsRef.current.find((x) => x.id === tabId);
+          if (!tab || tab.kind !== "pane") return;
+          const leaf = activeLeaf(tab);
+          if (leaf?.leafKind === "terminal") launchAtPrompt(leaf.id, command, tool ?? null);
+        }, 120);
+      }
+      return tabId;
     },
     [newTab, launchAtPrompt],
+  );
+
+  const openWorktree = useCallback(
+    ({ path, command, tool, title }: OpenWorktreeInput) => {
+      openTerminalRunning(path, command, tool, title);
+    },
+    [openTerminalRunning],
   );
 
   // Publish it for Source Control, whose four hosts are too far apart (one of
@@ -371,6 +382,14 @@ export function useTabActions({
     setWorktreeOpener(openWorktree);
     return () => setWorktreeOpener(null);
   }, [openWorktree]);
+
+  // `ctx.tabs.openTerminal({ cwd, command, title })` for extensions: the app's
+  // own terminal, and a command waits for the prompt the same way a worktree's
+  // setup line does instead of being typed into a shell still starting up.
+  useEffect(() => {
+    setOpenTerminalTab(({ cwd, command, title }) => openTerminalRunning(cwd, command, null, title));
+    return () => setOpenTerminalTab(null);
+  }, [openTerminalRunning]);
 
   /**
    * Show `url` in the browser extension, if the user has it.

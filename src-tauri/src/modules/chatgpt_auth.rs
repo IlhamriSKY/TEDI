@@ -39,7 +39,7 @@ const REDIRECT_URI: &str = "http://localhost:1455/auth/callback";
 const CALLBACK_ADDR: &str = "127.0.0.1:1455";
 const SCOPE: &str = "openid profile email offline_access";
 /// How long the listener waits for the browser round trip before giving up.
-const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
+pub(crate) const LOGIN_TIMEOUT: Duration = Duration::from_secs(300);
 
 /// Emitted once the authorize URL exists, so the UI can offer a copyable link
 /// when the system browser refuses to open.
@@ -198,12 +198,14 @@ async fn post_token(form: String) -> Result<TokenResponse, String> {
         .map_err(|e| format!("could not parse the token response: {e}"))
 }
 
-/// Read the request line of one HTTP request and answer it.
+/// Read the request line of one HTTP request to `path` and answer it; return
+/// its target (path and query).
 ///
 /// Deliberately not a real HTTP server: it accepts exactly one request, reads
 /// only up to the end of the headers, and closes. `read_buf` is capped so a
-/// stray connection cannot grow it without bound.
-async fn accept_callback(listener: &TcpListener) -> Result<String, String> {
+/// stray connection cannot grow it without bound. Shared with the MCP OAuth
+/// sign-in (`mcp::mcp_oauth_callback`), which differs only in its path.
+pub(crate) async fn accept_callback(listener: &TcpListener, path: &str) -> Result<String, String> {
     loop {
         let (mut stream, _) = listener
             .accept()
@@ -234,7 +236,7 @@ async fn accept_callback(listener: &TcpListener) -> Result<String, String> {
         };
         // The browser also asks for /favicon.ico. Answer it and keep listening,
         // or that request would be mistaken for the callback.
-        if !target.starts_with("/auth/callback") {
+        if !target.starts_with(path) {
             let _ = stream
                 .write_all(b"HTTP/1.1 404 Not Found\r\ncontent-length: 0\r\n\r\n")
                 .await;
@@ -303,7 +305,7 @@ pub async fn chatgpt_auth_login(app: tauri::AppHandle) -> Result<ChatGptTokens, 
         log::warn!("[chatgpt-auth] could not open the browser: {e}");
     }
 
-    let target = tokio::time::timeout(LOGIN_TIMEOUT, accept_callback(&listener))
+    let target = tokio::time::timeout(LOGIN_TIMEOUT, accept_callback(&listener, "/auth/callback"))
         .await
         .map_err(|_| "timed out waiting for the browser sign-in".to_string())??;
 

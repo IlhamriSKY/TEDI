@@ -9,7 +9,13 @@ import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
 import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
 import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
-import { TAG_COMMANDS, VISIBLE_SLASH_COMMANDS } from "../lib/slashCommands";
+import {
+  TAG_COMMANDS,
+  VISIBLE_SLASH_COMMANDS,
+  fileCommandMeta,
+  refreshFileCommands,
+} from "../lib/slashCommands";
+import { useFileCommands } from "../lib/fileCommands";
 import type { TerminalInfo } from "@/modules/scheduler/types";
 import type { Snippet } from "../lib/snippets";
 import { useChatStore } from "../store/chatStore";
@@ -146,6 +152,17 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
   // live bridge isn't a reactive store), which is fresh enough - the list can't
   // change while the popover has focus.
   const tagPickerOpen = trigger?.kind === "tag";
+  // `.tedi/commands/*.md`: re-read each time the `/` picker opens, so a file
+  // added a moment ago is there, and once on mount so a command typed out in
+  // full without opening the picker still resolves.
+  const slashPickerOpen = trigger?.kind === "slash";
+  const fileCommands = useFileCommands((s) => s.commands);
+  useEffect(() => {
+    void refreshFileCommands();
+  }, []);
+  useEffect(() => {
+    if (slashPickerOpen) void refreshFileCommands();
+  }, [slashPickerOpen]);
   const [terminals, setTerminals] = useState<TerminalInfo[]>([]);
   useEffect(() => {
     if (!tagPickerOpen) return;
@@ -160,7 +177,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     //          `plan`); they behave like persistent session tags, not one-shot
     //          actions.
     if (trigger.kind === "slash") {
-      return VISIBLE_SLASH_COMMANDS.flatMap((command) =>
+      return [...VISIBLE_SLASH_COMMANDS, ...fileCommands.map(fileCommandMeta)].flatMap((command) =>
         !q || command.name.includes(q) || command.label.toLowerCase().includes(q)
           ? [{ kind: "command" as const, command }]
           : [],
@@ -190,7 +207,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
         : [],
     );
     return [...termItems, ...tagCmds, ...snipItems];
-  }, [trigger, snippets, terminals]);
+  }, [trigger, snippets, terminals, fileCommands]);
 
   /** Length of the navigable list. Drives ArrowUp/Down/Tab/Enter for any picker. */
   const navLength = isMention ? mention.items.length : filteredItems.length;

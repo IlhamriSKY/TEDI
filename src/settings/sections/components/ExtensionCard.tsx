@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Spinner } from "@/components/ui/spinner";
 import { Input, NumberInput } from "@/components/ui/input";
 import {
@@ -86,13 +87,19 @@ export function ExtensionCard({
                 </Badge>
               ) : null}
             </div>
-            {/* Manifest blurbs run past 1200 chars; clamp so one card cannot own the list. */}
-            <span
-              className="text-muted-foreground line-clamp-2 text-[10.5px] leading-relaxed"
-              title={blurb}
+            {/* Manifest blurbs run past 1200 chars; clamp so one card cannot own the list.
+                The full text is in the app's own tooltip, not the browser's `title`,
+                which drew an OS box in a different font and colour from every other
+                hint in Settings. */}
+            <IconTooltip
+              label={blurb}
+              side="bottom"
+              contentClassName="max-w-md whitespace-pre-wrap leading-relaxed"
             >
-              {blurb}
-            </span>
+              <span className="text-muted-foreground line-clamp-2 text-[10.5px] leading-relaxed">
+                {blurb}
+              </span>
+            </IconTooltip>
             <span className="text-muted-foreground/70 text-[10px]">
               Source: {ext.source}
               {ext.last_checked_at_ms ? ` · checked ${formatRelative(ext.last_checked_at_ms)}` : ""}
@@ -261,13 +268,18 @@ function ContributedSettingRow({ extId, setting }: { extId: string; setting: Con
     // Read-only info row: the extension drives the value at runtime (e.g. the
     // signed-in account); it syncs here through the same store key. No control.
     const text = typeof value === "string" ? value : "";
-    control = (
-      <span
-        className="text-muted-foreground max-w-[240px] truncate text-right text-[11px] tabular-nums"
-        title={text}
-      >
+    const note = (
+      <span className="text-muted-foreground max-w-[240px] truncate text-right text-[11px] tabular-nums">
         {text}
       </span>
+    );
+    // The full value in the app's tooltip when the row truncates it; no empty bubble.
+    control = text ? (
+      <IconTooltip label={text} side="left">
+        {note}
+      </IconTooltip>
+    ) : (
+      note
     );
   } else if (setting.type === "select" && setting.options) {
     // A menu, not a native `<select>`: this was the only native one left in the

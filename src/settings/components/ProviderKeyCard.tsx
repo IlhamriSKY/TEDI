@@ -140,12 +140,18 @@ export function ProviderKeyCard({ provider, currentKey, onSave, onClear }: Props
           <code className="bg-muted/40 text-muted-foreground flex-1 truncate rounded px-2 py-1 font-mono text-[11px]">
             {maskKey(currentKey ?? "")}
           </code>
-          <IconTooltip label="Replace" side="top">
+          <IconTooltip label="Edit" side="top">
             <Button
               size="icon"
               variant="ghost"
-              onClick={() => setEditing(true)}
-              aria-label="Replace"
+              onClick={() => {
+                // Start from the key that is there, not an empty field: this is
+                // the user's own machine, and fixing one character of a long key
+                // should not mean pasting the whole thing again.
+                setValue(currentKey ?? "");
+                setEditing(true);
+              }}
+              aria-label="Edit"
               className="size-7"
             >
               <Pencil size={12} strokeWidth={1.75} />

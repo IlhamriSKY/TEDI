@@ -1,5 +1,7 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { cn } from "@/lib/utils";
 import { Spinner } from "@/components/ui/spinner";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { getProvider } from "@/modules/ai/config";
@@ -11,7 +13,7 @@ import {
   type ChatGptAccount,
 } from "@/modules/ai/lib/chatgptAuth";
 import { listen } from "@tauri-apps/api/event";
-import { CircleCheck, Copy, LogIn } from "lucide-react";
+import { CircleCheck, Copy, LogIn, LogOut } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import { ProviderIcon } from "./ProviderIcon";
 
@@ -94,6 +96,24 @@ export function ChatGptAccountCard() {
             Signed in
           </Badge>
         ) : null}
+        {account ? (
+          // A small icon in the corner, like Remove on the key cards: signing
+          // out is one click either way, and a full-width button drew the eye
+          // to the one action nobody opens this card to take.
+          <IconTooltip label="Sign out" side="top">
+            <Button
+              type="button"
+              size="icon"
+              variant="ghost"
+              aria-label="Sign out"
+              disabled={busy}
+              onClick={() => void signOut()}
+              className={cn(DESTRUCTIVE_ACTION, "ml-auto size-7")}
+            >
+              <LogOut size={12} strokeWidth={1.75} />
+            </Button>
+          </IconTooltip>
+        ) : null}
       </div>
 
       {loading ? (
@@ -109,18 +129,6 @@ export function ChatGptAccountCard() {
               {account.plan ? `Plan: ${account.plan}. ` : ""}
               Turns run on the subscription, not API credits.
             </div>
-          </div>
-          <div className="flex items-center gap-1.5">
-            <Button
-              type="button"
-              variant="outline"
-              size="sm"
-              className={DESTRUCTIVE_ACTION}
-              disabled={busy}
-              onClick={() => void signOut()}
-            >
-              Sign out
-            </Button>
           </div>
         </>
       ) : (

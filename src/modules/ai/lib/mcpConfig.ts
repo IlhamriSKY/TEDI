@@ -7,7 +7,8 @@ import { LazyStore } from "@tauri-apps/plugin-store";
 export type McpServerConfig = {
   /** Human-readable name (also the store key). */
   name: string;
-  /** Command to spawn the server (e.g. `npx`, `node`, `python`). */
+  /** Command to spawn the server (e.g. `npx`, `node`, `python`). Empty for an
+   *  HTTP server. */
   command: string;
   /** Arguments passed to the command. */
   args: string[];
@@ -15,6 +16,13 @@ export type McpServerConfig = {
   env?: Record<string, string>;
   /** Whether the server is enabled. */
   enabled: boolean;
+  /** Set for a server reached over Streamable HTTP instead of spawned: its
+   *  endpoint, e.g. `https://mcp.linear.app/mcp`. Its headers and OAuth tokens
+   *  are in the keychain (`mcpAuth.ts`), never in this file. */
+  url?: string;
+  /** Bumped when those keychain credentials change, so a window holding a live
+   *  connection sees a new fingerprint and reconnects with them. */
+  authRev?: number;
   /** TEDI's own in-process server. No process is spawned: `command`/`args` are
    *  unused and the client is linked to it over an in-memory transport. Never
    *  persisted - it is synthesized per turn by `buildMcpToolsAsync`. */

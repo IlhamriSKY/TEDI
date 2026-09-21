@@ -7,6 +7,7 @@ import type { PtySession } from "./pty-bridge";
 import type { SshRouteHop, SshStatus } from "@/modules/ssh/status";
 import type { AiCliDetector } from "./aiCliDetector";
 import type { AiCliStatus } from "./aiCliStatus";
+import type { CommandTracker } from "./commandBlocks";
 import type { TerminalPalette } from "@/modules/settings/terminalPalette";
 
 export type Callbacks = {
@@ -187,6 +188,8 @@ export type Session = {
    * an empty Enter (no pending input) stays idle.
    */
   pendingCommandInput: boolean;
+  /** Prompt marks, exit codes and durations per command (see `commandBlocks`). */
+  commands: CommandTracker;
   /**
    * Terminal-originated bytes (xterm `onData`) produced while `pty` is still
    * null. The daemon can stream a DSR cursor-position query (`ESC[6n`) before

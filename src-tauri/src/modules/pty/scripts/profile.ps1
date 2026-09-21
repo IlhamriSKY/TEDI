@@ -47,11 +47,16 @@ function global:__tedi_urlencode {
 }
 
 function global:prompt {
+    # `$?` must be read FIRST: every statement resets it. It is false after a
+    # failed cmdlet and after a native command that exited non-zero, while
+    # $LASTEXITCODE keeps the last NATIVE command's code forever, so on its own
+    # it reported an old failure after every successful `ls` that followed.
+    $ok = $global:?
     $lec = $LASTEXITCODE
-    if ($null -eq $lec) { $lec = if ($?) { 0 } else { 1 } }
+    $code = if ($ok) { 0 } elseif ($lec) { $lec } else { 1 }
     $esc = [char]27
 
-    $oscD = "$esc]133;D;$lec$esc\"
+    $oscD = "$esc]133;D;$code$esc\"
     $oscA = "$esc]133;A$esc\"
     $oscB = "$esc]133;B$esc\"
 

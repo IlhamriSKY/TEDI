@@ -30,6 +30,13 @@ import {
   type McpServerConfig,
 } from "@/modules/ai/lib/mcpConfig";
 import { refreshMcpTools, validateMcpServer } from "@/modules/ai/lib/mcpClient";
+import {
+  clearMcpAuth,
+  getMcpHeaders,
+  headerLines,
+  parseHeaderLines,
+  setMcpHeaders,
+} from "@/modules/ai/lib/mcpAuth";
 import { CirclePlay, Pause, Pencil, Plus, Trash2 } from "lucide-react";
 
 /**
@@ -53,6 +60,27 @@ function deriveName(args: string[], command: string, existing: McpServerConfig[]
   while (taken.has(`${base}-${i}`)) i++;
   return `${base}-${i}`;
 }
+
+const isUrl = (s: string) => /^https?:\/\//i.test(s.trim());
+
+/** `https://mcp.linear.app/mcp` -> `linear`: the host minus `mcp.`/`api.` and its TLD. */
+function deriveNameFromUrl(url: string, existing: McpServerConfig[]): string {
+  let base = "mcp-server";
+  try {
+    const labels = new URL(url).hostname.split(".").filter((l) => !/^(mcp|api|www)$/i.test(l));
+    base = (labels.length > 1 ? labels[labels.length - 2] : (labels[0] ?? base)).toLowerCase();
+  } catch {
+    // Not a URL after all: the generic name, deduped below.
+  }
+  const taken = new Set(existing.map((s) => s.name));
+  if (!taken.has(base)) return base;
+  let i = 2;
+  while (taken.has(`${base}-${i}`)) i++;
+  return `${base}-${i}`;
+}
+
+/** What a row shows and the edit field holds: the URL, or the run command. */
+const serverTarget = (s: McpServerConfig) => s.url ?? joinCommandLine([s.command, ...s.args]);
 
 /** `{FOO:"1"}` <-> "FOO=1" lines, for the optional credentials field. */
 const envToText = (env?: Record<string, string>): string =>
@@ -100,12 +128,32 @@ export function McpServersCard() {
   const handleAdd = async () => {
     const raw = cmd.trim();
     if (!raw || busy) return;
-    // Quote-aware: a Windows profile path ("C:/Users/IT STAFF/...") has a space.
-    const [command, ...args] = splitCommandLine(raw);
-    const name = deriveName(args, command, servers);
-    const config: McpServerConfig = { name, command, args, env: {}, enabled: true };
+    let config: McpServerConfig;
+    let command = raw;
+    if (isUrl(raw)) {
+      // A remote server: Streamable HTTP, signed in over OAuth if it asks.
+      const name = deriveNameFromUrl(raw, servers);
+      config = { name, command: "", args: [], url: raw, enabled: true };
+    } else {
+      // Quote-aware: a Windows profile path ("C:/Users/IT STAFF/...") has a space.
+      const [cmd0, ...args] = splitCommandLine(raw);
+      command = cmd0;
+      config = {
+        name: deriveName(args, cmd0, servers),
+        command: cmd0,
+        args,
+        env: {},
+        enabled: true,
+      };
+    }
+    const name = config.name;
     setBusy(true);
-    setStatus({ kind: "ok", msg: `Connecting to "${name}"` });
+    setStatus({
+      kind: "ok",
+      msg: config.url
+        ? `Connecting to "${name}". If it asks you to sign in, a browser tab opens; finish there.`
+        : `Connecting to "${name}"`,
+    });
     try {
       // Validate by spawning and handshaking before persisting. A command that
       // cannot launch is rejected and left in the input for correction; one that
@@ -139,9 +187,29 @@ export function McpServersCard() {
 
   const handleSave = async () => {
     if (!editing) return;
-    const [command, ...args] = splitCommandLine(editCmd.trim());
-    if (!command) return;
-    const config: McpServerConfig = { ...editing, command, args, env: parseEnv(envText) };
+    const target = editCmd.trim();
+    let config: McpServerConfig;
+    let command = target;
+    if (isUrl(target)) {
+      // Headers go to the keychain, never the config file; the bumped revision
+      // is what tells the main window its live connection is stale.
+      await setMcpHeaders(editing.name, parseHeaderLines(envText));
+      config = {
+        ...editing,
+        command: "",
+        args: [],
+        env: {},
+        url: target,
+        authRev: (editing.authRev ?? 0) + 1,
+      };
+    } else {
+      const [cmd0, ...args] = splitCommandLine(target);
+      if (!cmd0) return;
+      command = cmd0;
+      // Was an HTTP server: its keychain headers mean nothing to a process.
+      if (editing.url) await setMcpHeaders(editing.name, {});
+      config = { ...editing, command: cmd0, args, env: parseEnv(envText), url: undefined };
+    }
     setBusy(true);
     setStatus({ kind: "ok", msg: `Connecting to "${editing.name}"` });
     try {
@@ -198,6 +266,8 @@ export function McpServersCard() {
 
   const handleDelete = async (name: string) => {
     await removeMcpServer(name);
+    // An HTTP server's headers, tokens and client registration go with it.
+    await clearMcpAuth(name);
     void refreshMcpTools(name); // stop the removed server's process now
     setPendingDelete(null);
     refresh();
@@ -233,7 +303,7 @@ export function McpServersCard() {
           onKeyDown={(e) => {
             if (e.key === "Enter") void handleAdd();
           }}
-          placeholder="Run command, e.g. npx -y chrome-devtools-mcp"
+          placeholder="Run command or URL, e.g. npx -y chrome-devtools-mcp or https://mcp.linear.app/mcp"
           className="h-8 flex-1 text-[12px]"
           spellCheck={false}
           disabled={busy}
@@ -274,7 +344,8 @@ export function McpServersCard() {
       {servers.length === 0 ? (
         <div className="text-muted-foreground/80 border-border/40 border-t pt-2 text-[10.5px] leading-relaxed">
           No MCP servers yet. Paste a run command above (e.g.{" "}
-          <span className="font-mono">npx -y chrome-devtools-mcp</span>) to add one.
+          <span className="font-mono">npx -y chrome-devtools-mcp</span>) or a remote server&apos;s
+          URL to add one.
         </div>
       ) : (
         <div
@@ -306,7 +377,7 @@ export function McpServersCard() {
                   </span>
                 </div>
                 <span className="text-muted-foreground truncate font-mono text-[10.5px]">
-                  {joinCommandLine([s.command, ...s.args])}
+                  {serverTarget(s)}
                 </span>
               </div>
               <div className="flex shrink-0 items-center gap-0.5">
@@ -336,9 +407,19 @@ export function McpServersCard() {
                     className="text-muted-foreground hover:bg-muted/50 size-7"
                     onClick={() => {
                       setEditing({ ...s });
-                      setEditCmd(joinCommandLine([s.command, ...s.args]));
-                      setEnvText(envToText(s.env));
-                      setShowEnv(Object.keys(s.env ?? {}).length > 0);
+                      setEditCmd(serverTarget(s));
+                      if (s.url) {
+                        // Headers live in the keychain, so they load after the click.
+                        setEnvText("");
+                        setShowEnv(false);
+                        void getMcpHeaders(s.name).then((h) => {
+                          setEnvText(headerLines(h));
+                          setShowEnv(Object.keys(h).length > 0);
+                        });
+                      } else {
+                        setEnvText(envToText(s.env));
+                        setShowEnv(Object.keys(s.env ?? {}).length > 0);
+                      }
                     }}
                   >
                     <Pencil size={12} strokeWidth={1.75} />
@@ -371,7 +452,7 @@ export function McpServersCard() {
               onKeyDown={(e) => {
                 if (e.key === "Enter" && !showEnv) void handleSave();
               }}
-              placeholder="Run command, e.g. npx -y chrome-devtools-mcp"
+              placeholder="Run command or URL"
               className="h-7 text-[11px]"
               spellCheck={false}
             />
@@ -379,7 +460,11 @@ export function McpServersCard() {
               <Textarea
                 value={envText}
                 onChange={(e) => setEnvText(e.target.value)}
-                placeholder="Credentials, one KEY=value per line (e.g. GITHUB_TOKEN=ghp_xxx)"
+                placeholder={
+                  isUrl(editCmd)
+                    ? "Headers, one Name: value per line (e.g. Authorization: Bearer ghp_xxx). Kept in the OS keychain. Leave empty to sign in with OAuth."
+                    : "Credentials, one KEY=value per line (e.g. GITHUB_TOKEN=ghp_xxx)"
+                }
                 className="min-h-[3.5rem] resize-y font-mono text-[10.5px] leading-relaxed"
                 spellCheck={false}
               />
@@ -389,7 +474,9 @@ export function McpServersCard() {
                 onClick={() => setShowEnv(true)}
                 className="text-muted-foreground hover:text-foreground w-fit text-[10.5px] underline-offset-2 hover:underline"
               >
-                + Add credentials (env vars)
+                {isUrl(editCmd)
+                  ? "+ Add headers (a token instead of signing in)"
+                  : "+ Add credentials (env vars)"}
               </button>
             )}
           </div>

@@ -356,13 +356,7 @@ function FileTreeNodeImpl({
           style={{ paddingLeft: 6 + (depth + 1) * 12 }}
         >
           <span className="size-3.5 shrink-0" />
-          <img
-            src={
-              pendingInThisDir.kind === "dir" ? folderIconUrl("", false) : fileIconUrl("untitled")
-            }
-            alt=""
-            className="size-4 shrink-0 opacity-70"
-          />
+          <PendingIcon kind={pendingInThisDir.kind} />
           <InlineInput
             initial=""
             placeholder={pendingInThisDir.kind === "dir" ? "New folder" : "New file"}
@@ -432,3 +426,17 @@ function FileTreeNodeImpl({
 }
 
 export const FileTreeNode = memo(FileTreeNodeImpl);
+
+/**
+ * The glyph of a row being created inline. A same-sized blank until the icon
+ * set has loaded: an empty `src` is not "no image" to the browser, it
+ * re-requests the page and React warns about it.
+ */
+export function PendingIcon({ kind }: { kind: "dir" | "file" }) {
+  const url = kind === "dir" ? folderIconUrl("", false) : fileIconUrl("untitled");
+  return url ? (
+    <img src={url} alt="" className="size-4 shrink-0 opacity-70" />
+  ) : (
+    <span aria-hidden className="size-4 shrink-0" />
+  );
+}

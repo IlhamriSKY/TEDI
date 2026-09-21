@@ -30,7 +30,7 @@ import { PixelActivity } from "@/components/ui/pixel-activity";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
 import { motion } from "motion/react";
 import { ImageLightbox } from "./ImageLightbox";
-import { RestoreCheckpointButton } from "./RestoreCheckpointButton";
+import { PromptActions } from "./PromptActions";
 import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePart } from "ai";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
@@ -260,10 +260,11 @@ export function AiChatView({
     <Conversation className="chat-scroll">
       <ConversationContent className="gap-5 p-3">
         <LastUserMessagePin messages={messages} />
-        {messages.map((m) => (
+        {messages.map((m, i) => (
           <RenderedMessage
             key={m.id}
             message={m}
+            messageIndex={i}
             onApproval={onApproval}
             streaming={m.id === streamingMessageId}
             isLastUser={m.id === lastUserMessageId}
@@ -572,11 +573,13 @@ function PromptRail({ messages }: { messages: UIMessage[] }) {
 
 const RenderedMessage = memo(function RenderedMessage({
   message,
+  messageIndex,
   onApproval,
   streaming,
   isLastUser,
 }: {
   message: UIMessage;
+  messageIndex: number;
   onApproval: (id: string, approved: boolean) => void;
   streaming: boolean;
   isLastUser: boolean;
@@ -610,7 +613,7 @@ const RenderedMessage = memo(function RenderedMessage({
 
     const meta = getTediUserMetadata(message);
     return (
-      <Message from="user" data-message-id={message.id}>
+      <Message from="user" data-message-id={message.id} className="group/prompt">
         <MessageContent>
           {commandName ? <CommandSnippet name={commandName} /> : null}
           {allFiles.length + selections.length + snippets.length > 0 ? (
@@ -619,7 +622,7 @@ const RenderedMessage = memo(function RenderedMessage({
           {body ? <p className="wrap-break-word whitespace-pre-wrap">{body}</p> : null}
         </MessageContent>
         <div className="mt-1 flex items-center justify-end gap-2">
-          {isLastUser ? <RestoreCheckpointButton /> : null}
+          <PromptActions message={message} messageIndex={messageIndex} isLast={isLastUser} />
           {meta ? <UserMessageModelChip meta={meta} /> : null}
         </div>
       </Message>

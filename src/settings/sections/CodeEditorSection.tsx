@@ -21,6 +21,7 @@ import {
   setLineWrap,
   setLineWrapColumn,
   setShowMinimap,
+  setEditorInlineBlame,
   setVimMode,
   type EditorThemeId,
 } from "@/modules/settings/store";
@@ -35,6 +36,7 @@ export function CodeEditorSection() {
   const editorTheme = usePreferencesStore((s) => s.editorTheme);
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const showMinimap = usePreferencesStore((s) => s.showMinimap);
+  const editorInlineBlame = usePreferencesStore((s) => s.editorInlineBlame);
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const lineWrapColumn = usePreferencesStore((s) => s.lineWrapColumn);
   const editorLigatures = usePreferencesStore((s) => s.editorLigatures);
@@ -106,6 +108,15 @@ export function CodeEditorSection() {
           description="Display the code minimap on the right side of the editor."
         >
           <Switch checked={showMinimap} onCheckedChange={(v) => void setShowMinimap(v)} />
+        </SettingRow>
+        <SettingRow
+          title="Inline blame"
+          description="Show who last changed the line the cursor rests on, when, and the commit summary, faintly at the end of that line. Saved files in a git repository only; runs one git blame per cursor rest."
+        >
+          <Switch
+            checked={editorInlineBlame}
+            onCheckedChange={(v) => void setEditorInlineBlame(v)}
+          />
         </SettingRow>
         <SettingRow
           title="Font ligatures"

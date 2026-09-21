@@ -202,7 +202,7 @@ function friendlyGitError(e: unknown, op: GitOp): string {
     return "Local changes would be overwritten. Commit or discard them first.";
   }
   if (lower.includes("conflict")) {
-    return "Merge conflicts - resolve the conflicted files, then stage them.";
+    return "Merge conflicts - open each file under Merge Changes, pick a side on every block, then check it off.";
   }
   if (op === "commit" && (lower.includes("empty") || lower.includes("aborting commit"))) {
     return "Commit aborted - message or content is empty.";

@@ -297,13 +297,17 @@ export function OpenAICompatibleBlock({
                     size="icon"
                     variant="ghost"
                     className="text-muted-foreground hover:bg-accent size-7"
-                    onClick={() => setEditingKey(true)}
-                    aria-label="Replace key"
+                    onClick={() => {
+                      // Prefilled with the stored key, as in the provider cards.
+                      setKeyDraft(apiKey ?? "");
+                      setEditingKey(true);
+                    }}
+                    aria-label="Edit key"
                   >
                     <Pencil size={12} strokeWidth={1.75} />
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="top">Replace key</TooltipContent>
+                <TooltipContent side="top">Edit key</TooltipContent>
               </Tooltip>
             </div>
           ) : (

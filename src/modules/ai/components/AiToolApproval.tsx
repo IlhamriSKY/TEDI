@@ -1,9 +1,13 @@
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { addApprovalRule } from "@/modules/settings/store";
 import type { ToolUIPart } from "ai";
 import { memo } from "react";
+import { suggestRule, type ApprovalRule } from "../lib/approvalRules";
 import { applyShellTransformers } from "../tools/shell";
 import {
   Check,
+  CheckCheck,
   Copy,
   Eye,
   FilePen,
@@ -48,11 +52,19 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   navigate_and_read: { label: "Open a new host in the browser", icon: Globe },
 };
 
+/** What an "Always allow" would stop asking about, in words. */
+function ruleScope(rule: ApprovalRule): string {
+  if (!rule.match) return `the ${rule.tool} tool`;
+  if (rule.tool === "bash_run" || rule.tool === "bash_background") return `\`${rule.match} …\``;
+  return `requests to ${rule.match}`;
+}
+
 function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   const meta = TOOL_META[toolName];
   const label = meta?.label ?? toolName;
   const Icon = meta?.icon ?? Wrench;
   const input = part.input as Record<string, unknown>;
+  const rule = suggestRule(toolName, input);
 
   return (
     <div className="border-border bg-card rounded-lg border shadow-sm">
@@ -77,6 +89,27 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
           <X size={12} strokeWidth={2} />
           Deny
         </Button>
+        {rule && (
+          <IconTooltip
+            side="top"
+            label={`Approve, and stop asking for ${ruleScope(rule)} in every chat. Remove it under Settings > Agents > Always allowed.`}
+          >
+            <Button
+              size="sm"
+              variant="outline"
+              onClick={() => {
+                // Approve first: the rule only saves later cards, and a failed
+                // write must not strand this one.
+                onRespond(true);
+                void addApprovalRule(rule).catch((e) => console.warn("addApprovalRule failed:", e));
+              }}
+              className="h-7 gap-1.5 text-[11px]"
+            >
+              <CheckCheck size={12} strokeWidth={2} />
+              Always allow
+            </Button>
+          </IconTooltip>
+        )}
         <Button
           size="sm"
           variant="default"

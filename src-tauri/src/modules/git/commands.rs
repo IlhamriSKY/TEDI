@@ -1070,6 +1070,8 @@ fn git_file_at_inner(
 /// it here would buy nothing and cost a second, drifting implementation.
 const ALLOWED_SUBCOMMANDS: &[&str] = &[
     "add",
+    // Read-only; the editor's inline blame asks for one line at a time.
+    "blame",
     "branch",
     "checkout",
     "cherry-pick",
@@ -1818,6 +1820,8 @@ mod tests {
         assert!(check_args(&v(&["add", "-A", "--", "src/a.rs"])).is_ok());
         // A commit message is free text, not a path or an option.
         assert!(check_args(&v(&["commit", "-m", "moved a/../b, --exec style"])).is_ok());
+        // The editor's inline blame: read-only, one line.
+        assert!(check_args(&v(&["blame", "--porcelain", "-L", "3,3", "--", "src/a.rs"])).is_ok());
         assert!(check_args(&[]).is_err());
         // Not on the list: config writes, history rewrites, arbitrary plumbing.
         assert!(check_args(&v(&["config", "core.editor", "sh"])).is_err());

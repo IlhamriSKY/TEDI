@@ -28,6 +28,14 @@ import type { ITheme } from "@xterm/xterm";
  * `--tedi-term-*` tokens, so a single pane can carry its own palette while the
  * rest follow the global theme. Glass alpha is still applied to the background.
  */
+/**
+ * The overview ruler's edge. xterm draws it in `overviewRulerBorder`, which
+ * defaults to WHITE when the theme leaves it out, so turning the command ruler
+ * on painted a bright line down the right of every terminal. The ruler's marks
+ * are the point; its outline is not.
+ */
+const RULER_BORDER = "#00000000";
+
 export function buildTerminalTheme(override?: TerminalPalette | null): ITheme {
   if (override) return paletteToTheme(override);
   const t = readTerminalTokens();
@@ -39,6 +47,7 @@ export function buildTerminalTheme(override?: TerminalPalette | null): ITheme {
     // background (no alpha) so the character is never dimmed under glass.
     cursorAccent: t.bg,
     selectionBackground: t.selection,
+    overviewRulerBorder: RULER_BORDER,
     black: t.ansi.black,
     red: t.ansi.red,
     green: t.ansi.green,
@@ -68,6 +77,7 @@ function paletteToTheme(p: TerminalPalette): ITheme {
     // Keep the under-cursor glyph opaque: solid palette background, no alpha.
     cursorAccent: p.background,
     selectionBackground: p.selection || p.foreground,
+    overviewRulerBorder: RULER_BORDER,
     black: p.ansi.black,
     red: p.ansi.red,
     green: p.ansi.green,

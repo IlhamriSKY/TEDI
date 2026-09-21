@@ -14,8 +14,10 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { BUILTIN_AGENTS } from "../lib/agents";
 import {
   discardCheckpoint,
+  getCheckpoint,
   openCheckpoint,
-  restoreCheckpoint,
+  restoreCheckpoints,
+  turnsSince,
   type RestoreOutcome,
 } from "../lib/checkpoint";
 import { useAgentsStore } from "./agentsStore";
@@ -998,16 +1000,23 @@ export function openSendCheckpoint(sessionId: string | null): boolean {
 const restoringSessions = new Set<string>();
 
 /**
- * Roll back to the last user-message checkpoint. Reverts mutated files, trims
- * history, stops a running agent, and clears the read cache so the next turn
- * re-reads. Returns null if there's nothing to restore.
+ * Roll back to just before the user prompt at `messageIndex` (default: the
+ * latest prompt). Reverts what every turn from there on did to files, newest
+ * turn first, trims history to before that prompt, stops a running agent and
+ * clears the read cache so the next turn re-reads. Returns null if there's
+ * nothing to restore. The caller decides whether to put the prompt back in the
+ * composer; `baselineMessageCount === messageIndex` says it was reached.
  */
-export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> {
+export async function rewindToPrompt(messageIndex?: number): Promise<RestoreOutcome | null> {
   const sessionId = useChatStore.getState().activeSessionId;
   if (!sessionId) return null;
   const c = chats.get(sessionId);
   if (!c) return null;
   if (restoringSessions.has(sessionId)) return null;
+  const index = messageIndex ?? getCheckpoint(sessionId)?.baselineMessageCount;
+  if (index === undefined) return null;
+  const turns = turnsSince(sessionId, index);
+  if (turns === 0) return null;
 
   restoringSessions.add(sessionId);
   // An undo hands control back to the user. Trimming history leaves an older
@@ -1022,18 +1031,19 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
       // already stopped
     }
 
-    const outcome = await restoreCheckpoint(sessionId);
+    const outcome = await restoreCheckpoints(sessionId, turns);
     if (!outcome) return null;
     if (outcome.failures.length > 0) {
-      toast(`Restore incomplete: ${outcome.failures.join("; ")}`, {
-        variant: "error",
-      });
-      // Preserve this turn so the retained checkpoint stays attached to the
-      // correct prompt and the user can retry safely.
-      return null;
+      // The turns that did come back are trimmed below; the one that failed
+      // keeps its checkpoint and its prompt, so Restore can be retried.
+      toast(
+        `Restore incomplete: ${outcome.failures.map((f) => `${f.path}: ${f.error}`).join("; ")}`,
+        { variant: "error" },
+      );
     }
+    if (outcome.baselineMessageCount === null) return null;
 
-    // Trim history to the pre-user-turn baseline.
+    // Trim history to before the oldest turn that was undone.
     const trimmed = c.messages.slice(0, outcome.baselineMessageCount);
     c.messages = trimmed;
     // Persist now so a session switch before the debounced write doesn't
@@ -1053,6 +1063,38 @@ export async function restoreToLastCheckpoint(): Promise<RestoreOutcome | null> 
   } finally {
     restoringSessions.delete(sessionId);
   }
+}
+
+/**
+ * Branch the active chat: a NEW chat holding every message before the one at
+ * `messageIndex`, which becomes the active chat. Files are not touched, and the
+ * original chat is left exactly as it was, so an alternative can be tried
+ * without losing the first attempt. Returns the new session id.
+ */
+export function forkChatBefore(messageIndex: number): string | null {
+  const state = useChatStore.getState();
+  const fromId = state.activeSessionId;
+  const c = fromId ? chats.get(fromId) : undefined;
+  if (!fromId || !c || messageIndex < 0) return null;
+  const messages = structuredClone(c.messages.slice(0, messageIndex));
+  const title = state.sessions.find((x) => x.id === fromId)?.title ?? "Chat";
+  const now = Date.now();
+  const meta: SessionMeta = {
+    id: newSessionId(),
+    title: `${title} (fork)`,
+    createdAt: now,
+    updatedAt: now,
+  };
+  const next = [meta, ...state.sessions];
+  seedMessages.set(meta.id, messages);
+  // A fork with no history yet (from the first prompt) is as throwaway as any
+  // empty chat until something is sent in it.
+  if (messages.length === 0) unsavedSessions.add(meta.id);
+  useChatStore.setState({ sessions: next, activeSessionId: meta.id, agentMeta: IDLE_META });
+  if (messages.length > 0) void saveMessages(meta.id, messages);
+  void saveSessionsList(savedList(next));
+  void saveActiveId(meta.id);
+  return meta.id;
 }
 
 /**

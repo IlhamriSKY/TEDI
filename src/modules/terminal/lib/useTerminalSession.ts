@@ -21,6 +21,7 @@ export {
   focusedTerminalLeafId,
   disposeSession,
   acknowledgeAiCli,
+  scrollTerminalToCommand,
 } from "./session-lifecycle";
 
 /**

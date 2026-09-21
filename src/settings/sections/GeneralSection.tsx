@@ -19,6 +19,7 @@ import {
   TERMINAL_SCROLLBACK_OPTIONS,
   MAX_SOUND_BYTES,
   setAiNotificationsEnabled,
+  setTerminalCommandNotifications,
   setAiBlockingSound,
   setAiCompletionSound,
   setAutoOpenProjectUrl,
@@ -61,6 +62,7 @@ export function GeneralSection() {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const aiNotificationsEnabled = usePreferencesStore((s) => s.aiNotificationsEnabled);
+  const terminalCommandNotifications = usePreferencesStore((s) => s.terminalCommandNotifications);
   const aiBlockingSound = usePreferencesStore((s) => s.aiBlockingSound);
   const aiCompletionSound = usePreferencesStore((s) => s.aiCompletionSound);
   const customSoundCount = [aiBlockingSound, aiCompletionSound].filter(Boolean).length;
@@ -396,6 +398,15 @@ export function GeneralSection() {
           <Switch
             checked={aiNotificationsEnabled}
             onCheckedChange={(v) => void setAiNotificationsEnabled(v)}
+          />
+        </SettingRow>
+        <SettingRow
+          title="Long-running commands"
+          description="When a terminal command that took 20 seconds or more finishes in a pane you are not looking at, show a toast, play the completion sound and flash the taskbar button."
+        >
+          <Switch
+            checked={terminalCommandNotifications}
+            onCheckedChange={(v) => void setTerminalCommandNotifications(v)}
           />
         </SettingRow>
         <SettingsAccordion

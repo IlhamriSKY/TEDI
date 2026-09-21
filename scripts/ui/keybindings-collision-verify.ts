@@ -73,6 +73,8 @@ const HANDLED = new Set<string>([
   "terminal.copy",
   "terminal.paste",
   "terminal.close",
+  "terminal.prevCommand",
+  "terminal.nextCommand",
 ]);
 
 function canon(b: KeyBinding): string {

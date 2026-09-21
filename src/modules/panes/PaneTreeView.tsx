@@ -526,6 +526,7 @@ export const LeafBody = memo(function LeafBody({
             savedActiveTool={node.activeTool}
             terminalThemeId={node.terminalThemeId}
             paneZoom={paneZoom}
+            isPrivate={node.private}
             ref={b.setTerminalRef}
             onSearchReady={(_id, addon) => b.onSearchReady(addon)}
             onCwd={(_id, cwd) => b.onCwd(cwd)}

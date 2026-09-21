@@ -761,6 +761,7 @@ such method, and `undefined` is correctly falsy.
 | `panelRenderer.mountContext` | the `{ surface, reuseKey }` second argument to a panel renderer |
 | `statusItem.progress`        | `StatusItem.label` / `.progress` / `.detail` / `.kind`          |
 | `sidebarSection.contextMenu` | `SidebarSection.onItemContextMenu`                              |
+| `openTerminal.command`       | `ctx.tabs.openTerminal({ command, title })`                     |
 
 Prefer this over raising `engines.tedi`. Feature detection degrades on an old
 host; an engine bump locks you out of it entirely.

@@ -12,6 +12,9 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { resolveTerminalPreset } from "@/modules/settings/terminalPalette";
 import { buildTerminalTheme, resolveTerminalBackground } from "@/styles/terminalTheme";
 import { isHostKeyMismatchError } from "@/modules/ssh/bridge";
+import { toast } from "@/components/ui/toast";
+import { playCompletionBeep } from "@/lib/blockingBeep";
+import { getCurrentWindow, UserAttentionType } from "@tauri-apps/api/window";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { SearchAddon } from "@xterm/addon-search";
 import { WebLinksAddon } from "@xterm/addon-web-links";
@@ -25,6 +28,9 @@ import {
   registerTediSpawnTabHandler,
 } from "./osc-handlers";
 import { createAiCliDetector } from "./aiCliDetector";
+import { createCommandTracker, isFailure, type FinishedCommand } from "./commandBlocks";
+import { useFailedCommands } from "./failedCommandStore";
+import { registerFileLinks } from "./fileLinks";
 import type { AiCliKind } from "./aiCliStatus";
 import { sessions, type Callbacks, type Session } from "./sessionState";
 import { useTerminalTitles } from "./terminalTitles";
@@ -65,18 +71,30 @@ import { loadWebglRenderer, syncRendererForWallpaper } from "./webgl";
  * marker (Windows pwsh sends only A/B/D - no C). Tracks printable keystrokes
  * and flips `commandRunning` on a non-empty Enter-submit; OSC 133;D (or the
  * next prompt) clears it. Gated by `sawShellIntegration` so a shell with no
- * integration at all (cmd.exe) never gets stuck "running". ESC-prefixed
- * payloads (arrow/function keys, bracketed paste) and alt-screen submits are
- * ignored - a TUI is reported as running via the buffer type instead.
+ * integration at all (cmd.exe) never gets stuck "running". Of the ESC-prefixed
+ * payloads only history recall and a bracketed paste count as input, and
+ * alt-screen submits are ignored - a TUI is reported as running via the buffer
+ * type instead. A false start (Up, Down, Enter on an empty line) is harmless:
+ * the D that follows at once clears it, and `commandBlocks` sees an empty line.
  */
-function trackCommandInput(session: Session, data: string): void {
+function trackCommandInput(session: Session, leafId: number, data: string): void {
   if (!session.sawShellIntegration) return;
-  if (data.length === 0 || data.charCodeAt(0) === 0x1b) return;
+  if (data.length === 0) return;
   const isAlt = session.term.buffer.active.type === "alternate";
+  if (data.charCodeAt(0) === 0x1b) {
+    // History recall (Up/Down) and a bracketed paste put a command on the line
+    // without a printable keystroke, and `Up, Enter` is how a failing test gets
+    // re-run. Anything else ESC-prefixed is cursor movement or a TUI's business.
+    if (!isAlt && /^\x1b(\[[AB]|O[AB]|\[200~)/.test(data)) session.pendingCommandInput = true;
+    return;
+  }
   for (const ch of data) {
     const code = ch.charCodeAt(0);
     if (ch === "\r" || ch === "\n") {
-      if (session.pendingCommandInput && !isAlt) session.commandRunning = true;
+      if (session.pendingCommandInput && !isAlt) {
+        session.commandRunning = true;
+        markCommandStart(session, leafId);
+      }
       session.pendingCommandInput = false;
     } else if (ch === "\x03") {
       // Ctrl+C: the input line was abandoned.
@@ -84,6 +102,51 @@ function trackCommandInput(session: Session, data: string): void {
     } else if (code >= 0x20 && code !== 0x7f) {
       session.pendingCommandInput = true;
     }
+  }
+}
+
+/** A command began: time it, and retire the last failure's pill. */
+function markCommandStart(session: Session, leafId: number): void {
+  session.commands.commandStart();
+  useFailedCommands.getState().clear(leafId);
+}
+
+/** A command that ran this long is worth telling you about when you look away. */
+const LONG_COMMAND_MS = 20_000;
+
+function formatDuration(ms: number): string {
+  const s = Math.round(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  return m < 60 ? `${m}m ${s % 60}s` : `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+/**
+ * Tell the user a long command finished, but only when they cannot see it:
+ * another tab, a hidden workspace, or TEDI itself in the background. The
+ * taskbar flash is what reaches someone in another app; the toast is still
+ * there when they come back.
+ */
+function notifyLongCommand(session: Session, done: FinishedCommand): void {
+  if (done.durationMs < LONG_COMMAND_MS) return;
+  if (!usePreferencesStore.getState().terminalCommandNotifications) return;
+  const windowFocused = document.hasFocus();
+  if (windowFocused && session.visible) return;
+  const failed = isFailure(done.exitCode);
+  const name = done.command ? `\`${done.command.slice(0, 60)}\`` : "A command";
+  const outcome = failed ? `failed with exit code ${done.exitCode}` : "finished";
+  try {
+    toast(`${name} ${outcome} after ${formatDuration(done.durationMs)}`, {
+      variant: failed ? "error" : "success",
+    });
+    playCompletionBeep();
+    if (!windowFocused) {
+      void getCurrentWindow()
+        .requestUserAttention(UserAttentionType.Informational)
+        .catch(() => {});
+    }
+  } catch {
+    // Notification failures are non-critical.
   }
 }
 
@@ -188,6 +251,10 @@ export function ensureSession(
     // Required so the WebGL renderer honours an rgba `theme.background` and
     // lets the Theme tab's wallpaper bleed through the terminal canvas.
     allowTransparency: true,
+    // Where each command's prompt sits, coloured by how it exited (see
+    // `commandBlocks.ts`). 14 is FitAddon's own scrollbar allowance when no
+    // ruler is set, so turning it on does not change the column count.
+    overviewRuler: { width: 14 },
     // ConPTY resize semantics for local Windows shells - see `WINDOWS_PTY`.
     // An SSH leaf's pty is on the remote host, so it keeps xterm's Unix
     // default; xterm normalizes the undefined back to that default.
@@ -199,6 +266,7 @@ export function ensureSession(
   const searchAddon = new SearchAddon();
   term.loadAddon(searchAddon);
   term.loadAddon(new WebLinksAddon((_e, uri) => openUrl(uri).catch(console.error)));
+  const commands = createCommandTracker(term);
 
   const session: Session = {
     term,
@@ -251,9 +319,22 @@ export function ensureSession(
     commandRunning: false,
     sawShellIntegration: false,
     pendingCommandInput: false,
+    commands,
     pendingInput: [],
   };
   sessions.set(leafId, session);
+  session.cleanups.push(() => commands.dispose());
+  // `src/app.ts:12:5` in a compiler error opens that file at that line. Local
+  // panes only: an SSH pane's paths are on the remote host.
+  if (!sshConnectionId) {
+    session.cleanups.push(
+      registerFileLinks(
+        term,
+        () => session.lastCwd ?? session.initialCwd ?? null,
+        ({ path, line }) => session.callbacks.onTediOpen?.({ file: path, line }),
+      ),
+    );
+  }
 
   term.attachCustomKeyEventHandler((event) => {
     // IME composition: let the browser/IME handle it. Otherwise Ctrl+Backspace
@@ -385,7 +466,8 @@ export function ensureSession(
     // byte-for-byte unchanged (incl. macOS NFD filenames pasted from Finder).
     const out = session.imeJustEnded ? data.normalize("NFC") : data;
     session.aiCliDetector?.pushInput(out);
-    trackCommandInput(session, out);
+    session.commands.noteInput();
+    trackCommandInput(session, leafId, out);
     if (session.pty) {
       session.pty.write(out);
     } else {
@@ -414,17 +496,23 @@ export function ensureSession(
         session.commandRunning = false;
         session.pendingCommandInput = false;
         session.aiCliDetector?.notifyShellPrompt();
+        session.commands.promptStart();
       },
       onCommandStart: () => {
         // OSC 133;C (bash/zsh/fish pre-exec). Authoritative command-start.
         session.sawShellIntegration = true;
         session.commandRunning = true;
+        markCommandStart(session, leafId);
       },
-      onCommandEnd: () => {
+      onCommandEnd: (exitCode) => {
         // OSC 133;D. Command finished - back to idle at the prompt.
         session.sawShellIntegration = true;
         session.commandRunning = false;
         session.pendingCommandInput = false;
+        const done = session.commands.commandEnd(exitCode);
+        if (!done) return;
+        if (isFailure(done.exitCode)) useFailedCommands.getState().setFailed(leafId, done);
+        notifyLongCommand(session, done);
       },
     });
     session.cleanups.push(prompt.dispose);
@@ -458,6 +546,18 @@ export function ensureSession(
  */
 export function acknowledgeAiCli(leafId: number): void {
   sessions.get(leafId)?.aiCliDetector?.acknowledge();
+}
+
+/**
+ * Scroll a terminal so its previous (-1) or next (+1) command's prompt is at the
+ * top. False when the leaf has no session or a full-screen program owns it,
+ * so the caller can let the keystroke through to that program instead.
+ */
+export function scrollTerminalToCommand(leafId: number, dir: -1 | 1): boolean {
+  const s = sessions.get(leafId);
+  if (!s || s.term.buffer.active.type === "alternate") return false;
+  s.commands.scrollToCommand(dir);
+  return true;
 }
 
 /** Write raw bytes to a leaf's PTY without React state. Returns false if no live PTY. */
@@ -758,4 +858,5 @@ export function disposeSession(leafId: number): void {
   sessions.delete(leafId);
   useTerminalTitles.getState().clearTitle(leafId);
   useAiCliStatuses.getState().clearStatus(leafId);
+  useFailedCommands.getState().clear(leafId);
 }

@@ -1201,6 +1201,45 @@ html[data-chrome="borderless"] *::-webkit-scrollbar-corner {
   outline: none !important;
 }
 
+/* Edge/WebView2 draws its own eye (and clear) button inside every password
+ * field. Secret fields already carry TEDI's `RevealKeyButton`, so the native
+ * one was a second, differently styled eye beside it. */
+input::-ms-reveal,
+input::-ms-clear {
+  display: none;
+}
+
+/* A failed command's prompt line gets a bar in the pane's left padding (the
+ * `p-1.5` around every terminal), so it marks the line without covering the
+ * first glyph. The element itself is xterm's one-cell decoration box, placed by
+ * `commandBlocks.ts`. */
+.xterm .tedi-cmd-failed {
+  pointer-events: none;
+}
+.xterm .tedi-cmd-flash {
+  pointer-events: none;
+  background: color-mix(in srgb, var(--primary) 24%, transparent);
+  animation: tedi-cmd-flash 900ms ease-out forwards;
+}
+@keyframes tedi-cmd-flash {
+  from {
+    opacity: 1;
+  }
+  to {
+    opacity: 0;
+  }
+}
+.xterm .tedi-cmd-failed::before {
+  content: "";
+  position: absolute;
+  top: 1px;
+  bottom: 1px;
+  left: -5px;
+  width: 2px;
+  border-radius: 1px;
+  background: var(--destructive);
+}
+
 /* @codemirror/merge's default architecture is "outer .cm-mergeView scrolls
  * vertically; each .cm-editor has height: auto so both panes render their
  * full content and stay in sync naturally." Side effect: horizontal scroll

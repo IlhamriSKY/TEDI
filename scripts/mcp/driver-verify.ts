@@ -1320,11 +1320,24 @@ if (!allowBlock) {
     fail("ALLOWED_VALUES has an inline literal - derive it from the runtime list instead");
   } else console.log("  ok: every allowed set is derived from its runtime list");
 
-  for (const key of ["theme", "approvalMode", "editorTheme", "defaultProviderId"]) {
+  // `autocompleteProvider` too: a stored unknown id crashed Settings > Models.
+  for (const key of [
+    "theme",
+    "approvalMode",
+    "editorTheme",
+    "defaultProviderId",
+    "autocompleteProvider",
+  ]) {
     if (!new RegExp(`\\b${key}:`).test(allowBlock)) fail(`${key} lost its allowed-value check`);
     else console.log(`  ok: ${key} is validated`);
   }
 }
+
+// …and a value already on disk is repaired on load, not trusted: that is what
+// brought a profile holding `autocompleteProvider: "bogus"` back.
+if (!/autocompleteProvider:\s*normalizeAutocompleteProvider\(/.test(storeSrc)) {
+  fail("autocompleteProvider is read raw on load - an unknown id crashes Settings > Models");
+} else console.log("  ok: an unknown autocompleteProvider falls back on load");
 
 // A preference whose DEFAULT is `null` has no type to infer, and that was read
 // as "nothing to check at all": the branch returned before the allow-list ran.

@@ -3,6 +3,7 @@ import {
   CircleHelp,
   Clock,
   Eraser,
+  FileText,
   ListChecks,
   Minimize2,
   Plus,
@@ -31,6 +32,7 @@ import { getMcpServers, getMcpServersEnabled, TEDI_MCP_SERVER_NAME } from "./mcp
 import { connectedMcpServers } from "./mcpClient";
 import { saveMessages } from "./sessions";
 import { MAX_LOOP_RUNS, formatInterval, loopOf, parseInterval, startLoop, stopLoop } from "./loop";
+import { expandCommand, useFileCommands, type FileCommand } from "./fileCommands";
 
 /**
  * Outcome of intercepting a slash command.
@@ -161,6 +163,24 @@ export const VISIBLE_SLASH_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_CO
   (c) => !c.tagOnly,
 );
 
+/** A markdown-file command (`fileCommands.ts`) shaped for the pickers and /help. */
+export function fileCommandMeta(c: FileCommand): SlashCommandMeta {
+  return {
+    name: c.name,
+    invocation: `/${c.name}`,
+    label: c.source === "user" ? "Your command" : "Project command",
+    description: c.description,
+    icon: FileText,
+    argHint: c.argHint,
+  };
+}
+
+/** Re-read the command folders of the workspace the chat is in. */
+export function refreshFileCommands(): Promise<FileCommand[]> {
+  const root = useChatStore.getState().live.getWorkspaceRoot();
+  return useFileCommands.getState().refresh(root, new Set(Object.keys(SLASH_COMMANDS)));
+}
+
 /** Commands shown in the `>` picker alongside terminals and snippets. */
 export const TAG_COMMANDS: SlashCommandMeta[] = Object.values(SLASH_COMMANDS).filter(
   (c) => c.tagOnly,
@@ -184,6 +204,18 @@ function showHelp(): void {
           desc: c.description,
         })),
       },
+      ...(useFileCommands.getState().commands.length > 0
+        ? [
+            {
+              title: "Your commands (.tedi/commands/*.md)",
+              rows: useFileCommands.getState().commands.map((c) => ({
+                kbd: c.argHint ? `/${c.name} ${c.argHint}` : `/${c.name}`,
+                label: c.source === "user" ? "~/.tedi/commands" : "project",
+                desc: c.description,
+              })),
+            },
+          ]
+        : []),
       {
         title: "Tag commands (tag the message / session)",
         rows: TAG_COMMANDS.map((c) => ({
@@ -273,7 +305,7 @@ function showMcpList(): void {
           name: s.name,
           // The master switch wins: a server ticked on under it is not started.
           enabled: serversOn && s.enabled,
-          cmd: `${s.command} ${s.args.join(" ")}`.trim(),
+          cmd: s.url ?? `${s.command} ${s.args.join(" ")}`.trim(),
         })),
     ];
     showListModal(
@@ -602,6 +634,12 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
       };
     }
     default: {
+      // A markdown-file command. The list was read when the `/` picker opened;
+      // an unknown name is ordinary text, so `/usr/bin` still reaches the model.
+      const fc =
+        lead === "/" ? useFileCommands.getState().commands.find((c) => c.name === head) : null;
+      if (fc)
+        return { kind: "send-prompt", prompt: expandCommand(fc.body, tail), commandName: head };
       return { kind: "none" };
     }
   }

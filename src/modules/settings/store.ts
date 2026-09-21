@@ -34,6 +34,35 @@ export type ThemePref = (typeof THEME_PREFS)[number];
 const APPROVAL_MODES = ["ask", "semi", "yolo"] as const;
 export type ApprovalMode = (typeof APPROVAL_MODES)[number];
 
+/**
+ * One "Always allow" from an approval card: a tool, narrowed for the shell to a
+ * command prefix and for a request to a host. What may become a rule, and what
+ * it matches, is decided in `ai/lib/approvalRules.ts`.
+ */
+export type ApprovalRule = {
+  tool: string;
+  /** Shell tools: a command prefix. Request tools: a host. Absent: the whole tool. */
+  match?: string;
+};
+
+export function sameApprovalRule(a: ApprovalRule, b: ApprovalRule): boolean {
+  return a.tool === b.tool && (a.match ?? "") === (b.match ?? "");
+}
+
+/** Drop anything that is not a well-formed rule (a hand-edited settings file). */
+function normalizeApprovalRules(raw: unknown): ApprovalRule[] {
+  if (!Array.isArray(raw)) return [];
+  const out: ApprovalRule[] = [];
+  for (const r of raw) {
+    if (!r || typeof r !== "object") continue;
+    const { tool, match } = r as { tool?: unknown; match?: unknown };
+    if (typeof tool !== "string" || !tool) continue;
+    const rule: ApprovalRule = typeof match === "string" && match ? { tool, match } : { tool };
+    if (!out.some((o) => sameApprovalRule(o, rule))) out.push(rule);
+  }
+  return out;
+}
+
 export const EDITOR_THEMES = [
   "atomone",
   "aura",
@@ -175,6 +204,8 @@ export type Preferences = {
   lineWrapColumn: number;
   /** Show the code editor minimap. Default true. */
   showMinimap: boolean;
+  /** Faint "author, 3d ago · summary" after the cursor's line in a saved local file. Default true. */
+  editorInlineBlame: boolean;
   /** Render the coding font's ligatures in the editor (`=>` as an arrow, `!=`
    *  as `≠`). Default **false**: a ligature glyph is one glyph with a huge
    *  negative left bearing that paints backwards over the cells it replaces,
@@ -281,12 +312,19 @@ export type Preferences = {
    * "yolo": all tools auto-approve.
    */
   approvalMode: ApprovalMode;
+  /** "Always allow" rules made from approval cards. Honoured in Ask and Semi. */
+  approvalRules: ApprovalRule[];
   /** Last model picked via the chat dropdown. Restored on boot. Null until first pick. */
   lastModelId: DynamicModelId | null;
   /** Provider for `lastModelId` at pick time. Persisted for cold-boot restore. */
   lastProviderId: string | null;
   /** Toast and beep on AI CLI state transitions. Default on. Per-tab badge still updates when off. */
   aiNotificationsEnabled: boolean;
+  /**
+   * Toast, sound and a taskbar flash when a terminal command that ran for a
+   * while finishes in a pane you are not looking at. Default on.
+   */
+  terminalCommandNotifications: boolean;
   /**
    * Custom AI-CLI notification sounds as `data:audio/...;base64,…` URLs. Empty
    * string = use the built-in synthesized beep. `aiBlockingSound` plays when an
@@ -436,6 +474,7 @@ const KEY_VIM_MODE = "vimMode";
 const KEY_LINE_WRAP = "lineWrap";
 const KEY_LINE_WRAP_COLUMN = "lineWrapColumn";
 const KEY_SHOW_MINIMAP = "showMinimap";
+const KEY_EDITOR_INLINE_BLAME = "editorInlineBlame";
 const KEY_EDITOR_LIGATURES = "editorLigatures";
 const KEY_TERMINAL_WEBGL_ENABLED = "terminalWebglEnabled";
 const KEY_TERMINAL_FONT_SIZE = "terminalFontSize";
@@ -452,11 +491,13 @@ const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
 const KEY_MODEL_REASONING = "modelReasoning";
 const KEY_APPROVAL_MODE = "approvalMode";
+const KEY_APPROVAL_RULES = "approvalRules";
 const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
 const KEY_UI_ZOOM = "uiZoom";
 const KEY_AI_NOTIFICATIONS_ENABLED = "aiNotificationsEnabled";
+const KEY_TERMINAL_COMMAND_NOTIFICATIONS = "terminalCommandNotifications";
 const KEY_AI_BLOCKING_SOUND = "aiBlockingSound";
 const KEY_AI_COMPLETION_SOUND = "aiCompletionSound";
 const KEY_BRAND_COLOR = "brandColor";
@@ -549,6 +590,17 @@ export const DEFAULT_FORMATTERS: Record<string, FormatterConfig> = {
   vue: { type: "builtin" },
 };
 
+/**
+ * A stored autocomplete provider, or the default when this build has no such
+ * provider. An unknown id (a removed provider, a bad write) made `getProvider`
+ * throw inside Settings > Models, which then crashed on every open.
+ */
+function normalizeAutocompleteProvider(id: string | undefined): AutocompleteProviderId {
+  return PROVIDERS.some((p) => p.id === id)
+    ? (id as AutocompleteProviderId)
+    : DEFAULT_PREFERENCES.autocompleteProvider;
+}
+
 export const DEFAULT_PREFERENCES: Preferences = {
   theme: "system",
   defaultModelId: DEFAULT_MODEL_ID,
@@ -575,6 +627,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   lineWrap: false,
   lineWrapColumn: 0,
   showMinimap: true,
+  editorInlineBlame: true,
   editorLigatures: false,
   terminalWebglEnabled: true,
   terminalFontSize: TERMINAL_FONT_SIZE_DEFAULT,
@@ -591,11 +644,13 @@ export const DEFAULT_PREFERENCES: Preferences = {
   pinnedModelIds: [],
   modelReasoning: {} as Record<string, string>,
   approvalMode: "ask",
+  approvalRules: [],
   lastModelId: null,
   lastProviderId: null,
   contentZoom: CONTENT_ZOOM_DEFAULT,
   uiZoom: UI_ZOOM_DEFAULT,
   aiNotificationsEnabled: true,
+  terminalCommandNotifications: true,
   aiBlockingSound: "",
   aiCompletionSound: "",
   brandColor: BRAND_COLOR_DEFAULT,
@@ -691,9 +746,7 @@ export async function loadPreferences(): Promise<Preferences> {
     restoreWindowState: get<boolean>(KEY_RESTORE_WINDOW) ?? DEFAULT_PREFERENCES.restoreWindowState,
     autocompleteEnabled:
       get<boolean>(KEY_AUTOCOMPLETE_ENABLED) ?? DEFAULT_PREFERENCES.autocompleteEnabled,
-    autocompleteProvider:
-      get<AutocompleteProviderId>(KEY_AUTOCOMPLETE_PROVIDER) ??
-      DEFAULT_PREFERENCES.autocompleteProvider,
+    autocompleteProvider: normalizeAutocompleteProvider(get<string>(KEY_AUTOCOMPLETE_PROVIDER)),
     autocompleteModelId:
       get<string>(KEY_AUTOCOMPLETE_MODEL) ?? DEFAULT_PREFERENCES.autocompleteModelId,
     lmstudioBaseURL: get<string>(KEY_LMSTUDIO_BASE_URL) ?? DEFAULT_PREFERENCES.lmstudioBaseURL,
@@ -709,6 +762,8 @@ export async function loadPreferences(): Promise<Preferences> {
       get<number>(KEY_LINE_WRAP_COLUMN) ?? DEFAULT_PREFERENCES.lineWrapColumn,
     ),
     showMinimap: get<boolean>(KEY_SHOW_MINIMAP) ?? DEFAULT_PREFERENCES.showMinimap,
+    editorInlineBlame:
+      get<boolean>(KEY_EDITOR_INLINE_BLAME) ?? DEFAULT_PREFERENCES.editorInlineBlame,
     editorLigatures: get<boolean>(KEY_EDITOR_LIGATURES) ?? DEFAULT_PREFERENCES.editorLigatures,
     terminalWebglEnabled:
       get<boolean>(KEY_TERMINAL_WEBGL_ENABLED) ?? DEFAULT_PREFERENCES.terminalWebglEnabled,
@@ -735,12 +790,16 @@ export async function loadPreferences(): Promise<Preferences> {
     modelReasoning:
       get<Record<string, string>>(KEY_MODEL_REASONING) ?? DEFAULT_PREFERENCES.modelReasoning,
     approvalMode: get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
+    approvalRules: normalizeApprovalRules(get<unknown>(KEY_APPROVAL_RULES)),
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
     lastProviderId: get<string | null>(KEY_LAST_PROVIDER) ?? DEFAULT_PREFERENCES.lastProviderId,
     contentZoom: clampZoom(get<number>(KEY_CONTENT_ZOOM) ?? DEFAULT_PREFERENCES.contentZoom),
     uiZoom: clampUiZoom(get<number>(KEY_UI_ZOOM) ?? DEFAULT_PREFERENCES.uiZoom),
     aiNotificationsEnabled:
       get<boolean>(KEY_AI_NOTIFICATIONS_ENABLED) ?? DEFAULT_PREFERENCES.aiNotificationsEnabled,
+    terminalCommandNotifications:
+      get<boolean>(KEY_TERMINAL_COMMAND_NOTIFICATIONS) ??
+      DEFAULT_PREFERENCES.terminalCommandNotifications,
     aiBlockingSound: normalizeSoundData(get<string>(KEY_AI_BLOCKING_SOUND)),
     aiCompletionSound: normalizeSoundData(get<string>(KEY_AI_COMPLETION_SOUND)),
     brandColor: normalizeBrandColor(get<string>(KEY_BRAND_COLOR)),
@@ -1056,6 +1115,10 @@ export async function setShowMinimap(value: boolean): Promise<void> {
   await writePref(KEY_SHOW_MINIMAP, value);
 }
 
+export async function setEditorInlineBlame(value: boolean): Promise<void> {
+  await writePref(KEY_EDITOR_INLINE_BLAME, value);
+}
+
 export async function setEditorLigatures(value: boolean): Promise<void> {
   await writePref(KEY_EDITOR_LIGATURES, value);
 }
@@ -1142,6 +1205,21 @@ export async function setModelReasoning(value: Record<string, string>): Promise<
   await writePref(KEY_MODEL_REASONING, value);
 }
 
+/** Add an "Always allow" rule (no-op when an equal one exists). */
+export async function addApprovalRule(rule: ApprovalRule): Promise<void> {
+  const current = normalizeApprovalRules(await store.get<unknown>(KEY_APPROVAL_RULES));
+  if (current.some((r) => sameApprovalRule(r, rule))) return;
+  await writePref(KEY_APPROVAL_RULES, [...current, rule]);
+}
+
+export async function removeApprovalRule(rule: ApprovalRule): Promise<void> {
+  const current = normalizeApprovalRules(await store.get<unknown>(KEY_APPROVAL_RULES));
+  await writePref(
+    KEY_APPROVAL_RULES,
+    current.filter((r) => !sameApprovalRule(r, rule)),
+  );
+}
+
 export async function setApprovalMode(value: ApprovalMode): Promise<void> {
   await writePref(KEY_APPROVAL_MODE, value);
 }
@@ -1164,6 +1242,10 @@ export async function setUiZoom(value: number): Promise<void> {
 
 export async function setAiNotificationsEnabled(value: boolean): Promise<void> {
   await writePref(KEY_AI_NOTIFICATIONS_ENABLED, value);
+}
+
+export async function setTerminalCommandNotifications(value: boolean): Promise<void> {
+  await writePref(KEY_TERMINAL_COMMAND_NOTIFICATIONS, value);
 }
 
 /** Persist (or clear, with "") the custom "needs approval" notification sound. */
@@ -1360,6 +1442,7 @@ const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
   editorTheme: EDITOR_THEMES,
   terminalThemeMode: TERMINAL_THEME_MODES,
   defaultProviderId: PROVIDERS.map((p) => p.id),
+  autocompleteProvider: PROVIDERS.map((p) => p.id),
 };
 
 /**
@@ -1385,6 +1468,7 @@ const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
  */
 const AGENT_DENIED_PREFS = new Set<PrefKey>([
   "approvalMode",
+  "approvalRules",
   "disabledTools",
   "lmstudioBaseURL",
   "openaiCompatibleBaseURL",
@@ -1548,6 +1632,7 @@ export async function onPreferencesChange(
     lineWrap: KEY_LINE_WRAP,
     lineWrapColumn: KEY_LINE_WRAP_COLUMN,
     showMinimap: KEY_SHOW_MINIMAP,
+    editorInlineBlame: KEY_EDITOR_INLINE_BLAME,
     editorLigatures: KEY_EDITOR_LIGATURES,
     terminalWebglEnabled: KEY_TERMINAL_WEBGL_ENABLED,
     terminalFontSize: KEY_TERMINAL_FONT_SIZE,
@@ -1564,11 +1649,13 @@ export async function onPreferencesChange(
     pinnedModelIds: KEY_PINNED_MODELS,
     modelReasoning: KEY_MODEL_REASONING,
     approvalMode: KEY_APPROVAL_MODE,
+    approvalRules: KEY_APPROVAL_RULES,
     lastModelId: KEY_LAST_MODEL,
     lastProviderId: KEY_LAST_PROVIDER,
     contentZoom: KEY_CONTENT_ZOOM,
     uiZoom: KEY_UI_ZOOM,
     aiNotificationsEnabled: KEY_AI_NOTIFICATIONS_ENABLED,
+    terminalCommandNotifications: KEY_TERMINAL_COMMAND_NOTIFICATIONS,
     aiBlockingSound: KEY_AI_BLOCKING_SOUND,
     aiCompletionSound: KEY_AI_COMPLETION_SOUND,
     brandColor: KEY_BRAND_COLOR,

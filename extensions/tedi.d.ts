@@ -1113,11 +1113,16 @@ export type ExtensionContext = {
      * lives - a project folder, a checkout, a mount - put the user in it
      * instead of printing the path and hoping.
      *
+     * `command` is typed at the shell's first prompt (a task runner's script,
+     * a container's `logs -f`), and `title` names the tab instead of the
+     * folder. Check `ctx.has?.("openTerminal.command")` first: an older host
+     * ignores both and opens a bare shell.
+     *
      * Returns the new tab's id, or `null` if the app has not wired the bridge
      * yet (very early activation). Feature-detect with
      * `typeof ctx.tabs.openTerminal === "function"` on older hosts.
      */
-    openTerminal(opts?: { cwd?: string }): number | null;
+    openTerminal(opts?: { cwd?: string; command?: string; title?: string }): number | null;
     /** Tint the title to reflect a lifecycle state and/or relabel it.
      *  Matches on `(extensionId, panelId, reuseKey)` and patches BOTH a
      *  standalone tab and a live pane leaf. Pass `state: null` to clear. */
@@ -1319,4 +1324,7 @@ export type HostFeature =
   /** {@link OpenExtensionTabOptions.extensionId} - open ANOTHER extension's
    *  panel. An older host ignores the field and opens your own, which is the
    *  exact silent-wrong-answer this list exists for. */
-  | "openExtensionTab.extensionId";
+  | "openExtensionTab.extensionId"
+  /** `tabs.openTerminal({ command, title })` - run a command at the new
+   *  shell's first prompt and name the tab. An older host opens a bare shell. */
+  | "openTerminal.command";

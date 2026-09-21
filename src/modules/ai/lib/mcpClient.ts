@@ -1,5 +1,10 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
+import { UnauthorizedError } from "@modelcontextprotocol/sdk/client/auth.js";
+import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/streamableHttp.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/types.js";
+import { proxyOnlyFetch } from "./httpProxy";
+import { getMcpHeaders, McpOAuthProvider } from "./mcpAuth";
 import { TauriStdioTransport } from "./mcpTransport";
 import { startTediMcpServer, type TediMcpDeps } from "./tediMcpServer";
 import { TEDI_MCP_SERVER_NAME, type McpServerConfig } from "./mcpConfig";
@@ -42,47 +47,87 @@ export class McpClient {
     private config: McpServerConfig,
     private cwd?: string,
     private builtinDeps?: TediMcpDeps,
+    /** May an OAuth sign-in open the browser? Only from Settings, never a turn. */
+    private interactive = false,
   ) {
     // Random, not a per-webview counter: Rust's process table is GLOBAL, and a
     // Settings validation minting the same `fff#2` as the main window killed the
     // agent's live server mid-call.
     this.id = `${config.name}#${crypto.randomUUID()}`;
-    this.client = new Client({ name: "tedi-mcp-host", version: "1.0.0" }, { capabilities: {} });
+    this.client = this.newClient();
   }
 
-  /** Connect to the MCP server: in-memory for the built-in one, stdio for the
-   *  rest. Everything after this point is identical for both - same handshake,
-   *  same `listTools`, same reconnect-on-close. */
-  async connect(): Promise<void> {
-    if (this._connected) return;
-
-    const transport = this.config.builtin
-      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => null })).clientTransport
-      : new TauriStdioTransport({
-          id: this.id,
-          command: this.config.command,
-          args: this.config.args,
-          env: this.config.env,
-          cwd: this.cwd,
-        });
-
+  private newClient(): Client {
+    const client = new Client({ name: "tedi-mcp-host", version: "1.0.0" }, { capabilities: {} });
     // A crashed/self-exited server fires transport.onclose -> client.onclose.
     // Flip our flag (and drop stale tools) so getMcpClient reconnects next turn
     // instead of reusing a dead client whose callTool always fails.
-    this.client.onclose = () => {
+    client.onclose = () => {
       this._connected = false;
       this._tools = [];
     };
+    return client;
+  }
+
+  /**
+   * Streamable HTTP, through the Rust proxy: a remote server sends no CORS
+   * headers for a webview origin, and the proxy still streams SSE. Headers set
+   * in Settings (a personal token) take the place of OAuth; without them the SDK
+   * signs in, refreshing a stored token silently when it can.
+   */
+  private async httpTransport(
+    headers: Record<string, string>,
+    oauth: McpOAuthProvider | null,
+  ): Promise<StreamableHTTPClientTransport> {
+    return new StreamableHTTPClientTransport(new URL(this.config.url!), {
+      fetch: proxyOnlyFetch,
+      requestInit: { headers },
+      authProvider: oauth ?? undefined,
+    });
+  }
+
+  /** Connect to the MCP server: in-memory for the built-in one, Streamable HTTP
+   *  for a URL, stdio for the rest. Everything after this point is identical -
+   *  same handshake, same `listTools`, same reconnect-on-close. */
+  async connect(): Promise<void> {
+    if (this._connected) return;
+
+    const headers = this.config.url ? await getMcpHeaders(this.config.name) : {};
+    const oauth =
+      this.config.url && !Object.keys(headers).some((h) => h.toLowerCase() === "authorization")
+        ? new McpOAuthProvider(this.config.name, this.interactive)
+        : null;
+    let transport: Transport = this.config.builtin
+      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => null })).clientTransport
+      : this.config.url
+        ? await this.httpTransport(headers, oauth)
+        : new TauriStdioTransport({
+            id: this.id,
+            command: this.config.command,
+            args: this.config.args,
+            env: this.config.env,
+            cwd: this.cwd,
+          });
 
     // Client.connect() calls transport.start() internally (which spawns the
     // server process); stderr is drained backend-side, so nothing to wire here.
     try {
       // Bounded handshake. The SDK default is 60s, so a server that spawns but
       // never answers added a minute before the first token of EVERY turn.
-      await this.client.connect(
-        transport,
-        this.config.builtin ? undefined : { timeout: CONNECT_TIMEOUT_MS },
-      );
+      const handshake = this.config.builtin ? undefined : { timeout: CONNECT_TIMEOUT_MS };
+      try {
+        await this.client.connect(transport, handshake);
+      } catch (e) {
+        // The server wants a sign-in and the browser is open on it: wait for the
+        // redirect, trade the code for tokens, then start over on a fresh client
+        // and transport, which is what the SDK expects after `finishAuth`.
+        if (!(e instanceof UnauthorizedError) || !oauth?.pendingCode) throw e;
+        const code = await oauth.pendingCode;
+        await (transport as StreamableHTTPClientTransport).finishAuth(code);
+        this.client = this.newClient();
+        transport = await this.httpTransport(headers, oauth);
+        await this.client.connect(transport, handshake);
+      }
 
       // Fetch server info (optional) and tools.
       try {
@@ -267,7 +312,7 @@ const clientKey = (name: string, cwd?: string, variant?: string): string =>
 /** What the process is launched FROM. In the key, so an edited command, args or
  *  env yields a new process instead of the old one being reused forever. */
 const configFingerprint = (c: McpServerConfig): string =>
-  JSON.stringify([c.command, c.args, c.env ?? {}]);
+  JSON.stringify([c.command, c.args, c.env ?? {}, c.url ?? "", c.authRev ?? 0]);
 
 /** Handshake budget for a spawned server (see `McpClient.connect`). Matches
  *  `validateMcpServer`'s allowance for an `npx -y` / `uvx` first run. */
@@ -472,10 +517,14 @@ export async function validateMcpServer(
   config: McpServerConfig,
   cwd?: string,
   // 30s accommodates an `npx -y` first run that downloads the package before it
-  // responds; raise it if a slow registry causes false timeouts.
-  timeoutMs = 30_000,
+  // responds; raise it if a slow registry causes false timeouts. An HTTP server
+  // may send you through a browser sign-in first, which takes minutes, not
+  // seconds (its handshake itself is still held to CONNECT_TIMEOUT_MS).
+  timeoutMs = config.url ? 300_000 : 30_000,
 ): Promise<McpValidation> {
-  const client = new McpClient(config, cwd);
+  // Interactive: Settings is where a person adds a server, so a sign-in the
+  // server asks for opens the browser here and nowhere else.
+  const client = new McpClient(config, cwd, undefined, true);
   const connectPromise = client.connect();
   // If the timeout wins the race below, connect() can still reject afterwards;
   // attach a no-op catch so that late rejection is not reported as unhandled.

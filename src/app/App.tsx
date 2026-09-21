@@ -446,7 +446,6 @@ export default function App() {
   useExtensionSidebarBridges({
     openExtensionTab,
     openExtensionPane,
-    newTerminalTab: newTab,
     setExtensionTabState,
     sidebarRef,
     sidebarHiderRef,
@@ -976,6 +975,14 @@ export default function App() {
       // action instead of going dead. Runs before the terminal branch because
       // an editor is never a terminal leaf.
       if (isVimControlChord(e) && isVimEditorFocused()) return true;
+
+      // Prompt jumps belong to a FOCUSED terminal on its normal screen. Anywhere
+      // else Mod+Up/Down is the editor's or the composer's, and a TUI (vim,
+      // htop) may bind it, so the key goes through untouched.
+      if (id === "terminal.prevCommand" || id === "terminal.nextCommand") {
+        const leafId = focusedTerminalLeafId();
+        return leafId === null || !!terminalRefs.current.get(leafId)?.isAltScreen();
+      }
 
       // An extension's own CodeMirror owns the two find chords while it has
       // focus. `search.focus` is "Find in terminal" and `editor.findReplace`

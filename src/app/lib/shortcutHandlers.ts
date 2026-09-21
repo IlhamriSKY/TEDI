@@ -14,7 +14,12 @@ import {
   CONTENT_ZOOM_STEP,
 } from "@/modules/settings/store";
 import { type ShortcutHandlers } from "@/modules/shortcuts";
-import { focusedTerminalLeafId, leaves, type TerminalPaneHandle } from "@/modules/terminal";
+import {
+  focusedTerminalLeafId,
+  leaves,
+  scrollTerminalToCommand,
+  type TerminalPaneHandle,
+} from "@/modules/terminal";
 import { type EditorPaneHandle } from "@/modules/editor";
 import { type SearchInlineHandle } from "@/modules/header";
 import { type Tab } from "@/modules/tabs";
@@ -245,6 +250,15 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       }
       if (terminalLeafCount <= 1) return;
       requestCloseLeaf(activeLeafIdInTab);
+    },
+    // App's `isDisabled` only lets these through while a terminal has focus.
+    "terminal.prevCommand": () => {
+      const leafId = focusedTerminalLeafId();
+      if (leafId !== null) scrollTerminalToCommand(leafId, -1);
+    },
+    "terminal.nextCommand": () => {
+      const leafId = focusedTerminalLeafId();
+      if (leafId !== null) scrollTerminalToCommand(leafId, 1);
     },
   };
 }

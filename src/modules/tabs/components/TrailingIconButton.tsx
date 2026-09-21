@@ -27,8 +27,13 @@ export function TrailingIconButton({
   return (
     <Tooltip>
       <TooltipTrigger asChild>
-        <button
-          type="button"
+        {/* A span, not a <button>: it sits inside the tab's own <button>
+            (TabsTrigger), and a button inside a button is invalid HTML that
+            React reports on every render of the strip. Not a tab stop either:
+            the tab is the keyboard target, and Ctrl+W / the context menu close it. */}
+        <span
+          role="button"
+          tabIndex={-1}
           aria-label={label}
           // Stop propagation so click doesn't activate the tab or start a drag.
           onPointerDown={(ev) => ev.stopPropagation()}
@@ -39,7 +44,7 @@ export function TrailingIconButton({
           className={cn(TRAILING_BTN_BASE, TRAILING_BTN_VARIANT[variant])}
         >
           <Icon size={TRAILING_ICON_SIZE} strokeWidth={2} />
-        </button>
+        </span>
       </TooltipTrigger>
       <TooltipContent side="bottom">{label}</TooltipContent>
     </Tooltip>

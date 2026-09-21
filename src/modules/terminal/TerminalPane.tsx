@@ -10,6 +10,7 @@ import {
 } from "./lib/useTerminalSession";
 import type { SshStatus } from "@/modules/ssh/status";
 import { SshConnectOverlay } from "@/modules/ssh/SshConnectOverlay";
+import { FailedCommandPill } from "./FailedCommandPill";
 import type { AiCliKind, AiCliStatus } from "./lib/aiCliStatus";
 
 export type TerminalPaneHandle = {
@@ -68,6 +69,8 @@ type Props = {
   terminalThemeId?: string;
   /** Per-pane content zoom (workspace canvas). Scales xterm's font size. */
   paneZoom?: number;
+  /** A private pane never hands anything to the AI, so its failure pill has no Ask AI. */
+  isPrivate?: boolean;
   onSearchReady?: (leafId: number, addon: SearchAddon) => void;
   onExit?: (leafId: number, code: number) => void;
   onCwd?: (leafId: number, cwd: string) => void;
@@ -95,6 +98,7 @@ export function TerminalPane({
   savedActiveTool,
   terminalThemeId,
   paneZoom,
+  isPrivate = false,
   onSearchReady,
   onExit,
   onCwd,
@@ -268,6 +272,7 @@ export function TerminalPane({
       {sshConnectionId ? (
         <SshConnectOverlay status={sshStatus} connectionId={sshConnectionId} />
       ) : null}
+      <FailedCommandPill leafId={leafId} allowAi={!isPrivate} />
     </div>
   );
 }

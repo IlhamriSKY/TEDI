@@ -1,8 +1,10 @@
 import { native } from "./native";
 
 /**
- * Per-session restore-to-last-checkpoint. One checkpoint, pointing at the most
- * recent user turn; sending a new message drops the previous one.
+ * Per-session restore checkpoints, one per user turn, newest last. Rewinding to
+ * an earlier prompt undoes every turn after it, newest first, so each file
+ * walks back through the states the agent left it in. The last
+ * `MAX_CHECKPOINTS` turns are kept; an older turn can no longer be rewound.
  *
  * Mutating fs tools record originals before the write. Sub-agent edits share the
  * parent session, so they land in the SAME checkpoint. NOT undoable:
@@ -61,7 +63,10 @@ export type Checkpoint = {
   files: Map<string, FileSnapshot>;
 };
 
-const checkpoints = new Map<string, Checkpoint>();
+/** Enough to walk back a long /goal run without holding every file forever. */
+const MAX_CHECKPOINTS = 20;
+
+const checkpoints = new Map<string, Checkpoint[]>();
 
 // External-store contract for `useSyncExternalStore`. Each mutation bumps
 // `version` and notifies subscribers; UI re-reads via the getters below.
@@ -99,12 +104,14 @@ export function getCheckpointsVersion(): number {
 }
 
 export function openCheckpoint(sessionId: string, baselineMessageCount: number): void {
-  // Drop any prior checkpoint; only the latest is retained.
-  checkpoints.set(sessionId, {
-    baselineMessageCount,
-    createdAt: Date.now(),
-    files: new Map(),
-  });
+  // A checkpoint at or past the new baseline points into messages that are gone
+  // (a restore or a compaction trimmed them), so it can no longer be rewound to.
+  const stack = (checkpoints.get(sessionId) ?? []).filter(
+    (c) => c.baselineMessageCount < baselineMessageCount,
+  );
+  stack.push({ baselineMessageCount, createdAt: Date.now(), files: new Map() });
+  if (stack.length > MAX_CHECKPOINTS) stack.shift();
+  checkpoints.set(sessionId, stack);
   notify();
 }
 
@@ -113,7 +120,7 @@ export function discardCheckpoint(sessionId: string): void {
 }
 
 export function recordFileMutation(sessionId: string, path: string, snapshot: FileSnapshot): void {
-  const cp = checkpoints.get(sessionId);
+  const cp = checkpoints.get(sessionId)?.at(-1);
   if (!cp) return;
   const existing = cp.files.get(path);
   if (!existing) {
@@ -136,12 +143,31 @@ export function recordFileMutation(sessionId: string, path: string, snapshot: Fi
   // Kind mismatch (e.g. created a dir then wrote inside): keep the earliest.
 }
 
+/** The newest checkpoint: the turn in progress or the last one sent. */
 export function getCheckpoint(sessionId: string): Checkpoint | null {
-  return checkpoints.get(sessionId) ?? null;
+  return checkpoints.get(sessionId)?.at(-1) ?? null;
+}
+
+/** How many turns a rewind to the prompt at `messageIndex` undoes, or 0 if none can. */
+export function turnsSince(sessionId: string, messageIndex: number): number {
+  const stack = checkpoints.get(sessionId) ?? [];
+  const i = stack.findIndex((c) => c.baselineMessageCount === messageIndex);
+  return i < 0 ? 0 : stack.length - i;
+}
+
+/** Files a rewind of the newest `turns` turns would try to revert. */
+export function filesSince(sessionId: string, turns: number): number {
+  const paths = new Set<string>();
+  for (const c of (checkpoints.get(sessionId) ?? []).slice(-turns)) {
+    for (const p of c.files.keys()) paths.add(p);
+  }
+  return paths.size;
 }
 
 export type RestoreOutcome = {
-  baselineMessageCount: number;
+  /** Where history is trimmed to: the oldest turn fully undone. Null when a
+   *  failure stopped the walk before even the newest turn was complete. */
+  baselineMessageCount: number | null;
   /** Files where the recorded change was successfully reverted. */
   restoredCount: number;
   /** Files left alone because they were modified since the agent wrote.
@@ -150,8 +176,10 @@ export type RestoreOutcome = {
   failures: { path: string; error: string }[];
 };
 
-/** Replay recorded originals and return the trim point. The checkpoint is
- *  consumed regardless of partial failures.
+/** Undo the newest `turns` turns, newest first, and return the trim point.
+ *  A turn is consumed only once all its files are back; on a failure the walk
+ *  stops there, that turn and the older ones stay for a retry, and the outcome
+ *  trims only what WAS undone. Null when there is nothing to undo.
  *  Files revert only if on-disk still matches the agent's last write; user
  *  edits since are preserved per-path. Other files still revert.
  *
@@ -159,10 +187,43 @@ export type RestoreOutcome = {
  *  later modify reverts against), then file ops in parallel, then create-dir
  *  undos last (deepest first) so a parent isn't kept as non-empty before its
  *  child files are removed. */
-export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutcome | null> {
-  const cp = checkpoints.get(sessionId);
-  if (!cp) return null;
+export async function restoreCheckpoints(
+  sessionId: string,
+  turns = 1,
+): Promise<RestoreOutcome | null> {
+  const stack = checkpoints.get(sessionId);
+  if (!stack || stack.length === 0 || turns < 1) return null;
+  let outcome: RestoreOutcome | null = null;
+  const skipped: RestoreOutcome["skipped"] = [];
+  let restoredCount = 0;
+  for (let n = 0; n < turns && stack.length > 0; n++) {
+    const cp = stack[stack.length - 1];
+    const one = await restoreOneCheckpoint(cp);
+    restoredCount += one.restoredCount;
+    skipped.push(...one.skipped);
+    if (one.failures.length > 0) {
+      notifyDirectly();
+      return {
+        baselineMessageCount: outcome?.baselineMessageCount ?? null,
+        restoredCount,
+        skipped,
+        failures: one.failures,
+      };
+    }
+    stack.pop();
+    outcome = {
+      baselineMessageCount: cp.baselineMessageCount,
+      restoredCount,
+      skipped,
+      failures: [],
+    };
+  }
+  if (stack.length === 0) checkpoints.delete(sessionId);
+  notifyDirectly();
+  return outcome;
+}
 
+async function restoreOneCheckpoint(cp: Checkpoint): Promise<RestoreOutcome> {
   type RestoreResult =
     | { path: string; restored: true }
     | { path: string; skipped: { reason: "user-modified" | "dir-non-empty" } }
@@ -265,10 +326,5 @@ export async function restoreCheckpoint(sessionId: string): Promise<RestoreOutco
     else failures.push({ path: r.path, error: r.failed });
   }
 
-  const baselineMessageCount = cp.baselineMessageCount;
-  // Keep the checkpoint when any file could not be restored. Clearing it here
-  // made a partial failure irreversible because Retry no longer had snapshots.
-  if (failures.length === 0) checkpoints.delete(sessionId);
-  notifyDirectly();
-  return { baselineMessageCount, restoredCount, skipped, failures };
+  return { baselineMessageCount: cp.baselineMessageCount, restoredCount, skipped, failures };
 }

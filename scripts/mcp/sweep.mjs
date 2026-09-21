@@ -321,6 +321,25 @@ export default async function sweep(d) {
     return `leaf ${out.leafId}, ${hits} hits`;
   });
 
+  // Exit codes: every shell integration reports one in `133;D`, and a failure
+  // puts a pill in the pane that the NEXT command takes away. Typed as real
+  // keystrokes on purpose: pwsh sends no command-start marker, so the Enter the
+  // user presses is what starts the clock there, and `sh()` writes past it.
+  await check("a failed command shows its exit code, and the next one clears it", async () => {
+    const win = await d.eval("navigator.userAgent.includes('Windows')");
+    const pills = () => n("[data-failed-command]");
+    await d.command(win ? "cmd /c exit 3" : "sh -c 'exit 3'");
+    await wait(1500);
+    const code = await d.eval(
+      `document.querySelector('[data-failed-command]')?.getAttribute('data-failed-command') ?? null`,
+    );
+    if (code !== "3") throw new Error(`pill shows ${code}, expected exit code 3`);
+    await d.command("echo ok");
+    await wait(1500);
+    if ((await pills()) > 0) throw new Error("the pill outlived the next command");
+    return "exit 3 shown, then cleared";
+  });
+
   // Deferred execution. `sh` above proves a command reaches a terminal NOW, by
   // the caller writing it and polling; this proves one queued for later gets
   // there on its own, which is a different mechanism end to end - the engine's

@@ -42,6 +42,8 @@ export type ShortcutId =
   | "terminal.copy"
   | "terminal.paste"
   | "terminal.close"
+  | "terminal.prevCommand"
+  | "terminal.nextCommand"
   | "commandPalette.open";
 
 export type ShortcutGroup =
@@ -392,6 +394,21 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Close focused terminal",
     group: "Terminal",
     defaultBindings: [{ ctrl: true, shift: true, key: "x" }],
+  },
+  {
+    // Jump between command prompts in the scrollback (VS Code's chord). Only
+    // while a terminal holds focus and no full-screen program owns it - App's
+    // `isDisabled` lets the key through to the editor, the composer or a TUI.
+    id: "terminal.prevCommand",
+    label: "Scroll to previous command",
+    group: "Terminal",
+    defaultBindings: [{ [MOD_PROP]: true, key: "ArrowUp" }],
+  },
+  {
+    id: "terminal.nextCommand",
+    label: "Scroll to next command",
+    group: "Terminal",
+    defaultBindings: [{ [MOD_PROP]: true, key: "ArrowDown" }],
   },
 ];
 

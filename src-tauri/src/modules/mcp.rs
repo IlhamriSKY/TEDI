@@ -419,3 +419,53 @@ fn mcp_kill_inner(id: String) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// The one MCP OAuth sign-in waiting for its browser redirect, so starting
+/// another cancels it and frees the port instead of failing to bind it.
+static OAUTH_WAIT: Mutex<Option<tokio::task::AbortHandle>> = Mutex::new(None);
+
+/// Wait for the browser to come back from an MCP server's OAuth sign-in on
+/// `http://127.0.0.1:<port>/callback` and return the request target (path and
+/// query, carrying `code` and `state`).
+///
+/// Only the redirect lives here. Discovery, client registration, PKCE and the
+/// token exchange are the MCP SDK's, in the webview; it needs nothing from the
+/// host but a listener at the redirect URI it registered. Loopback only, one
+/// request, five minutes at most (the ChatGPT sign-in's acceptor and limit).
+#[tauri::command]
+pub async fn mcp_oauth_callback(port: u16) -> Result<String, String> {
+    if let Some(prev) = OAUTH_WAIT.lock().unwrap().take() {
+        prev.abort();
+    }
+    // The aborted wait drops its listener on its next poll, which can land just
+    // after this bind: retry briefly rather than report the port as taken.
+    let mut listener = None;
+    for _ in 0..20 {
+        match tokio::net::TcpListener::bind(("127.0.0.1", port)).await {
+            Ok(l) => {
+                listener = Some(l);
+                break;
+            }
+            Err(_) => tokio::time::sleep(Duration::from_millis(50)).await,
+        }
+    }
+    let listener = listener.ok_or_else(|| {
+        format!(
+            "could not listen on 127.0.0.1:{port} for the sign-in redirect;              close whatever is using that port and try again"
+        )
+    })?;
+    let task = tokio::spawn(async move {
+        tokio::time::timeout(
+            crate::modules::chatgpt_auth::LOGIN_TIMEOUT,
+            crate::modules::chatgpt_auth::accept_callback(&listener, "/callback"),
+        )
+        .await
+        .map_err(|_| "timed out waiting for the browser sign-in".to_string())?
+    });
+    *OAUTH_WAIT.lock().unwrap() = Some(task.abort_handle());
+    match task.await {
+        Ok(result) => result,
+        Err(e) if e.is_cancelled() => Err("replaced by a newer sign-in".into()),
+        Err(e) => Err(format!("sign-in wait failed: {e}")),
+    }
+}

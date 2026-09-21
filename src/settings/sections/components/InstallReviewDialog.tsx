@@ -1,5 +1,6 @@
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { IconTooltip } from "@/components/ui/icon-tooltip";
 import {
   Dialog,
   DialogContent,
@@ -275,13 +276,11 @@ function PermissionBadge({ permission }: { permission: string }) {
         ? "border-icon-working/50 bg-icon-working/10 text-icon-working"
         : "border-border/60 bg-muted/40 text-foreground/80";
   return (
-    <Badge
-      variant="outline"
-      title={`risk: ${tier}`}
-      className={cn("h-4 px-1.5 font-mono text-[9.5px]", tone)}
-    >
-      {permission}
-    </Badge>
+    <IconTooltip label={`Risk: ${tier}`} side="top">
+      <Badge variant="outline" className={cn("h-4 px-1.5 font-mono text-[9.5px]", tone)}>
+        {permission}
+      </Badge>
+    </IconTooltip>
   );
 }
 

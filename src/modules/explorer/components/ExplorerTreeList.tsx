@@ -11,7 +11,7 @@ import { ExplorerSearch, type ExplorerSearchHandle } from "../ExplorerSearch";
 import { FileTreeNode } from "../FileTreeNode";
 import { InlineInput } from "../InlineInput";
 import { copyToClipboard, revealInFinder } from "../lib/contextActions";
-import { fileIconUrl, folderIconUrl } from "../lib/iconResolver";
+import { PendingIcon } from "../FileTreeNode";
 import { COMPACT_CONTENT, COMPACT_ITEM } from "../lib/menuItemClass";
 import { useFileTree } from "../lib/useFileTree";
 
@@ -94,15 +94,7 @@ export function ExplorerTreeList({
                     style={{ paddingLeft: 6 }}
                   >
                     <span className="size-3.5 shrink-0" />
-                    <img
-                      src={
-                        pendingAtRoot.kind === "dir"
-                          ? folderIconUrl("", false)
-                          : fileIconUrl("untitled")
-                      }
-                      alt=""
-                      className="size-4 shrink-0 opacity-70"
-                    />
+                    <PendingIcon kind={pendingAtRoot.kind} />
                     <InlineInput
                       initial=""
                       placeholder={pendingAtRoot.kind === "dir" ? "New folder" : "New file"}

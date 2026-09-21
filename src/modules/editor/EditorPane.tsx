@@ -67,6 +67,8 @@ import {
   shouldFormatOnSave,
 } from "./lib/formatters";
 import { onReveal, takeReveal, type RevealTarget } from "./lib/reveal";
+import { conflictMarkers } from "./lib/conflicts";
+import { inlineBlame } from "./lib/inlineBlame";
 import { toast } from "@/components/ui/toast";
 import { save as saveFileDialog } from "@tauri-apps/plugin-dialog";
 import { runCommand } from "@/modules/shortcuts";
@@ -259,6 +261,7 @@ export function EditorPane({
 }: Props) {
   const {
     doc,
+    dirty,
     liveContent,
     onChange,
     save,
@@ -484,6 +487,10 @@ export function EditorPane({
   // change.
   const aiDisabledRef = useRef(aiDisabled === true);
   aiDisabledRef.current = aiDisabled === true;
+  // Read by inline blame at each cursor rest: an unsaved buffer's line numbers
+  // are not git's, and a remote file is not in a local repository.
+  const blameAllowedRef = useRef(false);
+  blameAllowedRef.current = !dirty && sshSessionId === undefined;
 
   const extensions = useMemo(
     () => [
@@ -509,6 +516,11 @@ export function EditorPane({
         ),
       ),
       languageCompartment.of([]),
+      conflictMarkers(),
+      inlineBlame({
+        getPath: () => pathRef.current,
+        enabled: () => blameAllowedRef.current && usePreferencesStore.getState().editorInlineBlame,
+      }),
       inlineCompletion({
         getPrefs: () => {
           const s = usePreferencesStore.getState();

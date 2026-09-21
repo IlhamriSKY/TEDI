@@ -172,6 +172,9 @@ export const HOST_FEATURES = [
    *  An older host ignores the field and opens your own, which is the exact
    *  silent-wrong-answer this list exists for. */
   "openExtensionTab.extensionId",
+  /** `openTerminal({ command, title })` - run a command at the new shell's
+   *  first prompt and name the tab. An older host opens a bare shell. */
+  "openTerminal.command",
 ] as const;
 
 export type HostFeature = (typeof HOST_FEATURES)[number];
@@ -626,10 +629,15 @@ export type ExtensionContext = {
      * where something lives - a project folder, a container mount, a checkout -
      * can put the user in it instead of printing the path and hoping.
      *
+     * `command` is typed at the shell's first prompt (a task runner's script,
+     * a container's `logs -f`), and `title` names the tab instead of the
+     * folder. Both need `ctx.has("openTerminal.command")`: an older host
+     * ignores them and opens a bare shell.
+     *
      * Returns the new tab's id, or `null` if the app has not wired the bridge
      * yet (very early activation). Requires `tabs:open`.
      */
-    openTerminal(opts?: { cwd?: string }): number | null;
+    openTerminal(opts?: { cwd?: string; command?: string; title?: string }): number | null;
     /** Tint the title text to reflect a lifecycle state and/or update the
      *  title. Matches on `(extensionId, panelId, reuseKey)` and patches BOTH a
      *  standalone tab and a live split-pane leaf for the panel. Pass `null`
@@ -1207,7 +1215,11 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       },
       openTerminal(opts) {
         requirePermission(ext.id, declared, "tabs:open");
-        return openTerminalTabBridge({ cwd: opts?.cwd ? String(opts.cwd) : undefined });
+        return openTerminalTabBridge({
+          cwd: opts?.cwd ? String(opts.cwd) : undefined,
+          command: opts?.command ? String(opts.command) : undefined,
+          title: opts?.title ? String(opts.title) : undefined,
+        });
       },
       setExtensionTabState(opts) {
         requirePermission(ext.id, declared, "tabs:open");

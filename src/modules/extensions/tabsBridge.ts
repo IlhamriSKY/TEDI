@@ -63,6 +63,10 @@ export function openExtensionPane(opts: OpenExtensionTabOpts): number | null {
 export type OpenTerminalTabOpts = {
   /** Working directory for the shell. Omitted means the app's default. */
   cwd?: string;
+  /** One command line typed at the shell's first prompt. */
+  command?: string;
+  /** Tab title instead of the folder name. */
+  title?: string;
 };
 
 export type OpenTerminalTabFn = (opts: OpenTerminalTabOpts) => number | null;

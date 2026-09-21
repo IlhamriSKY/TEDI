@@ -1,10 +1,6 @@
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
-import {
-  DESTRUCTIVE_ACTION,
-  HEADER_TOGGLE_ACTIVE,
-  HEADER_TOGGLE_IDLE,
-} from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, HEADER_TOGGLE_ACTIVE, HEADER_TOGGLE_IDLE } from "@/lib/toolbarButton";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -16,7 +12,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { folderIconUrl } from "../lib/iconResolver";
+import { folderIconUrl, useExplorerIconsReady } from "../lib/iconResolver";
 import { type SortMode } from "../lib/useFileTree";
 import { basename } from "@/lib/path";
 import { SORT_LABELS, SORT_MODES } from "../lib/sortModes";
@@ -96,18 +92,19 @@ export function ExplorerHeader({
   onClose,
 }: Props) {
   const accordion = !!onToggleCollapsed;
+  // Re-render once the icon set lands: until then `folderIconUrl` is "", and
+  // nothing else re-renders the header, so the root folder stayed icon-less.
+  useExplorerIconsReady();
+  const folderUrl = folderIconUrl(basename(rootPath), false);
   // The folder glyph is a SIBLING of the title, not nested inside it, for two
   // reasons: every other panel header in either column is grip / icon / title /
   // divider / actions, and `onPickFolder` turns this one into a button - which
   // inside the accordion variant's own <button> would be invalid HTML.
-  const folderIcon = (
-    <img
-      src={folderIconUrl(basename(rootPath), false)}
-      alt=""
-      height={15}
-      width={15}
-      className="shrink-0"
-    />
+  // An empty `src` is not "no image" to the browser: it re-requests the page.
+  const folderIcon = folderUrl ? (
+    <img src={folderUrl} alt="" height={15} width={15} className="shrink-0" />
+  ) : (
+    <span aria-hidden className="size-[15px] shrink-0" />
   );
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center truncate text-xs font-medium">
@@ -189,7 +186,10 @@ export function ExplorerHeader({
           <Button
             variant="ghost"
             size="icon"
-            className={cn("tedi-header-optional size-6", grepActive ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE)}
+            className={cn(
+              "tedi-header-optional size-6",
+              grepActive ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE,
+            )}
             onClick={onToggleGrep}
             aria-label="Search in files"
             aria-pressed={grepActive}
