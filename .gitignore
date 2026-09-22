@@ -61,6 +61,8 @@ TODO.MD
 todo.md
 REMOTE-ACCESS-SPEC.md
 FEATURE-STUDY.md
+# Local idea / masukan scratch folder: not repo content
+/idea/
 # Exported theme files are personal / test artifacts, not repo content.
 *.tedi
 
