@@ -1,6 +1,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FS_REFRESH_EVENT } from "./fsRefresh";
+import { watchTree, type FsChange } from "./treeWatch";
 import { joinPath } from "@/lib/path";
 import { useVisibilityPoll } from "@/lib/windowResume";
 
@@ -62,8 +63,17 @@ function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
 }
 
 /** Polling interval (ms) for silent re-reads while the window is focused.
- *  Picks up external file changes without a backend FS watcher. */
+ *  The fallback when the host will not watch the root. */
 const AUTO_REFRESH_MS = 4000;
+
+/** With a watcher running the poll is only a safety net, for the change a watch
+ *  can miss: a root replaced under the same path, a handle the OS dropped. */
+const SAFETY_REFRESH_MS = 30_000;
+
+/** Changes landing within this window are merged into one refresh. The Rust
+ *  watcher already batches; this keeps a burst that straddles two batches from
+ *  re-reading the same directory twice. */
+const WATCH_COALESCE_MS = 120;
 
 /** Re-exported for existing importers (e.g. gitDecorations). Owned by
  *  fsRefresh.ts, which also dispatches it. */
@@ -233,13 +243,68 @@ export function useFileTree(rootPath: string | null, options?: Options) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [includeHidden, rootPath]);
 
-  // Auto-refresh to track external mutations without a backend FS watcher.
-  // Triggers: window focus/visibility (immediate), interval while focused,
-  // FS_REFRESH_EVENT (targeted or full). Polling pauses on blur/hidden.
+  // Live updates. `fs_watch` reports the DIRECTORY LISTINGS that can have
+  // changed, so a write TEDI did not make - a checkout, a build, another
+  // editor - repaints within a fraction of a second. Only directories this tree
+  // has actually loaded are re-read, and only changed rows repaint.
+  const [watching, setWatching] = useState(false);
+  useEffect(() => {
+    if (!rootPath) {
+      setWatching(false);
+      return;
+    }
+    let cancelled = false;
+    let timer: number | null = null;
+    let pending: FsChange | null = null;
+    const flush = () => {
+      timer = null;
+      const change = pending;
+      pending = null;
+      if (!change) return;
+      if (change.rescan || change.dirs.length === 0) {
+        refreshAllLoadedRef.current();
+        return;
+      }
+      for (const dir of change.dirs) {
+        if (fetchGen.current.has(dir) || nodesRef.current[dir]) {
+          void fetchChildrenRef.current(dir, { silent: true });
+        }
+      }
+    };
+    const watch = watchTree(rootPath, (change) => {
+      // A backgrounded window takes the refresh when it returns, via the poll's
+      // resume path; doing it now would only race the cold disk cache.
+      if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      pending = pending
+        ? {
+            dirs: [...new Set([...pending.dirs, ...change.dirs])],
+            rescan: pending.rescan || change.rescan,
+          }
+        : change;
+      if (timer === null) timer = window.setTimeout(flush, WATCH_COALESCE_MS);
+    });
+    void watch.active.then((ok) => {
+      if (!cancelled) setWatching(ok);
+    });
+    return () => {
+      cancelled = true;
+      watch.dispose();
+      if (timer !== null) window.clearTimeout(timer);
+      setWatching(false);
+    };
+    // `rootPath` only: the handler reaches the tree through refs, so depending
+    // on it would tear the watch down and rebuild it on every listing.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [rootPath]);
+
+  // Auto-refresh to track external mutations. Triggers: window
+  // focus/visibility (immediate), interval while focused, FS_REFRESH_EVENT
+  // (targeted or full). Polling pauses on blur/hidden, and slows to the safety
+  // cadence once the watcher above is live.
   const paused = Boolean(options?.paused);
   useVisibilityPoll(
     () => refreshAllLoadedRef.current(),
-    AUTO_REFRESH_MS,
+    watching ? SAFETY_REFRESH_MS : AUTO_REFRESH_MS,
     Boolean(rootPath) && !paused,
   );
 

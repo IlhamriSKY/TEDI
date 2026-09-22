@@ -824,6 +824,8 @@ pub fn run() {
             fs::grep::fs_glob,
             fs::grep::fs_grep_replace,
             fs::grep::fs_replace_in_file,
+            fs::watch::fs_watch,
+            fs::watch::fs_unwatch,
             git::commands::git_status,
             git::commands::git_ignored,
             git::commands::git_find_repos,
