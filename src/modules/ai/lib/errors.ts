@@ -211,6 +211,17 @@ export function describeProviderError(e: unknown): string {
  */
 export function humanizeChatErrorMessage(raw: string): string {
   const msg = raw.toLowerCase();
+  // AgentRouter's moderation refuses USER messages by language before it even
+  // reads the key, and it scans the whole history, so after one refusal every
+  // later turn in the chat ("hi" included) is refused too. Measured 2026-09-21:
+  // Indonesian, Malay, Spanish, Portuguese, Japanese refused; English, French,
+  // German, Chinese passed; the same text as a system or assistant message passed.
+  // 2026-09-22: slangy English is misread and refused too. `withLanguageNote`
+  // retries once and gets short and medium messages through, so reaching this
+  // means the retry was refused as well (typically a long non-English message).
+  if (msg.includes("content-blocked")) {
+    return `${raw}. AgentRouter's filter refused a message you wrote in this chat, even after TEDI retried it with a language note. It refuses text it reads as a language other than English, Chinese, French or German (a long message is refused even with the note), and it checks the whole history, so every later message fails too. Rewind to before that message or start a new chat and write it in English, or use DeepSeek through the DeepSeek or SumoPod provider.`;
+  }
   // The ChatGPT-account endpoint gates its model list by plan and says only
   // this, with no hint that the fix is picking a different model.
   if (msg.includes("not supported when using codex with a chatgpt account")) {

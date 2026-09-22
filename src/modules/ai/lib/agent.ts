@@ -41,7 +41,7 @@ import { getChatGptAccess } from "./chatgptAuth";
 import { recordChatGptActivity, recordChatGptUsage } from "./codexUsage";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
-import { withReasoningPassback } from "./agentrouter";
+import { withLanguageNote, withReasoningPassback } from "./agentrouter";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
 import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
@@ -343,8 +343,9 @@ export async function buildLanguageModel(
         // and a WebView fetch drops that header silently. `proxyOnlyFetch` is
         // REQUIRED, not an optimisation.
         headers: { ...AGENTROUTER_HEADERS },
-        // DeepSeek there refuses a step whose earlier tool call had no reasoning.
-        fetch: withStreamIdleTimeout(withReasoningPassback(proxyOnlyFetch)),
+        // DeepSeek there refuses a step whose earlier tool call had no reasoning,
+        // and the gateway refuses non-English user text.
+        fetch: withStreamIdleTimeout(withLanguageNote(withReasoningPassback(proxyOnlyFetch))),
         // Real spend in the context/cache indicator instead of zero every turn.
         includeUsage: true,
       })(resolvedModelId);

@@ -42,7 +42,13 @@ import {
   AGENTROUTER_HEADERS,
   AGENTROUTER_USER_AGENT,
 } from "../../src/modules/ai/config";
-import { fillEmptyReasoning, withReasoningPassback } from "../../src/modules/ai/lib/agentrouter";
+import {
+  addLanguageNote,
+  fillEmptyReasoning,
+  withLanguageNote,
+  withReasoningPassback,
+} from "../../src/modules/ai/lib/agentrouter";
+import { humanizeChatErrorMessage } from "../../src/modules/ai/lib/errors";
 
 let failed = 0;
 function assert(cond: boolean, msg: string): void {
@@ -214,6 +220,72 @@ async function main() {
   const other = replies([400, `{"error":{"message":"bad model"}}`]);
   await withReasoningPassback(other.f)("u", { body: "{}" });
   assert(other.calls() === 1, "any other 400 is returned at once");
+
+  console.log("\n[7] a content-blocked refusal says why, and how to get out of it");
+  // Measured 2026-09-21: the moderation refuses user messages by language and
+  // scans the whole history, so the bare slug left the user retrying a dead chat.
+  const blocked = humanizeChatErrorMessage("content-blocked (request id: 2026092121)");
+  assert(blocked.includes("request id: 2026092121"), "keeps the request id for support");
+  assert(/Rewind|new chat/.test(blocked), `points at the way out (${blocked})`);
+  assert(humanizeChatErrorMessage("bad model") === "bad model", "other errors are untouched");
+
+  console.log("\n[8] a content-blocked request is re-sent once, with the language note first");
+  // Measured 2026-09-22: the note at the head of the FIRST user message lets
+  // short and medium non-English text past the filter; on the last one it did not.
+  const chat = (content: unknown) =>
+    JSON.stringify({
+      messages: [
+        { role: "system", content: "s" },
+        { role: "user", content },
+        { role: "user", content: "b" },
+      ],
+    });
+  const noted = (b: string) => JSON.parse(addLanguageNote(b)).messages;
+  const asString = noted(chat("tolong"));
+  assert(
+    asString[1].content.startsWith("<system-reminder>") &&
+      asString[1].content.endsWith("\n\ntolong"),
+    "string content gets the note in front",
+  );
+  assert(
+    asString[0].content === "s" && asString[2].content === "b",
+    "only the first user message changes",
+  );
+  const asParts = noted(chat([{ type: "text", text: "tolong" }]))[1].content;
+  assert(
+    asParts.length === 2 &&
+      asParts[0].text.startsWith("<system-reminder>") &&
+      asParts[1].text === "tolong",
+    "part content gets the note as its own first part",
+  );
+  assert(addLanguageNote("{}") === "{}", "a body with no user message passes through as is");
+  const blockedReply = `{"error":{"code":"content-blocked","message":"content-blocked"}}`;
+  const sentBodies: string[] = [];
+  const once = (async (_u: unknown, init?: RequestInit) => {
+    sentBodies.push(String(init?.body));
+    return new Response(sentBodies.length === 1 ? blockedReply : "{}", {
+      status: sentBodies.length === 1 ? 400 : 200,
+    });
+  }) as typeof globalThis.fetch;
+  const retried = await withLanguageNote(once)("u", { body: chat("tolong") });
+  assert(
+    retried.status === 200 && sentBodies.length === 2,
+    `refused, then re-sent once (${sentBodies.length} calls)`,
+  );
+  assert(
+    !sentBodies[0].includes("system-reminder") && sentBodies[1].includes("system-reminder"),
+    "the first try is unchanged, the retry carries the note",
+  );
+  const never = replies([400, blockedReply]);
+  await withLanguageNote(never.f)("u", { body: chat("tolong") });
+  assert(never.calls() === 2, `a second refusal is returned, not retried again (${never.calls()})`);
+  const bad = replies([400, `{"error":{"message":"bad model"}}`]);
+  await withLanguageNote(bad.f)("u", { body: chat("tolong") });
+  assert(bad.calls() === 1, "any other 400 is returned at once");
+  assert(
+    caseBody.includes("withLanguageNote("),
+    "agent.ts wires the retry into the agentrouter fetch",
+  );
 
   if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
   console.log("\nAll AgentRouter checks passed.");
