@@ -85,6 +85,23 @@ export function isGoalRunArmed(sessionId: string | null): boolean {
   return !!run && !run.paused;
 }
 
+/**
+ * What the loop is doing, for the strip and `/goal`'s status. Null when there is
+ * nothing worth saying.
+ *
+ * The turn ceiling is a safety limit, not progress, so it is only worth SHOWING
+ * once the loop has counted against it. A goal that was just set has taken no
+ * automatic turn, and "turn 0/25" reads as if work is already underway when
+ * nothing has happened yet. An evaluator call still speaks at that point: that
+ * is real work the user is waiting on.
+ */
+export function goalRunStatus(run: GoalRun | undefined, open: boolean): string | null {
+  if (!open) return null;
+  if (!run || run.paused) return "paused";
+  if (run.judging) return "checking…";
+  return run.turns > 0 ? `turn ${run.turns}/${MAX_GOAL_TURNS}` : null;
+}
+
 /** Mark an evaluator call on `messageId` as in flight, so the settle effect
  *  waits for it and only ITS verdict is accepted. */
 export function beginGoalJudge(sessionId: string, messageId: string): void {

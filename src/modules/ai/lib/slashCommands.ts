@@ -508,8 +508,13 @@ function runGoalCommand(tail: string): SlashOutcome {
       return { kind: "handled", toast: "No goal. Use /goal <text>", toastVariant: "info" };
     }
     const run = useGoalStore.getState().runs[sessionId];
+    // Same rule as the strip: the ceiling is only worth naming once the loop
+    // has counted against it, so a freshly set goal is not "turn 0/25".
+    const turns = run && !run.paused ? run.turns : 0;
     const state = open
-      ? `Goal, running (turn ${run?.turns ?? 0}/${MAX_GOAL_TURNS})`
+      ? turns > 0
+        ? `Goal, running (turn ${turns}/${MAX_GOAL_TURNS})`
+        : "Goal, running"
       : "Goal (done)";
     return { kind: "handled", toast: `${state}: ${current.text}`, toastVariant: "info" };
   }

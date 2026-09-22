@@ -17,7 +17,7 @@ import {
   normalizeGoalText,
   type Goal,
 } from "../../src/modules/ai/lib/goal";
-import { activeGoalText, useGoalStore } from "../../src/modules/ai/store/goalStore";
+import { activeGoalText, useGoalStore, type GoalRun } from "../../src/modules/ai/store/goalStore";
 import {
   GOAL_DONE_MARKER,
   MAX_GOAL_TURNS,
@@ -26,6 +26,7 @@ import {
   declaredDone,
   disarmGoalRun,
   goalJudgeInput,
+  goalRunStatus,
   isGoalRunArmed,
   markerVerdict,
   nextGoalStep,
@@ -145,6 +146,56 @@ console.log("\n[runner] the loop only acts when it is armed AND a turn just fini
   );
   assert(nextGoalStep(R, working) === null, "a verdict is used once, never double-sent");
   assert(useGoalStore.getState().runs[R]?.turns === 1, "the turn is counted");
+
+  // What the strip shows. The turn ceiling is a safety limit, not progress: a
+  // goal that was just set has counted nothing, and "turn 0/25" reads as work
+  // already underway when none is.
+  console.log("\n[strip] the status speaks only once it has something to say");
+  const runAt = (turns: number, patch: Partial<GoalRun> = {}): GoalRun => ({
+    turns,
+    judging: false,
+    paused: false,
+    reason: null,
+    lastSeen: null,
+    ...patch,
+  });
+  assert(goalRunStatus(undefined, false) === null, "a done goal has no run status");
+  assert(
+    goalRunStatus(undefined, true) === "paused",
+    "a goal that is set but not running reads as paused",
+  );
+  assert(
+    goalRunStatus(runAt(0), true) === null,
+    "no automatic turn yet -> nothing shown, so there is no 'turn 0/25'",
+  );
+  assert(
+    goalRunStatus(runAt(0, { judging: true }), true) === "checking…",
+    "the evaluator still speaks on the first turn: that is real work",
+  );
+  assert(
+    goalRunStatus(runAt(1), true) === `turn 1/${MAX_GOAL_TURNS}`,
+    "and the counter appears once it has counted",
+  );
+  assert(
+    goalRunStatus(runAt(4, { paused: true, reason: "blocked" }), true) === "paused",
+    "a paused run says so, not the count",
+  );
+  {
+    // Pins the WIRING, not just the helper: re-inlining the counter in the
+    // strip would pass the tests above and put 'turn 0/25' back on screen.
+    const strip = readFileSync(
+      join(
+        dirname(fileURLToPath(import.meta.url)),
+        "../../src/modules/ai/components/GoalStrip.tsx",
+      ),
+      "utf8",
+    );
+    assert(
+      /goalRunStatus\(run, open\)/.test(strip),
+      "the strip renders through that helper rather than its own inline counter",
+    );
+    assert(!/turn \$\{run\.turns\}/.test(strip), "and no inline 'turn N/M' is left to drift");
+  }
 
   // A turn stopped by the step cap ends on tool parts with no closing text. That
   // is the case that most needs continuing, so an empty tail must not stall it.

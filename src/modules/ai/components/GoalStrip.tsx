@@ -5,7 +5,7 @@ import { Check, Pause, Play, Target, X } from "lucide-react";
 import { useEffect } from "react";
 import { formatElapsed, useLiveNow } from "../lib/elapsed";
 import { goalElapsed } from "../lib/goal";
-import { MAX_GOAL_TURNS, disarmGoalRun, pauseGoalRun } from "../lib/goalRunner";
+import { disarmGoalRun, goalRunStatus, pauseGoalRun } from "../lib/goalRunner";
 import { resumeGoal } from "../lib/slashCommands";
 import { toast } from "@/components/ui/toast";
 import { useGoalStore } from "../store/goalStore";
@@ -49,13 +49,8 @@ export function GoalStrip({ sessionId }: Props) {
 
   const elapsed = goalElapsed(goal, now);
   const armed = open && !!run && !run.paused;
-  const status = !open
-    ? null
-    : armed
-      ? run.judging
-        ? "checking…"
-        : `turn ${run.turns}/${MAX_GOAL_TURNS}`
-      : "paused";
+  // Null until there is something to say: a just-set goal shows no turn count.
+  const status = goalRunStatus(run, open);
 
   return (
     <div className="border-border/80 bg-muted/20 shrink-0 border-t px-3 py-1.5">
