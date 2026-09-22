@@ -17,6 +17,7 @@ dist-ssr
 # Rust / Tauri build artifacts
 src-tauri/target
 src-tauri/gen
+# Local updater signing key pair (tedi.key); never commit.
 .tauri
 
 # Editor / OS
@@ -44,25 +45,17 @@ Thumbs.db
 # committing local session state.
 .tedi/
 .local/
-
-# Recovered WinSCP credentials — local only, never commit
+# Recovered WinSCP credentials. Not anchored on purpose, so the file stays
+# ignored wherever it is moved (it lives in idea/ now).
 plan.txt
-check-public-ip.ps1
 
-# react-doctor: local-only scan config (rule policy kept off the repo)
+# Old react-doctor config name. react-doctor now reads the tracked
+# doctor.config.json, so a local copy under this name is not read at all.
 react-doctor.config.json
 
-# Project-local working files
-/icon.png
-# Both cases on purpose. Ignore patterns are matched case-SENSITIVELY, so the
-# uppercase spelling alone only worked here because Windows sets
-# core.ignorecase=true; a Linux clone would have offered `todo.md` for commit.
-TODO.MD
-todo.md
-REMOTE-ACCESS-SPEC.md
-FEATURE-STUDY.md
-# Local idea / masukan scratch folder: not repo content
+# Local notes and scratch files: not repo content
 /idea/
+todo.md
 # Exported theme files are personal / test artifacts, not repo content.
 *.tedi
 
