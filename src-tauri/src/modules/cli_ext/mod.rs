@@ -215,12 +215,28 @@ mod tests {
                 description: String::new(),
                 repository: "https://github.com/IlhamriSKY/TEDI.discord-rich-presence".into(),
                 license: "Apache-2.0".into(),
+                tier: String::new(),
             }],
             unofficial: vec![],
         };
         let msg = registry_not_found_msg("foo", &doc);
         assert!(msg.contains("foo"));
         assert!(msg.contains("discord-rich-presence"));
+    }
+
+    #[test]
+    fn registry_parses_community_tiers() {
+        // The shape tedi.ilhamriski.com serves for a community listing.
+        let doc: RegistryDoc = serde_json::from_str(
+            r#"{"official":[{"id":"a","repository":"https://github.com/o/a"}],
+                "unofficial":[{"id":"b","name":"B","version":"1.0.0","publisher":"u",
+                  "description":"","repository":"https://github.com/u/b","license":"",
+                  "tier":"verified","reviewed_release":"v1.0.0","channel":"community",
+                  "stars":3,"engines":{"tedi":">=0.4.0"}}]}"#,
+        )
+        .unwrap();
+        assert_eq!(doc.official[0].tier, "");
+        assert_eq!(doc.unofficial[0].tier, "verified");
     }
 
     #[test]

@@ -110,11 +110,12 @@ pub(super) fn print_registry_row(e: &RegistryEntry, installed: Option<&Installed
     };
     let status = installed_status(installed);
     println!(
-        "  {:<28}  {} {:<18}  {}{status}",
+        "  {:<28}  {} {:<18}  {}{}{status}",
         e.id,
         paint_dim("by"),
         e.publisher,
         paint_dim(license),
+        tier_tag(e),
     );
     if !e.description.is_empty() {
         println!("    {}", paint_dim(&e.description));
@@ -132,14 +133,25 @@ pub(super) fn registry_label(
         paint_unofficial(&format!("[{group}]"))
     };
     let status = installed_status(installed);
+    let tier = tier_tag(e);
     if e.description.is_empty() {
-        format!("{tag} {}{status}", e.id)
+        format!("{tag} {}{tier}{status}", e.id)
     } else {
         format!(
-            "{tag} {} {}{status}",
+            "{tag} {}{tier} {}{status}",
             e.id,
             paint_dim(&format!("- {}", e.description))
         )
+    }
+}
+
+/// `  [verified]` / `  [optimized]` / `  [public]` for a community entry, the
+/// same vocabulary as the marketplace site; empty for official ones.
+fn tier_tag(e: &RegistryEntry) -> String {
+    match e.tier.as_str() {
+        "" => String::new(),
+        "verified" | "optimized" => format!("  {}", paint_official(&format!("[{}]", e.tier))),
+        _ => format!("  {}", paint_dim("[public]")),
     }
 }
 

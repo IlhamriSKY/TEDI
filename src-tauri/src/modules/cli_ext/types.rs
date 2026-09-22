@@ -20,6 +20,10 @@ pub(super) struct RegistryEntry {
     pub(super) repository: String,
     #[serde(default)]
     pub(super) license: String,
+    /// Community review tier (`user_input` / `verified` / `optimized`);
+    /// empty for official entries.
+    #[serde(default)]
+    pub(super) tier: String,
 }
 
 /// One row of the Installed list, joining manifest + state. Sorted by name

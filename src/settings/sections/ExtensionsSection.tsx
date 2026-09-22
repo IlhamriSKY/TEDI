@@ -32,7 +32,8 @@ import {
 type InstallTab = "zip" | "github" | "marketplace";
 
 /** Public catalog endpoint. Owner-controlled. Payload is a JSON object with
- *  `official` and (optional) `unofficial` arrays of {@link MarketplaceItem}.
+ *  `official` and (optional) `unofficial` arrays of {@link MarketplaceItem};
+ *  `unofficial` holds the site's community listings, each with a `tier`.
  *  Fired lazily the first time the Marketplace tab is selected, never at
  *  section mount, so users who never visit the tab pay zero network cost. */
 const MARKETPLACE_URL = "https://tedi.ilhamriski.com/extensions/";
@@ -200,6 +201,9 @@ export function ExtensionsSection() {
             version: typeof e.version === "string" ? e.version : undefined,
             license: typeof e.license === "string" ? e.license : undefined,
             channel,
+            // Community listings carry a review tier; the site already
+            // downgrades it to user_input when the latest release is unreviewed.
+            tier: e.tier === "optimized" || e.tier === "verified" ? e.tier : "user_input",
           });
         }
         return out;

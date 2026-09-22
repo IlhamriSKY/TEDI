@@ -21,9 +21,26 @@ export type MarketplaceItem = {
   publisher?: string;
   version?: string;
   license?: string;
-  /** `"official"` items render first and get a small badge; `"unofficial"`
-   *  items render after with no badge. */
+  /** `"official"` items render first; `"unofficial"` items are community
+   *  listings from the marketplace and carry a {@link MarketplaceTier}. */
   channel: "official" | "unofficial";
+  /** Review tier of a community listing, as the registry reports it. Missing
+   *  or unknown means not reviewed (`user_input`). */
+  tier: MarketplaceTier;
+};
+
+export type MarketplaceTier = "optimized" | "verified" | "user_input";
+
+/** One badge per item. The registry keeps `user_input` as the wire value;
+ *  the site and this panel call it Public. */
+const BADGE: Record<"official" | MarketplaceTier, { label: string; className: string }> = {
+  official: {
+    label: "Official",
+    className: "border-diff-added/50 bg-diff-added/10 text-diff-added",
+  },
+  optimized: { label: "Optimized", className: "border-primary/50 bg-primary/10 text-primary" },
+  verified: { label: "Verified", className: "border-info/50 bg-info/10 text-info" },
+  user_input: { label: "Public", className: "text-muted-foreground" },
 };
 
 export type MarketplaceState =
@@ -51,9 +68,10 @@ export function MarketplacePanel({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground flex-1 text-[11px]">
-          Browse the official catalog at <code>tedi.ilhamriski.com/extensions/</code>. Items already
-          installed (matched by GitHub repo) are hidden. Install opens the same manifest review
-          dialog as the GitHub tab.
+          Browse the catalog at <code>tedi.ilhamriski.com/extensions/</code>. Official extensions
+          come first, then community ones: Verified and Optimized were reviewed by a TEDI admin,
+          Public ones were not. Items already installed (matched by GitHub repo) are hidden. Install
+          opens the same manifest review dialog as the GitHub tab.
         </span>
         <Button
           size="sm"
@@ -93,8 +111,8 @@ export function MarketplacePanel({
 
 /** Single marketplace row. Remote icon falls back to a letter avatar if the
  *  URL 404s or violates CORS for an image load, mirroring `ExtensionIcon`.
- *  Channel badge (Official / Unofficial) makes provenance obvious before the
- *  user clicks Install. */
+ *  The badge (Official, or the community tier) makes provenance obvious
+ *  before the user clicks Install. */
 function MarketplaceCard({ item, onInstall }: { item: MarketplaceItem; onInstall: () => void }) {
   const [iconBroken, setIconBroken] = useState(false);
   // Route remote icons through the existing `tedi-frame://` proxy. The
@@ -117,6 +135,7 @@ function MarketplaceCard({ item, onInstall }: { item: MarketplaceItem; onInstall
   }, [item.icon]);
   const showImg = !!iconSrc && !iconBroken;
   const letter = item.name.trim().charAt(0).toUpperCase() || "?";
+  const badge = BADGE[item.channel === "official" ? "official" : item.tier];
   return (
     <div className="border-border/60 bg-card flex items-start gap-3 rounded-md border px-2.5 py-2">
       {showImg ? (
@@ -144,14 +163,12 @@ function MarketplaceCard({ item, onInstall }: { item: MarketplaceItem; onInstall
               v{item.version}
             </Badge>
           ) : null}
-          {item.channel === "official" ? (
-            <Badge
-              variant="outline"
-              className="border-diff-added/50 bg-diff-added/10 text-diff-added h-4 px-1.5 text-[9.5px] tracking-wide uppercase"
-            >
-              Official
-            </Badge>
-          ) : null}
+          <Badge
+            variant="outline"
+            className={`${badge.className} h-4 px-1.5 text-[9.5px] tracking-wide uppercase`}
+          >
+            {badge.label}
+          </Badge>
         </div>
         {item.description ? (
           <span className="text-muted-foreground text-[10.5px] leading-snug">
