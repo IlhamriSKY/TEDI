@@ -4,6 +4,46 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.66] - 22-09-2026
+
+### Added
+
+- **The file explorer updates live.** A file created, deleted or renamed outside
+  TEDI (a `git checkout`, a build, another editor) shows up in the tree within
+  about half a second instead of on the next four-second poll. The host watches
+  the workspace root and reports only the folders whose listing can have
+  changed, git's object store and reflogs are ignored so a `git status` does not
+  repaint the tree, and only folders the tree has opened are re-read. While TEDI
+  is in the background the tree catches up when you come back. The poll stays
+  as a 30-second safety net, and a folder the host cannot watch (a network path,
+  a tree past the OS watch limit) keeps the four-second poll. See
+  [watch.rs](src-tauri/src/modules/fs/watch.rs) and
+  [treeWatch.ts](src/modules/explorer/lib/treeWatch.ts).
+- **Community extensions show their review tier.** Settings > Extensions >
+  Marketplace lists community extensions after the official ones, each badged
+  Verified or Optimized (reviewed by a TEDI admin) or Public (not reviewed), and
+  `tedi ext` shows the same tag in its registry list. See
+  [MarketplacePanel.tsx](src/settings/sections/components/MarketplacePanel.tsx).
+
+### Changed
+
+- **A goal that was just set no longer reads "turn 0/25".** The turn limit is a
+  safety ceiling, not progress, so the goal strip and `/goal` show the count
+  only once the loop has taken a turn; "checking…" still shows while the
+  evaluator runs. See [goalRunner.ts](src/modules/ai/lib/goalRunner.ts).
+
+### Fixed
+
+- **AgentRouter refused messages written in Indonesian, other languages or
+  slangy English** with `content-blocked`. Its filter refuses user text it reads
+  as a language other than English, Chinese, French or German, and misreads
+  slang such as "lemme see the logs" as one of them. A refused request is now
+  re-sent once with a short note telling the model the user may write in any
+  language, which gets short and medium messages through; a request the gateway
+  already takes goes out unchanged. A long message written entirely in another
+  language is still refused, and the error now says so and how to recover. See
+  [agentrouter.ts](src/modules/ai/lib/agentrouter.ts).
+
 ## [0.4.65] - 21-09-2026
 
 ### Added
