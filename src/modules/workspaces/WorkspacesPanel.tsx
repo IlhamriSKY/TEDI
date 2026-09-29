@@ -61,6 +61,7 @@ import {
 import { countSavedTabEntries, restoreTabs } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
+  AlarmClock,
   ChevronRight,
   Folder,
   FolderGit2,
@@ -1223,6 +1224,11 @@ function EntryRowItem({
           {showTitle ? <span className="opacity-60"> · {title}</span> : null}
         </span>
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
+        {/* Snoozed tabs are off the strip, so this list is the only place
+            they show; the clock says why this row has no chip up top. */}
+        {e.snoozed ? (
+          <AlarmClock size={10} strokeWidth={2} className="text-muted-foreground shrink-0" />
+        ) : null}
       </span>
       {/* Branch of this pane's working directory. Absent entirely outside a
           repository, rather than a placeholder row saying nothing. Indented to
@@ -1270,6 +1276,9 @@ function EntryRowItem({
             {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
             {isPrivate ? (
               <span className="text-destructive">Not visible to the native AI agent</span>
+            ) : null}
+            {e.snoozed ? (
+              <span className="text-muted-foreground">Snoozed: hidden from the tab strip</span>
             ) : null}
           </div>
         </TooltipContent>

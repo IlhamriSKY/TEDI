@@ -41,6 +41,7 @@ import {
   isPreviewTab,
   nextActiveAfterClose,
   sortPinnedFirst,
+  stripTabs,
   syncPaneMirror,
   updateLeafTree,
 } from "./tabHelpers";
@@ -519,12 +520,13 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     [pickAfterClose],
   );
 
+  // Indexes the strip as drawn, so Ctrl+3 lands on the third VISIBLE tab.
   const selectByIndex = useCallback(
     (idx: number) => {
-      const t = tabs[idx];
+      const t = stripTabs(tabs, activeId)[idx];
       if (t) setActiveId(t.id);
     },
-    [tabs],
+    [tabs, activeId],
   );
 
   /** Update a terminal leaf's cwd. Mirrors to the tab when the leaf is active. */
@@ -1099,6 +1101,24 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     });
   }, []);
 
+  /**
+   * Snooze or wake a whole tab. Snoozing the ACTIVE tab hands focus to the
+   * nearest awake tab (right first, then left), otherwise it would stay in the
+   * strip as the active one. With no awake tab left the snooze is refused.
+   */
+  const setTabSnoozed = useCallback((tabId: number, snoozed: boolean) => {
+    const curr = tabsRef.current;
+    const idx = curr.findIndex((t) => t.id === tabId);
+    if (idx < 0 || (curr[idx].snoozed ?? false) === snoozed) return;
+    if (snoozed) {
+      const awake = (t: Tab) => t.id !== tabId && !t.snoozed;
+      const next = curr.slice(idx + 1).find(awake) ?? curr.slice(0, idx).reverse().find(awake);
+      if (!next) return;
+      setActiveId((active) => (active === tabId ? next.id : active));
+    }
+    setTabs((list) => list.map((t) => (t.id === tabId ? { ...t, snoozed } : t)));
+  }, []);
+
   // Move an open extension TAB into a split pane leaf next to `targetLeafId`
   // in `targetTabId`. The source ext tab is closed (it's relocating, not
   // duplicating) so the panel is never mounted twice — important because
@@ -1191,6 +1211,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     setCanvasRects,
     reorderTabs,
     setTabPinned,
+    setTabSnoozed,
     reorderLeafInGroup,
     movePaneLeafToEdge,
     togglePrivate,

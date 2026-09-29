@@ -31,6 +31,8 @@ type EntryBase = {
    * reads it here rather than looking the tab back up per entry.
    */
   pinned?: boolean;
+  /** Owning TAB's snoozed flag, copied the same way as `pinned`. */
+  snoozed?: boolean;
 };
 
 export type PaneEntry = EntryBase & {
@@ -216,6 +218,7 @@ export function buildEntries(
           renamed: leaf.customTitle !== undefined,
           renameSeed: leafRenameSeed(leaf, sshHosts, t.cwd, aiTitles),
           pinned: t.pinned === true,
+          snoozed: t.snoozed === true,
         });
       }
       continue;
@@ -227,6 +230,7 @@ export function buildEntries(
         tabId: t.id,
         label: t.title,
         pinned: t.pinned === true,
+        snoozed: t.snoozed === true,
       });
       continue;
     }
@@ -238,6 +242,7 @@ export function buildEntries(
         label: t.title,
         italic: t.preview === true,
         pinned: t.pinned === true,
+        snoozed: t.snoozed === true,
       });
       continue;
     }
@@ -248,6 +253,7 @@ export function buildEntries(
         tabId: t.id,
         label: t.title,
         pinned: t.pinned === true,
+        snoozed: t.snoozed === true,
       });
       continue;
     }
@@ -262,6 +268,7 @@ export function buildEntries(
       icon: t.icon,
       state: t.state,
       pinned: t.pinned === true,
+      snoozed: t.snoozed === true,
     });
   }
   return out;

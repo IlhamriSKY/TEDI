@@ -213,6 +213,8 @@ export type SavedPaneTab = {
    *  a pin the user has to redo on every launch is not a pin. Absent on state
    *  written before pinning existed, which reads as unpinned. */
   pinned?: boolean;
+  /** Snoozed tabs live only in the Workspaces panel, never the strip. */
+  snoozed?: boolean;
   /**
    * Canvas mode: one rectangle per SAVED leaf, in `leaves(paneTree)` order.
    * Present = this tab restores as a canvas. Positional rather than keyed by

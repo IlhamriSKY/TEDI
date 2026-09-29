@@ -25,6 +25,7 @@ import {
 import { horizontalListSortingStrategy, SortableContext } from "@dnd-kit/sortable";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { Tab } from "./lib/useTabs";
+import { stripTabs } from "./lib/tabHelpers";
 import { type Entry, type PaneEntry, buildEntries } from "./lib/entries";
 import { EntryIcon } from "./components/EntryIcon";
 import { NewTabMenu } from "./components/NewTabMenu";
@@ -53,6 +54,9 @@ type Props = {
   /** Pin or unpin a whole tab. Pinned tabs sort to the front of the strip and
    *  render compact. Acts on the TAB, so any leaf of a split pins the group. */
   onSetTabPinned?: (tabId: number, pinned: boolean) => void;
+  /** Snooze or wake a whole tab. A snoozed tab leaves this strip and is
+   *  listed only in the Workspaces panel. Acts on the TAB, like pinning. */
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   /** Set a leaf's tab name, or `null` to fall back to the derived one (folder
    *  basename, file name, page title). Backs the right-click Rename. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
@@ -136,7 +140,7 @@ const snapCenterAndLockY: Modifier = ({ activatorEvent, draggingNodeRect, transf
 };
 
 export function TabBar({
-  tabs,
+  tabs: allTabs,
   activeId,
   onSelectEntry,
   onCloseEntry,
@@ -148,6 +152,7 @@ export function TabBar({
   onOpenAgents,
   onTogglePrivate,
   onSetTabPinned,
+  onSetTabSnoozed,
   onRenameLeaf,
   onPinLeaf,
   onReorderTabs,
@@ -166,6 +171,8 @@ export function TabBar({
   // the entry renderer, which is a plain function with nowhere to keep state.
   // Leaf ids are never reused, so a stale id after a close simply matches nothing.
   const [renamingLeafId, setRenamingLeafId] = useState<number | null>(null);
+  // Everything below works on the tabs the strip actually draws.
+  const tabs = useMemo(() => stripTabs(allTabs, activeId), [allTabs, activeId]);
   const scrollRef = useRef<HTMLDivElement>(null);
   // Re-render once the lazy icon chunk and catppuccin file-icon set finish
   // loading so extension tab icons + editor-tab file icons swap from the
@@ -466,6 +473,13 @@ export function TabBar({
                       onSaveEntry={onSaveEntry}
                       onTogglePrivate={onTogglePrivate}
                       onSetTabPinned={onSetTabPinned}
+                      // The last awake tab cannot be snoozed: the strip would be
+                      // left with nothing to show. Waking is always allowed.
+                      onSetTabSnoozed={
+                        entryGroups.length > 1 || group.entries[0]?.snoozed
+                          ? onSetTabSnoozed
+                          : undefined
+                      }
                       renamingLeafId={renamingLeafId}
                       onSetRenaming={setRenamingLeafId}
                       onRename={onRenameLeaf}

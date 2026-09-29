@@ -64,6 +64,8 @@ export type RenderEntryArgs = {
    * anything at leaf level.
    */
   onSetTabPinned?: (tabId: number, pinned: boolean) => void;
+  /** Snooze or wake the whole owning TAB, same reasoning as pinning. */
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   paneGroupsForMove: PaneGroupForMove[];
   /** Leaf currently being renamed inline, or null. Owned by the caller because
    *  this is a plain render function, not a component, so it holds no state. */
@@ -100,6 +102,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     onSaveEntry,
     onTogglePrivate,
     onSetTabPinned,
+    onSetTabSnoozed,
     paneGroupsForMove,
     renamingLeafId,
     onSetRenaming,
@@ -272,6 +275,8 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
   // carries its own save - the right-click is the discoverable half of Ctrl+S.
   const canSave = isPaneLeaf && e.leafKind === "editor" && !!onSaveEntry;
   const canPin = !!onSetTabPinned;
+  const canSnooze = !!onSetTabSnoozed;
+  const isSnoozed = e.snoozed === true;
   /**
    * A split group is several chips in the strip but ONE tab, so pinning any
    * of its leaves pins all of them. Saying Group rather than Tab here is the
@@ -288,6 +293,7 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
     canMove ||
     canTogglePrivate ||
     canPin ||
+    canSnooze ||
     canCloseToRight ||
     canSave;
   const hasLeafActions =
@@ -411,7 +417,12 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
               <span className="flex-1">{`${isPinned ? "Unpin" : "Pin"} ${pinLabel}`}</span>
             </ContextMenuItem>
           )}
-          {canCloseToRight && (hasLeafActions || canPin) && <ContextMenuSeparator />}
+          {canSnooze && (
+            <ContextMenuItem onSelect={() => onSetTabSnoozed!(e.tabId, !isSnoozed)}>
+              <span className="flex-1">{`${isSnoozed ? "Unsnooze" : "Snooze"} ${pinLabel}`}</span>
+            </ContextMenuItem>
+          )}
+          {canCloseToRight && (hasLeafActions || canPin || canSnooze) && <ContextMenuSeparator />}
           {canCloseToRight && (
             <ContextMenuItem onSelect={() => onCloseEntriesAfter(e)}>
               Close Tabs to the Right

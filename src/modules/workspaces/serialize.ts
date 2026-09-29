@@ -225,6 +225,7 @@ function tabToSaved(tab: Tab): SavedTab | null {
     // Written only when true, so an unpinned tab does not grow every saved
     // workspace by a redundant flag.
     ...(tab.pinned ? { pinned: true } : {}),
+    ...(tab.snoozed ? { snoozed: true } : {}),
   };
 }
 
@@ -418,6 +419,7 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab | null {
     paneTree,
     activeLeafId,
     ...(saved.pinned ? { pinned: true } : {}),
+    ...(saved.snoozed ? { snoozed: true } : {}),
   };
   return tab;
 }

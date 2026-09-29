@@ -272,6 +272,15 @@ export function isEditorLikeTab(tab: Tab): boolean {
 export { sortPinnedFirst } from "@/lib/pinned";
 
 /**
+ * Tabs the strip shows: everything not snoozed, plus the active tab even when
+ * snoozed, so opening one from the Workspaces panel still highlights a chip.
+ * Tab cycling and Ctrl+1..9 walk this same list, so they skip snoozed tabs.
+ */
+export function stripTabs(tabs: Tab[], activeId: number): Tab[] {
+  return tabs.some((t) => t.snoozed) ? tabs.filter((t) => !t.snoozed || t.id === activeId) : tabs;
+}
+
+/**
  * Which tab to activate once the ACTIVE one closes.
  *
  * NOT the left neighbour, which is what both close paths did. Opening a file

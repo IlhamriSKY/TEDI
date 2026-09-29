@@ -43,6 +43,8 @@ type SortableTabGroupProps = {
   onTogglePrivate?: (leafId: number) => void;
   /** Pin or unpin the whole tab this group belongs to. */
   onSetTabPinned?: (tabId: number, pinned: boolean) => void;
+  /** Snooze or wake the whole tab this group belongs to. */
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   /** Leaf currently being renamed inline, or null. Owned by TabBar. */
   renamingLeafId?: number | null;
   /** Enter (leafId) or leave (null) inline rename. */
@@ -78,6 +80,7 @@ export function SortableTabGroup({
   onSaveEntry,
   onTogglePrivate,
   onSetTabPinned,
+  onSetTabSnoozed,
   renamingLeafId,
   onSetRenaming,
   onRename,
@@ -135,6 +138,7 @@ export function SortableTabGroup({
           onSaveEntry={onSaveEntry}
           onTogglePrivate={onTogglePrivate}
           onSetTabPinned={onSetTabPinned}
+          onSetTabSnoozed={onSetTabSnoozed}
           renamingLeafId={renamingLeafId}
           onSetRenaming={onSetRenaming}
           onRename={onRename}
@@ -166,6 +170,7 @@ export function SortableTabGroup({
       onSaveEntry,
       onTogglePrivate,
       onSetTabPinned,
+      onSetTabSnoozed,
       renamingLeafId,
       onSetRenaming,
       onRename,

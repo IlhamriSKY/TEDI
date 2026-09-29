@@ -44,6 +44,8 @@ type Props = {
   onTogglePrivate?: (leafId: number) => void;
   /** Pin or unpin a whole tab. See `TabBar`. */
   onSetTabPinned?: (tabId: number, pinned: boolean) => void;
+  /** Snooze or wake a whole tab. See `TabBar`. */
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   /** Set a leaf's tab name, or `null` to fall back to the derived one. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
   onNewPreview: () => void;
@@ -181,6 +183,7 @@ function HeaderImpl({
   onNewPrivateTerminal,
   onTogglePrivate,
   onSetTabPinned,
+  onSetTabSnoozed,
   onRenameLeaf,
   onNewPreview,
   onNewNote,
@@ -376,6 +379,7 @@ function HeaderImpl({
             onNewPrivateTerminal={onNewPrivateTerminal}
             onTogglePrivate={onTogglePrivate}
             onSetTabPinned={onSetTabPinned}
+            onSetTabSnoozed={onSetTabSnoozed}
             onRenameLeaf={onRenameLeaf}
             onNewPreview={onNewPreview}
             onNewNote={onNewNote}

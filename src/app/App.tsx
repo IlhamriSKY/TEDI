@@ -161,6 +161,7 @@ export default function App() {
     moveExtTabToPane,
     togglePrivate,
     setTabPinned,
+    setTabSnoozed,
     renameLeaf,
     setLeafTerminalTheme,
     setCanvasRects,
@@ -1166,6 +1167,7 @@ export default function App() {
             onTogglePrivate={togglePrivate}
             onSaveEntry={handleSaveEntry}
             onSetTabPinned={setTabPinned}
+            onSetTabSnoozed={setTabSnoozed}
             onRenameLeaf={renameLeaf}
             onNewPreview={handleHeaderNewPreview}
             onNewNote={handleHeaderNewNote}

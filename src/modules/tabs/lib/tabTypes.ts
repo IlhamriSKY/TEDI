@@ -126,4 +126,11 @@ export type ExtensionTab = {
 export type Tab = (PaneTab | AiDiffTab | GitDiffTab | ExtensionTab | ScmTab) & {
   /** Pinned tabs sort ahead of unpinned ones and render compact. */
   pinned?: boolean;
+  /**
+   * Snoozed tabs leave the tab strip and are listed only in the Workspaces
+   * panel. Like `pinned` it belongs to the TAB, so snoozing any leaf of a split
+   * snoozes the whole group. Opening one shows it in the strip while it is
+   * active (see `stripTabs`); it stays snoozed until unsnoozed.
+   */
+  snoozed?: boolean;
 };

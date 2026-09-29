@@ -2,6 +2,7 @@ import { toast } from "@/components/ui/toast";
 import { toForwardSlash } from "@/lib/path";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
+import { stripTabs } from "@/modules/tabs/lib/tabHelpers";
 import {
   agentToolKind,
   MAX_AGENT_SPAWN,
@@ -190,10 +191,11 @@ export function useTabActions({
 
   const cycleTab = useCallback(
     (delta: 1 | -1) => {
-      if (tabs.length < 2) return;
-      const idx = tabs.findIndex((t) => t.id === activeId);
-      const nextIdx = (idx + delta + tabs.length) % tabs.length;
-      setActiveId(tabs[nextIdx].id);
+      const strip = stripTabs(tabs, activeId);
+      if (strip.length < 2) return;
+      const idx = strip.findIndex((t) => t.id === activeId);
+      const nextIdx = (idx + delta + strip.length) % strip.length;
+      setActiveId(strip[nextIdx].id);
     },
     [tabs, activeId, setActiveId],
   );
