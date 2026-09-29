@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.67] - 29-09-2026
+
+### Added
+
+- **Snooze a tab.** Right-click a tab and pick Snooze Tab (Snooze Group on a
+  split) to take it off the tab strip without closing it: its terminals keep
+  running and it stays listed in the Workspaces panel with a clock icon.
+  Opening it from there shows it in the strip while it is active, Ctrl+Tab and
+  Ctrl+1..9 skip snoozed tabs, and the flag survives a restart. Unsnooze puts
+  it back. The last awake tab cannot be snoozed. See
+  [tabHelpers.ts](src/modules/tabs/lib/tabHelpers.ts).
+
 ## [0.4.66] - 22-09-2026
 
 ### Added
