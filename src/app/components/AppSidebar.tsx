@@ -56,6 +56,8 @@ type Props = {
   /** Rename a pane leaf from the Workspaces panel (same handler as the tab
    *  strip's right-click Rename, so both write the one `customTitle`). */
   onRenameLeaf: (leafId: number, title: string | null) => void;
+  /** Snooze or wake a tab from the Workspaces panel. */
+  onSetTabSnoozed: (tabId: number, snoozed: boolean) => void;
   /** Close a tab listed in the Workspaces panel (same handler as the tab
    *  strip's X, so both share the busy / unsaved confirms). */
   onCloseEntry: (tabId: number, leafId: number | null) => void;
@@ -132,6 +134,7 @@ export function AppSidebar({
   cachedTabsByWorkspace,
   onFocusLeaf,
   onRenameLeaf,
+  onSetTabSnoozed,
   onCloseEntry,
   activeLeafId,
   sshStatuses,
@@ -251,6 +254,7 @@ export function AppSidebar({
             cachedTabsByWorkspace={cachedTabsByWorkspace}
             onFocusLeaf={onFocusLeaf}
             onRenameLeaf={onRenameLeaf}
+            onSetTabSnoozed={onSetTabSnoozed}
             onCloseEntry={onCloseEntry}
             activeLeafId={activeLeafId}
             sshStatuses={sshStatuses}

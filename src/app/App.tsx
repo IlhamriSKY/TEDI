@@ -1228,6 +1228,7 @@ export default function App() {
                 cachedTabsByWorkspace={liveTabsByWorkspace}
                 onFocusLeaf={focusLeafInTab}
                 onRenameLeaf={renameLeaf}
+                onSetTabSnoozed={setTabSnoozed}
                 onCloseEntry={handleHeaderCloseEntry}
                 activeLeafId={activePaneTab?.activeLeafId ?? null}
                 sshStatuses={sshStatuses}
@@ -1309,6 +1310,7 @@ export default function App() {
                   cachedTabsByWorkspace: liveTabsByWorkspace,
                   onFocusLeaf: focusLeafInTab,
                   onRenameLeaf: renameLeaf,
+                  onSetTabSnoozed: setTabSnoozed,
                   onCloseEntry: handleHeaderCloseEntry,
                   activeLeafId: activePaneTab?.activeLeafId ?? null,
                   sshStatuses,

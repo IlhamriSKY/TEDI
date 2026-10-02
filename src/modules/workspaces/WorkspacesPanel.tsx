@@ -62,6 +62,7 @@ import { countSavedTabEntries, restoreTabs } from "./serialize";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
 import {
   AlarmClock,
+  AlarmClockOff,
   ChevronRight,
   Folder,
   FolderGit2,
@@ -113,6 +114,8 @@ type Props = {
   /** Rename a live pane leaf, or reset it to the derived name with `null`. Same
    *  handler the tab strip's right-click Rename uses, so both write one field. */
   onRenameLeaf?: (leafId: number, title: string | null) => void;
+  /** Snooze or wake a live tab. Same handler as the tab strip right-click. */
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   /**
    * Close one listed tab / pane. `leafId` is null for a standalone tab (SCM, a
    * diff, an extension tab) - the same signature and the same handler the tab
@@ -283,6 +286,7 @@ function WorkspacesPanelInner({
   cachedTabsByWorkspace,
   onFocusLeaf,
   onRenameLeaf,
+  onSetTabSnoozed,
   onCloseEntry,
   activeLeafId,
   sshStatuses,
@@ -516,6 +520,7 @@ function WorkspacesPanelInner({
                     onToggleExpanded={toggleExpanded}
                     onFocusLeaf={onFocusLeaf}
                     onRenameLeaf={onRenameLeaf}
+                    onSetTabSnoozed={onSetTabSnoozed}
                     onCloseEntry={onCloseEntry}
                     renamingLeafId={renamingLeafId}
                     onSetRenamingLeaf={setRenamingLeafId}
@@ -615,6 +620,7 @@ type RowProps = {
   onToggleExpanded: (id: string) => void;
   onFocusLeaf?: (tabId: number, leafId: number) => void;
   onRenameLeaf?: (leafId: number, title: string | null) => void;
+  onSetTabSnoozed?: (tabId: number, snoozed: boolean) => void;
   onCloseEntry?: (tabId: number, leafId: number | null) => void;
   renamingLeafId: number | null;
   onSetRenamingLeaf: (leafId: number | null) => void;
@@ -656,6 +662,7 @@ function SortableWorkspaceRow({
   onToggleExpanded,
   onFocusLeaf,
   onRenameLeaf,
+  onSetTabSnoozed,
   onCloseEntry,
   renamingLeafId,
   onSetRenamingLeaf,
@@ -1055,6 +1062,18 @@ function SortableWorkspaceRow({
                         }}
                         onRename={onRenameLeaf}
                         onSetRenaming={onSetRenamingLeaf}
+                        // Live ids only exist for the active workspace. Waking is
+                        // always allowed; snoozing needs another awake tab left,
+                        // the same rule the tab strip applies.
+                        onToggleSnooze={
+                          isActive &&
+                          r.live &&
+                          onSetTabSnoozed &&
+                          (r.entry.snoozed ||
+                            rows.some((x) => x.entry.tabId !== r.entry.tabId && !x.entry.snoozed))
+                            ? () => onSetTabSnoozed(r.entry.tabId, !r.entry.snoozed)
+                            : undefined
+                        }
                         onRequestClose={
                           canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined
                         }
@@ -1100,6 +1119,7 @@ function EntryRowItem({
   onOpen,
   onRename,
   onSetRenaming,
+  onToggleSnooze,
   onRequestClose,
   onNewWorktree,
   projectName,
@@ -1111,6 +1131,9 @@ function EntryRowItem({
   onOpen: () => void;
   onRename?: (leafId: number, title: string | null) => void;
   onSetRenaming: (leafId: number | null) => void;
+  /** Snooze or wake this row's tab. Absent when the row is not live or it is
+   *  the last awake tab. */
+  onToggleSnooze?: () => void;
   /** Ask the parent row to confirm closing this entry. Absent when closing it
    *  isn't allowed (not the active workspace, or it's the last tab left). */
   onRequestClose?: () => void;
@@ -1131,7 +1154,7 @@ function EntryRowItem({
   // an extension tab) has nothing to write to. A cold workspace's ids are
   // display-only, so its rows are read-only too.
   const canRename = row.live && isLeaf && !!onRename;
-  const actionCount = (canRename ? 1 : 0) + (onRequestClose ? 1 : 0);
+  const actionCount = (onToggleSnooze ? 1 : 0) + (canRename ? 1 : 0) + (onRequestClose ? 1 : 0);
   const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
   const sshStatus = e.kind === "pane-leaf" ? e.sshStatus : undefined;
   const ai = e.kind === "pane-leaf" ? e.aiCliStatus : undefined;
@@ -1204,9 +1227,10 @@ function EntryRowItem({
       className={cn(
         "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
         // Make room for the hover actions so they never sit on top of the label.
-        // One button reserves 5, both (pencil + close) reserve 10.
+        // Each size-5 button reserves 5.
         actionCount === 1 && "group-hover/row:pr-5",
         actionCount === 2 && "group-hover/row:pr-10",
+        actionCount === 3 && "group-hover/row:pr-15",
         isActiveLeaf
           ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
@@ -1226,8 +1250,16 @@ function EntryRowItem({
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
         {/* Snoozed tabs are off the strip, so this list is the only place
             they show; the clock says why this row has no chip up top. */}
+        {/* Hidden on hover, where the action cluster shows its own clock. */}
         {e.snoozed ? (
-          <AlarmClock size={10} strokeWidth={2} className="text-muted-foreground shrink-0" />
+          <AlarmClock
+            size={11}
+            strokeWidth={1.75}
+            className={cn(
+              "text-muted-foreground shrink-0",
+              actionCount > 0 && "group-hover/row:hidden",
+            )}
+          />
         ) : null}
       </span>
       {/* Branch of this pane's working directory. Absent entirely outside a
@@ -1292,6 +1324,23 @@ function EntryRowItem({
         // invisible close X sitting over a tab name is a click away from a
         // close nobody asked for.
         <span className="pointer-events-none absolute top-1 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/row:pointer-events-auto group-hover/row:opacity-100">
+          {onToggleSnooze && (
+            <IconTooltip label={e.snoozed ? "Unsnooze" : "Snooze"} side="right">
+              <Button
+                onClick={onToggleSnooze}
+                aria-label={`${e.snoozed ? "Unsnooze" : "Snooze"} ${e.label}`}
+                variant="ghost"
+                size="icon-sm"
+                className="text-muted-foreground size-5 rounded"
+              >
+                {e.snoozed ? (
+                  <AlarmClockOff size={11} strokeWidth={1.75} />
+                ) : (
+                  <AlarmClock size={11} strokeWidth={1.75} />
+                )}
+              </Button>
+            </IconTooltip>
+          )}
           {canRename && (
             <IconTooltip label="Rename" side="right">
               <Button

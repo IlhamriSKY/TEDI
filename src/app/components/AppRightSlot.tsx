@@ -69,6 +69,7 @@ type Props = {
     cachedTabsByWorkspace: RefObject<Map<string, { tabs: Tab[]; activeId: number | null }>>;
     onFocusLeaf: (tabId: number, leafId: number) => void;
     onRenameLeaf: (leafId: number, title: string | null) => void;
+    onSetTabSnoozed: (tabId: number, snoozed: boolean) => void;
     onCloseEntry: (tabId: number, leafId: number | null) => void;
     activeLeafId: number | null;
     sshStatuses: Map<number, SshStatus>;
@@ -229,6 +230,7 @@ export function AppRightSlot({
               cachedTabsByWorkspace={workspacesSection.cachedTabsByWorkspace}
               onFocusLeaf={workspacesSection.onFocusLeaf}
               onRenameLeaf={workspacesSection.onRenameLeaf}
+              onSetTabSnoozed={workspacesSection.onSetTabSnoozed}
               onCloseEntry={workspacesSection.onCloseEntry}
               activeLeafId={workspacesSection.activeLeafId}
               sshStatuses={workspacesSection.sshStatuses}
