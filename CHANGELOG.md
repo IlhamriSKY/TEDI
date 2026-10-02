@@ -4,6 +4,27 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.68] - 02-10-2026
+
+### Added
+
+- **Snooze and unsnooze from the Workspaces panel.** Hovering a tab row now
+  shows a clock button beside Rename and Close, so a snoozed tab can be woken
+  (or an awake one snoozed) without hunting for its chip. The row clock icon
+  makes way for the button on hover, so the three actions line up. See
+  [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx).
+
+### Fixed
+
+- **Scrolling in the code editor and the diff views is smooth again.** The
+  scrollbar markers re-rendered the whole editor on every scroll event even
+  though scrolling never moves them; they now update only when the cursor,
+  selection or document height changes. In the git diff the two panes no longer
+  pull each other back mid scroll: only the pane under the pointer drives the
+  other. The AI diff drops its minimap, which redrew on every scroll. See
+  [EditorPane.tsx](src/modules/editor/EditorPane.tsx) and
+  [GitDiffPane.tsx](src/modules/scm/GitDiffPane.tsx).
+
 ## [0.4.67] - 29-09-2026
 
 ### Added
