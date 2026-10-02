@@ -268,23 +268,28 @@ export function GitDiffPane({
     // offsets. Reattach a 1:1 sync on both axes. Since both panes render the
     // full document, equal pixel offsets keep matching lines side-by-side
     // vertically; mirroring scrollLeft keeps long lines aligned horizontally too.
+    //
+    // Only the pane under the pointer (or holding focus) drives. A rAF guard
+    // let the follower's echo through a frame later, writing the driver's OLD
+    // offset back mid smooth-scroll, so the two panes kept yanking each other.
     const scrollA = view.a.scrollDOM;
     const scrollB = view.b.scrollDOM;
-    let syncing = false;
+    let driver: HTMLElement = scrollA;
     const sync = (from: HTMLElement, to: HTMLElement) => () => {
-      if (syncing) return;
-      syncing = true;
-      to.scrollTop = from.scrollTop;
-      to.scrollLeft = from.scrollLeft;
-      // rAF clears the guard without dropping legitimate scroll events.
-      requestAnimationFrame(() => {
-        syncing = false;
-      });
+      if (from !== driver) return;
+      if (to.scrollTop !== from.scrollTop) to.scrollTop = from.scrollTop;
+      if (to.scrollLeft !== from.scrollLeft) to.scrollLeft = from.scrollLeft;
     };
     const syncAB = sync(scrollA, scrollB);
     const syncBA = sync(scrollB, scrollA);
+    const driveA = () => (driver = scrollA);
+    const driveB = () => (driver = scrollB);
     scrollA.addEventListener("scroll", syncAB, { passive: true });
     scrollB.addEventListener("scroll", syncBA, { passive: true });
+    scrollA.addEventListener("pointerenter", driveA);
+    scrollB.addEventListener("pointerenter", driveB);
+    scrollA.addEventListener("focusin", driveA);
+    scrollB.addEventListener("focusin", driveB);
 
     // Compute mark ranges once per content load. Rendered via React/portal
     // below so each mark can use the styled <Tooltip/>.
@@ -369,6 +374,10 @@ export function GitDiffPane({
       cancelled = true;
       scrollA.removeEventListener("scroll", syncAB);
       scrollB.removeEventListener("scroll", syncBA);
+      scrollA.removeEventListener("pointerenter", driveA);
+      scrollB.removeEventListener("pointerenter", driveB);
+      scrollA.removeEventListener("focusin", driveA);
+      scrollB.removeEventListener("focusin", driveB);
       ro.disconnect();
       setPaneAEl(null);
       setPaneBEl(null);

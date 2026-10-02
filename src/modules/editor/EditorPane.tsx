@@ -192,6 +192,21 @@ function computeMarkers(
   };
 }
 
+type Markers = ReturnType<typeof computeMarkers>;
+
+/** Same geometry, so React can bail out instead of re-rendering the pane. */
+function sameMarkers(a: Markers, b: Markers): boolean {
+  if (a === b) return true;
+  if (!a || !b) return false;
+  return (
+    a.barTop === b.barTop &&
+    a.barHeight === b.barHeight &&
+    a.cursorY === b.cursorY &&
+    a.selection?.top === b.selection?.top &&
+    a.selection?.height === b.selection?.height
+  );
+}
+
 /** Locate the search match within a line so the editor can select the exact
  *  hit (VSCode-style) rather than the whole line. Falls back to null on a bad
  *  regex or no match, in which case the caller selects the whole line. */
@@ -298,12 +313,13 @@ export function EditorPane({
   // deps) doesn't re-run on every scroll/selection while the find bar is open.
   // cmRef is itself stable, so the closure never needs to change.
   const getView = useCallback(() => cmRef.current?.view ?? null, []);
-  const [markerState, setMarkerState] = useState<{
-    barTop: number;
-    barHeight: number;
-    cursorY: number;
-    selection: { top: number; height: number } | null;
-  } | null>(null);
+  const [markerState, setMarkerStateRaw] = useState<Markers>(null);
+  // Keeps the previous object when nothing moved, so a scroll (which leaves
+  // every marker where it was) no longer re-renders this whole pane per frame.
+  const setMarkerState = useCallback(
+    (next: Markers) => setMarkerStateRaw((prev) => (sameMarkers(prev, next) ? prev : next)),
+    [],
+  );
   const vimMode = usePreferencesStore((s) => s.vimMode);
   const lineWrap = usePreferencesStore((s) => s.lineWrap);
   const lineWrapColumn = usePreferencesStore((s) => s.lineWrapColumn);
@@ -577,10 +593,12 @@ export function EditorPane({
           },
         },
       ]),
-      // Refresh marker overlay on selection/doc/viewport/geometry changes.
+      // Refresh marker overlay on selection/doc/geometry changes. Not on
+      // viewportChanged: that fires on every scroll and the markers are in
+      // document space, so scrolling never moves them.
       // `setMarkerState` and `outerRef` are stable; captured once.
       EditorView.updateListener.of((u) => {
-        if (u.selectionSet || u.docChanged || u.geometryChanged || u.viewportChanged) {
+        if (u.selectionSet || u.docChanged || u.geometryChanged) {
           setMarkerState(computeMarkers(u.view, outerRef.current));
         }
       }),
@@ -649,9 +667,9 @@ export function EditorPane({
     };
   }, [path, doc.status, langOverride]);
 
-  // Marker overlay: refresh on scroll + resize. The updateListener handles
-  // selection/doc/viewport; this effect handles scroll-without-edit and
-  // pane resizes where CodeMirror doesn't fire an update.
+  // Marker overlay: refresh on resize. The updateListener handles
+  // selection/doc/geometry; this effect handles pane resizes where CodeMirror
+  // doesn't fire an update. No scroll listener: scrolling never moves a marker.
   useEffect(() => {
     const view = cmRef.current?.view;
     if (!view) return;
@@ -662,16 +680,11 @@ export function EditorPane({
     };
     // Initial paint after layout.
     update();
-    const onScroll = () => update();
-    view.scrollDOM.addEventListener("scroll", onScroll, { passive: true });
     const ro = new ResizeObserver(update);
     ro.observe(view.scrollDOM);
     ro.observe(view.dom);
-    return () => {
-      view.scrollDOM.removeEventListener("scroll", onScroll);
-      ro.disconnect();
-    };
-  }, [doc.status]);
+    return () => ro.disconnect();
+  }, [doc.status, setMarkerState]);
 
   // Escape the horizontal-scroll trap: with line wrap off, drag-selecting past
   // the right edge auto-scrolls the view sideways and strands it there. On a

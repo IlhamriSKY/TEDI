@@ -52,7 +52,9 @@ export function AiDiffPane({
   // updates its proposal, the surrounding bridge re-creates the tab.
   const extensions = useMemo(
     () => [
-      ...buildSharedExtensions(),
+      // No minimap: it redraws its canvas on every scroll event, and every
+      // open AI diff stays mounted. The git diff drops it for the same reason.
+      ...buildSharedExtensions({ showMinimap: false }),
       languageCompartment.of([]),
       EditorState.readOnly.of(true),
       EditorView.editable.of(false),
