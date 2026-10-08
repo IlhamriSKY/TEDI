@@ -13,7 +13,7 @@ import {
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
-import type { PanelImperativeHandle } from "react-resizable-panels";
+import type { GroupImperativeHandle, Layout, PanelImperativeHandle } from "react-resizable-panels";
 import { readSectionOrder, reconcileSectionOrder, writeSectionOrder } from "../lib/sectionOrder";
 import { panelCollapsed, setPanelCollapsed } from "../lib/panelSize";
 import { ChevronRight, GripVertical } from "lucide-react";
@@ -177,6 +177,33 @@ export function SectionStack({
     return fn;
   };
 
+  // The filler (see FILLER below) must only ever hold space while EVERY section
+  // is minimized. Anything else hands it space too: minimizing the bottom
+  // section, a section leaving the column, an expand that reopens at its old
+  // size. Left there it reads as a dead gap under the stack, so once a layout
+  // settles with a section still open, the last open one takes it back.
+  // Deferred a frame so it runs after toggleCollapse's synchronous batch, and a
+  // whole-layout `setLayout` rather than `resize()`, which would push the delta
+  // through the collapsed neighbours in between and pop them open.
+  const groupRef = useRef<GroupImperativeHandle | null>(null);
+  const fillerId = `${idPrefix}-filler`;
+  const reclaimFiller = (layout: Layout) => {
+    if (!(layout[fillerId] > 0.01)) return;
+    requestAnimationFrame(() => {
+      const group = groupRef.current;
+      if (!group) return;
+      const now = group.getLayout();
+      const spare = now[fillerId] ?? 0;
+      if (!(spare > 0.01)) return;
+      const lastOpen = [...visible]
+        .reverse()
+        .find((k) => panelCollapsed(panelRefs.current[k]) === false);
+      if (!lastOpen) return;
+      const id = `${idPrefix}-${lastOpen}`;
+      group.setLayout({ ...now, [id]: (now[id] ?? 0) + spare, [fillerId]: 0 });
+    });
+  };
+
   const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 5 } }));
 
   const syncCollapsed = (key: string) => {
@@ -193,7 +220,26 @@ export function SectionStack({
     // have seen it, so there is nothing to toggle.
     if (state === null) return;
     if (state) {
-      setPanelCollapsed(ref, false);
+      // With the filler empty (reclaimFiller keeps it so while anything is
+      // open) the library's expand has nowhere to take room from: it either
+      // fails or swallows a whole neighbour. Split the open space evenly
+      // instead, shrinking the other open sections in proportion.
+      const group = groupRef.current;
+      const now = group?.getLayout();
+      if (!group || !now || (now[fillerId] ?? 0) > 0.01) {
+        setPanelCollapsed(ref, false);
+        return;
+      }
+      const id = `${idPrefix}-${key}`;
+      const open = visible
+        .filter((k) => panelCollapsed(panelRefs.current[k]) === false)
+        .map((k) => `${idPrefix}-${k}`);
+      const openTotal = open.reduce((sum, k) => sum + (now[k] ?? 0), 0);
+      const share = (openTotal + (now[id] ?? 0)) / (open.length + 1);
+      const scale = (openTotal - share + (now[id] ?? 0)) / openTotal;
+      const next = { ...now, [id]: share };
+      for (const k of open) next[k] = (now[k] ?? 0) * scale;
+      group.setLayout(next);
       return;
     }
     // Collapsing pushes the freed space onto the NEXT panel, and when that one
@@ -316,7 +362,12 @@ export function SectionStack({
       }}
     >
       <SortableContext items={visible} strategy={verticalListSortingStrategy}>
-        <ResizablePanelGroup orientation="vertical" className="min-h-0 flex-1">
+        <ResizablePanelGroup
+          orientation="vertical"
+          className="min-h-0 flex-1"
+          groupRef={groupRef}
+          onLayoutChanged={reclaimFiller}
+        >
           {(() => {
             // Insertion preview: the dragged section keeps its slot (no reflow,
             // so the resizable layout is untouched); instead a thin line marks
@@ -368,11 +419,10 @@ export function SectionStack({
               and `defaultSize={0}` / `minSize={0}` mean it takes nothing at all
               while any section is still open.
 
-              One visible consequence, kept deliberately: minimizing the BOTTOM
-              section leaves the space it freed here rather than growing the
-              section above it. It reads as tray whitespace under the stack, and
-              it comes back the moment anything is expanded or resized. */}
-          <ResizablePanel id={`${idPrefix}-filler`} defaultSize={0} minSize={0}>
+              Any space it picks up while a section is still open goes straight
+              back to the last open one (reclaimFiller), so the stack never
+              ends in a gap. */}
+          <ResizablePanel id={fillerId} defaultSize={0} minSize={0}>
             <span aria-hidden />
           </ResizablePanel>
         </ResizablePanelGroup>

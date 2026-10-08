@@ -147,16 +147,23 @@ for (const [name, src, column] of COLUMNS) {
   const stack = readFileSync(join(repoRoot, "src/app/components/SectionStack.tsx"), "utf8");
   check(
     "SectionStack renders a filler panel",
-    /-filler`}\s*defaultSize=\{0\}\s*minSize=\{0\}/.test(stack),
+    /const fillerId = `\$\{idPrefix\}-filler`/.test(stack) &&
+      /id=\{fillerId\}\s*defaultSize=\{0\}\s*minSize=\{0\}/.test(stack),
   );
   check(
     "no ResizableHandle immediately before the filler",
-    !/<ResizableHandle[^>]*\/>\s*\{\s*\/\*[\s\S]{0,900}?-filler/.test(stack),
+    !/<ResizableHandle[^>]*\/>\s*\{\s*\/\*[\s\S]{0,900}?id=\{fillerId\}/.test(stack),
     "a handle there would let the user drag against the filler",
   );
   check(
     "toggleCollapse re-asserts the whole collapsed set",
     /const desired = visible\.filter/.test(stack) && /for \(let pass = 0/.test(stack),
+  );
+  // The filler must not keep space while a section is open: that was a dead gap
+  // under the stack. It hands it back on every layout change.
+  check(
+    "the filler's space goes back to an open section",
+    /onLayoutChanged=\{reclaimFiller\}/.test(stack) && /\[fillerId\]: 0/.test(stack),
   );
 }
 
