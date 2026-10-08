@@ -4,6 +4,18 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.69] - 08-10-2026
+
+### Fixed
+
+- **The left and right sidebars always fill to the bottom.** Minimizing the
+  bottom section, or moving a section to the other column, used to leave its
+  space as an empty gap under the stack, so Files or Source Control ended
+  halfway down the window. That space now goes back to the lowest open
+  section, and expanding a minimized section shares the column evenly with
+  the open ones. Space is only left empty when every section is minimized.
+  See [SectionStack.tsx](src/app/components/SectionStack.tsx).
+
 ## [0.4.68] - 02-10-2026
 
 ### Added
