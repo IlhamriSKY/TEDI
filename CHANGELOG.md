@@ -4,6 +4,47 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.70] - 09-10-2026
+
+### Security
+
+- **An extension package can no longer install different permissions than
+  the ones you reviewed.** A zip carrying a second manifest under a path like
+  `./manifest.json` showed one manifest in the install dialog and installed
+  the other. See [install.rs](src-tauri/src/modules/extensions/install.rs).
+- **Git commands from the panel, an extension or the AI can no longer run a
+  program or write outside the repository.** Options such as
+  `--upload-pack`, `--exec`, `--strategy` and `--output` are refused in every
+  spelling git accepts, including abbreviations, short flags and after `--`.
+  See [commands.rs](src-tauri/src/modules/git/commands.rs).
+- **Deleting several saved secrets at once can no longer corrupt the secret
+  store** or bring a deleted key back after a restart.
+
+### Changed
+
+- **Lighter windows.** A floating pane now loads only what its kind needs, and
+  Settings no longer loads the extension host or the AI providers: measured
+  JS heap 22 MB to 6 MB for a floating pane and 17 MB to 11 MB for Settings.
+  No window loads AI provider code at startup any more.
+- **Less work while idle.** An AI CLI agent pane re-reads its screen every 2 s
+  instead of 4 times a second once it is idle, the `max` reasoning label stops
+  animating between turns, streamed AI replies update the UI in small batches,
+  and a collapsed Explorer ignores file changes until you open it.
+- **Icons morph instead of snapping** (copy to check, sun to moon, icon to
+  spinner), every refresh button spins once when clicked, and every search box
+  shows the same magnifier.
+
+### Fixed
+
+- **Extensions behave when you disable, re-enable or update them quickly.** A
+  re-enabled extension could lose its panels and commands to the copy being
+  shut down, one that hung while starting blocked every other extension, and
+  an extension's SSH tunnels and terminal PATH entries outlived it.
+- **Closing a floating window no longer leaves its file and git watchers
+  running** for the rest of the session.
+- A background process card from the AI no longer claims the process is
+  still "running" long after it exited.
+
 ## [0.4.69] - 08-10-2026
 
 ### Fixed
