@@ -19,15 +19,16 @@
 //! dropped on the way - they churn on every git command and move nothing the
 //! tree shows - so a `git status` does not repaint the Explorer.
 
-use notify::{RecommendedWatcher, RecursiveMode, Watcher};
+use notify::{RecursiveMode, Watcher};
 use serde::Serialize;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex, OnceLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
+
+use crate::modules::watch_registry::{is_network_path, Registry, SharedWatcher};
 
 /// A burst (a save, a checkout, a build writing many files) is reported once,
 /// after it has been quiet this long...
@@ -40,25 +41,7 @@ const MAX_BATCH: Duration = Duration::from_millis(1000);
 /// them together mean exactly what refreshing everything does.
 const MAX_BATCH_DIRS: usize = 512;
 
-type SharedWatcher = Arc<Mutex<RecommendedWatcher>>;
-
-struct Entry {
-    id: u32,
-    // Dropping the watcher stops it: its event sender goes with it and the pump
-    // thread sees the channel close and exits.
-    _watcher: SharedWatcher,
-}
-
-/// Live watches, one per (window, root). Per WINDOW because a float window is a
-/// second webview with its own subscriptions, and letting it replace the main
-/// window's watch would silently drop the main window back to polling.
-fn watches() -> &'static Mutex<std::collections::HashMap<(String, PathBuf), Entry>> {
-    static WATCHES: OnceLock<Mutex<std::collections::HashMap<(String, PathBuf), Entry>>> =
-        OnceLock::new();
-    WATCHES.get_or_init(Default::default)
-}
-
-static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+pub(crate) static WATCHES: Registry = Registry::new();
 
 /// Watch the directory tree at `root` and call `on_change` after anything in it
 /// that can change a listing. Resolves to an id for [`fs_unwatch`], or an error
@@ -70,10 +53,13 @@ pub async fn fs_watch(
     on_change: Channel<FsChange>,
 ) -> Result<u32, String> {
     let label = window.label().to_string();
+    // Taken here, in call order: blocking-pool tasks can START out of order,
+    // and the registry lets the newest id win (see `Registry::insert`).
+    let id = WATCHES.next_id();
     // Arming a recursive watch walks the tree: file I/O that must stay off the
     // UI thread.
     tauri::async_runtime::spawn_blocking(move || {
-        watch_blocking(label, PathBuf::from(root), move |change| {
+        watch_blocking(label, PathBuf::from(root), id, move |change| {
             on_change.send(change).is_ok()
         })
     })
@@ -84,31 +70,24 @@ pub async fn fs_watch(
 #[tauri::command]
 pub async fn fs_unwatch(window: tauri::Window, id: u32) -> Result<(), String> {
     let label = window.label().to_string();
-    tauri::async_runtime::spawn_blocking(move || unwatch(&label, id))
+    tauri::async_runtime::spawn_blocking(move || WATCHES.unwatch(&label, id))
         .await
         .map_err(|e| format!("fs_unwatch join error: {e}"))
-}
-
-fn unwatch(label: &str, id: u32) {
-    let removed = {
-        let mut map = watches().lock().unwrap();
-        let key = map
-            .iter()
-            .find(|(k, e)| k.0 == label && e.id == id)
-            .map(|(k, _)| k.clone());
-        key.and_then(|k| map.remove(&k))
-    };
-    // Outside the lock: stopping a watcher can wait on its thread.
-    drop(removed);
 }
 
 fn watch_blocking(
     label: String,
     root: PathBuf,
+    id: u32,
     on_change: impl Fn(FsChange) -> bool + Send + 'static,
 ) -> Result<u32, String> {
     if !root.is_dir() {
         return Err(format!("not a directory: {}", root.display()));
+    }
+    // Same rule as git_watch: SMB and WSL shares drop change notifications, so
+    // the Explorer keeps polling there (treeWatch.ts documents the refusal).
+    if is_network_path(&root) {
+        return Err("network path: change notifications are unreliable, keep polling".into());
     }
     let (tx, rx) = std::sync::mpsc::channel();
     let watcher = notify::recommended_watcher(tx).map_err(|e| e.to_string())?;
@@ -119,32 +98,21 @@ fn watch_blocking(
         .watch(&root, RecursiveMode::Recursive)
         .map_err(|e| e.to_string())?;
 
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let key = (label, root.clone());
-    // A second watch for the same window and root means the page that owned the
-    // first one is gone (a reload never calls unwatch), so it replaces it.
-    let replaced = watches().lock().unwrap().insert(
-        key.clone(),
-        Entry {
-            id,
-            _watcher: watcher,
-        },
-    );
-    drop(replaced);
+    WATCHES.insert(label.clone(), root, id, watcher);
 
-    let cleanup_key = key.clone();
+    let pump_label = label.clone();
     if let Err(e) = std::thread::Builder::new()
         .name("fs-watch".into())
         .spawn(move || {
             pump(rx, on_change);
             // The page stopped listening (or the watch was dropped). Only remove
             // our OWN entry: a replacement may already sit under this key.
-            unwatch(&key.0, id);
+            WATCHES.unwatch(&pump_label, id);
         })
     {
         // Nothing will ever pump this watch, so the entry must not outlive it.
         // By id, in case a replacement already took the key.
-        unwatch(&cleanup_key.0, id);
+        WATCHES.unwatch(&label, id);
         return Err(e.to_string());
     }
     Ok(id)
@@ -267,7 +235,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "tedi-fs-watch-{name}-{}-{}",
             std::process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            WATCHES.next_id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join("src")).unwrap();
@@ -342,8 +310,10 @@ mod tests {
     fn reports_a_real_write_and_stops_on_unwatch() {
         let root = scratch("e2e");
         let (tx, rx) = mpsc::channel();
-        let id = watch_blocking("test".into(), root.clone(), move |c| tx.send(c).is_ok())
-            .expect("watch");
+        let id = watch_blocking("test".into(), root.clone(), WATCHES.next_id(), move |c| {
+            tx.send(c).is_ok()
+        })
+        .expect("watch");
         std::thread::sleep(Duration::from_millis(300));
 
         std::fs::create_dir_all(root.join("src")).unwrap();
@@ -357,7 +327,7 @@ mod tests {
             "the new file's directory is named: {got:?}"
         );
 
-        unwatch("test", id);
+        WATCHES.unwatch("test", id);
         std::thread::sleep(Duration::from_millis(300));
         while rx.try_recv().is_ok() {}
         std::fs::write(root.join("src").join("new.rs"), "y").unwrap();

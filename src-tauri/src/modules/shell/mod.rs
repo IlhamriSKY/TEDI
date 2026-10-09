@@ -121,19 +121,24 @@ impl Default for ShellState {
     }
 }
 
+/// Async because checking `cwd` stats it, and a cwd on an unreachable network
+/// share would otherwise block the UI thread until the SMB timeout.
 #[tauri::command]
-pub fn shell_session_open(
-    state: tauri::State<ShellState>,
+pub async fn shell_session_open(
+    state: tauri::State<'_, ShellState>,
     cwd: Option<String>,
 ) -> Result<u32, String> {
-    let initial = match cwd.as_deref().filter(|s| !s.is_empty()) {
-        Some(c) => {
-            let p = PathBuf::from(c);
-            if !p.is_dir() {
-                return Err(format!("cwd is not a directory: {c}"));
+    let initial = match cwd.filter(|s| !s.is_empty()) {
+        Some(c) => tauri::async_runtime::spawn_blocking(move || {
+            let p = PathBuf::from(&c);
+            if p.is_dir() {
+                Ok(p)
+            } else {
+                Err(format!("cwd is not a directory: {c}"))
             }
-            p
-        }
+        })
+        .await
+        .map_err(|e| format!("shell_session_open join error: {e}"))??,
         None => dirs::home_dir().unwrap_or_else(|| PathBuf::from("/")),
     };
     let session = Arc::new(ShellSession::new(initial));

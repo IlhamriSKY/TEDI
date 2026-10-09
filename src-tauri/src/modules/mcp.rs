@@ -243,9 +243,11 @@ fn mcp_spawn_inner(
                 match pipe.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
+                        let mut from = acc.len(); // only unscanned bytes are searched: a full rescan per read is quadratic
                         acc.extend_from_slice(&buf[..n]);
-                        while let Some(nl) = acc.iter().position(|&b| b == b'\n') {
-                            let line: Vec<u8> = acc.drain(..=nl).collect();
+                        while let Some(off) = acc[from..].iter().position(|&b| b == b'\n') {
+                            let line: Vec<u8> = acc.drain(..=from + off).collect();
+                            from = 0;
                             // Trim the '\n' and an optional preceding '\r'.
                             let mut end = line.len() - 1;
                             if end > 0 && line[end - 1] == b'\r' {
@@ -295,9 +297,11 @@ fn mcp_spawn_inner(
                 match pipe.read(&mut buf) {
                     Ok(0) => break,
                     Ok(n) => {
+                        let mut from = acc.len(); // only unscanned bytes are searched: a full rescan per read is quadratic
                         acc.extend_from_slice(&buf[..n]);
-                        while let Some(nl) = acc.iter().position(|&b| b == b'\n') {
-                            let line: Vec<u8> = acc.drain(..=nl).collect();
+                        while let Some(off) = acc[from..].iter().position(|&b| b == b'\n') {
+                            let line: Vec<u8> = acc.drain(..=from + off).collect();
+                            from = 0;
                             let mut end = line.len() - 1;
                             if end > 0 && line[end - 1] == b'\r' {
                                 end -= 1;

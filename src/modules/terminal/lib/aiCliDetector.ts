@@ -16,6 +16,15 @@ const COMMAND_BUFFER_MAX = 512;
 /** Poll cadence for screen reclassification. */
 const RECLASSIFY_INTERVAL_MS = 250;
 
+/**
+ * Cadence once the state has settled (idle or done) and no PTY output, input,
+ * title or progress has arrived for RECENT_OUTPUT_WINDOW_MS. Every way out of
+ * a settled state starts with one of those events, and each snaps the tick back
+ * to RECLASSIFY_INTERVAL_MS, so transitions are no slower. An idle agent pane
+ * otherwise re-read its viewport four times a second for as long as it lived.
+ */
+const QUIET_RECLASSIFY_MS = 2_000;
+
 /** Hold `working` for this long after the last positive signal. Bridges gaps between token chunks. */
 const WORKING_HOLD_MS = 2_500;
 
@@ -948,18 +957,32 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     }
   }
 
+  let lastEventAt = Date.now();
+  let quietTick = false;
   function scheduleReclassify() {
     if (reclassifyTimer) clearTimeout(reclassifyTimer);
-    reclassifyTimer = setTimeout(() => {
-      reclassifyTimer = null;
-      if (!activeTool) return;
-      reclassify();
-      scheduleReclassify();
-    }, RECLASSIFY_INTERVAL_MS);
+    quietTick =
+      (lastEmittedState === "idle" || lastEmittedState === "done") &&
+      Date.now() - lastEventAt > RECENT_OUTPUT_WINDOW_MS;
+    reclassifyTimer = setTimeout(
+      () => {
+        reclassifyTimer = null;
+        if (!activeTool) return;
+        reclassify();
+        scheduleReclassify();
+      },
+      quietTick ? QUIET_RECLASSIFY_MS : RECLASSIFY_INTERVAL_MS,
+    );
+  }
+  /** Something arrived: leave the quiet cadence at once. */
+  function wake() {
+    lastEventAt = Date.now();
+    if (quietTick && activeTool && !disposed) scheduleReclassify();
   }
 
   const detector = {
     pushInput(chunk: string) {
+      wake();
       // Any PTY input timestamps lastUserInputAt so pushOutput can skip echo bytes.
       if (activeTool) lastUserInputAt = Date.now();
       // ESC prefix means CSI, not a keystroke. Skip char-level processing.
@@ -1019,6 +1042,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
     },
     pushOutput(chunk: Uint8Array | string) {
       if (!activeTool) return;
+      wake();
       const n = typeof chunk === "string" ? chunk.length : chunk.byteLength;
       // Decode to text for the recent-output buffer (fallback when viewport lags).
       // `stream: true` reassembles multi-byte codepoints across chunks.
@@ -1036,11 +1060,12 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       if (now - lastUserInputAt > ECHO_SUPPRESS_MS) {
         outputSamples.push({ t: now, n });
       }
-      // Reclassification is timer-driven (250ms) rather than per-chunk.
+      // Reclassification is timer-driven (250ms, see QUIET_RECLASSIFY_MS) rather than per-chunk.
       // A noisy dev server can emit dozens of chunks per second.
     },
     pushTitle(title: string) {
       if (!activeTool) return;
+      wake();
       const working = TITLE_GLYPH_TOOLS.has(activeTool) && titleIndicatesWorking(title);
       lastTitleIsWorking = working;
       // Gemini's "✋ Action Required" title (mutually exclusive with its "✦"
@@ -1063,6 +1088,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       }
     },
     pushProgress(state: number, _progress: number | null) {
+      wake();
       lastProgressAt = Date.now();
       // 1 = set value, 3 = indeterminate => busy. 0 = clear, 2 = error,
       // 4 = paused => not busy.
@@ -1091,6 +1117,7 @@ export function createAiCliDetector(opts: AiCliDetectorOptions): AiCliDetector {
       if (activeTool) clearTool();
     },
     acknowledge() {
+      wake();
       acknowledgeDone();
     },
     notifyShellPrompt() {

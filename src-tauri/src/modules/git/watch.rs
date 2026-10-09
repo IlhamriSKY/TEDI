@@ -35,11 +35,12 @@ use notify::{RecommendedWatcher, RecursiveMode, Watcher};
 use serde::Serialize;
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::mpsc::{Receiver, RecvTimeoutError};
-use std::sync::{Arc, Mutex, OnceLock, Weak};
+use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 use tauri::ipc::Channel;
+
+use crate::modules::watch_registry::{is_network_path, Registry, SharedWatcher};
 
 /// A burst (a save, a checkout, `npm run build` writing a tracked file) is
 /// reported once, after it has been quiet this long...
@@ -54,24 +55,7 @@ const MAX_BATCH_PATHS: usize = 4096;
 #[cfg(not(any(windows, target_os = "macos")))]
 const MAX_WATCHED_DIRS: usize = 2_000;
 
-type SharedWatcher = Arc<Mutex<RecommendedWatcher>>;
-
-struct Entry {
-    id: u32,
-    // Dropping the watcher is what stops it: its event sender goes with it, and
-    // the pump thread sees the channel close and exits.
-    _watcher: SharedWatcher,
-}
-
-/// Live watches, one per (window, root). Per WINDOW because a float window is a
-/// second webview with its own subscriptions, and letting it replace the main
-/// window's watch would silently drop the main window back to its safety poll.
-fn watches() -> &'static Mutex<HashMap<(String, PathBuf), Entry>> {
-    static WATCHES: OnceLock<Mutex<HashMap<(String, PathBuf), Entry>>> = OnceLock::new();
-    WATCHES.get_or_init(Default::default)
-}
-
-static NEXT_ID: AtomicU32 = AtomicU32::new(1);
+pub(crate) static WATCHES: Registry = Registry::new();
 
 /// Watch the repository at `root` and call `on_change` after anything in it that
 /// can move `git status` changes. Resolves to an id for [`git_unwatch`], or an
@@ -83,10 +67,13 @@ pub async fn git_watch(
     on_change: Channel<RepoChange>,
 ) -> Result<u32, String> {
     let label = window.label().to_string();
+    // Taken here, in call order: blocking-pool tasks can START out of order,
+    // and the registry lets the newest id win (see `Registry::insert`).
+    let id = WATCHES.next_id();
     // The ignore walk and, off Windows/macOS, one watch per directory: file I/O
     // that must stay off the UI thread.
     tauri::async_runtime::spawn_blocking(move || {
-        watch_blocking(label, PathBuf::from(root), move |change| {
+        watch_blocking(label, PathBuf::from(root), id, move |change| {
             on_change.send(change).is_ok()
         })
     })
@@ -97,27 +84,15 @@ pub async fn git_watch(
 #[tauri::command]
 pub async fn git_unwatch(window: tauri::Window, id: u32) -> Result<(), String> {
     let label = window.label().to_string();
-    tauri::async_runtime::spawn_blocking(move || unwatch(&label, id))
+    tauri::async_runtime::spawn_blocking(move || WATCHES.unwatch(&label, id))
         .await
         .map_err(|e| format!("git_unwatch join error: {e}"))
-}
-
-fn unwatch(label: &str, id: u32) {
-    let removed = {
-        let mut map = watches().lock().unwrap();
-        let key = map
-            .iter()
-            .find(|(k, e)| k.0 == label && e.id == id)
-            .map(|(k, _)| k.clone());
-        key.and_then(|k| map.remove(&k))
-    };
-    // Outside the lock: stopping a watcher can wait on its thread.
-    drop(removed);
 }
 
 fn watch_blocking(
     label: String,
     root: PathBuf,
+    id: u32,
     on_change: impl Fn(RepoChange) -> bool + Send + 'static,
 ) -> Result<u32, String> {
     if !root.is_dir() {
@@ -135,29 +110,23 @@ fn watch_blocking(
         arm(&mut w, &root)?
     };
 
-    let id = NEXT_ID.fetch_add(1, Ordering::Relaxed);
-    let key = (label, root.clone());
-    // A second watch for the same window and root means the page that owned the
-    // first one is gone (a reload never calls unwatch), so it replaces it.
-    let replaced = watches().lock().unwrap().insert(
-        key.clone(),
-        Entry {
-            id,
-            _watcher: watcher.clone(),
-        },
-    );
-    drop(replaced);
+    WATCHES.insert(label.clone(), root.clone(), id, watcher.clone());
 
     let weak = Arc::downgrade(&watcher);
-    std::thread::Builder::new()
+    let pump_label = label.clone();
+    if let Err(e) = std::thread::Builder::new()
         .name("git-watch".into())
         .spawn(move || {
             pump(rx, root, filter, weak, watched, on_change);
             // The page stopped listening (or the watch was dropped). Only remove
             // our OWN entry: a replacement may already sit under this key.
-            unwatch(&key.0, id);
+            WATCHES.unwatch(&pump_label, id);
         })
-        .map_err(|e| e.to_string())?;
+    {
+        // Nothing will ever pump this watch, so the entry must not outlive it.
+        WATCHES.unwatch(&label, id);
+        return Err(e.to_string());
+    }
     Ok(id)
 }
 
@@ -495,34 +464,6 @@ fn add_tree(w: &mut RecommendedWatcher, dir: &Path, count: &mut usize) -> Result
     Ok(())
 }
 
-#[cfg(windows)]
-fn is_network_path(p: &Path) -> bool {
-    use std::path::{Component, Prefix};
-    let Some(Component::Prefix(prefix)) = p.components().next() else {
-        return false;
-    };
-    match prefix.kind() {
-        Prefix::Disk(letter) | Prefix::VerbatimDisk(letter) => {
-            let drive: Vec<u16> = format!("{}:\\", letter as char)
-                .encode_utf16()
-                .chain(Some(0))
-                .collect();
-            // SAFETY: `drive` is a NUL-terminated UTF-16 string that outlives the call.
-            let kind =
-                unsafe { windows_sys::Win32::Storage::FileSystem::GetDriveTypeW(drive.as_ptr()) };
-            // DRIVE_REMOTE: a mapped network share.
-            kind == 4
-        }
-        // UNC shares, `\\wsl.localhost\...`, device paths.
-        _ => true,
-    }
-}
-
-#[cfg(not(windows))]
-fn is_network_path(_p: &Path) -> bool {
-    false
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -532,7 +473,7 @@ mod tests {
         let dir = std::env::temp_dir().join(format!(
             "tedi-git-watch-{name}-{}-{}",
             std::process::id(),
-            NEXT_ID.fetch_add(1, Ordering::Relaxed)
+            WATCHES.next_id()
         ));
         let _ = std::fs::remove_dir_all(&dir);
         std::fs::create_dir_all(dir.join(".git").join("objects")).unwrap();
@@ -662,8 +603,10 @@ mod tests {
     fn reports_real_changes_by_kind() {
         let root = scratch("e2e");
         let (tx, rx) = mpsc::channel();
-        let id = watch_blocking("test".into(), root.clone(), move |c| tx.send(c).is_ok())
-            .expect("watch");
+        let id = watch_blocking("test".into(), root.clone(), WATCHES.next_id(), move |c| {
+            tx.send(c).is_ok()
+        })
+        .expect("watch");
         // Let the backend settle before the first write.
         std::thread::sleep(Duration::from_millis(300));
 
@@ -694,7 +637,7 @@ mod tests {
             "an edit to a tracked path must reach status: {got:?}"
         );
 
-        unwatch("test", id);
+        WATCHES.unwatch("test", id);
         std::thread::sleep(Duration::from_millis(300));
         while rx.try_recv().is_ok() {}
         std::fs::write(root.join("src").join("main.rs"), "fn main() { }").unwrap();

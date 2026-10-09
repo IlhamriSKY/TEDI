@@ -254,6 +254,8 @@ export const useExtensionsStore = create<State & Actions>((set, get) => ({
       await loader.deactivate(id);
     }
     await invoke("ext_uninstall", { id });
+    // Dynamic for the same reason as `loader`'s host import: Settings runs this.
+    await import("./host").then((h) => h.releaseTerminalPaths(id)).catch(() => {});
     evictExtensionIcon(id);
     const list = await loader.listInstalled();
     set({ list });

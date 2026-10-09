@@ -1,19 +1,32 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
-import { Streamdown } from "streamdown";
-import { EditorPane, type EditorPaneHandle } from "@/modules/editor";
+import type { EditorPaneHandle } from "@/modules/editor";
 import { decodeFloatParams, floatEv, type FloatCards } from "@/modules/panes/floatProtocol";
-import { BoardColumns } from "@/modules/workspaces/WorkspaceBoard";
 import type { PaneEntry } from "@/modules/tabs/lib/entries";
-import { FloatTableProvider, markdownComponents } from "@/components/ai-elements/markdown-code";
-import { ExtensionPanelMount } from "@/modules/extensions/components/ExtensionPanelMount";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { Toaster } from "@/components/ui/toast";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
-import { safeUrlTransform } from "@/lib/markdownSafety";
-import { FloatTerminal } from "./FloatTerminal";
 import { Minus, Square, X } from "lucide-react";
+
+// A float window shows ONE kind of pane, so each kind's view loads on its own.
+// Static imports made every float, usually a terminal, parse and hold the
+// editor, the board, the markdown pipeline and the extension host as well.
+const FloatTerminal = lazy(() =>
+  import("./FloatTerminal").then((m) => ({ default: m.FloatTerminal })),
+);
+const FloatTableView = lazy(() =>
+  import("./FloatTableView").then((m) => ({ default: m.FloatTableView })),
+);
+const EditorPane = lazy(() => import("@/modules/editor").then((m) => ({ default: m.EditorPane })));
+const BoardColumns = lazy(() =>
+  import("@/modules/workspaces/WorkspaceBoard").then((m) => ({ default: m.BoardColumns })),
+);
+const ExtensionPanelMount = lazy(() =>
+  import("@/modules/extensions/components/ExtensionPanelMount").then((m) => ({
+    default: m.ExtensionPanelMount,
+  })),
+);
 
 /**
  * Root of a floating pane window. Reads the leaf params from its URL and renders
@@ -57,25 +70,27 @@ export function FloatApp() {
       <div className="relative min-h-0 flex-1">
         <ErrorBoundary label="floating pane" resetKeys={[leafId]}>
           <TooltipProvider>
-            {params?.kind === "terminal" ? (
-              <FloatTerminal leafId={params.leafId} remotePty={params.remotePty} />
-            ) : params?.kind === "table" && params.markdown ? (
-              <FloatTableView markdown={params.markdown} />
-            ) : params?.kind === "editor" && params.path ? (
-              <EditorPane ref={editorRef} path={params.path} aiDisabled={params.privateLeaf} />
-            ) : params?.kind === "board" ? (
-              <FloatBoard leafId={params.leafId} />
-            ) : params?.kind === "extension-panel" && params.extensionId && params.panelId ? (
-              <FloatExtensionPanel
-                extensionId={params.extensionId}
-                panelId={params.panelId}
-                reuseKey={params.reuseKey}
-              />
-            ) : (
-              <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
-                This pane can't be floated.
-              </div>
-            )}
+            <Suspense fallback={null}>
+              {params?.kind === "terminal" ? (
+                <FloatTerminal leafId={params.leafId} remotePty={params.remotePty} />
+              ) : params?.kind === "table" && params.markdown ? (
+                <FloatTableView markdown={params.markdown} />
+              ) : params?.kind === "editor" && params.path ? (
+                <EditorPane ref={editorRef} path={params.path} aiDisabled={params.privateLeaf} />
+              ) : params?.kind === "board" ? (
+                <FloatBoard leafId={params.leafId} />
+              ) : params?.kind === "extension-panel" && params.extensionId && params.panelId ? (
+                <FloatExtensionPanel
+                  extensionId={params.extensionId}
+                  panelId={params.panelId}
+                  reuseKey={params.reuseKey}
+                />
+              ) : (
+                <div className="text-muted-foreground flex h-full items-center justify-center text-[12px]">
+                  This pane can't be floated.
+                </div>
+              )}
+            </Suspense>
           </TooltipProvider>
         </ErrorBoundary>
       </div>
@@ -181,26 +196,6 @@ function FloatExtensionPanel({
       surface="pane"
       reuseKey={reuseKey}
     />
-  );
-}
-
-/** A markdown table popped out into a float window. Re-renders the table markdown
- *  through the shared pipeline so it looks identical to the inline table;
- *  `FloatTableProvider` hides the (now-redundant) open-in-pane control. The
- *  TooltipProvider its controls need is supplied once by FloatApp for all kinds. */
-function FloatTableView({ markdown }: { markdown: string }) {
-  return (
-    <FloatTableProvider value={true}>
-      <div className="h-full overflow-auto p-2">
-        <Streamdown
-          components={markdownComponents}
-          controls={{ table: false }}
-          urlTransform={safeUrlTransform}
-        >
-          {markdown}
-        </Streamdown>
-      </div>
-    </FloatTableProvider>
   );
 }
 

@@ -27,8 +27,15 @@ export type SshForward = {
  *  several forwards over one bastion share a single SSH session. */
 const sessions = new Map<string, { session: SshSession; refs: number }>();
 /** Forwards already open on a session, keyed by `connId|host|port`, so a
- *  reconnect to the same database reuses its port instead of binding another. */
-const forwards = new Map<string, SshForward>();
+ *  reconnect to the same database reuses its port instead of binding another.
+ *  Held per OWNER (an extension id): opening again is idempotent for one owner,
+ *  and one owner's close cannot tear down a forward another still uses. */
+const forwards = new Map<string, { forward: SshForward; owners: Set<string> }>();
+
+/** Opens in flight, so two first requests for one session or one forward share
+ *  a single open instead of racing to create two and leaking the loser. */
+const openingSessions = new Map<string, Promise<SshSession>>();
+const openingForwards = new Map<string, Promise<SshForward>>();
 
 function forwardKey(connectionId: string, remoteHost: string, remotePort: number): string {
   return `${connectionId}|${remoteHost}|${remotePort}`;
@@ -41,7 +48,23 @@ async function sessionFor(connectionId: string): Promise<SshSession> {
     live.refs += 1;
     return live.session;
   }
+  const pending = openingSessions.get(connectionId);
+  if (pending) {
+    const session = await pending;
+    const entry = sessions.get(connectionId);
+    if (entry?.session === session) entry.refs += 1;
+    return session;
+  }
+  const open = openSession(connectionId);
+  openingSessions.set(connectionId, open);
+  try {
+    return await open;
+  } finally {
+    openingSessions.delete(connectionId);
+  }
+}
 
+async function openSession(connectionId: string): Promise<SshSession> {
   const list = await listConnections();
   const conn = list.find((c) => c.id === connectionId);
   if (!conn) throw new Error(`ssh: connection "${connectionId}" not found`);
@@ -53,7 +76,10 @@ async function sessionFor(connectionId: string): Promise<SshSession> {
   const secrets = await getConnectionSecrets(connectionId);
   const jumps: SshJumpHop[] = await resolveJumpHops(conn.proxyJumpId, conn.id, list);
 
-  const session = await openSsh(
+  // The exit callbacks name the session they belong to. Null until the open
+  // resolves: a failure during the handshake has no session to drop yet.
+  let session: SshSession | null = null;
+  session = await openSsh(
     {
       host: conn.host,
       port: conn.port,
@@ -70,19 +96,22 @@ async function sessionFor(connectionId: string): Promise<SshSession> {
     },
     {
       onData: () => {},
-      onExit: () => dropSession(connectionId),
-      onError: () => dropSession(connectionId),
+      onExit: () => session && dropSession(connectionId, session),
+      onError: () => session && dropSession(connectionId, session),
     },
   );
   sessions.set(connectionId, { session, refs: 1 });
   return session;
 }
 
-/** Forget a session that died, so the next request opens a fresh one. */
-function dropSession(connectionId: string): void {
+/** Forget a session that died, so the next request opens a fresh one. Only
+ *  THAT session: an old one's late exit must not evict its replacement, which
+ *  would then never be closed. */
+function dropSession(connectionId: string, session: SshSession): void {
+  if (sessions.get(connectionId)?.session !== session) return;
   sessions.delete(connectionId);
-  for (const key of [...forwards.keys()]) {
-    if (key.startsWith(`${connectionId}|`)) forwards.delete(key);
+  for (const [key, entry] of [...forwards]) {
+    if (entry.forward.sessionId === session.id) forwards.delete(key);
   }
 }
 
@@ -91,6 +120,7 @@ function dropSession(connectionId: string): void {
  * loopback port. Repeat calls for the same target reuse the existing forward.
  */
 export async function openForwardForConnection(
+  owner: string,
   connectionId: string,
   remoteHost: string,
   remotePort: number,
@@ -102,14 +132,36 @@ export async function openForwardForConnection(
   }
   const key = forwardKey(connectionId, host, remotePort);
   const existing = forwards.get(key);
-  if (existing) return existing;
+  if (existing) {
+    existing.owners.add(owner);
+    return existing.forward;
+  }
+  const pending = openingForwards.get(key);
+  if (pending) {
+    const forward = await pending;
+    forwards.get(key)?.owners.add(owner);
+    return forward;
+  }
+  const open = openForward(connectionId, host, remotePort);
+  openingForwards.set(key, open);
+  try {
+    const forward = await open;
+    forwards.set(key, { forward, owners: new Set([owner]) });
+    return forward;
+  } finally {
+    openingForwards.delete(key);
+  }
+}
 
+async function openForward(
+  connectionId: string,
+  host: string,
+  remotePort: number,
+): Promise<SshForward> {
   const session = await sessionFor(connectionId);
   try {
     const localPort = await openSshForward(session.id, 0, host, remotePort);
-    const forward: SshForward = { sessionId: session.id, localPort };
-    forwards.set(key, forward);
-    return forward;
+    return { sessionId: session.id, localPort };
   } catch (e) {
     // The session may still be fine (a refused target, say), so only give up
     // our own reference rather than tearing it down for other forwards.
@@ -129,13 +181,17 @@ function releaseSession(connectionId: string): void {
   void live.session.close().catch(() => {});
 }
 
-/** Close the tunnel a caller opened. Safe to call for an unknown target. */
+/** Release `owner`'s hold on a tunnel; it closes once no owner is left. Safe
+ *  to call for an unknown target. */
 export async function closeForwardForConnection(
+  owner: string,
   connectionId: string,
   remoteHost: string,
   remotePort: number,
 ): Promise<void> {
   const key = forwardKey(connectionId, remoteHost.trim(), remotePort);
-  if (!forwards.delete(key)) return;
+  const entry = forwards.get(key);
+  if (!entry || !entry.owners.delete(owner) || entry.owners.size > 0) return;
+  forwards.delete(key);
   releaseSession(connectionId);
 }

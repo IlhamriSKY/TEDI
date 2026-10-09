@@ -52,6 +52,11 @@ export function ReasoningDropdown() {
   // Subscribe to the map, not a derived value: a zustand selector returning a
   // fresh object every render would re-render this on every unrelated pref change.
   const byModel = usePreferencesStore((s) => s.modelReasoning);
+  // The `max` foil only moves while a turn runs: this picker is on screen all
+  // day, and an infinite background-position animation repaints every frame.
+  const live = useChatStore(
+    (s) => s.agentMeta.status === "thinking" || s.agentMeta.status === "streaming",
+  );
 
   const control = reasoningControlFor(provider, modelId);
   if (!control) return null;
@@ -86,6 +91,7 @@ export function ReasoningDropdown() {
               variant="ghost"
               size="sm"
               aria-label={`Reasoning effort: ${label}`}
+              data-foil-live={live || undefined}
               className="text-muted-foreground my-1 h-5.5 min-w-0 shrink-0 gap-1 rounded-md px-1.5 text-xs"
             >
               {/* Icon and label are coloured SEPARATELY rather than by tinting

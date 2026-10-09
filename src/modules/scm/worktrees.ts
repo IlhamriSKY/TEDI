@@ -207,6 +207,22 @@ export function mainWorktreePath(list: Worktree[], fallback: string): string {
   return list.find((w) => w.main)?.path ?? fallback;
 }
 
+/**
+ * A worktree's path relative to the MAIN worktree when it lives inside it,
+ * which is where TEDI puts them; the main one itself prints as `.`. An absolute
+ * path elsewhere is shown whole - shortening it would hide the only thing that
+ * distinguishes it.
+ */
+export function worktreeShortPath(path: string, main: string): string {
+  if (path === main) return ".";
+  return path.startsWith(`${main}/`) ? path.slice(main.length + 1) : path;
+}
+
+/** Branch name, or `(bare)` / `(detached <sha7>)` when there is none. */
+export function worktreeLabel(w: Worktree): string {
+  return w.branch ?? (w.bare ? "(bare)" : `(detached ${w.head.slice(0, 7)})`);
+}
+
 type Runner = (args: string[]) => Promise<string>;
 
 /** What a new worktree checks out. */

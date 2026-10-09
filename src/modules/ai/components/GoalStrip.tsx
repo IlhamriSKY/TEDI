@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -42,8 +43,9 @@ export function GoalStrip({ sessionId }: Props) {
   }, [sessionId, hydrate]);
 
   const open = !!goal && goal.completedAt === null;
-  // Hook order is fixed, so tick before any early return.
-  const now = useLiveNow(open);
+  // Hook order is fixed, so tick before any early return. Not while hidden: a
+  // dismissed goal can sit unfinished for days and renders nothing.
+  const now = useLiveNow(open && !hidden);
 
   if (!sessionId || !goal || hidden) return null;
 
@@ -111,7 +113,10 @@ export function GoalStrip({ sessionId }: Props) {
                 aria-label={armed ? "Pause goal" : "Resume goal"}
                 className={BTN}
               >
-                {armed ? <Pause size={10} strokeWidth={2} /> : <Play size={10} strokeWidth={2} />}
+                <IconSwap
+                  active={armed ? 0 : 1}
+                  icons={[<Pause size={10} strokeWidth={2} />, <Play size={10} strokeWidth={2} />]}
+                />
               </button>
             </IconTooltip>
             <IconTooltip label="Mark goal done" side="top">

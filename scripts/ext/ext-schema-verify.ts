@@ -70,7 +70,9 @@ try {
 check(
   "extensions/manifest.schema.json is up to date",
   committed === generated,
-  committed ? "run: tsx scripts/ext/ext-schema-verify.ts --write" : "file missing; run with --write",
+  committed
+    ? "run: tsx scripts/ext/ext-schema-verify.ts --write"
+    : "file missing; run with --write",
 );
 
 console.log("\n[B] the schema stays PERMISSIVE (never stricter than the host)");
@@ -121,6 +123,17 @@ for (const entry of readdirSync(extDir, { withFileTypes: true })) {
   seen++;
   const result = safeParseManifest(JSON.parse(text));
   check(entry.name, result.ok, result.ok ? "" : result.error);
+}
+// What the host actually parses is Rust's re-serialization, where an absent
+// `Option` is `null`: `"engines": {}` comes back as `{ "tedi": null }`.
+{
+  const r = safeParseManifest({
+    id: "acme.hello",
+    name: "Hello",
+    version: "0.1.0",
+    engines: { tedi: null },
+  });
+  check("engines.tedi: null (Rust's None) still parses", r.ok, r.ok ? "" : r.error);
 }
 // Zero manifests would make section D vacuously green on a fresh clone, where
 // `/extensions/*/` is gitignored and nothing is checked out.

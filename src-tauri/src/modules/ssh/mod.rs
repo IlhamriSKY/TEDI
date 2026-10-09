@@ -373,8 +373,8 @@ pub async fn ssh_git_status(
     state: tauri::State<'_, SshState>,
     id: u32,
     cwd: String,
-) -> Result<crate::modules::git::commands::GitStatus, String> {
-    use crate::modules::git::commands::{parse_branch_header, parse_porcelain_v1, GitStatus};
+) -> Result<crate::modules::git::status::GitStatus, String> {
+    use crate::modules::git::status::{parse_branch_header, parse_porcelain_v1, GitStatus};
 
     let session = state
         .sessions

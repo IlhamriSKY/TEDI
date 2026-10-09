@@ -1057,9 +1057,11 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
     return (
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="flex items-center gap-1.5">
-          <span className="bg-diff-added size-1.5 animate-pulse rounded-full" />
+          {/* The result only proves the process STARTED; it may have exited
+              since, so the card neither says "running" nor pulses forever. */}
+          <span className="bg-diff-added size-1.5 rounded-full" />
           {handle ? <span className="text-foreground">{handle}</span> : null}
-          <span className="text-muted-foreground">running</span>
+          <span className="text-muted-foreground">started</span>
         </div>
         {cmd ? <div className="text-muted-foreground truncate">{cmd}</div> : null}
       </div>

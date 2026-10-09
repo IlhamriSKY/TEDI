@@ -11,6 +11,7 @@
  *
  * Local terminals only: an SSH pane's paths live on the remote host.
  */
+import { toForwardSlash } from "@/lib/path";
 import { invoke } from "@tauri-apps/api/core";
 import type { IBufferLine, ILink, Terminal } from "@xterm/xterm";
 
@@ -80,12 +81,12 @@ export function findFileRefs(text: string): FileRef[] {
  * against the shell's cwd. Forward slashes, the frontend's canonical form.
  */
 export function candidatePaths(raw: string, cwd: string | null): string[] {
-  const p = raw.replace(/\\/g, "/");
+  const p = toForwardSlash(raw);
   const out: string[] = [];
   const winAbs = /^[A-Za-z]:\//.test(p);
   if (winAbs || p.startsWith("/")) out.push(p);
   if (cwd && !winAbs) {
-    const base = cwd.replace(/\\/g, "/").replace(/\/+$/, "");
+    const base = toForwardSlash(cwd).replace(/\/+$/, "");
     out.push(`${base}/${p.replace(/^\.\//, "").replace(/^\/+/, "")}`);
   }
   return out;

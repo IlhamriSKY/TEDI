@@ -21,6 +21,8 @@ import {
   localWorktreeOps,
   mainWorktreePath,
   suggestWorktreePath,
+  worktreeLabel,
+  worktreeShortPath,
   worktreeSlug,
   type Worktree,
 } from "./worktrees";
@@ -65,23 +67,18 @@ async function repoFor(cwd?: string): Promise<string> {
 }
 
 /**
- * `<main>/x` printed as `x`; anything outside it stays absolute.
+ * One line per worktree. `*` marks the main one, which cannot be removed.
  *
- * The main worktree prints as `.` rather than repeating itself: the header line
- * above already carries its absolute path, and a tool result is tokens.
+ * The main worktree's path prints as `.` rather than repeating itself: the
+ * header line above already carries its absolute path, and a tool result is
+ * tokens.
  */
-function shortPath(path: string, main: string): string {
-  if (path === main) return ".";
-  return path.startsWith(`${main}/`) ? path.slice(main.length + 1) : path;
-}
-
-/** One line per worktree. `*` marks the main one, which cannot be removed. */
 function render(list: Worktree[], main: string): string {
   if (list.length === 0) return "(not a git repository)";
   const lines = list.map((w) => {
-    const name = w.branch ?? (w.bare ? "(bare)" : `(detached ${w.head.slice(0, 7)})`);
+    const name = worktreeLabel(w);
     const flags = [w.locked && "locked", w.prunable && "MISSING"].filter(Boolean).join(" ");
-    return `${w.main ? "*" : " "} ${name}\t${shortPath(w.path, main)}${flags ? `\t${flags}` : ""}`;
+    return `${w.main ? "*" : " "} ${name}\t${worktreeShortPath(w.path, main)}${flags ? `\t${flags}` : ""}`;
   });
   return `${basename(main)} (${main})\n${lines.join("\n")}`;
 }
@@ -153,7 +150,7 @@ async function worktree(rawArgs: WorktreeArgs = {}): Promise<string> {
       const hit = list.find(
         (w) =>
           toForwardSlash(target) === w.path ||
-          shortPath(w.path, main) === target ||
+          worktreeShortPath(w.path, main) === target ||
           w.branch === target,
       );
       if (!hit) throw new Error(`No worktree at ${target}. Call \`list\` first.`);
@@ -172,7 +169,7 @@ async function worktree(rawArgs: WorktreeArgs = {}): Promise<string> {
       const hit = list.find(
         (w) =>
           toForwardSlash(target) === w.path ||
-          shortPath(w.path, main) === target ||
+          worktreeShortPath(w.path, main) === target ||
           w.branch === target ||
           (w.branch !== null && worktreeSlug(w.branch) === target),
       );

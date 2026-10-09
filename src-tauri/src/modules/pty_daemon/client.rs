@@ -130,15 +130,15 @@ impl PtyClient {
         }
         // No daemon listening — spawn one and poll.
         super::spawn::spawn_daemon_detached().map_err(|e| format!("spawn daemon: {e}"))?;
+        // A flat, short poll: this runs before the main window exists on a cold
+        // boot, and a backoff (50, 100, 200, 400 ms) rounded the daemon's start-up
+        // time up to the next step. A failed local-socket connect is cheap.
         let start = Instant::now();
-        let mut delay_ms: u64 = 50;
         while start.elapsed() < SPAWN_WAIT_TOTAL {
-            thread::sleep(Duration::from_millis(delay_ms));
+            thread::sleep(Duration::from_millis(25));
             if let Ok(stream) = transport::connect_to_daemon() {
                 return Self::from_stream(stream);
             }
-            // Exponential backoff capped at 500 ms.
-            delay_ms = (delay_ms.saturating_mul(2)).min(500);
         }
         Err(format!(
             "daemon did not respond within {}s",

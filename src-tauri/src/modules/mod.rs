@@ -29,3 +29,4 @@ pub mod secrets;
 pub mod shell;
 pub mod snapshot;
 pub mod ssh;
+pub mod watch_registry;

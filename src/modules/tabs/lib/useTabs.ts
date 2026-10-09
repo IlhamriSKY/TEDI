@@ -648,19 +648,26 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
   }, []);
 
   const setEditorLeafDirty = useCallback((leafId: number, dirty: boolean) => {
-    setTabs((curr) =>
-      curr.map((t) => {
+    setTabs((curr) => {
+      // Every editor reports `false` on mount; an unchanged flag must not
+      // re-render the tab tree and re-save the workspace snapshot.
+      let changed = false;
+      const next = curr.map((t) => {
         if (t.kind !== "pane") return t;
         const leaf = findLeaf(t.paneTree, leafId);
         if (!leaf || leaf.leafKind !== "editor") return t;
+        const unpreview = dirty && !!leaf.preview;
+        if (leaf.dirty === dirty && !unpreview) return t;
+        changed = true;
         const patch: Partial<Pick<EditorLeafState, "dirty" | "preview">> = {
           dirty,
         };
-        if (dirty && leaf.preview) patch.preview = false;
+        if (unpreview) patch.preview = false;
         const paneTree = updateEditorLeaf(t.paneTree, leafId, patch);
         return syncPaneMirror({ ...t, paneTree });
-      }),
-    );
+      });
+      return changed ? next : curr;
+    });
   }, []);
 
   const setEditorLeafPath = useCallback((leafId: number, path: string) => {

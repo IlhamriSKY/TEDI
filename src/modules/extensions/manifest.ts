@@ -217,9 +217,11 @@ const ContributesSchema = z
 
 const EnginesSchema = z
   .object({
+    // `.nullish()`, not `.optional()`: Rust re-serializes the manifest, so an
+    // `"engines": {}` arrives here as `{ "tedi": null }`.
     tedi: z
       .string()
-      .optional()
+      .nullish()
       .meta({
         description:
           "Minimum TEDI version this extension needs. Checked at install AND at activate, so an older host refuses rather than half-working. Name the version that ADDED the newest API you call; leave it off if you only use API from your first release.",

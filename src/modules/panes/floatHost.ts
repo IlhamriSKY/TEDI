@@ -63,6 +63,10 @@ function startTerminalHost(leafId: number): void {
     useFloatStore.getState().setFloating(leafId, false);
   };
 
+  // A listen that resolves after teardown would outlive it, and a stray `in`
+  // listener would type a later float's input into this PTY twice.
+  const keep = (u: () => void) => (torn ? u() : unlisteners.push(u));
+
   const sendSnap = () => {
     const size = terminalSize(leafId) ?? { cols: 80, rows: 24 };
     lastCols = size.cols;
@@ -97,13 +101,11 @@ function startTerminalHost(leafId: number): void {
     // Float window is up: main pane shows the indicator + stops rendering the
     // now-redundant terminal to lighten the load.
     useFloatStore.getState().setFloating(leafId, true);
-  }).then((u) => unlisteners.push(u));
-  void listen<string>(floatEv.in(leafId), (e) => writeTerminalInput(leafId, e.payload)).then((u) =>
-    unlisteners.push(u),
-  );
+  }).then(keep);
+  void listen<string>(floatEv.in(leafId), (e) => writeTerminalInput(leafId, e.payload)).then(keep);
   // Fast path when the float DID manage to emit BYE before closing; the poll
   // above is the guaranteed fallback when it didn't.
-  void listen(floatEv.bye(leafId), teardown).then((u) => unlisteners.push(u));
+  void listen(floatEv.bye(leafId), teardown).then(keep);
 
   hosts.set(leafId, teardown);
 }

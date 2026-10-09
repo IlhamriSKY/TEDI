@@ -114,8 +114,7 @@ check(
 );
 check(
   "secrets are read inside the host, never returned to the caller",
-  /getConnectionSecrets\(connectionId\)/.test(tunnelSrc) &&
-    !/return[^;]*secrets/.test(tunnelSrc),
+  /getConnectionSecrets\(connectionId\)/.test(tunnelSrc) && !/return[^;]*secrets/.test(tunnelSrc),
 );
 check(
   "sessions are shared per SSH host and closed with their last forward",
@@ -123,7 +122,9 @@ check(
 );
 check(
   "a dead session is forgotten so the next connect reopens it",
-  /onExit: \(\) => dropSession\(connectionId\)/.test(tunnelSrc),
+  /onExit: \(\) => session && dropSession\(connectionId, session\)/.test(tunnelSrc) &&
+    // ...and only THAT session, so an old one's late exit cannot evict its replacement.
+    /sessions\.get\(connectionId\)\?\.session !== session\) return/.test(tunnelSrc),
 );
 
 function hostSrcForSsh(): string {
@@ -132,8 +133,12 @@ function hostSrcForSsh(): string {
 function forwardPermChecks(): number {
   const src = hostSrcForSsh();
   const start = src.indexOf("      openForward(connectionId");
-  return (src.slice(start, start + 900).match(/requirePermission\(ext\.id, declared, "ssh:connections"\)/g) ?? [])
-    .length;
+  // Up to the end of the `ssh` block, so a longer forward body cannot push the
+  // second check out of view.
+  const end = src.indexOf("    terminal: {", start);
+  return (
+    src.slice(start, end).match(/requirePermission\(ext\.id, declared, "ssh:connections"\)/g) ?? []
+  ).length;
 }
 
 if (!hasExtension) {
@@ -157,7 +162,7 @@ if (!hasExtension) {
   );
   check(
     "backend_for short-circuits for non-PostgreSQL engines",
-    /if self\.kind != "postgres"/.test(stateRs),
+    /if self\.kind != BackendKind::Postgres/.test(stateRs),
   );
   // Read-then-write: the read is the cache hit, the write publishes a newly
   // opened pool. Losing either turns every tree expand into a fresh connection.
@@ -171,7 +176,10 @@ if (!hasExtension) {
   const mainRs = sidecar("routes.rs");
   // Every schema-browsing handler must resolve its pool through browse_target;
   // reading conn.backend directly is the wrong-database bug.
-  check("browse_target routes schema reads through backend_for", /backend_for\(Some\(&database\)\)/.test(mainRs));
+  check(
+    "browse_target routes schema reads through backend_for",
+    /backend_for\(Some\(&database\)\)/.test(mainRs),
+  );
   for (const handler of ["handle_schemas", "handle_tables", "handle_columns", "handle_indexes"]) {
     const body = mainRs.slice(mainRs.indexOf(`async fn ${handler}(`)).slice(0, 600);
     check(`${handler} uses browse_target`, /browse_target\(&conn, &q\)/.test(body));
@@ -179,38 +187,62 @@ if (!hasExtension) {
   }
   check(
     "PostgreSQL default schema is public, never the database name",
-    /if conn\.kind == "postgres"[\s\S]{0,90}"public"\.to_string\(\)/.test(mainRs),
+    /if conn\.kind == BackendKind::Postgres[\s\S]{0,90}"public"\.to_string\(\)/.test(mainRs),
   );
   check(
     "row mutations resolve their own pool",
     (mainRs.match(/backend_for\(Some\(&req\.database\)\)/g) ?? []).length >= 4,
   );
   check(
-    "MySQL falls back to the pool's real database so USE always runs",
-    /\.or\(conn\.current_database\.as_deref\(\)\)/.test(mainRs),
+    "cancel reaches the server, not just the future",
+    /cancel_on_server\(&conn\.backend, pid\)/.test(mainRs),
   );
-  check("cancel reaches the server, not just the future", /cancel_on_server\(&conn\.backend, pid\)/.test(mainRs));
 
   const queryRs = sidecar("query.rs");
+  // Session context, pinning and transaction tracking live in `session.rs`.
+  const sessionRs = sidecar("session.rs");
+  check(
+    "MySQL falls back to the pool's real database so USE always runs",
+    /\.or\(conn\.current_database\.as_deref\(\)\)/.test(queryRs),
+  );
   check(
     "PostgreSQL search_path is built from the SCHEMA",
-    /SET search_path TO \{\}, public[\s\S]{0,40}escape_pg_ident\(sc\)/.test(queryRs),
+    /SET search_path TO \{\}, public[\s\S]{0,60}escape_pg_ident, s\)/.test(sessionRs),
   );
   check(
     "no-schema requests RESET search_path instead of inheriting it",
-    /None => "SET search_path TO DEFAULT"/.test(queryRs),
+    /None => "SET search_path TO DEFAULT"/.test(sessionRs),
   );
   check(
     "the batch pins a connection unconditionally (transactions)",
-    /Backend::Mysql\(pool\) => \{\s*\n\s*let mut conn = pool\.acquire/.test(queryRs) &&
-      /Backend::Postgres\(pool\) => \{\s*\n\s*let mut conn = pool\.acquire/.test(queryRs),
+    /Backend::Mysql\(p\) => PinnedConn::Mysql\(p\.acquire\(\)/.test(sessionRs) &&
+      /Backend::Postgres\(p\) => PinnedConn::Postgres\(p\.acquire\(\)/.test(sessionRs) &&
+      /Session::open\(/.test(queryRs),
   );
-  check("the row cap streams rather than materialising", /macro_rules! fetch_capped/.test(queryRs));
+  // sqlx returns a pooled connection as-is, so a batch that left BEGIN open
+  // handed its transaction to the next table browse.
+  check(
+    "a connection left in a transaction or with a user SET is closed, not pooled",
+    /if self\.in_transaction \|\| self\.dirty \{\s*self\.conn\.close_on_drop\(\)/.test(sessionRs) &&
+      /if sticky \{\s*conn\.close_on_drop\(\)/.test(sessionRs),
+  );
+  check(
+    "a dead editor session only replays a READ",
+    /first_statement_is_read\(&req\.sql, conn\.kind\)/.test(queryRs),
+  );
+  check(
+    "a result is capped by bytes as well as rows",
+    /RESULT_BYTE_BUDGET/.test(queryRs) && /truncated_by_size = true/.test(queryRs),
+  );
+  check("the row cap streams rather than materialising", /macro_rules! collect_rows/.test(queryRs));
   check(
     "query.rs no longer fetch_all's a result set",
     !/fetch_all\(/.test(queryRs.slice(queryRs.indexOf("async fn run_one"))),
   );
-  check("cancel_on_server issues a real server cancel", /KILL QUERY \{backend_pid\}/.test(queryRs) && /pg_cancel_backend/.test(queryRs));
+  check(
+    "cancel_on_server issues a real server cancel",
+    /KILL QUERY \{backend_pid\}/.test(queryRs) && /pg_cancel_backend/.test(queryRs),
+  );
   // A timeout that only drops the future leaves the server running the
   // statement AND the pinned connection stuck behind it, so every later
   // statement in the batch timed out too.
@@ -232,27 +264,49 @@ if (!hasExtension) {
     join(import.meta.dirname, "../../extensions/tedi.sql-explorer/src/gridedit/rowOps.js"),
     "utf8",
   );
-  check("a delete that matched no row is not reported as deleted", /resp\?\.affected === 0/.test(rowOpsJs));
+  check(
+    "a delete that matched no row is not reported as deleted",
+    /resp\?\.affected === 0/.test(rowOpsJs),
+  );
 
   const exportRs = sidecar("export.rs");
-  check("export streams to its row limit", /macro_rules! stream_rows/.test(exportRs));
+  check("export streams to its row limit", /macro_rules! stream_into/.test(exportRs));
+  check(
+    "a raw-SQL export runs in the context it was queried in",
+    /session\.apply_context\(&ctx, false\)/.test(exportRs) && /Cells::Export/.test(exportRs),
+  );
   check("export no longer fetch_all's", !/fetch_all\(/.test(exportRs));
   // The export dialog sends BOTH `database` and `schema` for an open table, so
   // picking the quote style from whichever field is set made every PostgreSQL
   // table export emit MySQL backticks and fail to parse.
   check(
     "export quotes identifiers by the connection's engine, not by which field is set",
-    /fn build_sql\(req: &ExportRequest, dialect: SqlDialect\)/.test(exportRs) &&
-      /SqlDialect::Postgres => \(req\.schema\.as_deref\(\), escape_pg_ident\)/.test(exportRs) &&
-      /SqlDialect::Mysql => \(req\.database\.as_deref\(\), escape_mysql_ident\)/.test(exportRs),
+    /fn build_sql\(req: &ExportRequest, kind: BackendKind\)/.test(exportRs) &&
+      /BackendKind::Postgres => \(req\.schema\.as_deref\(\), escape_pg_ident\)/.test(exportRs) &&
+      /BackendKind::Mysql => \(req\.database\.as_deref\(\), escape_mysql_ident\)/.test(exportRs),
   );
 
   // Browsing (`/table-rows`) lives in `rows.rs`; `edit.rs` is mutations only.
   const rowsRs = sidecar("rows.rs");
   check("COUNT(*) is gated behind want_total", /pub want_total: bool/.test(rowsRs));
+  // One shared path for every engine now, instead of three copies.
   check(
     "every backend honours want_total",
-    (rowsRs.match(/if req\.want_total \{/g) ?? []).length === 3,
+    (rowsRs.match(/if req\.want_total \{/g) ?? []).length === 1 &&
+      /Backend::Sqlite\(p\) => count!\(p\)/.test(rowsRs),
+  );
+  check(
+    "only an UNFILTERED count may be replaced by the catalog estimate",
+    /if !filtered \{\s*if let Some\(est\) = estimate_rows/.test(rowsRs),
+  );
+
+  // Quoting differs per engine; a lexer that guessed let a PostgreSQL
+  // backslash literal hide a DELETE from the read-only gate.
+  const sqltextRs = sidecar("sqltext.rs");
+  check(
+    "the read-only gate lexes with the connection's own quoting rules",
+    /pub fn is_read_only_safe\(sql: &str, kind: BackendKind\)/.test(sqltextRs) &&
+      /fn read_only_gate_uses_the_engines_own_quoting/.test(sqltextRs),
   );
 
   const schemaRs = sidecar("schema.rs");
@@ -307,7 +361,7 @@ if (!hasExtension) {
     /Value::Null \| Value::Array\(_\) => true/.test(bindRs),
   );
   check(
-    "a NULL keeps binding as a real NULL, not the text \"null\"",
+    'a NULL keeps binding as a real NULL, not the text "null"',
     /\(true, Value::Null\) => q\.bind\(None::<String>\)/.test(bindRs),
   );
   check(
@@ -316,7 +370,9 @@ if (!hasExtension) {
   );
   check(
     "the catalog lookup is skipped when no value needs a cast",
-    /if !values\.values\(\)\.any\(pg_needs_cast\) \{[\s\S]{0,60}return HashMap::new\(\)/.test(bindRs),
+    /if !values\.values\(\)\.any\(pg_needs_cast\) \{[\s\S]{0,60}return HashMap::new\(\)/.test(
+      bindRs,
+    ),
   );
   check(
     "array elements are quoted, so a comma or brace in a value is safe",
@@ -386,7 +442,9 @@ if (!hasExtension) {
   // The read-only gate hides every write affordance in the UI.
   check(
     "isReadOnly covers allow_writes and a read-only SQLite file",
-    sql.isReadOnly("ro") === true && sql.isReadOnly("slite") === true && sql.isReadOnly("m") === false,
+    sql.isReadOnly("ro") === true &&
+      sql.isReadOnly("slite") === true &&
+      sql.isReadOnly("m") === false,
   );
   // What earns a confirmation modal before Run sends it. Too eager and users
   // click through it; too lax and `DELETE FROM users` runs on a keystroke.
@@ -407,7 +465,11 @@ if (!hasExtension) {
     ["safe statement before an unsafe one", "SELECT 1; DELETE FROM users", true],
   ] as const) {
     const got = sql.destructiveReason(q) !== null;
-    check(`destructiveReason: ${label} ${wanted ? "asks" : "does not ask"}`, got === wanted, sql.destructiveReason(q) ?? "null");
+    check(
+      `destructiveReason: ${label} ${wanted ? "asks" : "does not ask"}`,
+      got === wanted,
+      sql.destructiveReason(q) ?? "null",
+    );
   }
 
   // Inline edit of a free-form result hangs off this test. A false positive
@@ -430,7 +492,10 @@ if (!hasExtension) {
       {
         currentDatabase: "app",
         schemaCache: new Map([
-          ["other.other.users", { database: "other", schema: "other", table: "users", columns: [] }],
+          [
+            "other.other.users",
+            { database: "other", schema: "other", table: "users", columns: [] },
+          ],
           ["app.app.users", { database: "app", schema: "app", table: "users", columns: [] }],
         ]),
       },
@@ -448,10 +513,17 @@ if (!hasExtension) {
     ["timestamptz", { data_type: "timestamptz", full_type: "timestamptz" }, "datetime"],
     ["varchar", { data_type: "varchar", full_type: "varchar(255)" }, "text"],
   ] as const) {
-    check(`classifyColumnType: ${label}`, cols.classifyColumnType(info) === want, String(cols.classifyColumnType(info)));
+    check(
+      `classifyColumnType: ${label}`,
+      cols.classifyColumnType(info) === want,
+      String(cols.classifyColumnType(info)),
+    );
   }
   const enumType = cols.classifyColumnType({ data_type: "enum", full_type: "enum('a','b')" });
-  check("classifyColumnType reads enum options", enumType?.kind === "enum" && enumType.options.join(",") === "a,b");
+  check(
+    "classifyColumnType reads enum options",
+    enumType?.kind === "enum" && enumType.options.join(",") === "a,b",
+  );
   // A tinyint(1) round-trips as 1/0 but may arrive as true/false; treating that
   // as a change fires a spurious UPDATE on mere click-away.
   check(
@@ -462,7 +534,11 @@ if (!hasExtension) {
   // Explain must never be ANALYZE: that RUNS the statement.
   for (const id of ["mysql", "postgres", "sqlite"]) {
     const prefix = dialects.getDialect(id).explainPrefix;
-    check(`${id} has an explainPrefix and it is not ANALYZE`, !!prefix && !/ANALY[SZ]E/i.test(prefix), prefix);
+    check(
+      `${id} has an explainPrefix and it is not ANALYZE`,
+      !!prefix && !/ANALY[SZ]E/i.test(prefix),
+      prefix,
+    );
   }
 
   // The extension must never hold the SSH credentials: it names a saved
@@ -497,7 +573,12 @@ if (!hasExtension) {
     ["datetime with a space separator", "datetime", "2026-08-04 13:05:09", "2026-08-04T13:05:09"],
     ["datetime with a T separator", "datetime", "2026-08-04T13:05:09", "2026-08-04T13:05:09"],
     // A timestamptz arrives with an offset; the picker edits the local parts.
-    ["timestamptz suffix is ignored", "datetime", "2026-08-04T13:05:09+07:00", "2026-08-04T13:05:09"],
+    [
+      "timestamptz suffix is ignored",
+      "datetime",
+      "2026-08-04T13:05:09+07:00",
+      "2026-08-04T13:05:09",
+    ],
     ["time without seconds", "time", "13:05", "13:05:00"],
     ["time with seconds", "time", "13:05:09", "13:05:09"],
     // Single-digit month/day must not shift the date.
@@ -528,7 +609,11 @@ if (!hasExtension) {
   const parsed = tree.parseNid(packed);
   check(
     "tree node ids round-trip names containing dots",
-    parsed.kind === "table" && parsed.connId === "conn-1" && parsed.db === "my.db" && parsed.schema === "sch" && parsed.table === "tbl.name",
+    parsed.kind === "table" &&
+      parsed.connId === "conn-1" &&
+      parsed.db === "my.db" &&
+      parsed.schema === "sch" &&
+      parsed.table === "tbl.name",
     JSON.stringify(parsed),
   );
 }

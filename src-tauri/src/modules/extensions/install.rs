@@ -5,7 +5,7 @@
 //! existing folder for the same id is replaced only after the new package
 //! validates.
 //!
-//! Guards: `enclosed_name()` rejects zip entries that resolve outside the
+//! Guards: `entry_path()` rejects zip entries that resolve outside the
 //! destination root. Symlinks are written as data files (not followed).
 //! Total uncompressed size capped at `MAX_INSTALL_BYTES`; per-entry at
 //! `MAX_FILE_BYTES`. Manifest is parsed before committing so a malformed
@@ -14,7 +14,7 @@
 use std::collections::HashSet;
 use std::fs;
 use std::io::{self, Read};
-use std::path::{Path, PathBuf};
+use std::path::{Component, Path, PathBuf};
 
 use base64::Engine as _;
 use serde::Serialize;
@@ -296,8 +296,27 @@ pub fn install_from_bytes_with_progress(
     })
 }
 
+/// The one way every reader turns a zip entry name into a relative path, so
+/// the review dialog, the consent gate and extraction can never disagree on
+/// which entry is `manifest.json`. `enclosed_name()` alone keeps `./` and
+/// in-bounds `a/../`, and both still land on `manifest.json` on disk while
+/// matching nothing by string. Drops `.`, rejects `..`, roots and `:` (a
+/// Windows alternate data stream such as `manifest.json::$DATA` writes the
+/// main file).
+fn entry_path<R: Read>(entry: &zip::read::ZipFile<'_, R>) -> Option<PathBuf> {
+    let mut out = PathBuf::new();
+    for c in entry.enclosed_name()?.components() {
+        match c {
+            Component::Normal(s) if !s.to_string_lossy().contains(':') => out.push(s),
+            Component::CurDir => {}
+            _ => return None,
+        }
+    }
+    Some(out)
+}
+
 /// Walk the zip and write each entry into `dest`. Path traversal is rejected
-/// via `enclosed_name()`. When every entry shares the same first segment and
+/// via [`entry_path`]. When every entry shares the same first segment and
 /// `<segment>/manifest.json` exists (e.g. GitHub release archives), that
 /// prefix is stripped on extract.
 ///
@@ -349,7 +368,7 @@ fn extract_into(
     let mut seen_files: HashSet<String> = HashSet::new();
     for i in 0..total_entries {
         let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
-        let Some(raw_path) = entry.enclosed_name() else {
+        let Some(raw_path) = entry_path(&entry) else {
             return Err(format!(
                 "rejected zip entry (suspicious path): {}",
                 entry.name()
@@ -452,7 +471,7 @@ fn detect_single_root(
     let mut saw_nested_manifest = false;
     for i in 0..archive.len() {
         let entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
-        let Some(p) = entry.enclosed_name() else {
+        let Some(p) = entry_path(&entry) else {
             continue;
         };
         let s = p.to_string_lossy().replace('\\', "/");
@@ -667,7 +686,7 @@ fn read_entry(
     };
     for i in 0..archive.len() {
         let mut entry = archive.by_index(i).map_err(|e| format!("entry {i}: {e}"))?;
-        let Some(raw_path) = entry.enclosed_name() else {
+        let Some(raw_path) = entry_path(&entry) else {
             continue;
         };
         let path_str = raw_path.to_string_lossy().replace('\\', "/");
@@ -696,7 +715,7 @@ fn read_entry(
 
 #[cfg(test)]
 mod tests {
-    use super::fold_zip_path;
+    use super::{extract_into, fold_zip_path, peek_bytes, NoopProgress};
     use std::collections::HashSet;
     use std::path::Path;
 
@@ -730,5 +749,41 @@ mod tests {
         let mut seen: HashSet<String> = HashSet::new();
         assert!(seen.insert(fold_zip_path(Path::new("manifest.json"))));
         assert!(!seen.insert(fold_zip_path(Path::new("Manifest.json"))));
+    }
+
+    fn zip_of(entries: &[(&str, &str)]) -> Vec<u8> {
+        use std::io::Write;
+        let mut w = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));
+        let opts = zip::write::SimpleFileOptions::default();
+        for (name, body) in entries {
+            w.start_file(*name, opts).unwrap();
+            w.write_all(body.as_bytes()).unwrap();
+        }
+        w.finish().unwrap().into_inner()
+    }
+
+    #[test]
+    fn a_second_manifest_behind_dot_segments_cannot_hide_from_review() {
+        let benign = r#"{"id":"a.b","name":"b","version":"1.0.0","main":"main.js"}"#;
+        let dir = std::env::temp_dir().join(format!("tedi-zip-{}", std::process::id()));
+        for spoof in [
+            "./manifest.json",
+            "x/../manifest.json",
+            "manifest.json::$DATA",
+        ] {
+            let bytes = zip_of(&[("manifest.json", benign), (spoof, "{}")]);
+            let _ = std::fs::remove_dir_all(&dir);
+            assert!(
+                extract_into(&bytes, &dir, &NoopProgress).is_err(),
+                "{spoof} must not be extracted beside manifest.json"
+            );
+        }
+        // A plain `./` prefix is normalised, not rejected: review and disk agree.
+        let bytes = zip_of(&[("./manifest.json", benign)]);
+        assert!(peek_bytes(&bytes, "local:t").is_ok());
+        let _ = std::fs::remove_dir_all(&dir);
+        extract_into(&bytes, &dir, &NoopProgress).unwrap();
+        assert!(dir.join("manifest.json").is_file());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 }

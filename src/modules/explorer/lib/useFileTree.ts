@@ -248,6 +248,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
   // editor - repaints within a fraction of a second. Only directories this tree
   // has actually loaded are re-read, and only changed rows repaint.
   const [watching, setWatching] = useState(false);
+  const pausedRef = useRef(Boolean(options?.paused));
+  pausedRef.current = Boolean(options?.paused);
   useEffect(() => {
     if (!rootPath) {
       setWatching(false);
@@ -275,6 +277,8 @@ export function useFileTree(rootPath: string | null, options?: Options) {
       // A backgrounded window takes the refresh when it returns, via the poll's
       // resume path; doing it now would only race the cold disk cache.
       if (document.visibilityState !== "visible" || !document.hasFocus()) return;
+      // A collapsed tree catches up on expand (the resume effect below).
+      if (pausedRef.current) return;
       pending = pending
         ? {
             dirs: [...new Set([...pending.dirs, ...change.dirs])],

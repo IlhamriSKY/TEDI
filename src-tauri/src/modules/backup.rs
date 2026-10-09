@@ -60,7 +60,25 @@ impl NonceSequence for OneNonce {
     }
 }
 
-fn derive_key(passphrase: &str, salt: &[u8], iterations: u32) -> Result<[u8; 32], String> {
+/// Runs PBKDF2 off the async workers: 600k rounds is real CPU time. The count
+/// comes from the imported file, so it is capped, or a crafted backup with
+/// `u32::MAX` rounds would pin a worker for half an hour.
+async fn derive_key(
+    passphrase: String,
+    salt: Vec<u8>,
+    iterations: u32,
+) -> Result<[u8; 32], String> {
+    if iterations > PBKDF2_ITERATIONS * 10 {
+        return Err("backup: iteration count is implausibly high".into());
+    }
+    tauri::async_runtime::spawn_blocking(move || {
+        derive_key_blocking(&passphrase, &salt, iterations)
+    })
+    .await
+    .map_err(|e| format!("backup: key derivation join error: {e}"))?
+}
+
+fn derive_key_blocking(passphrase: &str, salt: &[u8], iterations: u32) -> Result<[u8; 32], String> {
     let iters =
         NonZeroU32::new(iterations).ok_or_else(|| "backup: iteration count is zero".to_string())?;
     let mut key = [0u8; 32];
@@ -90,7 +108,7 @@ pub async fn backup_seal(plaintext: String, passphrase: String) -> Result<Sealed
     rng.fill(&mut nonce)
         .map_err(|_| "backup: random nonce failed".to_string())?;
 
-    let key = derive_key(&passphrase, &salt, PBKDF2_ITERATIONS)?;
+    let key = derive_key(passphrase, salt.to_vec(), PBKDF2_ITERATIONS).await?;
     let unbound = UnboundKey::new(&AES_256_GCM, &key).map_err(|_| "backup: bad key".to_string())?;
     let mut sealing = aead::SealingKey::new(unbound, OneNonce(Some(nonce)));
 
@@ -136,7 +154,7 @@ pub async fn backup_open(blob: SealedBlob, passphrase: String) -> Result<String,
         .try_into()
         .map_err(|_| "backup: malformed nonce".to_string())?;
 
-    let key = derive_key(&passphrase, &salt, blob.iterations)?;
+    let key = derive_key(passphrase, salt, blob.iterations).await?;
     let unbound = UnboundKey::new(&AES_256_GCM, &key).map_err(|_| "backup: bad key".to_string())?;
     let mut opening = aead::OpeningKey::new(unbound, OneNonce(Some(nonce)));
 

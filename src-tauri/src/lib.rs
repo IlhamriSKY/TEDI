@@ -826,9 +826,9 @@ pub fn run() {
             fs::grep::fs_replace_in_file,
             fs::watch::fs_watch,
             fs::watch::fs_unwatch,
-            git::commands::git_status,
-            git::commands::git_ignored,
-            git::commands::git_find_repos,
+            git::status::git_status,
+            git::status::git_ignored,
+            git::status::git_find_repos,
             git::commands::git_file_head,
             git::commands::git_file_at,
             git::commands::git_run,
@@ -934,6 +934,11 @@ pub fn run() {
             // Only the main window's events drive the mirroring onto its
             // children (settings + debug); ignore the children's own events.
             let label = window.label();
+            if let tauri::WindowEvent::Destroyed = event {
+                // A float window hosts its own Explorer/Source Control watches.
+                fs::watch::WATCHES.drop_window(label);
+                git::watch::WATCHES.drop_window(label);
+            }
             if label != "main" {
                 return;
             }
@@ -1104,7 +1109,6 @@ mod ui_thread_guard {
     /// them to `spawn_blocking` would let keystrokes transpose. See
     /// `PtyClient::send_oneway`.
     const ALLOWED_SYNC_COMMANDS: &[&str] = &[
-        "cli_classify_path",
         "cli_initial_target",
         "cli_install_path_shim",
         "cli_take_initial_update_request",
@@ -1124,7 +1128,6 @@ mod ui_thread_guard {
         "shell_bg_remove",
         "shell_session_cancel",
         "shell_session_close",
-        "shell_session_open",
         "ssh_confirm_host_key",
     ];
 

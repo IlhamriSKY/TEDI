@@ -348,6 +348,18 @@
   mask-position: center;
 }
 
+/* Still at idle, moving only while a turn runs (`data-foil-live`, set by
+ * ReasoningDropdown) or in the open picker menu. Paused, not removed, so it
+ * stops on the frame it reached instead of snapping back. */
+.tedi-effort-max,
+.tedi-foil-glyph {
+  animation-play-state: paused;
+}
+[data-foil-live] :is(.tedi-effort-max, .tedi-foil-glyph),
+[role="menu"] :is(.tedi-effort-max, .tedi-foil-glyph) {
+  animation-play-state: running;
+}
+
 /* The activity pixels, cut out of the same sheet.
  *
  * ONE sheet across the whole block, not one colour per cell: each cell shifts
@@ -420,18 +432,6 @@
   }
 }
 
-:root {
-  /* AI CLI status colors. Themable via Settings > Theme. Defaults match the
-   * pre-existing emerald/yellow/red pill the codebase shipped with so the
-   * out-of-box look is unchanged. */
-  --tedi-icon-idle: #059669;
-  --tedi-icon-working: #ca8a04;
-  --tedi-icon-blocked: #dc2626;
-  /* "done" (finished, unacknowledged): blue, distinct from the green idle. */
-  --tedi-icon-done: #2563eb;
-  /* Git branch glyph wherever a branch NAME is shown. Violet so a branch reads
-   * as a branch at a glance and never as an AI/CLI status colour. */
-  --tedi-icon-branch: #7c3aed;
 /* One turn on click, toggled by installRefreshIconSpin (lib/spinRefreshIcons).
  * A counter-clockwise icon turns the way its arrow points. */
 .tedi-spin-once {
@@ -446,6 +446,18 @@
   }
 }
 
+:root {
+  /* AI CLI status colors. Themable via Settings > Theme. Defaults match the
+   * pre-existing emerald/yellow/red pill the codebase shipped with so the
+   * out-of-box look is unchanged. */
+  --tedi-icon-idle: #059669;
+  --tedi-icon-working: #ca8a04;
+  --tedi-icon-blocked: #dc2626;
+  /* "done" (finished, unacknowledged): blue, distinct from the green idle. */
+  --tedi-icon-done: #2563eb;
+  /* Git branch glyph wherever a branch NAME is shown. Violet so a branch reads
+   * as a branch at a glance and never as an AI/CLI status colour. */
+  --tedi-icon-branch: #7c3aed;
   /* Semantic diff colors (git +/-, SCM status). Themable. Kept distinct
    * from --destructive so destructive remains an actionable-danger token
    * and diff removed stays a "kind of change" indicator. */

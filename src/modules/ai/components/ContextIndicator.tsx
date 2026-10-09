@@ -15,22 +15,34 @@ import { useChatStore } from "../store/chatStore";
 /** Extracted from AiMiniWindow so both the composer toolbar and the mini window
  *  can mount it without an import cycle (AiMiniWindow imports AiInputBar). */
 
+// A finished message keeps its identity across stream updates, so only the
+// streaming tail is re-measured. Without this every token re-stringified every
+// tool input and output in the session.
+const charsByMessage = new WeakMap<UIMessage, number>();
+
 function estimateTokens(messages: UIMessage[]): number {
   let chars = 0;
-  for (const m of messages) {
-    for (const p of m.parts) {
-      if (p.type === "text") {
-        chars += (p as { text?: string }).text?.length ?? 0;
-      } else if (p.type === "reasoning") {
-        chars += (p as { text?: string }).text?.length ?? 0;
-      } else if (typeof p.type === "string" && p.type.startsWith("tool-")) {
-        const tp = p as unknown as { input?: unknown; output?: unknown };
-        if (tp.input) chars += JSON.stringify(tp.input).length;
-        if (tp.output) chars += JSON.stringify(tp.output).length;
-      }
+  for (const m of messages) chars += messageChars(m);
+  return Math.ceil(chars / 4);
+}
+
+function messageChars(m: UIMessage): number {
+  const cached = charsByMessage.get(m);
+  if (cached !== undefined) return cached;
+  let chars = 0;
+  for (const p of m.parts) {
+    if (p.type === "text") {
+      chars += (p as { text?: string }).text?.length ?? 0;
+    } else if (p.type === "reasoning") {
+      chars += (p as { text?: string }).text?.length ?? 0;
+    } else if (typeof p.type === "string" && p.type.startsWith("tool-")) {
+      const tp = p as unknown as { input?: unknown; output?: unknown };
+      if (tp.input) chars += JSON.stringify(tp.input).length;
+      if (tp.output) chars += JSON.stringify(tp.output).length;
     }
   }
-  return Math.ceil(chars / 4);
+  charsByMessage.set(m, chars);
+  return chars;
 }
 
 function formatTokens(n: number): string {

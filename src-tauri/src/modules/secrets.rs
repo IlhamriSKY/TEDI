@@ -266,14 +266,16 @@ pub async fn secrets_set(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let k = key(&service, &account);
-        // Mutate and snapshot under one lock acquisition so a concurrent
-        // writer cannot slip an update between, which would leave the on-disk
-        // file lagging the in-memory cache (lost-update race).
-        let snapshot = with_store(&app, &state, |m| {
+        // Write while still holding the cache lock. Writing after releasing it
+        // let two concurrent calls (the frontend deletes an SSH connection's
+        // three secrets with one `Promise.all`) race: the older snapshot could
+        // rename last and resurrect a deleted key, or both could share
+        // `atomic_write`'s fixed temp file and leave a torn, undecryptable
+        // store that fails every later read.
+        with_store(&app, &state, |m| {
             m.insert(k, password);
-            m.clone()
-        })?;
-        write_store(&app, &snapshot)?;
+            write_store(&app, m)
+        })??;
         #[cfg(target_os = "windows")]
         {
             // Stale Credential Manager entry from an earlier build would
@@ -300,11 +302,11 @@ pub async fn secrets_delete(
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     {
         let k = key(&service, &account);
-        let snapshot = with_store(&app, &state, |m| {
+        // Under the lock, see `secrets_set`.
+        with_store(&app, &state, |m| {
             m.remove(&k);
-            m.clone()
-        })?;
-        write_store(&app, &snapshot)?;
+            write_store(&app, m)
+        })??;
         #[cfg(target_os = "windows")]
         {
             legacy_keyring_delete(&service, &account);

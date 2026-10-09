@@ -317,6 +317,8 @@ console.log("\nevery WRITE is rooted at the MAIN worktree");
   // has opened one. It has to resolve main BEFORE the dialog, which derives the
   // suggested folder from what it is given.
   const ws = readFileSync("src/modules/workspaces/WorkspacesPanel.tsx", "utf8");
+  // The per-workspace row (grouping, worktree rows) lives in its own file.
+  const wsRow = readFileSync("src/modules/workspaces/WorkspaceRow.tsx", "utf8");
   check(
     "the workspace project row resolves main before opening the dialog",
     ws.includes("mainWorktreePath(fresh, cwd)"),
@@ -327,7 +329,9 @@ console.log("\nevery WRITE is rooted at the MAIN worktree");
   // which repository "New Worktree" would mean.
   check(
     "worktrees are keyed to a row's own folder, never to the workspace",
-    ws.includes("function localTerminalCwd") && !ws.includes("function workspaceRepoPath"),
+    wsRow.includes("function localTerminalCwd") &&
+      !ws.includes("function workspaceRepoPath") &&
+      !wsRow.includes("function workspaceRepoPath"),
     true,
   );
   check(
@@ -358,7 +362,7 @@ console.log("\nevery WRITE is rooted at the MAIN worktree");
   // what made the panel read as confusing.
   check(
     "a worktree already open as a tab is not listed a second time",
-    ws.includes("!open.has(x.path)"),
+    wsRow.includes("!open.has(x.path)"),
     true,
   );
   // A worktree folder is named after the BRANCH, so a tab left to label itself
@@ -408,7 +412,7 @@ console.log("\nevery WRITE is rooted at the MAIN worktree");
   );
   check(
     "the menu shortens paths against main",
-    menu.includes("(list ?? []).find((w) => w.main)?.path ?? root"),
+    menu.includes("mainWorktreePath(list ?? [], root)"),
     true,
   );
   // git refuses `worktree remove --force` on a locked worktree, so a Remove

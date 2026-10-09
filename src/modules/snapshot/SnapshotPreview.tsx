@@ -1,6 +1,7 @@
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { IPC_EVENTS, type FsReadResult } from "@/lib/ipc";
+import { basename } from "@/lib/path";
 import { IS_WINDOWS } from "@/lib/platform";
 import { copyToClipboard } from "@/modules/explorer/lib/contextActions";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -111,7 +112,7 @@ export function SnapshotPreview({ onOpen }: { onOpen: (path: string) => void }) 
 
   if (!shot) return null;
   const { path } = shot;
-  const name = path.split(/[\\/]/).pop() ?? path;
+  const name = basename(path);
 
   const onPointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     if (e.button !== 0 || (e.target as HTMLElement).closest("button")) return;

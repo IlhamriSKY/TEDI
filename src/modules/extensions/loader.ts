@@ -11,7 +11,8 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke } from "@tauri-apps/api/core";
 
 import { toast } from "@/components/ui/toast";
-import { buildContext, type ExtensionContext } from "./host";
+import type { ExtensionContext } from "./host";
+import { createActivationQueue } from "./activationQueue";
 import { safeParseManifest, type Manifest } from "./manifest";
 import { satisfies } from "./semver";
 import {
@@ -102,6 +103,21 @@ type ActiveRecord = {
 };
 
 const active = new Map<string, ActiveRecord>();
+/** How long boot, or a queued activate/deactivate, waits on one that has not
+ *  settled before carrying on. */
+const ACTIVATE_WAIT_MS = 10_000;
+/** In-flight activations per id; see `createActivationQueue`. */
+const queue = createActivationQueue(ACTIVATE_WAIT_MS);
+/** A module's own deactivate() gets this long, well inside ACTIVATE_WAIT_MS, so
+ *  its teardown always finishes before the queue lets a re-enable through. */
+const DEACTIVATE_WAIT_MS = 5_000;
+/**
+ * The context of each activation still loading. A revoke disposes it at once,
+ * so the context goes inert: whatever that activate() does when it finally
+ * resumes, possibly after the queue gave up waiting and a replacement started,
+ * cannot write into the slice the replacement owns.
+ */
+const loading = new Map<string, () => Promise<void>>();
 
 /** An `activate()` slower than this is worth naming out loud. Extensions
  *  activate in parallel, so this is not additive launch cost - but it IS the
@@ -158,6 +174,10 @@ export async function listInstalled(): Promise<InstalledExtension[]> {
 
 export async function activate(ext: InstalledExtension): Promise<void> {
   if (active.has(ext.id)) return;
+  await queue.run(ext.id, (token) => activateOnce(ext, token));
+}
+
+async function activateOnce(ext: InstalledExtension, token: symbol): Promise<void> {
   // Skip disabled extensions even if a stale entry slips through.
   if (!ext.enabled) {
     console.warn(`[extensions] activate called on disabled ext ${ext.id} - ignoring`);
@@ -179,14 +199,28 @@ export async function activate(ext: InstalledExtension): Promise<void> {
     }
   }
   // Seed declarative contributions first. If activate() throws, they stay
-  // so the user can still disable/uninstall from Settings.
+  // so the user can still disable/uninstall from Settings. Not for a run that
+  // was revoked while it awaited the host version: the slice is no longer its.
+  if (!queue.isCurrent(ext.id, token)) return;
   seedManifestContributions(ext);
 
+  // Dynamic: the Settings window lists and installs extensions through this
+  // module but never runs one, and the host statically pulls in CodeMirror for
+  // `ctx.ui.codeEditor`.
+  const { buildContext } = await import("./host");
   const { context, dispose } = await buildContext({
     id: ext.id,
     root: ext.root,
     manifest: { permissions: ext.approved_permissions ?? ext.manifest.permissions },
   });
+  if (!queue.isCurrent(ext.id, token)) {
+    await dispose();
+    return;
+  }
+  loading.set(ext.id, dispose);
+  const settle = (): void => {
+    if (loading.get(ext.id) === dispose) loading.delete(ext.id);
+  };
 
   let scriptUrl: string | null = null;
   let userDeactivate: ActiveRecord["userDeactivate"] = null;
@@ -240,7 +274,17 @@ export async function activate(ext: InstalledExtension): Promise<void> {
       // contributions so the user still sees a working settings card.
       console.error(`[extensions] failed to activate ${ext.id}`, err);
       if (scriptUrl) URL.revokeObjectURL(scriptUrl);
+      // A sidecar or timer started before the throw is the module's own to stop,
+      // and with no `active` record nothing would ever call it later. Bounded,
+      // and still in `loading` while it runs, so a disable arriving now makes
+      // the context inert instead of waiting on it.
+      await runUserDeactivate(ext.id, userDeactivate, DEACTIVATE_WAIT_MS);
       await dispose();
+      settle();
+      // Revoked while it loaded: the slice is `deactivate`'s to clear, in queue
+      // order, and touching it here could wipe the run that replaced this one.
+      // The user is done with this extension, so the failure is not toast-worthy.
+      if (!queue.isCurrent(ext.id, token)) return;
       // `dispose()` only runs the disposers the context handed out. A partial
       // activate can also have called `contribute.*` / `registerAiToolHandler`,
       // which write straight into the registries with no disposer, so clear the
@@ -253,31 +297,81 @@ export async function activate(ext: InstalledExtension): Promise<void> {
     }
   }
 
+  settle();
+  if (!queue.isCurrent(ext.id, token)) {
+    // Disabled, uninstalled or reloaded while loading. `deactivate` already made
+    // this context inert and queued the slice's clear, so only this run's own
+    // pieces are left: the module's deactivate() (a sidecar, a timer) and the
+    // script URL. Clearing the slice here could wipe a replacement run.
+    await runUserDeactivate(ext.id, userDeactivate, DEACTIVATE_WAIT_MS);
+    await dispose();
+    if (scriptUrl) URL.revokeObjectURL(scriptUrl);
+    return;
+  }
   active.set(ext.id, { context, dispose, scriptUrl, userDeactivate, timing });
 }
 
+async function runUserDeactivate(
+  id: string,
+  fn: ActiveRecord["userDeactivate"],
+  boundMs?: number,
+): Promise<void> {
+  if (!fn) return;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const bound =
+    boundMs === undefined
+      ? null
+      : new Promise<void>((resolve) => {
+          timer = setTimeout(() => {
+            console.warn(
+              `[extensions] ${id} deactivate() still running after ${boundMs}ms; tearing down anyway.`,
+            );
+            resolve();
+          }, boundMs);
+        });
+  try {
+    const run = Promise.resolve(fn());
+    await (bound ? Promise.race([run, bound]) : run);
+  } catch (err) {
+    console.error(`[extensions] ${id} deactivate() threw`, err);
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function deactivate(id: string): Promise<void> {
+  // Cancels an activation still loading, and makes its context inert NOW (see
+  // `loading`), whether or not the queue later has to stop waiting for it.
+  queue.revoke(id);
+  const loadingDispose = loading.get(id);
+  if (loadingDispose) {
+    loading.delete(id);
+    await loadingDispose();
+  }
   const rec = active.get(id);
   if (!rec) {
     // Not active, but not necessarily contribution-free: an extension whose
     // activate() threw never enters `active` while its declarative
     // contributions stay seeded (see `activate`'s catch), and a declarative-only
     // pack has no `main` to activate at all. Returning early left both on screen
-    // after disable/uninstall until the next restart.
-    clearExtensionContributions(id);
+    // after disable/uninstall until the next restart. Queued so it cannot land
+    // in the middle of a teardown that is still running the module's deactivate().
+    await queue.after(id, async () => clearExtensionContributions(id));
     return;
   }
   active.delete(id);
-  try {
-    if (rec.userDeactivate) await Promise.resolve(rec.userDeactivate());
-  } catch (err) {
-    console.error(`[extensions] ${id} deactivate() threw`, err);
-  }
-  await rec.dispose();
-  // After `userDeactivate`, so an extension's own deactivate() still sees its
-  // registry slice while it runs.
-  clearExtensionContributions(id);
-  if (rec.scriptUrl) URL.revokeObjectURL(rec.scriptUrl);
+  // In the queue, so a re-enable that arrives mid-teardown (Disable then Enable
+  // in Settings) waits instead of registering into a slice about to be cleared.
+  await queue.after(id, async () => {
+    // Bounded below the queue's wait, so this teardown (and its clear) always
+    // lands before a queued re-enable is let through.
+    await runUserDeactivate(id, rec.userDeactivate, DEACTIVATE_WAIT_MS);
+    await rec.dispose();
+    // After `userDeactivate`, so an extension's own deactivate() still sees its
+    // registry slice while it runs.
+    clearExtensionContributions(id);
+    if (rec.scriptUrl) URL.revokeObjectURL(rec.scriptUrl);
+  });
 }
 
 /** Lists installed extensions and activates the enabled ones. Per-ext
@@ -292,25 +386,48 @@ export async function bootAll(): Promise<InstalledExtension[]> {
   // another's runtime registry slice, and each seeds its own declarative
   // contributions from its own manifest. allSettled keeps per-ext error
   // isolation so one slow/failed activate can't reject or stall the batch.
+  //
+  // Each wait is capped: the caller hydrates the extension list and starts
+  // listening for enable/disable only after this resolves, so one activate()
+  // stuck on a handshake used to leave every extension unmanageable. A slow one
+  // keeps going in the background and registers when it finishes.
   await Promise.allSettled(
     installed
       .filter((ext) => ext.enabled)
       .map((ext) =>
-        activate(ext).catch((err) => {
-          console.error(`[extensions] activate ${ext.id} failed`, err);
-          // Surface the failure so a developer iterating on their extension sees
-          // it without opening DevTools. Manifest contributions stay applied (see
-          // `activate`'s catch), so the settings card still renders for
-          // disable/uninstall.
-          const msg = err instanceof Error ? err.message : String(err);
-          toast(`Extension "${ext.manifest.name}" failed to activate: ${msg}`, {
-            variant: "error",
-          });
-        }),
+        // The handler sits on `activate` itself, not on the race: a failure
+        // after the deadline still gets its toast.
+        withBootDeadline(
+          ext.id,
+          activate(ext).catch((err) => {
+            console.error(`[extensions] activate ${ext.id} failed`, err);
+            // Surface the failure so a developer iterating on their extension sees
+            // it without opening DevTools. Manifest contributions stay applied (see
+            // `activate`'s catch), so the settings card still renders for
+            // disable/uninstall.
+            const msg = err instanceof Error ? err.message : String(err);
+            toast(`Extension "${ext.manifest.name}" failed to activate: ${msg}`, {
+              variant: "error",
+            });
+          }),
+        ),
       ),
   );
   logActivationSummary();
   return installed;
+}
+
+function withBootDeadline(id: string, run: Promise<void>): Promise<void> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<void>((resolve) => {
+    timer = setTimeout(() => {
+      console.warn(
+        `[extensions] ${id} is still activating after ${ACTIVATE_WAIT_MS}ms; boot continues without it.`,
+      );
+      resolve();
+    }, ACTIVATE_WAIT_MS);
+  });
+  return Promise.race([run, deadline]).finally(() => clearTimeout(timer));
 }
 
 /**

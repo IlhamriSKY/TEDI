@@ -135,7 +135,8 @@ check(
 );
 
 console.log("\n[F] the two pin axes name their own subject");
-const panel = read("src/modules/workspaces/WorkspacesPanel.tsx");
+// The workspace row (and its right-click menu) lives in WorkspaceRow.tsx.
+const panel = read("src/modules/workspaces/WorkspaceRow.tsx");
 check('workspace menu says "Pin Workspace"', panel.includes('"Pin Workspace"'), true);
 check("workspace menu is reachable by right-click", panel.includes("<ContextMenuTrigger"), true);
 

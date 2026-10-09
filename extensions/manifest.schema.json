@@ -390,7 +390,14 @@
               "examples": [
                 ">=0.4.25"
               ],
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "additionalProperties": {},

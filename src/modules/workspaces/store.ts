@@ -314,6 +314,13 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
     await Promise.all([store.set(KEY_LIST, workspaces), store.set(KEY_ACTIVE, activeId)]);
     await store.save();
   };
+  // For the tab snapshot, which changes on every tab switch and pane focus:
+  // stage it and let `autoSave` coalesce the disk write. The quit guard's
+  // `flush()` still saves durably on close.
+  const stage = async () => {
+    const { workspaces, activeId } = get();
+    await Promise.all([store.set(KEY_LIST, workspaces), store.set(KEY_ACTIVE, activeId)]);
+  };
 
   return {
     hydrated: false,
@@ -460,7 +467,7 @@ export const useWorkspacesStore = create<State & Actions>((set, get) => {
           return { ...w, tabs, activeTabIndex };
         }),
       });
-      if (changed) void persist();
+      if (changed) void stage();
     },
 
     setWorkspacePinned(id, pinned) {

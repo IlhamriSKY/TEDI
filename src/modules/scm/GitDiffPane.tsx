@@ -7,7 +7,7 @@ import { EditorView, lineNumbers } from "@codemirror/view";
 import { Badge } from "@/components/ui/badge";
 import { formatBytes } from "@/lib/format";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { DIFF_THEME } from "@/modules/editor/lib/diffColors";
+import { DIFF_THEME } from "@/modules/editor/lib/diffTheme";
 import { buildSharedExtensions } from "@/modules/editor/lib/extensions";
 import { resolveLanguage } from "@/modules/editor/lib/languageResolver";
 import { useEditorTheme } from "@/modules/editor/lib/themes";

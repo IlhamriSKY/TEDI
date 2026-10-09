@@ -170,7 +170,9 @@ function Body({
   const switchSession = useChatStore((s) => s.switchSession);
 
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
-  const helpers = useChat<UIMessage>({ chat });
+  // Batched like AgentRunBridge's: the input bar, rail and pin re-derive from
+  // the full message list on every update.
+  const helpers = useChat<UIMessage>({ chat, experimental_throttle: 50 });
   useReportAiState(sessionId, helpers.status, helpers.messages);
 
   return (

@@ -1,5 +1,5 @@
-import { Channel, invoke } from "@tauri-apps/api/core";
 import { useEffect, useRef, useState } from "react";
+import { createHostWatch } from "@/lib/hostWatch";
 import { useVisibilityPoll } from "@/lib/windowResume";
 import { forgetGitReads } from "./api";
 
@@ -22,55 +22,14 @@ export type RepoChange = {
   ignored: boolean;
 };
 
-type Listener = (change: RepoChange) => void;
-type Watch = { listeners: Set<Listener>; id: Promise<number | null> };
-
-/** One host watcher per repository root, however many views are looking at it:
- *  the Explorer, a second Explorer, an extension's folder tree and Source
- *  Control all subscribe to the same root. */
-const watches = new Map<string, Watch>();
-
 /**
  * Hear about changes to the repository at `root` (its toplevel, as `git_status`
- * reports it). `active` resolves false when the host would not watch it - a
- * network path, a tree too big to watch on Linux, an older host - and the
- * caller should keep polling.
+ * reports it). One host watcher per root, shared by the Explorer, a second
+ * Explorer, an extension's folder tree and Source Control. Each change first
+ * forgets in-flight git reads: one that started before the change must not be
+ * handed to the refresh the change is about to trigger.
  */
-export function watchRepo(
-  root: string,
-  onChange: Listener,
-): { active: Promise<boolean>; dispose: () => void } {
-  let watch = watches.get(root);
-  if (!watch) {
-    const listeners = new Set<Listener>();
-    const channel = new Channel<RepoChange>();
-    channel.onmessage = (change) => {
-      // A read that started before this change must not be handed to the
-      // refresh the change is about to trigger.
-      forgetGitReads();
-      for (const listener of [...listeners]) listener(change);
-    };
-    const id = invoke<number>("git_watch", { root, onChange: channel }).catch(() => null);
-    watch = { listeners, id };
-    watches.set(root, watch);
-  }
-  const entry = watch;
-  entry.listeners.add(onChange);
-  let disposed = false;
-  return {
-    active: entry.id.then((id) => id !== null),
-    dispose: () => {
-      if (disposed) return;
-      disposed = true;
-      entry.listeners.delete(onChange);
-      if (entry.listeners.size > 0 || watches.get(root) !== entry) return;
-      watches.delete(root);
-      void entry.id
-        .then((id) => (id === null ? undefined : invoke("git_unwatch", { id })))
-        .catch(() => {});
-    },
-  };
-}
+export const watchRepo = createHostWatch<RepoChange>("git_watch", "git_unwatch", forgetGitReads);
 
 /**
  * Keep a local repository's git state fresh: on a change when the host can

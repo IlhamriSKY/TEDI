@@ -22,7 +22,7 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { toForwardSlash } from "@/lib/path";
 import { gitStatus } from "../api";
-import type { Worktree } from "../worktrees";
+import { mainWorktreePath, worktreeLabel, worktreeShortPath, type Worktree } from "../worktrees";
 import { Check, Eraser, GitFork, Lock, Plus, TriangleAlert, Trash2 } from "lucide-react";
 
 /** Per-worktree working-tree summary, filled in after the list renders. */
@@ -120,13 +120,7 @@ export function WorktreeMenu({
   /** Paths are shown relative to the MAIN worktree, not to `repoRoot`: the
    *  panel follows the focused terminal, so `repoRoot` is whichever worktree is
    *  being looked at, and every OTHER row would then print in full. */
-  const base = (list ?? []).find((w) => w.main)?.path ?? root;
-
-  /** A worktree's path relative to the repository when it lives inside it,
-   *  which is where TEDI puts them. An absolute path elsewhere is shown whole -
-   *  shortening it would hide the only thing that distinguishes it. */
-  const shortPath = (w: Worktree) =>
-    w.path === base ? "." : w.path.startsWith(`${base}/`) ? w.path.slice(base.length + 1) : w.path;
+  const base = mainWorktreePath(list ?? [], root);
 
   /** Uncommitted files in the worktree awaiting confirmation. Read from the
    *  summaries the list already loaded, so this costs no extra subprocess. */
@@ -186,9 +180,7 @@ export function WorktreeMenu({
                 />
                 <span className="flex min-w-0 flex-1 flex-col">
                   <span className="flex min-w-0 items-center gap-1">
-                    <span className="truncate">
-                      {w.branch ?? (w.bare ? "(bare)" : `(detached ${w.head.slice(0, 7)})`)}
-                    </span>
+                    <span className="truncate">{worktreeLabel(w)}</span>
                     {w.main ? (
                       <span className="text-muted-foreground shrink-0 text-[10px]">main</span>
                     ) : null}
@@ -204,7 +196,7 @@ export function WorktreeMenu({
                     ) : null}
                   </span>
                   <span className="text-muted-foreground truncate font-mono text-[10px]">
-                    {w.prunable ? "folder is gone" : shortPath(w)}
+                    {w.prunable ? "folder is gone" : worktreeShortPath(w.path, base)}
                   </span>
                 </span>
                 {s && (s.changes > 0 || s.ahead > 0) ? (

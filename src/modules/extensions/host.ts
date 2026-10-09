@@ -76,6 +76,7 @@ import {
 import { pinTab as pinTabBridge, renameTab as renameTabBridge } from "./tabControlBridge";
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
+import { inert } from "./inert";
 
 type ExtensionRuntime = {
   id: string;
@@ -805,6 +806,45 @@ async function buildStorage(id: string): Promise<ExtensionContext["storage"]> {
   };
 }
 
+/**
+ * Remove the terminal PATH entries `extId` added and switch back on the ones it
+ * switched off; `dir` limits it to one entry. Behind `ctx.terminal.unregisterPath`
+ * and run on uninstall, which used to leave a deleted folder first on PATH and
+ * the user's own entries "Switched off by" an extension that no longer exists.
+ */
+export async function releaseTerminalPaths(
+  extId: string,
+  dir?: string,
+): Promise<{ removed: boolean; restored: string[] }> {
+  const [mod, prefsMod] = await Promise.all([
+    import("@/modules/settings/store"),
+    import("@/modules/settings/preferences"),
+  ]);
+  const path = dir ? mod.cleanTerminalPath(dir) : "";
+  const current = prefsMod.usePreferencesStore.getState().terminalEnvPath;
+
+  const restored: string[] = [];
+  const next: TerminalPathEntry[] = [];
+  for (const entry of current) {
+    if (entry.managedBy === extId && (!path || sameTerminalDir(entry.path, path))) continue;
+    // Only what THIS extension switched off comes back. An entry the user
+    // disabled themselves stays disabled.
+    if (entry.disabledBy === extId) {
+      restored.push(entry.path);
+      const { disabledBy: _drop, ...rest } = entry;
+      next.push({ ...rest, enabled: true });
+      continue;
+    }
+    next.push({ ...entry });
+  }
+  const removed = next.length !== current.length;
+  if (removed || restored.length > 0) await mod.setTerminalEnvPath(next);
+  return { removed, restored };
+}
+
+/** Numbers each context, so two contexts of one extension never share an id. */
+let contextSerial = 0;
+
 export async function buildContext(ext: ExtensionRuntime): Promise<{
   context: ExtensionContext;
   dispose: () => Promise<void>;
@@ -824,8 +864,27 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     console[level](`[ext:${ext.id}]`, ...args);
   };
 
+  // SSH forwards this extension opened, closed on deactivate (see `openForward`).
+  type ForwardTarget = [connectionId: string, remoteHost: string, remotePort: number];
+  const ownForwards = new Map<string, ForwardTarget>();
+  // Per CONTEXT, not per extension id: after a reload the old and the new
+  // context of one extension must not release each other's tunnel.
+  const forwardOwner = `${ext.id}#${++contextSerial}`;
+  let forwardsDisposerArmed = false;
+
+  let disposed = false;
+  // Anything registered after teardown (an await inside a ctx method that
+  // resolved late) is released at once instead of living for the session.
   const addDisposer = (d: Disposer): void => {
-    disposers.push(d);
+    if (!disposed) {
+      disposers.push(d);
+      return;
+    }
+    try {
+      d();
+    } catch (err) {
+      log("error", ["disposer threw", err]);
+    }
   };
 
   // React roots minted by `ctx.ui.icon`. Unmounted en masse on deactivate
@@ -834,7 +893,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   // iteration during teardown then runs it last, after panel-renderer
   // cleanups whose own DOM trees may hold the icon spans.
   const iconRoots = new Set<Root>();
-  disposers.push(() => {
+  addDisposer(() => {
     for (const r of iconRoots) {
       try {
         r.unmount();
@@ -885,7 +944,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       getContext: () => getAppContext(),
       onContextChange: (cb) => {
         const dispose = subscribeAppContext(cb);
-        disposers.push(dispose);
+        addDisposer(dispose);
         return dispose;
       },
       setSidebarVisible: (visible) => setSidebarVisibleBridge(visible, ext.id),
@@ -925,7 +984,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         const dispose = (): void => {
           for (const u of unsubs) u();
         };
-        disposers.push(dispose);
+        addDisposer(dispose);
         return dispose;
       },
       async setModel(modelId: string, provider: string): Promise<void> {
@@ -1000,7 +1059,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           disposed = true;
           unsub?.();
         };
-        disposers.push(dispose);
+        addDisposer(dispose);
         return dispose;
       },
     },
@@ -1073,7 +1132,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
           disposed = true;
           unsub?.();
         };
-        disposers.push(dispose);
+        addDisposer(dispose);
         return dispose;
       },
     },
@@ -1088,12 +1147,12 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       mountFolderTree(container: HTMLElement, options: MountFolderTreeOptions): MountedFolderTree {
         const mounted = mountFolderTree(container, options);
         // Auto-dispose on deactivate so React roots don't leak.
-        disposers.push(() => mounted.dispose());
+        addDisposer(() => mounted.dispose());
         return mounted;
       },
       codeEditor(container, opts) {
         const handle = mountCodeEditor(container, opts);
-        disposers.push(() => handle.dispose());
+        addDisposer(() => handle.dispose());
         return handle;
       },
       async pickFolder(opts) {
@@ -1156,7 +1215,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
             mount();
             unsub();
           });
-          disposers.push(() => unsub());
+          addDisposer(() => unsub());
         }
         return span;
       },
@@ -1250,19 +1309,42 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       // a forward needs no React, and credentials stay inside `tunnel.ts`.
       openForward(connectionId, remoteHost, remotePort) {
         requirePermission(ext.id, declared, "ssh:connections");
-        return openSshForwardForConnection(
+        const target: ForwardTarget = [
           String(connectionId),
           String(remoteHost),
           Number(remotePort),
-        ).then(({ localPort }) => ({ localPort }));
+        ];
+        return openSshForwardForConnection(forwardOwner, ...target).then(({ localPort }) => {
+          // Opened after the extension was disabled: the disposer below already
+          // ran, so release it here or nothing ever will.
+          if (disposed) {
+            void closeSshForwardForConnection(forwardOwner, ...target).catch(() => {});
+            return { localPort };
+          }
+          ownForwards.set(target.join("|"), target);
+          // Forwards live in a module-level map, so disabling the extension
+          // would otherwise leave its tunnel and SSH session open until exit.
+          if (!forwardsDisposerArmed) {
+            forwardsDisposerArmed = true;
+            addDisposer(() => {
+              for (const t of ownForwards.values()) {
+                void closeSshForwardForConnection(forwardOwner, ...t).catch(() => {});
+              }
+              ownForwards.clear();
+            });
+          }
+          return { localPort };
+        });
       },
       closeForward(connectionId, remoteHost, remotePort) {
         requirePermission(ext.id, declared, "ssh:connections");
-        return closeSshForwardForConnection(
+        const target: ForwardTarget = [
           String(connectionId),
           String(remoteHost),
           Number(remotePort),
-        );
+        ];
+        ownForwards.delete(target.join("|"));
+        return closeSshForwardForConnection(forwardOwner, ...target);
       },
     },
     terminal: {
@@ -1321,27 +1403,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       },
       async unregisterPath(dir) {
         requirePermission(ext.id, declared, "terminal:path");
-        const mod = await import("@/modules/settings/store");
-        const path = dir ? mod.cleanTerminalPath(dir) : "";
-        const current = prefsMod.usePreferencesStore.getState().terminalEnvPath;
-
-        const restored: string[] = [];
-        const next: TerminalPathEntry[] = [];
-        for (const entry of current) {
-          if (entry.managedBy === ext.id && (!path || sameTerminalDir(entry.path, path))) continue;
-          // Only what THIS extension switched off comes back. An entry the user
-          // disabled themselves stays disabled.
-          if (entry.disabledBy === ext.id) {
-            restored.push(entry.path);
-            const { disabledBy: _drop, ...rest } = entry;
-            next.push({ ...rest, enabled: true });
-            continue;
-          }
-          next.push({ ...entry });
-        }
-        const removed = next.length !== current.length;
-        if (removed || restored.length > 0) await mod.setTerminalEnvPath(next);
-        return { removed, restored };
+        return releaseTerminalPaths(ext.id, dir);
       },
     },
     shell: {
@@ -1350,7 +1412,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         shellTransformersRegistry.set(ext.id, transformer);
         const dispose = (): void => shellTransformersRegistry.clear(ext.id);
         // Host disposes on disable/uninstall so the chain falls back to passthrough.
-        disposers.push(dispose);
+        addDisposer(dispose);
         return dispose;
       },
     },
@@ -1358,7 +1420,7 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
       requirePermission(ext.id, declared, "panels:register");
       panelRenderersRegistry.set(ext.id, panelId, renderer);
       const dispose = (): void => panelRenderersRegistry.remove(ext.id, panelId);
-      disposers.push(dispose);
+      addDisposer(dispose);
       return dispose;
     },
     panel: {
@@ -1416,6 +1478,10 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
   };
 
   const dispose = async (): Promise<void> => {
+    // Idempotent: a revoke disposes a loading context early, and the run that
+    // owned it disposes again when it finishes.
+    if (disposed) return;
+    disposed = true;
     // Reverse order: release last-acquired first.
     for (const d of disposers.reverse()) {
       try {
@@ -1426,5 +1492,18 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
     }
   };
 
-  return { context, dispose };
+  const live = inert(context, () => disposed);
+  // Not inert: a disposer handed over late must still run, and `addDisposer`
+  // already runs it at once after teardown.
+  live.addDisposer = addDisposer;
+  // Not inert either: releasing its own background process. A load revoked by a
+  // disable has its context disposed at once, and the module's deactivate()
+  // then still has to stop the sidecar its activate() already spawned. Same
+  // permission check as ever (`context.invoke`).
+  const inertInvoke = live.invoke;
+  live.invoke = ((command: string, args?: Record<string, unknown>) =>
+    command === "shell_bg_kill" || command === "shell_bg_remove"
+      ? context.invoke(command, args)
+      : inertInvoke(command, args)) as InvokeFn;
+  return { context: live, dispose };
 }

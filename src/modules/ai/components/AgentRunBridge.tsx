@@ -53,8 +53,11 @@ type AnyPart = UIMessagePart<Record<string, never>, Record<string, never>>;
 
 function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: string } & Props) {
   const chat = useMemo(() => getOrCreateChat(sessionId), [sessionId]);
+  // Every effect below walks the whole transcript, so batch stream chunks:
+  // unthrottled, each SSE token re-ran all of them.
   const { status, messages, addToolApprovalResponse } = useChat<UIMessage>({
     chat,
+    experimental_throttle: 50,
   });
   const patch = useChatStore((s) => s.patchAgentMeta);
   const openMini = useChatStore((s) => s.openMini);

@@ -314,9 +314,14 @@ pub fn cli_initial_target() -> Option<CliTarget> {
 /// an editor tab, and anything that is neither (a dangling path, a socket, a
 /// device node) returns `None` so the drop is ignored instead of opening an
 /// editor onto something unreadable.
+/// Async because `classify` stats the path: a drop from an offline mapped drive
+/// would otherwise freeze the window until the SMB timeout.
 #[tauri::command]
-pub fn cli_classify_path(path: String) -> Option<CliTarget> {
-    classify(Path::new(&path))
+pub async fn cli_classify_path(path: String) -> Option<CliTarget> {
+    tauri::async_runtime::spawn_blocking(move || classify(Path::new(&path)))
+        .await
+        .ok()
+        .flatten()
 }
 
 /// macOS Finder delivery: "Open With > TEDI", double-clicking a file TEDI is

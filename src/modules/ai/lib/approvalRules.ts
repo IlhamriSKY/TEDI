@@ -178,8 +178,3 @@ export function ruleAllows(
   }
   return rule.match === undefined;
 }
-
-/** How a rule reads in a button or a settings row. */
-export function describeRule(rule: ApprovalRule): string {
-  return rule.match ? `${rule.tool}: ${rule.match}` : rule.tool;
-}

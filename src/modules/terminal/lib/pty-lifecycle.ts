@@ -468,10 +468,13 @@ const lastRendererNudgeAt = new WeakMap<Session, number>();
 // more reliable switch signal than the full-screen clear, which the inline
 // classic renderer does not always emit.
 const RENDERER_SWITCH_RE = /\b(?:classic|fullscreen|default)\s+renderer\b/i;
+// One shared decoder: this runs on every chunk while an AI CLI repaints.
+// Non-streaming `decode()` keeps no state between calls, so sharing is safe.
+const rendererDecoder = new TextDecoder("utf-8", { fatal: false });
 function outputSignalsRendererSwitch(bytes: Uint8Array): boolean {
   if (hasFullScreenClear(bytes)) return true;
   try {
-    return RENDERER_SWITCH_RE.test(new TextDecoder("utf-8", { fatal: false }).decode(bytes));
+    return RENDERER_SWITCH_RE.test(rendererDecoder.decode(bytes));
   } catch {
     return false;
   }
