@@ -7,7 +7,7 @@ import {
   setSearchQuery,
 } from "@codemirror/search";
 import type { EditorView } from "@codemirror/view";
-import { Input } from "@/components/ui/input";
+import { Input, SearchInput } from "@/components/ui/input";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn } from "@/lib/utils";
@@ -233,7 +233,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
       {/* Find row */}
       <div className="flex items-center gap-1">
         <div className="relative flex-1">
-          <Input
+          <SearchInput
             ref={findInputRef}
             value={query}
             onChange={(e) => setQuery(e.target.value)}
@@ -250,7 +250,7 @@ export function EditorFindReplace({ getView, ref }: Props) {
               }
             }}
             placeholder="Find"
-            className={cn("h-7 pr-22 pl-2 text-xs", noMatches && "border-destructive/60")}
+            className={cn("h-7 pr-22 text-xs", noMatches && "border-destructive/60")}
           />
           <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5">
             <SearchOptionToggle

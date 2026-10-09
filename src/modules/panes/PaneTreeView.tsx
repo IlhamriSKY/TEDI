@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import {
   createContext,
   Fragment,
@@ -259,7 +260,10 @@ function CopyPathButton({ path }: { path: string }) {
         }}
         className="text-muted-foreground/70 hover:bg-muted hover:text-foreground flex size-5 shrink-0 items-center justify-center rounded transition-colors"
       >
-        {copied ? <Check size={12} strokeWidth={2} /> : <Copy size={12} strokeWidth={2} />}
+        <IconSwap
+          active={copied ? 0 : 1}
+          icons={[<Check size={12} strokeWidth={2} />, <Copy size={12} strokeWidth={2} />]}
+        />
       </button>
     </IconTooltip>
   );
@@ -882,11 +886,13 @@ function PaneLeafFrame({
                           : "text-muted-foreground/70 hover:bg-muted hover:text-foreground",
                       )}
                     >
-                      {mdPreview ? (
-                        <FileCode size={12} strokeWidth={2} />
-                      ) : (
-                        <BookOpen size={12} strokeWidth={2} />
-                      )}
+                      <IconSwap
+                        active={mdPreview ? 0 : 1}
+                        icons={[
+                          <FileCode size={12} strokeWidth={2} />,
+                          <BookOpen size={12} strokeWidth={2} />,
+                        ]}
+                      />
                     </button>
                   </IconTooltip>
                 )}

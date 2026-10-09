@@ -10,6 +10,7 @@
  * Open state lives in the store, not here, so `notes.toggle` (and the Command
  * Palette entry it registers) can flip the same flag the button does.
  */
+import { IconSlash } from "@/components/IconMorph";
 import { useEffect, useState } from "react";
 import {
   ChevronLeft,
@@ -17,7 +18,6 @@ import {
   ListTodo,
   NotepadText,
   Pin,
-  PinOff,
   Plus,
   StickyNote,
   Trash2,
@@ -185,11 +185,7 @@ export function NotesMenu() {
                     : "text-muted-foreground hover:text-foreground hover:bg-accent/40",
                 )}
               >
-                {pinned ? (
-                  <Pin size={13} strokeWidth={1.75} />
-                ) : (
-                  <PinOff size={13} strokeWidth={1.75} />
-                )}
+                <IconSlash icon={Pin} slashed={!pinned} size={13} strokeWidth={1.75} />
               </button>
             </IconTooltip>
           </div>

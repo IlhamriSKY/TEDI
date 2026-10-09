@@ -24,7 +24,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Input } from "@/components/ui/input";
+import { Input, SearchInput } from "@/components/ui/input";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
 import { Textarea } from "@/components/ui/textarea";
 import { cn, matchesQuery } from "@/lib/utils";
@@ -601,7 +601,7 @@ export function PromptModelDropdown({
         className="max-h-[min(22rem,var(--radix-dropdown-menu-content-available-height))] w-(--radix-dropdown-menu-trigger-width) max-w-(--radix-dropdown-menu-trigger-width) overflow-hidden p-0"
       >
         <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
-          <Input
+          <SearchInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {

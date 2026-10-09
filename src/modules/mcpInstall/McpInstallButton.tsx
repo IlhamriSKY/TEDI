@@ -14,6 +14,7 @@
  * look like one where it is off, so the dot turns amber while the port is open -
  * and switching it off is the action amber is asking for.
  */
+import { IconSwap } from "@/components/IconMorph";
 import { useCallback, useEffect, useState } from "react";
 import { Plug, PlugZap, RotateCw } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -240,11 +241,13 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
           onClick={() => setOpen(true)}
           aria-label="Install MCP"
         >
-          {installed ? (
-            <PlugZap size={16} strokeWidth={1.75} />
-          ) : (
-            <Plug size={16} strokeWidth={1.75} />
-          )}
+          <IconSwap
+            active={installed ? 0 : 1}
+            icons={[
+              <PlugZap size={16} strokeWidth={1.75} />,
+              <Plug size={16} strokeWidth={1.75} />,
+            ]}
+          />
           {installed && (
             <span
               // `ring-card` so the dot reads as separate from the glyph on the

@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { useCallback, useEffect, useState } from "react";
 import {
   AlertDialog,
@@ -315,7 +316,13 @@ export function McpServersCard() {
           disabled={busy || !cmd.trim()}
           onClick={() => void handleAdd()}
         >
-          {busy ? <Spinner className="size-3.5" /> : <Plus size={12} strokeWidth={1.75} />}
+          <IconSwap
+            active={busy ? 0 : 1}
+            icons={[
+              busy && <Spinner className="size-3.5" />,
+              <Plus size={12} strokeWidth={1.75} />,
+            ]}
+          />
           Add
         </Button>
       </div>
@@ -393,11 +400,13 @@ export function McpServersCard() {
                     )}
                     onClick={() => void handleToggle(s.name)}
                   >
-                    {s.enabled ? (
-                      <Pause size={12} strokeWidth={1.75} />
-                    ) : (
-                      <CirclePlay size={12} strokeWidth={1.75} />
-                    )}
+                    <IconSwap
+                      active={s.enabled ? 0 : 1}
+                      icons={[
+                        <Pause size={12} strokeWidth={1.75} />,
+                        <CirclePlay size={12} strokeWidth={1.75} />,
+                      ]}
+                    />
                   </Button>
                 </IconTooltip>
                 <IconTooltip label="Edit" side="top">

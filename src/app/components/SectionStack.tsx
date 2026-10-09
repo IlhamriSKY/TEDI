@@ -12,7 +12,7 @@ import {
   type DragOverEvent,
 } from "@dnd-kit/core";
 import { SortableContext, useSortable, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { Fragment, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import type { GroupImperativeHandle, Layout, PanelImperativeHandle } from "react-resizable-panels";
 import { readSectionOrder, reconcileSectionOrder, writeSectionOrder } from "../lib/sectionOrder";
 import { panelCollapsed, setPanelCollapsed } from "../lib/panelSize";
@@ -157,6 +157,24 @@ export function SectionStack({
 
   const byKey = useMemo(() => new Map(sections.map((s) => [s.key, s])), [sections]);
   const visible = useMemo(() => reconcileSectionOrder(order, [...byKey.keys()]), [order, byKey]);
+  // A lone section always fills its column: minimizing it would leave nothing
+  // but an empty tray.
+  const single = visible.length === 1;
+  // When a second section joins a lone one, the library restores whatever
+  // layout those panel ids last had, which can be "everything minimized" and
+  // would shut the section the user was looking at. Reopen that one.
+  const loneKey = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = loneKey.current;
+    loneKey.current = single ? visible[0] : null;
+    if (!prev || single || !visible.includes(prev)) return;
+    const frame = requestAnimationFrame(() => {
+      if (visible.every((k) => panelCollapsed(panelRefs.current[k]) === true)) {
+        setPanelCollapsed(panelRefs.current[prev], false);
+      }
+    });
+    return () => cancelAnimationFrame(frame);
+  }, [single, visible]);
 
   // Stable per-section ref callbacks (keyed by string) so a panel handle isn't
   // detached/reattached every render. Cached lazily since keys are dynamic.
@@ -381,6 +399,7 @@ export function SectionStack({
             return visible.map((key, i) => {
               const section = byKey.get(key);
               if (!section) return null;
+              const isCollapsed = !single && !!collapsed[key];
               const dropEdge: "top" | "bottom" | null =
                 showDrop && key === overKey ? (dragIdx < overIdx ? "bottom" : "top") : null;
               return (
@@ -390,7 +409,7 @@ export function SectionStack({
                     id={`${idPrefix}-${key}`}
                     defaultSize={section.defaultSize}
                     minSize={SECTION_MIN_SIZE}
-                    collapsible
+                    collapsible={!single}
                     collapsedSize={SECTION_COLLAPSED_SIZE}
                     panelRef={getPanelRefSetter(key)}
                     onResize={() => syncCollapsed(key)}
@@ -398,12 +417,12 @@ export function SectionStack({
                     <SortableSection
                       sectionKey={key}
                       title={section.title}
-                      collapsed={!!collapsed[key]}
-                      onToggleCollapse={() => toggleCollapse(key)}
+                      collapsed={isCollapsed}
+                      onToggleCollapse={single ? undefined : () => toggleCollapse(key)}
                       dropEdge={dropEdge}
                       chrome={section.chrome ?? chrome}
                     >
-                      {(controls) => section.render(controls, !!collapsed[key])}
+                      {(controls) => section.render(controls, isCollapsed)}
                     </SortableSection>
                   </ResizablePanel>
                 </Fragment>
@@ -421,10 +440,16 @@ export function SectionStack({
 
               Any space it picks up while a section is still open goes straight
               back to the last open one (reclaimFiller), so the stack never
-              ends in a gap. */}
-          <ResizablePanel id={fillerId} defaultSize={0} minSize={0}>
-            <span aria-hidden />
-          </ResizablePanel>
+              ends in a gap.
+
+              Not rendered at all for a lone section: there is nothing to
+              minimize it for, and without a neighbour the group pins that
+              section to 100%, so its bottom edge cannot be dragged up either. */}
+          {!single && (
+            <ResizablePanel id={fillerId} defaultSize={0} minSize={0}>
+              <span aria-hidden />
+            </ResizablePanel>
+          )}
         </ResizablePanelGroup>
       </SortableContext>
       <DragOverlay dropAnimation={null}>
@@ -460,7 +485,8 @@ function SortableSection({
   sectionKey: string;
   title: string;
   collapsed: boolean;
-  onToggleCollapse: () => void;
+  /** Absent = the section cannot be minimized (it is alone in its column). */
+  onToggleCollapse?: () => void;
   /** When this section is the hovered drop target, which edge the dragged
    *  section will land at. `null` otherwise (and for the dragged section). */
   dropEdge: "top" | "bottom" | null;
@@ -479,21 +505,23 @@ function SortableSection({
       >
         <GripVertical size={12} strokeWidth={2} />
       </button>
-      <button
-        type="button"
-        onClick={onToggleCollapse}
-        aria-label={collapsed ? `Expand ${title}` : `Minimize ${title}`}
-        aria-expanded={!collapsed}
-        className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded transition-colors"
-      >
-        {/* One chevron that rotates, not two that swap: a ternary between two
+      {onToggleCollapse && (
+        <button
+          type="button"
+          onClick={onToggleCollapse}
+          aria-label={collapsed ? `Expand ${title}` : `Minimize ${title}`}
+          aria-expanded={!collapsed}
+          className="text-muted-foreground hover:text-foreground flex size-4 items-center justify-center rounded transition-colors"
+        >
+          {/* One chevron that rotates, not two that swap: a ternary between two
             icons replaces the DOM node, so it can never animate. */}
-        <ChevronRight
-          size={11}
-          strokeWidth={2.25}
-          className={cn("transition-transform", !collapsed && "rotate-90")}
-        />
-      </button>
+          <ChevronRight
+            size={11}
+            strokeWidth={2.25}
+            className={cn("transition-transform", !collapsed && "rotate-90")}
+          />
+        </button>
+      )}
     </span>
   );
   return (

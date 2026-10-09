@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
@@ -146,7 +147,13 @@ export function ChatGptAccountCard() {
               disabled={busy}
               onClick={() => void signIn()}
             >
-              {busy ? <Spinner className="size-3" /> : <LogIn size={11} strokeWidth={2} />}
+              <IconSwap
+                active={busy ? 0 : 1}
+                icons={[
+                  busy && <Spinner className="size-3" />,
+                  <LogIn size={11} strokeWidth={2} />,
+                ]}
+              />
               {busy ? "Waiting for browser" : "Sign in with ChatGPT"}
             </Button>
             {busy && authUrl ? (

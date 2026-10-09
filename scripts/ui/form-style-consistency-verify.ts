@@ -57,7 +57,7 @@ const INPUT = "src/components/ui/input.tsx";
 const input = read(INPUT);
 check(
   "ui/input.tsx exports NumberInput",
-  /export \{ Input, NumberInput \}/.test(input),
+  /export \{[^}]*\bNumberInput\b[^}]*\}/.test(input),
   input.match(/export \{[^}]*\}/)?.[0],
 );
 check(

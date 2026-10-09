@@ -12,6 +12,7 @@ import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
 import { applyTerminalThemeFastPath } from "@/modules/settings/terminalPalette";
 import { applyFontFastPath } from "@/lib/fonts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
+import { installRefreshIconSpin } from "@/lib/spinRefreshIcons";
 import { FloatApp } from "./FloatApp";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
@@ -22,6 +23,7 @@ applyBrandColorFastPath();
 applyCustomThemeFastPath();
 applyTerminalThemeFastPath();
 applyFontFastPath();
+installRefreshIconSpin();
 // A floated editor reads vim/wrap/minimap/autocomplete from this store; hydrate
 // it so the float matches the main window instead of falling back to defaults.
 // Idempotent + multi-window-safe.

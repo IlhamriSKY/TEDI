@@ -5,7 +5,7 @@ import { cn } from "@/lib/utils";
 import { motion } from "motion/react";
 import { type Dispatch, type Ref, type SetStateAction } from "react";
 import { type GrepHit, type Row } from "./grepUtils";
-import { FileSearch, Replace, X } from "lucide-react";
+import { Replace, Search, X } from "lucide-react";
 
 type GrepSearchBarProps = {
   inputRef: Ref<HTMLInputElement>;
@@ -68,7 +68,7 @@ export function GrepSearchBar({
     >
       <div className="flex items-center gap-1">
         <div className="relative flex-1">
-          <FileSearch
+          <Search
             size={13}
             strokeWidth={2}
             className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"

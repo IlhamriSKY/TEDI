@@ -8,6 +8,7 @@ import { ThemeProvider } from "@/modules/theme";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { applyBrandColorFastPath } from "@/modules/settings/brandColor";
 import { applyCustomThemeFastPath } from "@/modules/settings/customTheme";
+import { installRefreshIconSpin } from "@/lib/spinRefreshIcons";
 import { SettingsApp } from "./SettingsApp";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
@@ -16,6 +17,7 @@ if (USE_CUSTOM_WINDOW_CONTROLS) {
 
 applyBrandColorFastPath();
 applyCustomThemeFastPath();
+installRefreshIconSpin();
 
 ReactDOM.createRoot(document.getElementById("settings-root") as HTMLElement).render(
   <ThemeProvider>

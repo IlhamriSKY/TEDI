@@ -16,7 +16,7 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { Input, SearchInput } from "@/components/ui/input";
 import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -156,7 +156,7 @@ export function BranchMenu({
           className="max-h-[60vh] w-[var(--radix-dropdown-menu-trigger-width)] min-w-64 overflow-y-auto"
         >
           <div className="p-1">
-            <Input
+            <SearchInput
               autoFocus
               placeholder="Filter branches"
               value={filter}

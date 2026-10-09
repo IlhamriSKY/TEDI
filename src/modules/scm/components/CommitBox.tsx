@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -115,11 +116,13 @@ export function CommitBox({
             disabled={changeCount === 0 || busy !== null}
             aria-label="Generate commit message"
           >
-            {busy === "ai" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <Sparkles size={12} strokeWidth={2} />
-            )}
+            <IconSwap
+              active={busy === "ai" ? 0 : 1}
+              icons={[
+                busy === "ai" && <Spinner className="size-3" />,
+                <Sparkles size={12} strokeWidth={2} />,
+              ]}
+            />
           </Button>
         </IconTooltip>
       </div>
@@ -142,11 +145,13 @@ export function CommitBox({
             disabled={!canCommit}
             aria-label={commitAll ? "Commit all changes" : "Commit staged changes"}
           >
-            {busy === "commit" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <GitCommitHorizontal size={13} strokeWidth={2} />
-            )}
+            <IconSwap
+              active={busy === "commit" ? 0 : 1}
+              icons={[
+                busy === "commit" && <Spinner className="size-3" />,
+                <GitCommitHorizontal size={13} strokeWidth={2} />,
+              ]}
+            />
             <span className="truncate">{commitAll ? "Commit all" : `Commit ${stagedCount}`}</span>
           </Button>
         </IconTooltip>
@@ -251,11 +256,13 @@ export function CommitBox({
             disabled={busy !== null}
             aria-label="Pull"
           >
-            {busy === "pull" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <CloudDownload size={12} strokeWidth={2} />
-            )}
+            <IconSwap
+              active={busy === "pull" ? 0 : 1}
+              icons={[
+                busy === "pull" && <Spinner className="size-3" />,
+                <CloudDownload size={12} strokeWidth={2} />,
+              ]}
+            />
             {status.behind > 0 ? (
               <span className="text-[10.5px] tabular-nums">{status.behind}</span>
             ) : null}
@@ -280,11 +287,13 @@ export function CommitBox({
             disabled={busy !== null}
             aria-label="Push"
           >
-            {busy === "push" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <CloudUpload size={12} strokeWidth={2} />
-            )}
+            <IconSwap
+              active={busy === "push" ? 0 : 1}
+              icons={[
+                busy === "push" && <Spinner className="size-3" />,
+                <CloudUpload size={12} strokeWidth={2} />,
+              ]}
+            />
             {status.ahead > 0 ? (
               <span className="text-[10.5px] tabular-nums">{status.ahead}</span>
             ) : null}

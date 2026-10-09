@@ -1,5 +1,5 @@
 import * as React from "react";
-import { ChevronDown, ChevronUp } from "lucide-react";
+import { ChevronDown, ChevronUp, Search } from "lucide-react";
 
 import { cn } from "@/lib/utils";
 
@@ -137,9 +137,28 @@ function NumberInput({
   );
 }
 
+/**
+ * Text field with the magnifier on its left, so every search and filter box in
+ * the app reads the same. `className` lands on the input, like `Input`; the
+ * wrapper only positions the icon. `min-w-0` lets it shrink inside a flex row.
+ */
+function SearchInput({ className, ...props }: React.ComponentProps<"input">) {
+  return (
+    <div className="relative w-full min-w-0">
+      <Search
+        aria-hidden
+        size={13}
+        strokeWidth={1.75}
+        className="text-muted-foreground pointer-events-none absolute top-1/2 left-2 -translate-y-1/2"
+      />
+      <Input {...props} className={cn("pl-7", className)} />
+    </div>
+  );
+}
+
 const STEPS = [
   { dir: 1 as const, Icon: ChevronUp, label: "Increase" },
   { dir: -1 as const, Icon: ChevronDown, label: "Decrease" },
 ];
 
-export { Input, NumberInput };
+export { Input, NumberInput, SearchInput };

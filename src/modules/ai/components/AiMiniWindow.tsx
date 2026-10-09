@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -365,11 +366,13 @@ function AiDockButton() {
         className="text-muted-foreground hover:text-foreground size-6 rounded"
         aria-label={toRight ? "Move AI to the right panel" : "Move AI to the left sidebar"}
       >
-        {toRight ? (
-          <PanelRight size={13} strokeWidth={2} />
-        ) : (
-          <PanelLeft size={13} strokeWidth={2} />
-        )}
+        <IconSwap
+          active={toRight ? 0 : 1}
+          icons={[
+            <PanelRight size={13} strokeWidth={2} />,
+            <PanelLeft size={13} strokeWidth={2} />,
+          ]}
+        />
       </Button>
     </IconTooltip>
   );

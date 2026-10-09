@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
@@ -69,13 +70,14 @@ function TodoRow({ todo }: { todo: Todo }) {
       )}
     >
       <span className="mt-[2px] inline-flex size-3.5 shrink-0 items-center justify-center">
-        {isInProgress ? (
-          <Spinner className="size-3" />
-        ) : todo.status === "completed" ? (
-          <SquareCheckBig strokeWidth={1.75} />
-        ) : (
-          <Square strokeWidth={1.75} />
-        )}
+        <IconSwap
+          active={isInProgress ? 0 : todo.status === "completed" ? 1 : 2}
+          icons={[
+            isInProgress && <Spinner className="size-3" />,
+            <SquareCheckBig strokeWidth={1.75} />,
+            <Square strokeWidth={1.75} />,
+          ]}
+        />
       </span>
       <span
         className={cn(

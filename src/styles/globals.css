@@ -432,6 +432,20 @@
   /* Git branch glyph wherever a branch NAME is shown. Violet so a branch reads
    * as a branch at a glance and never as an AI/CLI status colour. */
   --tedi-icon-branch: #7c3aed;
+/* One turn on click, toggled by installRefreshIconSpin (lib/spinRefreshIcons).
+ * A counter-clockwise icon turns the way its arrow points. */
+.tedi-spin-once {
+  animation: tedi-spin-once 0.6s ease-out;
+}
+.tedi-spin-once[class*="ccw"] {
+  animation-direction: reverse;
+}
+@keyframes tedi-spin-once {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
   /* Semantic diff colors (git +/-, SCM status). Themable. Kept distinct
    * from --destructive so destructive remains an actionable-danger token
    * and diff removed stays a "kind of change" indicator. */

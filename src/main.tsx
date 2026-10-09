@@ -16,6 +16,7 @@ import { applyTerminalThemeFastPath } from "@/modules/settings/terminalPalette";
 import { applyAppOpacityFastPath } from "@/modules/settings/appOpacity";
 import { applyFontFastPath } from "@/lib/fonts";
 import { installFocusRestore } from "./lib/focusRestore";
+import { installRefreshIconSpin } from "@/lib/spinRefreshIcons";
 
 if (USE_CUSTOM_WINDOW_CONTROLS) {
   document.documentElement.dataset.chrome = "borderless";
@@ -38,6 +39,7 @@ applyFontFastPath();
 // Alt-Tab can leave the webview with focus on <body>, stranding the caret that
 // was in the AI prompt (or a terminal). Put it back where the user left it.
 installFocusRestore();
+installRefreshIconSpin();
 
 // TEDI is an app shell, not a browser: a right-click nothing in the app claimed
 // would otherwise open WebView2's own "Refresh / Save as / Print / Inspect"

@@ -165,6 +165,14 @@ for (const [name, src, column] of COLUMNS) {
     "the filler's space goes back to an open section",
     /onLayoutChanged=\{reclaimFiller\}/.test(stack) && /\[fillerId\]: 0/.test(stack),
   );
+  // A lone section must fill its column: no minimize, and no filler to drag
+  // its bottom edge up against.
+  check(
+    "a lone section cannot be minimized or shrunk",
+    /const single = visible\.length === 1/.test(stack) &&
+      /collapsible=\{!single\}/.test(stack) &&
+      /\{!single && \(\s*<ResizablePanel id=\{fillerId\}/.test(stack),
+  );
 }
 
 // The library snaps a collapsible panel shut at the MIDPOINT between

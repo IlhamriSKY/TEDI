@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import { Progress } from "@/components/ui/progress";
 import { Spinner } from "@/components/ui/spinner";
@@ -184,11 +185,13 @@ export function AboutSection() {
 
         <div className="flex flex-wrap gap-2">
           <Button size="sm" onClick={onCheck} disabled={busy} className="gap-1.5">
-            {checkState.kind === "checking" ? (
-              <Spinner className="size-3" />
-            ) : (
-              <RefreshCw size={12} strokeWidth={1.75} />
-            )}
+            <IconSwap
+              active={checkState.kind === "checking" ? 0 : 1}
+              icons={[
+                checkState.kind === "checking" && <Spinner className="size-3" />,
+                <RefreshCw size={12} strokeWidth={1.75} />,
+              ]}
+            />
             Check for updates
           </Button>
 

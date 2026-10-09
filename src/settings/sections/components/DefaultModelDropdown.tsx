@@ -5,7 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/input";
 import { cn, matchesQuery } from "@/lib/utils";
 import {
   MODELS,
@@ -140,7 +140,7 @@ export function DefaultModelDropdown({
         className="max-h-105 w-(--radix-dropdown-menu-trigger-width) min-w-72 overflow-hidden p-0"
       >
         <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
-          <Input
+          <SearchInput
             value={modelQuery}
             onChange={(e) => setModelQuery(e.target.value)}
             onKeyDown={(e) => {
@@ -242,19 +242,15 @@ export function DefaultModelDropdown({
                       searching && "cursor-default hover:bg-transparent",
                     )}
                   >
-                    {isOpen ? (
-                      <ChevronDown
-                        size={10}
-                        strokeWidth={2}
-                        className={cn("opacity-60", searching && "invisible")}
-                      />
-                    ) : (
-                      <ChevronRight
-                        size={10}
-                        strokeWidth={2}
-                        className={cn("opacity-60", searching && "invisible")}
-                      />
-                    )}
+                    <ChevronRight
+                      size={10}
+                      strokeWidth={2}
+                      className={cn(
+                        "opacity-60 transition-transform",
+                        isOpen && "rotate-90",
+                        searching && "invisible",
+                      )}
+                    />
                     <ProviderIcon provider={p.id} size={11} />
                     <span>{s.title}</span>
                     <span className="text-muted-foreground/60 tracking-normal normal-case">

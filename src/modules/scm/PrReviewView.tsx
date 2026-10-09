@@ -171,11 +171,11 @@ function PatchFileBlock({
         className="hover:bg-muted/50 flex min-h-7 w-full items-center gap-1.5 px-2 py-1 text-left text-[11.5px]"
         aria-expanded={open}
       >
-        {open ? (
-          <ChevronDown size={12} strokeWidth={2} className="text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronRight size={12} strokeWidth={2} className="text-muted-foreground shrink-0" />
-        )}
+        <ChevronRight
+          size={12}
+          strokeWidth={2}
+          className={cn("text-muted-foreground shrink-0 transition-transform", open && "rotate-90")}
+        />
         <span className="min-w-0 flex-1 truncate" title={file.oldPath ?? file.path}>
           {file.oldPath ? <span className="text-muted-foreground">{file.oldPath} → </span> : null}
           {file.path}

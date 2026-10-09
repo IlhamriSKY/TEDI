@@ -18,7 +18,6 @@ import { basename } from "@/lib/path";
 import { SORT_LABELS, SORT_MODES } from "../lib/sortModes";
 import {
   ArrowUpDown,
-  ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   FilePlus,
@@ -109,19 +108,14 @@ export function ExplorerHeader({
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center truncate text-xs font-medium">
       {accordion ? (
-        collapsed ? (
-          <ChevronRight
-            size={10}
-            strokeWidth={2.25}
-            className="text-muted-foreground mr-1 shrink-0"
-          />
-        ) : (
-          <ChevronDown
-            size={10}
-            strokeWidth={2.25}
-            className="text-muted-foreground mr-1 shrink-0"
-          />
-        )
+        <ChevronRight
+          size={10}
+          strokeWidth={2.25}
+          className={cn(
+            "text-muted-foreground mr-1 shrink-0 transition-transform",
+            !collapsed && "rotate-90",
+          )}
+        />
       ) : null}
       <span className="truncate">{basename(rootPath)}</span>
     </span>

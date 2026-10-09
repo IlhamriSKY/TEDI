@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { USE_CUSTOM_WINDOW_CONTROLS } from "@/lib/platform";
 import { cn } from "@/lib/utils";
@@ -46,11 +47,10 @@ export function WindowControls({ closeOnly = false }: Props) {
               ariaLabel={maximized ? "Restore" : "Maximize"}
               onClick={() => void w.toggleMaximize()}
             >
-              {maximized ? (
-                <Copy size={12} strokeWidth={2} />
-              ) : (
-                <Square size={12} strokeWidth={2} />
-              )}
+              <IconSwap
+                active={maximized ? 0 : 1}
+                icons={[<Copy size={12} strokeWidth={2} />, <Square size={12} strokeWidth={2} />]}
+              />
             </CtlButton>
           </IconTooltip>
         </>

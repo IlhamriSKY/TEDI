@@ -4,7 +4,7 @@ import {
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/input";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn, matchesQuery } from "@/lib/utils";
 import { TOOLBAR_HOVER } from "@/lib/toolbarButton";
@@ -244,7 +244,7 @@ export function ModelDropdown() {
       </Tooltip>
       <DropdownMenuContent align="end" className="max-h-105 w-72 overflow-hidden p-0">
         <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
-          <Input
+          <SearchInput
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={(e) => {

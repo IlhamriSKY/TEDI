@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { toast } from "@/components/ui/toast";
@@ -427,11 +428,13 @@ export function ExplorerGrep({
                     className="hover:bg-accent hover:text-accent-foreground flex cursor-pointer items-center gap-1 rounded px-1 py-0.5"
                     aria-label={allCollapsed ? "Expand all" : "Collapse all"}
                   >
-                    {allCollapsed ? (
-                      <ChevronsUpDown size={11} strokeWidth={2} />
-                    ) : (
-                      <ChevronsDownUp size={11} strokeWidth={2} />
-                    )}
+                    <IconSwap
+                      active={allCollapsed ? 0 : 1}
+                      icons={[
+                        <ChevronsUpDown size={11} strokeWidth={2} />,
+                        <ChevronsDownUp size={11} strokeWidth={2} />,
+                      ]}
+                    />
                     <span className="hidden @[220px]:inline">
                       {allCollapsed ? "Expand all" : "Collapse all"}
                     </span>

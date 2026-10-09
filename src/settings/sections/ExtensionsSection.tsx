@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
+import { Input, SearchInput } from "@/components/ui/input";
 import { toast } from "@/components/ui/toast";
 import { cn } from "@/lib/utils";
 import { invoke } from "@tauri-apps/api/core";
@@ -523,7 +523,7 @@ export function ExtensionsSection() {
           ) : null}
         </div>
         {sorted.length > 0 ? (
-          <Input
+          <SearchInput
             placeholder="Search installed extensions"
             aria-label="Search installed extensions"
             value={query}

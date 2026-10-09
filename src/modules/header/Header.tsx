@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { WindowControls } from "@/components/WindowControls";
@@ -256,11 +257,10 @@ function HeaderImpl({
         onClick={() => setTheme(resolvedTheme === "dark" ? "light" : "dark")}
         aria-label={resolvedTheme === "dark" ? "Switch to light theme" : "Switch to dark theme"}
       >
-        {resolvedTheme === "dark" ? (
-          <Sun size={15} strokeWidth={1.75} />
-        ) : (
-          <Moon size={15} strokeWidth={1.75} />
-        )}
+        <IconSwap
+          active={resolvedTheme === "dark" ? 0 : 1}
+          icons={[<Sun size={15} strokeWidth={1.75} />, <Moon size={15} strokeWidth={1.75} />]}
+        />
       </Button>
     </IconTooltip>
   );

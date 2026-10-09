@@ -42,7 +42,6 @@ import {
   ArrowLeft,
   ArrowRight,
   ArrowUp,
-  ChevronDown,
   ChevronRight,
   ChevronsDownUp,
   FilePlus,
@@ -248,11 +247,14 @@ export function SshFileExplorer({
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-medium">
       {accordion ? (
-        collapsed ? (
-          <ChevronRight size={10} strokeWidth={2.25} className="text-muted-foreground shrink-0" />
-        ) : (
-          <ChevronDown size={10} strokeWidth={2.25} className="text-muted-foreground shrink-0" />
-        )
+        <ChevronRight
+          size={10}
+          strokeWidth={2.25}
+          className={cn(
+            "text-muted-foreground shrink-0 transition-transform",
+            !collapsed && "rotate-90",
+          )}
+        />
       ) : null}
       {/* Mirrors the local FileExplorer header: one server icon plus the
           cwd basename. Full path and host go in the tooltip so the header

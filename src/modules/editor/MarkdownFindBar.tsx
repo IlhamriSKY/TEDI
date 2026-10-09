@@ -1,4 +1,4 @@
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/input";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { SearchOptionToggle } from "@/components/ui/search-option-toggle";
 import { cn, escapeRegex } from "@/lib/utils";
@@ -270,7 +270,7 @@ export function MarkdownFindBar({ getContainer, content, onMatches, ref }: Props
       onKeyDown={(e) => e.stopPropagation()}
     >
       <div className="relative flex-1">
-        <Input
+        <SearchInput
           ref={inputRef}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
@@ -287,7 +287,7 @@ export function MarkdownFindBar({ getContainer, content, onMatches, ref }: Props
             }
           }}
           placeholder="Find in preview"
-          className={cn("h-7 pr-22 pl-2 text-xs", noMatches && "border-destructive/60")}
+          className={cn("h-7 pr-22 text-xs", noMatches && "border-destructive/60")}
         />
         <div className="absolute top-1/2 right-1 flex -translate-y-1/2 items-center gap-0.5">
           <SearchOptionToggle

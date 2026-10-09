@@ -1,5 +1,6 @@
 "use client";
 
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -286,11 +287,13 @@ function RunInTerminalButton({ command }: { command: string }) {
           className="text-muted-foreground hover:text-foreground h-5 gap-1 px-1.5 text-[10px] font-medium"
           aria-label="Run in active terminal"
         >
-          {sent ? (
-            <Terminal size={11} strokeWidth={1.75} />
-          ) : (
-            <ChevronRight size={11} strokeWidth={1.75} />
-          )}
+          <IconSwap
+            active={sent ? 0 : 1}
+            icons={[
+              <Terminal size={11} strokeWidth={1.75} />,
+              <ChevronRight size={11} strokeWidth={1.75} />,
+            ]}
+          />
           <span>{sent ? "Sent" : "Run"}</span>
         </Button>
       </TooltipTrigger>
@@ -327,11 +330,13 @@ function CopyButton({ text }: { text: string }) {
           className="text-muted-foreground hover:text-foreground size-5 shrink-0"
           aria-label="Copy code"
         >
-          {copied ? (
-            <CircleCheck size={11} strokeWidth={1.75} />
-          ) : (
-            <Copy size={11} strokeWidth={1.75} />
-          )}
+          <IconSwap
+            active={copied ? 0 : 1}
+            icons={[
+              <CircleCheck size={11} strokeWidth={1.75} />,
+              <Copy size={11} strokeWidth={1.75} />,
+            ]}
+          />
         </Button>
       </TooltipTrigger>
       <TooltipContent side="top">{copied ? "Copied" : "Copy code"}</TooltipContent>

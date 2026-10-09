@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { formatBytes } from "@/lib/format";
 import { CircleAlert, Download, RefreshCw } from "lucide-react";
@@ -39,12 +40,7 @@ export function UpdaterPill() {
               ? `Update check failed: ${updater.state.message}`
               : "Update";
 
-  const Icon =
-    updater.state.kind === "ready"
-      ? RefreshCw
-      : updater.state.kind === "error"
-        ? CircleAlert
-        : Download;
+  const iconIndex = updater.state.kind === "ready" ? 0 : updater.state.kind === "error" ? 1 : 2;
 
   const isError = updater.state.kind === "error";
   const pillClass = isError
@@ -78,7 +74,14 @@ export function UpdaterPill() {
             aria-label={label}
             className={`inline-flex h-6 shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 text-[11px] font-medium shadow-sm transition-colors focus-visible:ring-2 focus-visible:outline-none ${pillClass}`}
           >
-            <Icon size={11} strokeWidth={1.75} className="shrink-0" />
+            <IconSwap
+              active={iconIndex}
+              icons={[
+                <RefreshCw size={11} strokeWidth={1.75} />,
+                <CircleAlert size={11} strokeWidth={1.75} />,
+                <Download size={11} strokeWidth={1.75} />,
+              ]}
+            />
             <span className="truncate">{pillLabel}</span>
           </button>
         </IconTooltip>

@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -154,11 +155,13 @@ export function PanelHeader({
             aria-label={compact ? "Show commit box and tabs" : "Hide commit box and tabs"}
             aria-pressed={compact}
           >
-            {compact ? (
-              <PanelTopOpen size={13} strokeWidth={2} />
-            ) : (
-              <PanelTopClose size={13} strokeWidth={2} />
-            )}
+            <IconSwap
+              active={compact ? 0 : 1}
+              icons={[
+                <PanelTopOpen size={13} strokeWidth={2} />,
+                <PanelTopClose size={13} strokeWidth={2} />,
+              ]}
+            />
           </Button>
         </IconTooltip>
       ) : null}

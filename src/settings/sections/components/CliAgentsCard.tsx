@@ -1,3 +1,4 @@
+import { IconSlash } from "@/components/IconMorph";
 import { useEffect, useState } from "react";
 import {
   AlertDialog,
@@ -22,7 +23,7 @@ import {
   useCliAgentsStore,
   type CliAgent,
 } from "@/modules/terminal/lib/cliAgents";
-import { Pin, PinOff, Plus, RotateCcw, Trash2 } from "lucide-react";
+import { Pin, Plus, RotateCcw, Trash2 } from "lucide-react";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
 
 /**
@@ -184,11 +185,12 @@ function AgentRow({ agent, canReset, onSave, onTogglePin, onReset, onDelete }: R
           onClick={onTogglePin}
           aria-label={agent.pinned ? "Unpin" : "Pin to top"}
         >
-          {agent.pinned ? (
-            <Pin size={12} strokeWidth={2} />
-          ) : (
-            <PinOff size={12} strokeWidth={1.75} />
-          )}
+          <IconSlash
+            icon={Pin}
+            slashed={!agent.pinned}
+            size={12}
+            strokeWidth={agent.pinned ? 2 : 1.75}
+          />
         </Button>
       </IconTooltip>
       {agent.builtIn ? (

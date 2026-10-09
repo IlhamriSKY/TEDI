@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/input";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -1018,7 +1018,7 @@ export function SourceControlPanel({
       <>
         {showFilter ? (
           <div className="border-border/60 flex shrink-0 items-center gap-1 border-b px-2 py-1.5">
-            <Input
+            <SearchInput
               className="h-7 text-[11px] md:text-[11px]"
               value={fileFilter}
               onChange={(e) => setFileFilter(e.target.value)}

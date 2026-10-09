@@ -5,7 +5,7 @@ import {
   DropdownMenuItem,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { Input } from "@/components/ui/input";
+import { SearchInput } from "@/components/ui/input";
 import {
   OPENAI_COMPATIBLE_LEGACY_INSTANCE_ID,
   PROVIDERS,
@@ -305,7 +305,7 @@ export function ModelsSection() {
                 className="w-64 overflow-hidden p-0"
               >
                 <div className="border-border/60 bg-popover sticky top-0 z-10 border-b p-1.5">
-                  <Input
+                  <SearchInput
                     value={addProviderQuery}
                     onChange={(e) => setAddProviderQuery(e.target.value)}
                     onKeyDown={(e) => {

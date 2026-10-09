@@ -18,12 +18,14 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { IconSwap } from "@/components/IconMorph";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION, TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
   deleteConnection,
   duplicateConnection,
+  getConnectionSecrets,
   listConnections,
   onConnectionsChanged,
   type SshConnection,
@@ -36,7 +38,9 @@ import { open as openFileDialog } from "@tauri-apps/plugin-dialog";
 // `CopyPlus`, not `Copy`: plain Copy already means copy-to-clipboard everywhere
 // else in the app (code blocks, chat), and one glyph per action is the rule.
 import {
+  Check,
   Cloud,
+  Copy,
   CopyPlus,
   Download,
   Pencil,
@@ -79,6 +83,9 @@ export function SshMenu({ onConnect }: Props) {
   const [backup, setBackup] = useState<BackupMode | null>(null);
   const [backupOpen, setBackupOpen] = useState(false);
   const [pickError, setPickError] = useState<string | null>(null);
+  const [copiedId, setCopiedId] = useState<string | null>(null);
+  const copiedTimer = useRef(0);
+  useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
   useEffect(() => {
     void listConnections().then(setConns);
@@ -109,6 +116,21 @@ export function SshMenu({ onConnect }: Props) {
     setEditing(copy);
     setEditorOpen(true);
     setMenuOpen(false);
+  };
+
+  // `user@host:port password`, the password read from the keychain only now.
+  // Key and agent hosts have no password to give, so they copy the address.
+  const copyLogin = async (c: SshConnection) => {
+    const password = c.authMode === "password" ? (await getConnectionSecrets(c.id)).password : null;
+    const addr = `${c.user}@${c.host}:${c.port}`;
+    try {
+      await navigator.clipboard.writeText(password ? `${addr} ${password}` : addr);
+    } catch {
+      return;
+    }
+    setCopiedId(c.id);
+    window.clearTimeout(copiedTimer.current);
+    copiedTimer.current = window.setTimeout(() => setCopiedId(null), 1500);
   };
 
   const askDelete = (c: SshConnection) => {
@@ -208,6 +230,18 @@ export function SshMenu({ onConnect }: Props) {
                     (no opacity fade) so the affordance is discoverable
                     without hovering each row. */}
                 <span className="ml-1 flex shrink-0 items-center gap-0.5">
+                  <RowIconButton
+                    label={
+                      copiedId === c.id
+                        ? "Copied"
+                        : c.authMode === "password"
+                          ? "Copy user@host:port and password"
+                          : "Copy user@host:port"
+                    }
+                    onClick={() => void copyLogin(c)}
+                    icon={Copy}
+                    copied={copiedId === c.id}
+                  />
                   <RowIconButton
                     label={`Edit ${c.name}`}
                     onClick={() => openEdit(c)}
@@ -313,11 +347,14 @@ function RowIconButton({
   onClick,
   icon,
   danger,
+  copied,
 }: {
   label: string;
   onClick: () => void;
   icon: LucideIcon;
   danger?: boolean;
+  /** Morphs the icon into a check, the same feedback as a code block's copy. */
+  copied?: boolean;
 }) {
   const Icon = icon;
   return (
@@ -352,7 +389,14 @@ function RowIconButton({
             : "text-muted-foreground hover:bg-accent hover:text-foreground",
         )}
       >
-        <Icon size={12} strokeWidth={1.75} />
+        {copied === undefined ? (
+          <Icon size={12} strokeWidth={1.75} />
+        ) : (
+          <IconSwap
+            active={copied ? 0 : 1}
+            icons={[<Check size={12} strokeWidth={1.75} />, <Icon size={12} strokeWidth={1.75} />]}
+          />
+        )}
       </button>
     </IconTooltip>
   );

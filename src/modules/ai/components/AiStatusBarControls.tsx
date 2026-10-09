@@ -1,3 +1,4 @@
+import { IconSwap } from "@/components/IconMorph";
 import { Button } from "@/components/ui/button";
 import {
   DropdownMenu,
@@ -111,13 +112,16 @@ export function AiStatusBarControls() {
             c.voice.recording && "bg-destructive/10 text-destructive hover:bg-destructive/15",
           )}
         >
-          {c.voice.recording ? (
-            <span className="bg-destructive size-2 animate-pulse rounded-full" />
-          ) : c.voice.transcribing ? (
-            <Spinner className="size-3" />
-          ) : (
-            <Mic size={13} strokeWidth={2} />
-          )}
+          <IconSwap
+            active={c.voice.recording ? 0 : c.voice.transcribing ? 1 : 2}
+            icons={[
+              c.voice.recording && (
+                <span className="bg-destructive size-2 animate-pulse rounded-full" />
+              ),
+              c.voice.transcribing && <Spinner className="size-3" />,
+              <Mic size={13} strokeWidth={2} />,
+            ]}
+          />
         </IconBtn>
       )}
 
