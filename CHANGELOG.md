@@ -4,6 +4,30 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.71] - 25-10-2026
+
+### Added
+
+- **AI Sessions in the sidebar.** Your saved Claude Code and Codex sessions
+  as a folder tree grouped by project: double-click to resume one in a new
+  terminal, rename it (the same name `claude --resume` shows), or delete it.
+  A session that is still running, or whose folder no longer exists, says so
+  instead of failing. See [claude_sessions.rs](src-tauri/src/modules/claude_sessions.rs)
+  and [codex_sessions.rs](src-tauri/src/modules/codex_sessions.rs).
+
+### Changed
+
+- **Less GPU while Claude Code or Codex is running.** The breathing agent
+  icons in the tab strip, pane headers and Workspaces panel were animated on
+  the icon itself, which the webview has to redraw on the main thread every
+  frame, and icons in inactive tabs kept animating out of sight. They now
+  animate on a wrapper and stop in hidden tabs: measured with an agent
+  running, the GPU process went from 36% to 29% of a core and the renderer
+  from 31% to 21% (median of 6 rounds), the same as no animation at all. See
+  [LeafIcon.tsx](src/components/LeafIcon.tsx).
+- The extension catalog address in Settings > Extensions > Marketplace is now
+  a link that opens in your browser.
+
 ## [0.4.70] - 09-10-2026
 
 ### Security
