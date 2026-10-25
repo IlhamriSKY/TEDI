@@ -64,10 +64,15 @@ export function aiCliStateColorClass(state: AiCliState): string {
 }
 
 /**
- * Tailwind classes for the terminal-leaf icon when an AI CLI is active:
- * themable color + a smooth "breathing" pulse while working / blocking so an
- * active prompt is always visible. Idle stays solid (no animation). Color
- * resolves from the themable `--tedi-icon-*` CSS variables.
+ * Animation class for the terminal-leaf icon when an AI CLI is active: a smooth
+ * "breathing" pulse while working / blocking so an active prompt is always
+ * visible. Idle stays solid (null). The colour is {@link aiCliStateColorClass}.
+ *
+ * Put it on an HTML WRAPPER, never on the `<svg>` itself: Chromium cannot hand
+ * an animation on an SVG element to the compositor, so each breathing glyph
+ * cost a style recalc + paint on the main thread every frame. Measured live on
+ * v0.4.70, 12 breathing glyphs, median of 6 rounds: GPU process 36% -> 29% of a
+ * core, renderer 31% -> 21%, the same as pausing every animation.
  *
  * `done` breathes too, but a FINITE number of times (`.ai-breathe-settle`).
  * It is the only state the app holds indefinitely: it is set on the
@@ -78,11 +83,10 @@ export function aiCliStateColorClass(state: AiCliState): string {
  * for as long as the user did not look. It still catches the eye when it
  * appears, then rests on its own colour.
  */
-export function aiCliIconClass(s: NonNullable<AiCliStatus>): string {
-  const color = aiCliStateColorClass(s.state);
-  if (s.state === "idle") return color;
-  if (s.state === "done") return `${color} ai-breathe-settle`;
-  return `${color} animate-ai-breathe`;
+export function aiCliIconMotionClass(s: NonNullable<AiCliStatus>): string | null {
+  if (s.state === "idle") return null;
+  if (s.state === "done") return "ai-breathe-settle";
+  return "animate-ai-breathe";
 }
 
 export function toolDisplayName(t: AiCliKind): string {

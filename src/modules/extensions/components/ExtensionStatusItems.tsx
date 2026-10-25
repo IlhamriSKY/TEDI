@@ -299,11 +299,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   const paintsItself = item.iconColored === true;
 
   const iconEl = Icon ? (
-    <Icon
-      size={16}
-      strokeWidth={1.8}
-      className={cn("transition-colors duration-200", iconTint, isPulsing && "animate-pulse")}
-    />
+    <Icon size={16} strokeWidth={1.8} className={cn("transition-colors duration-200", iconTint)} />
   ) : iconUrl ? (
     isSvg && !paintsItself ? (
       <span
@@ -317,7 +313,6 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
         className={cn(
           "size-4 transition-colors duration-200",
           isError ? "bg-icon-blocked" : iconLive ? "bg-foreground" : "bg-muted-foreground/40",
-          isPulsing && "animate-pulse",
         )}
       />
     ) : (
@@ -329,7 +324,6 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
           // A bitmap carries its own colours and cannot be tinted, so an error
           // shows as full opacity rather than the muted-and-grey "off" look.
           paintsItself || iconLive || isError ? "opacity-100" : "opacity-40 grayscale",
-          isPulsing && "animate-pulse",
         )}
         loading="lazy"
         draggable={false}
@@ -338,6 +332,9 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
   ) : (
     <span className="bg-muted size-4 rounded-sm" aria-hidden />
   );
+  // One pulse for all three shapes, on a wrapper: an animation on the <svg> or the
+  // masked span ticked style + paint on the main thread every frame.
+  const glyph = isPulsing ? <span className="inline-flex animate-pulse">{iconEl}</span> : iconEl;
 
   // `px-1` is not decoration: an icon-only item is a 16 px glyph centred in a
   // 24 px box, so its ink already sits 4 px inside its own edge. A meter drawn
@@ -350,7 +347,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
 
   const body = hasMeter ? (
     <>
-      <span className="inline-flex size-4 items-center justify-center">{iconEl}</span>
+      <span className="inline-flex size-4 items-center justify-center">{glyph}</span>
       {item.label != null ? (
         <span
           className={cn("text-[10px] leading-none font-medium tabular-nums", valueColor(item.tone))}
@@ -369,7 +366,7 @@ function StatusItemView({ extensionId, item }: { extensionId: string; item: Stat
       ) : null}
     </>
   ) : (
-    iconEl
+    glyph
   );
 
   return (

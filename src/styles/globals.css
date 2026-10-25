@@ -125,6 +125,14 @@
   animation: ai-breathe 1.8s ease-in-out 8;
 }
 
+/* An inactive tab is `invisible`, not unmounted, and Chromium will not composite
+ * an animation it cannot see (compositeFailed: AnimationHasNoVisibleChange), so
+ * each agent glyph in a hidden tab still ticked style + paint every frame on the
+ * main thread for an icon nobody can see. */
+.invisible :is(.animate-ai-breathe, .ai-breathe-settle, .animate-pulse) {
+  animation: none;
+}
+
 /* A pixel cell lighting and going out (components/ui/pixel-activity.tsx).
  *
  * TWO shapes, because the component draws eleven motions and the shape is what

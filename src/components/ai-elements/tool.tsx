@@ -312,16 +312,15 @@ const ToolImpl = ({
           "focus-visible:ring-ring focus-visible:ring-1 focus-visible:outline-none",
         )}
       >
-        <Icon
-          size={13}
-          strokeWidth={1.75}
-          className={cn(
-            "shrink-0 transition-colors",
-            running && "animate-ai-breathe",
-            STATUS_ICON_COLOR[state],
-          )}
-          aria-label={STATUS_LABEL[state]}
-        />
+        {/* The breathe sits on a span: an animation on the <svg> runs on the main thread. */}
+        <span className={cn("inline-flex shrink-0", running && "animate-ai-breathe")}>
+          <Icon
+            size={13}
+            strokeWidth={1.75}
+            className={cn("shrink-0 transition-colors", STATUS_ICON_COLOR[state])}
+            aria-label={STATUS_LABEL[state]}
+          />
+        </span>
         <span className="text-foreground shrink-0 font-medium">{label}</span>
         {summary ? (
           <span className="text-muted-foreground min-w-0 flex-1 truncate font-mono text-[11px]">

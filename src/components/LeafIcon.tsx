@@ -2,12 +2,13 @@ import { cn } from "@/lib/utils";
 import { CliAgentIcon } from "./CliAgentIcon";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import {
-  aiCliIconClass,
+  aiCliIconMotionClass,
   aiCliStateColorClass,
   type AiCliState,
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
 import { resolveExtIcon, useIconsReady } from "@/lib/iconRegistry";
+import type { ReactNode } from "react";
 import {
   Cloud,
   Database,
@@ -64,10 +65,15 @@ export function LeafIcon({
   // Subscribe so the extension-panel glyph re-renders once the lazy lucide
   // chunk lands and `resolveExtIcon` starts returning a component.
   useIconsReady();
-  const aiTint = info.aiCliStatus ? aiCliIconClass(info.aiCliStatus) : null;
+  const aiTint = info.aiCliStatus ? aiCliStateColorClass(info.aiCliStatus.state) : null;
+  const aiMotion = info.aiCliStatus ? aiCliIconMotionClass(info.aiCliStatus) : null;
 
   if (info.isPrivate) {
-    return <Lock size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />;
+    return (
+      <Motion className={aiMotion}>
+        <Lock size={size} strokeWidth={2} className={cn("shrink-0", className, aiTint)} />
+      </Motion>
+    );
   }
 
   if (info.leafKind === "editor") {
@@ -107,16 +113,17 @@ export function LeafIcon({
 
   if (info.leafKind === "ai") {
     return (
-      <Sparkles
-        size={size}
-        strokeWidth={2}
-        className={cn(
-          "shrink-0",
-          className,
-          info.agentState && info.agentState !== "idle" && aiCliStateColorClass(info.agentState),
-          info.agentState === "done" && "animate-pulse",
-        )}
-      />
+      <Motion className={info.agentState === "done" ? "animate-pulse" : null}>
+        <Sparkles
+          size={size}
+          strokeWidth={2}
+          className={cn(
+            "shrink-0",
+            className,
+            info.agentState && info.agentState !== "idle" && aiCliStateColorClass(info.agentState),
+          )}
+        />
+      </Motion>
     );
   }
 
@@ -160,11 +167,13 @@ export function LeafIcon({
   // mark keeps breathing green/yellow/red exactly as the terminal glyph did.
   if (info.aiCliStatus) {
     return (
-      <CliAgentIcon
-        agentId={info.aiCliStatus.tool}
-        size={size}
-        className={cn("shrink-0", className, aiTint)}
-      />
+      <Motion className={aiMotion}>
+        <CliAgentIcon
+          agentId={info.aiCliStatus.tool}
+          size={size}
+          className={cn("shrink-0", className, aiTint)}
+        />
+      </Motion>
     );
   }
 
@@ -174,4 +183,11 @@ export function LeafIcon({
   ) : (
     <SquareTerminal size={size} strokeWidth={2} className={cn("shrink-0", className)} />
   );
+}
+
+/** Runs an icon animation on an HTML box instead of the `<svg>`, which Chromium
+ *  cannot animate on the compositor (see `aiCliIconMotionClass`). */
+function Motion({ className, children }: { className: string | null; children: ReactNode }) {
+  if (!className) return children;
+  return <span className={cn("inline-flex shrink-0", className)}>{children}</span>;
 }
