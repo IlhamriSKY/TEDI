@@ -64,9 +64,9 @@ pub mod modules;
 pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
-    automation, backup, browser, chatgpt_auth, cli, cli_ext, cli_theme, cli_update, clipboard,
-    extensions, format, fs, git, mcp, mcp_bridge, net, preview, procs, pty, pty_daemon, secrets,
-    shell, snapshot, ssh,
+    automation, backup, browser, chatgpt_auth, claude_sessions, cli, cli_ext, cli_theme,
+    cli_update, clipboard, codex_sessions, extensions, format, fs, git, mcp, mcp_bridge, net,
+    preview, procs, pty, pty_daemon, secrets, shell, snapshot, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
 use tauri_plugin_window_state::StateFlags;
@@ -819,6 +819,12 @@ pub fn run() {
             fs::mutate::fs_rename,
             fs::mutate::fs_copy,
             fs::mutate::fs_delete,
+            claude_sessions::claude_sessions_list,
+            claude_sessions::claude_session_rename,
+            claude_sessions::claude_session_delete,
+            codex_sessions::codex_sessions_list,
+            codex_sessions::codex_session_rename,
+            codex_sessions::codex_session_delete,
             fs::search::fs_search,
             fs::grep::fs_grep,
             fs::grep::fs_glob,

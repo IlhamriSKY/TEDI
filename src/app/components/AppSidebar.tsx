@@ -9,6 +9,7 @@ import {
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
+import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
 import { Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
@@ -77,13 +78,15 @@ type Props = {
 // The reorderable built-in sidebar sections, in canonical order. Extension
 // sections (keyed `xsec:<extId>:<sectionId>`) are appended dynamically — they
 // exist only while their extension is active.
-const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces"] as const;
+// "sessions" is left-only: it is not in sectionDock's DUAL_COLUMN_BUILTINS.
+const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces", "sessions"] as const;
 type BuiltinKey = (typeof BUILTIN_KEYS)[number];
 const BUILTIN_TITLES: Record<BuiltinKey, string> = {
   files: "Files",
   ssh: "Remote",
   scm: "Source Control",
   workspaces: "Workspaces",
+  sessions: "AI Sessions",
 };
 // Initial split (the panel group normalizes for whichever sections are visible);
 // Files gets the most room, like the old layout. Users resize from here.
@@ -92,6 +95,7 @@ const BUILTIN_DEFAULT_SIZE: Record<BuiltinKey, string> = {
   ssh: "25%",
   scm: "18%",
   workspaces: "12%",
+  sessions: "15%",
 };
 const EXT_DEFAULT_SIZE = "20%";
 
@@ -262,6 +266,8 @@ export function AppSidebar({
             onMoveToRight={() => dockRight("workspaces")}
           />
         );
+      case "sessions":
+        return <AgentSessionsPanel dragHandle={controls} collapsed={collapsed} />;
     }
   };
 

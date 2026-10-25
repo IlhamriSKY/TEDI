@@ -104,6 +104,7 @@ subsystems, flat files for single-purpose ones).
 | `mcp_bridge.rs`, `local_socket.rs`, `mcp_devtools.rs` | The local socket (named pipe / unix socket) an outside AI CLI drives a running window through, plus the in-process CDP the MCP tools use instead of an automation port.            |
 | `automation.rs`                                       | Reads `automationPort` from the settings file at startup, because WebView2 fixes its browser arguments before the first webview exists.                                            |
 | `chatgpt_auth.rs`                                     | OAuth PKCE sign-in with a ChatGPT account (loopback listener, refresh token straight to the keychain).                                                                             |
+| `claude_sessions.rs`, `codex_sessions.rs`             | AI Sessions sidebar backend. Claude: a 64 KB tail read per transcript (titles sit at the end). Codex: only through `codex app-server`.                                             |
 | `snapshot.rs`                                         | Watches the OS screenshot folders by directory mtime, and starts native file drags out of the preview card.                                                                        |
 | `procs.rs`                                            | Host-side process sampler (`process_sample`), so an extension needs no per-tick spawn.                                                                                             |
 | `preview/`                                            | The `tedi-frame://` proxy scheme (`proxy`, `util`).                                                                                                                                |
@@ -121,7 +122,7 @@ subsystems, flat files for single-purpose ones).
 
 Single-window React app (plus the Settings webview), path alias `@/*` -> `src/*`.
 `app/App.tsx` is the ~1200-line coordinator described in Section 2. Feature code
-lives in 22 self-contained modules.
+lives in 23 self-contained modules.
 
 | Module            | Responsibility                                                                                                                               |
 | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -131,6 +132,7 @@ lives in 22 self-contained modules.
 | `panes/`          | Split-pane orchestration via `react-resizable-panels`, plus the workspace canvas view (every pane as a free-floating window on one surface). |
 | `tabs/`           | The tab model (source of truth): `useTabs`, workspace-cwd derivation, serialization.                                                         |
 | `workspaces/`     | Workspace persistence and switching (tab layout + cwd).                                                                                      |
+| `agentSessions/`  | AI Sessions sidebar: Claude Code / Codex sessions as a folder tree; resume, rename, delete.                                                  |
 | `header/`         | Top bar, inline search, custom window controls (Linux/Windows).                                                                              |
 | `statusbar/`      | Bottom bar, cwd breadcrumb, AI tools indicator.                                                                                              |
 | `shortcuts/`      | Keymap registry and global shortcut dispatch (handlers wired in App.tsx by id).                                                              |

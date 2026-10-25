@@ -105,7 +105,7 @@ fn procs() -> &'static Mutex<HashMap<String, Arc<McpProc>>> {
 /// `.cmd`/`.bat` through cmd.exe with the CVE-2024-24576 escaping. A name that
 /// already carries a path separator or extension is used verbatim.
 #[cfg(windows)]
-fn resolve_program(program: &str) -> String {
+pub(crate) fn resolve_program(program: &str) -> String {
     use std::path::Path;
     let p = Path::new(program);
     if p.components().count() > 1 || p.extension().is_some() {
@@ -126,7 +126,7 @@ fn resolve_program(program: &str) -> String {
 }
 
 #[cfg(not(windows))]
-fn resolve_program(program: &str) -> String {
+pub(crate) fn resolve_program(program: &str) -> String {
     program.to_string()
 }
 
