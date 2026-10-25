@@ -4,6 +4,30 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.72] - 26-10-2026
+
+### Added
+
+- **Copy from tmux, nvim or an SSH session lands in your clipboard.** Programs
+  that copy with OSC 52 now reach the local clipboard. Only copying in is
+  supported: a program asking to read your clipboard is refused. See
+  [osc-handlers.ts](src/modules/terminal/lib/osc-handlers.ts).
+- **Clear a terminal's scrollback** with Ctrl+Shift+K (Cmd+K on macOS). Plain
+  Ctrl+K is left to the shell, and a full-screen program is never cleared.
+- **Swap a pane with the next or previous one** from the Command Palette
+  ("Swap pane with next" / "with previous"). It has no default key; bind one
+  in Settings > Shortcuts.
+
+### Changed
+
+- **Background terminals cost less.** A terminal in a hidden tab, or in a
+  minimized or covered window, now has its output delivered in one batch every
+  100 ms instead of a message every few milliseconds, and it catches up the
+  moment you look at it. A visible pane you are not typing in redraws at most
+  about 30 times a second; the one you type in is unchanged. Most noticeable
+  with several Claude Code or Codex sessions running at once.
+- **Files sort naturally** in the explorer: `file2` before `file10`.
+
 ## [0.4.71] - 25-10-2026
 
 ### Added
