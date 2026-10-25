@@ -191,7 +191,7 @@ fn list_inner() -> Result<Vec<AgentSession>, String> {
             break;
         }
     }
-    out.sort_by(|a, b| b.modified_ms.cmp(&a.modified_ms));
+    out.sort_by_key(|s| std::cmp::Reverse(s.modified_ms));
     mark_missing_cwds(&mut out);
     Ok(out)
 }
