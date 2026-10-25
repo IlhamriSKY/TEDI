@@ -148,6 +148,7 @@ export default function App() {
     setEditorLeafPath,
     focusPane,
     focusNextPaneInTab,
+    swapLeafWithNeighbor,
     closePaneByLeaf,
     splitActivePane,
     moveLeafToTab,
@@ -887,6 +888,7 @@ export default function App() {
         selectByIndex,
         splitActivePaneInActiveTab,
         focusNextPaneInTab,
+        swapLeafWithNeighbor,
         togglePanelAndFocus,
         askFromSelection,
         openScmTab,
@@ -918,6 +920,7 @@ export default function App() {
       selectByIndex,
       splitActivePaneInActiveTab,
       focusNextPaneInTab,
+      swapLeafWithNeighbor,
       togglePanelAndFocus,
       askFromSelection,
       toggleSidebar,
@@ -980,7 +983,11 @@ export default function App() {
       // Prompt jumps belong to a FOCUSED terminal on its normal screen. Anywhere
       // else Mod+Up/Down is the editor's or the composer's, and a TUI (vim,
       // htop) may bind it, so the key goes through untouched.
-      if (id === "terminal.prevCommand" || id === "terminal.nextCommand") {
+      if (
+        id === "terminal.prevCommand" ||
+        id === "terminal.nextCommand" ||
+        id === "terminal.clear"
+      ) {
         const leafId = focusedTerminalLeafId();
         return leafId === null || !!terminalRefs.current.get(leafId)?.isAltScreen();
       }

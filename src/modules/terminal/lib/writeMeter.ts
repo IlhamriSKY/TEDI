@@ -31,6 +31,42 @@ export const STALL_CAP = 512 * 1024;
 export const STALL_NOTICE =
   "\x1bc\x1b[2m[tedi: dropped output while the window was hidden]\x1b[0m\r\n";
 
+/**
+ * Holds output for a pane without keyboard focus and releases it every
+ * `delayMs` in arrival order; a focused push releases anything held first, so
+ * bytes never reorder. See `UNFOCUSED_WRITE_MS` in `pty-lifecycle.ts`.
+ */
+export function createWriteBatch(
+  write: (bytes: Uint8Array) => void,
+  isStale: () => boolean,
+  delayMs = 33,
+  schedule: (fn: () => void, ms: number) => unknown = setTimeout,
+): { push: (bytes: Uint8Array, immediate: boolean) => void } {
+  let held: Uint8Array[] = [];
+  let armed = false;
+  const release = () => {
+    armed = false;
+    const out = held;
+    held = [];
+    if (isStale()) return;
+    for (const b of out) write(b);
+  };
+  return {
+    push(bytes, immediate) {
+      if (immediate) {
+        if (held.length) release();
+        if (!isStale()) write(bytes);
+        return;
+      }
+      held.push(bytes);
+      if (!armed) {
+        armed = true;
+        schedule(release, delayMs);
+      }
+    },
+  };
+}
+
 export type WriteMeter = {
   /** Feed PTY bytes: written through while the parser keeps up, held otherwise. */
   push: (bytes: Uint8Array) => void;

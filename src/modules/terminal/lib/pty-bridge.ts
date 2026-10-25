@@ -25,6 +25,9 @@ export type PtySession = {
   write: (data: string) => Promise<void>;
   resize: (cols: number, rows: number) => Promise<void>;
   close: () => Promise<void>;
+  /** Local PTYs only: the host batches a hidden pane's output. Absent on SSH,
+   *  whose ids live in a different namespace and would hit the wrong session. */
+  setVisible?: (visible: boolean) => Promise<void>;
 };
 
 /** Shape returned by the Rust `pty_open` / `pty_attach` commands. */
@@ -54,6 +57,7 @@ function buildSession(result: PtyOpenResult): PtySession {
     write: (data) => invoke("pty_write", { id, data }),
     resize: (c, r) => invoke("pty_resize", { id, cols: c, rows: r }),
     close: () => invoke("pty_close", { id }),
+    setVisible: (visible) => invoke("pty_set_visible", { id, visible }),
   };
 }
 

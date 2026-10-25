@@ -25,10 +25,11 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::mpsc::{sync_channel, SyncSender};
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, Condvar, Mutex};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base64::{engine::general_purpose::STANDARD as B64, Engine};
 use tauri::ipc::Channel;
 use uuid::Uuid;
 
@@ -62,6 +63,17 @@ const EARLY_DATA_CAP_BYTES: usize = 256 * 1024;
 /// keeps streaming `Data` for it.
 const MAX_EARLY_SESSIONS: usize = 32;
 
+/// A hidden pane (inactive tab) gets its output batched for this long instead
+/// of one webview message per ~8 ms daemon frame. Each message is a WebView2
+/// script dispatch whatever its size, and a background agent repainting its
+/// spinner sends dozens a second that nobody can see. Upstream Terax measured
+/// 10 spinners at 20 Hz going from ~345 to ~55 IPC operations a second.
+const HIDDEN_FLUSH: Duration = Duration::from_millis(100);
+
+/// Held output past this goes out at once, so a flood in a hidden tab is not
+/// held without bound.
+const HIDDEN_HOLD_CAP: usize = 1024 * 1024;
+
 /// Routes daemon push events (`Data`/`Exit`) to the per-session Tauri
 /// `Channel`. `channels` holds the registered routes; `early` buffers events
 /// that arrive for a session whose channel is not registered yet (its
@@ -79,6 +91,99 @@ struct Routing {
     channels: HashMap<Uuid, Channel<PtyEvent>>,
     /// Buffered pre-registration events per session, in arrival order.
     early: HashMap<Uuid, Vec<PtyEvent>>,
+    /// Sessions whose pane is hidden, each with the output held for it since
+    /// the last flush. Absent = visible, streamed frame by frame.
+    hidden: HashMap<Uuid, Vec<u8>>,
+    /// Some hidden session holds bytes. Lives under this mutex, not beside it,
+    /// so the flusher cannot read it false and then miss the wakeup.
+    held_pending: bool,
+    /// The connection is dead: the flusher thread exits.
+    closed: bool,
+}
+
+/// Send what a hidden session holds. Callers hold the routing lock, which is
+/// what keeps held output from overtaking or trailing the session's next frame.
+fn flush_held(routing: &mut Routing, session_id: Uuid) {
+    let Some(buf) = routing.hidden.get_mut(&session_id) else {
+        return;
+    };
+    if buf.is_empty() {
+        return;
+    }
+    let ev = PtyEvent::Data {
+        data: B64.encode(&buf),
+    };
+    buf.clear();
+    match routing.channels.get(&session_id) {
+        Some(chan) => {
+            let _ = chan.send(ev);
+        }
+        None => buffer_early(routing, session_id, ev),
+    }
+}
+
+/// Route one `Data` frame: hold it for a hidden session, otherwise send it.
+fn route_data(routing: &Mutex<Routing>, held_cv: &Condvar, session_id: Uuid, data_b64: String) {
+    let mut routing = routing.lock().unwrap();
+    if let Some(held) = routing.hidden.get_mut(&session_id) {
+        if let Ok(bytes) = B64.decode(data_b64.as_bytes()) {
+            let was_empty = held.is_empty();
+            held.extend_from_slice(&bytes);
+            if held.len() >= HIDDEN_HOLD_CAP {
+                flush_held(&mut routing, session_id);
+            } else if was_empty {
+                routing.held_pending = true;
+                held_cv.notify_one();
+            }
+            return;
+        }
+        // Undecodable: send what is held, then this frame as it came.
+        flush_held(&mut routing, session_id);
+    }
+    // Clone the channel out and send AFTER releasing the lock so a slow webview
+    // post can't stall routing for other sessions. If the session isn't
+    // registered yet (its OpenOk/AttachOk is still being processed), buffer the
+    // event so `register_and_replay` delivers it in order, never dropping it
+    // (dropping the first frame loses a new shell's prompt and blanks the pane).
+    match routing.channels.get(&session_id).cloned() {
+        Some(chan) => {
+            drop(routing);
+            let _ = chan.send(PtyEvent::Data { data: data_b64 });
+        }
+        None => buffer_early(&mut routing, session_id, PtyEvent::Data { data: data_b64 }),
+    }
+}
+
+/// Hide (batch) or show (stream) a session. Showing sends what was held first,
+/// under the lock, so the pane never sees its output reordered.
+fn set_hidden(routing: &mut Routing, session_id: Uuid, hidden: bool) {
+    if hidden {
+        routing.hidden.entry(session_id).or_default();
+    } else {
+        flush_held(routing, session_id);
+        routing.hidden.remove(&session_id);
+    }
+}
+
+/// Wakes only while a hidden session holds output, so an idle GUI pays nothing.
+fn held_flusher(routing: &Mutex<Routing>, held_cv: &Condvar) {
+    let mut guard = routing.lock().unwrap();
+    loop {
+        guard = held_cv
+            .wait_while(guard, |r| !r.held_pending && !r.closed)
+            .unwrap();
+        if guard.closed {
+            return;
+        }
+        drop(guard);
+        thread::sleep(HIDDEN_FLUSH);
+        guard = routing.lock().unwrap();
+        guard.held_pending = false;
+        let ids: Vec<Uuid> = guard.hidden.keys().copied().collect();
+        for id in ids {
+            flush_held(&mut guard, id);
+        }
+    }
 }
 
 fn early_event_bytes(ev: &PtyEvent) -> usize {
@@ -112,6 +217,8 @@ struct ClientState {
     /// single mutex closes the register-vs-route race that otherwise drops a
     /// new shell's first prompt bytes (the blank new-tab/pane bug).
     routing: Mutex<Routing>,
+    /// Wakes `held_flusher` when a hidden session starts holding output.
+    held_cv: Condvar,
     next_req_id: AtomicU64,
     /// Serializes producer writes so length-prefix + body land atomically.
     write_lock: Mutex<()>,
@@ -196,6 +303,7 @@ impl PtyClient {
             stream: Arc::new(stream),
             pending: Mutex::new(HashMap::new()),
             routing: Mutex::new(Routing::default()),
+            held_cv: Condvar::new(),
             next_req_id: AtomicU64::new(1),
             write_lock: Mutex::new(()),
             alive: AtomicBool::new(true),
@@ -208,6 +316,11 @@ impl PtyClient {
             .name("tedi-ptyd-client-reader".into())
             .spawn(move || reader_loop(reader_state))
             .map_err(|e| format!("spawn client reader: {e}"))?;
+        let flusher_state = state.clone();
+        thread::Builder::new()
+            .name("tedi-ptyd-held-flush".into())
+            .spawn(move || held_flusher(&flusher_state.routing, &flusher_state.held_cv))
+            .map_err(|e| format!("spawn held flusher: {e}"))?;
         Ok(Self { state })
     }
 
@@ -403,9 +516,19 @@ impl PtyClient {
             let mut routing = self.state.routing.lock().unwrap();
             routing.channels.remove(&session_id);
             routing.early.remove(&session_id);
+            routing.hidden.remove(&session_id);
         }
         let req_id = self.next_req_id();
         self.send_oneway(&ClientMsg::Close { req_id, session_id })
+    }
+
+    /// Batch a hidden pane's output (`HIDDEN_FLUSH`) or stream a visible one.
+    pub fn set_visible(&self, session_id: Uuid, visible: bool) {
+        set_hidden(
+            &mut self.state.routing.lock().unwrap(),
+            session_id,
+            !visible,
+        );
     }
 
     pub fn list(&self) -> Result<Vec<SessionInfo>, String> {
@@ -426,6 +549,7 @@ impl PtyClient {
                 let mut routing = self.state.routing.lock().unwrap();
                 routing.channels.clear();
                 routing.early.clear();
+                routing.hidden.clear();
                 Ok(())
             }
             DaemonMsg::Err { message, .. } => Err(message),
@@ -458,28 +582,13 @@ fn reader_loop(state: Arc<ClientState>) {
             DaemonMsg::Data {
                 session_id,
                 data_b64,
-            } => {
-                // Clone the channel out and send AFTER releasing the lock so a
-                // slow webview post can't stall routing for other sessions. If
-                // the session isn't registered yet (its OpenOk/AttachOk is
-                // still being processed), buffer the event so
-                // `register_and_replay` delivers it in order, never dropping it
-                // (dropping the first frame loses a new shell's prompt and
-                // blanks the pane).
-                let mut routing = state.routing.lock().unwrap();
-                match routing.channels.get(&session_id).cloned() {
-                    Some(chan) => {
-                        drop(routing);
-                        let _ = chan.send(PtyEvent::Data { data: data_b64 });
-                    }
-                    None => {
-                        buffer_early(&mut routing, session_id, PtyEvent::Data { data: data_b64 })
-                    }
-                }
-            }
+            } => route_data(&state.routing, &state.held_cv, session_id, data_b64),
             DaemonMsg::Exit { session_id, code } => {
                 let chan = {
                     let mut routing = state.routing.lock().unwrap();
+                    // Output held for a hidden pane goes before its exit.
+                    flush_held(&mut routing, session_id);
+                    routing.hidden.remove(&session_id);
                     match routing.channels.remove(&session_id) {
                         Some(chan) => {
                             // Registered session exited: drop its route (and any
@@ -515,7 +624,13 @@ fn reader_loop(state: Arc<ClientState>) {
     state.pending.lock().unwrap().clear();
     // Connection is dead; no more events will arrive. Free any buffered
     // pre-registration events so they can't leak past the connection.
-    state.routing.lock().unwrap().early.clear();
+    {
+        let mut routing = state.routing.lock().unwrap();
+        routing.early.clear();
+        routing.hidden.clear();
+        routing.closed = true;
+    }
+    state.held_cv.notify_all();
 }
 
 fn response_req_id(msg: &DaemonMsg) -> Option<ReqId> {
@@ -527,5 +642,92 @@ fn response_req_id(msg: &DaemonMsg) -> Option<ReqId> {
         | DaemonMsg::Err { req_id, .. }
         | DaemonMsg::Sessions { req_id, .. } => Some(*req_id),
         DaemonMsg::Data { .. } | DaemonMsg::Exit { .. } => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tauri::ipc::InvokeResponseBody;
+
+    /// A channel that records every event's payload bytes ("<exit>" for Exit).
+    fn recording_channel() -> (Channel<PtyEvent>, Arc<Mutex<Vec<String>>>) {
+        let seen = Arc::new(Mutex::new(Vec::new()));
+        let sink = seen.clone();
+        let chan = Channel::new(move |body| {
+            if let InvokeResponseBody::Json(json) = body {
+                let v: serde_json::Value = serde_json::from_str(&json).unwrap();
+                let text = match v["data"].as_str() {
+                    Some(b64) => String::from_utf8(B64.decode(b64).unwrap()).unwrap(),
+                    None => "<exit>".into(),
+                };
+                sink.lock().unwrap().push(text);
+            }
+            Ok(())
+        });
+        (chan, seen)
+    }
+
+    fn setup() -> (Mutex<Routing>, Condvar, Uuid, Arc<Mutex<Vec<String>>>) {
+        let id = Uuid::new_v4();
+        let (chan, seen) = recording_channel();
+        let mut routing = Routing::default();
+        routing.channels.insert(id, chan);
+        (Mutex::new(routing), Condvar::new(), id, seen)
+    }
+
+    fn data(s: &str) -> String {
+        B64.encode(s.as_bytes())
+    }
+
+    #[test]
+    fn visible_session_streams_each_frame() {
+        let (routing, cv, id, seen) = setup();
+        route_data(&routing, &cv, id, data("a"));
+        route_data(&routing, &cv, id, data("b"));
+        assert_eq!(*seen.lock().unwrap(), ["a", "b"]);
+    }
+
+    #[test]
+    fn hidden_session_holds_then_flushes_in_one_message() {
+        let (routing, cv, id, seen) = setup();
+        set_hidden(&mut routing.lock().unwrap(), id, true);
+        route_data(&routing, &cv, id, data("a"));
+        route_data(&routing, &cv, id, data("b"));
+        assert!(seen.lock().unwrap().is_empty());
+        assert!(routing.lock().unwrap().held_pending);
+        flush_held(&mut routing.lock().unwrap(), id);
+        assert_eq!(*seen.lock().unwrap(), ["ab"]);
+    }
+
+    #[test]
+    fn showing_sends_held_output_before_the_next_frame() {
+        let (routing, cv, id, seen) = setup();
+        set_hidden(&mut routing.lock().unwrap(), id, true);
+        route_data(&routing, &cv, id, data("1"));
+        route_data(&routing, &cv, id, data("2"));
+        set_hidden(&mut routing.lock().unwrap(), id, false);
+        route_data(&routing, &cv, id, data("3"));
+        assert_eq!(*seen.lock().unwrap(), ["12", "3"]);
+    }
+
+    #[test]
+    fn a_flood_past_the_cap_goes_out_at_once() {
+        let (routing, cv, id, seen) = setup();
+        set_hidden(&mut routing.lock().unwrap(), id, true);
+        let big = "x".repeat(HIDDEN_HOLD_CAP);
+        route_data(&routing, &cv, id, data(&big));
+        assert_eq!(seen.lock().unwrap().len(), 1);
+        assert!(routing.lock().unwrap().hidden[&id].is_empty());
+    }
+
+    #[test]
+    fn the_flusher_exits_when_the_connection_closes() {
+        let state = Arc::new((Mutex::new(Routing::default()), Condvar::new()));
+        let s = state.clone();
+        let t = thread::spawn(move || held_flusher(&s.0, &s.1));
+        state.0.lock().unwrap().closed = true;
+        state.1.notify_all();
+        t.join().unwrap();
     }
 }

@@ -13,6 +13,7 @@ import {
   removeLeaf,
   reorderLeafInTree,
   rotateLeafWithNeighbor,
+  swapLeaves,
   setLeafActiveTool as setLeafActiveToolInTree,
   setLeafCwd as setLeafCwdInTree,
   setLeafPrivate as setLeafPrivateInTree,
@@ -1036,6 +1037,16 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     );
   }, []);
 
+  /** Swap a leaf with the next (+1) or previous (-1) pane in its tab, in the
+   *  same order `pane.focusNext` walks. */
+  const swapLeafWithNeighbor = useCallback((leafId: number, delta: 1 | -1) => {
+    setTabs((curr) =>
+      updateLeafTree(curr, leafId, (tree) =>
+        swapLeaves(tree, leafId, nextLeafId(tree, leafId, delta)),
+      ),
+    );
+  }, []);
+
   /**
    * Reorder a leaf within its own split group. Places `leafId` before
    * `beforeLeafId`, or at the end when null. No-op when the two leaves
@@ -1213,6 +1224,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
     moveLeafToTab,
     moveLeafToNewTab,
     rotateLeafSplit,
+    swapLeafWithNeighbor,
     replaceAllTabs,
     allocId,
     setCanvasRects,

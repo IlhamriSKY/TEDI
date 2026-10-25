@@ -30,19 +30,23 @@ type ChildrenState =
 type TreeState = Record<string, ChildrenState>;
 
 function dirRank(k: DirEntry["kind"]): number {
-  // Mirrors the Rust default in fs/tree.rs so "default" mode is a no-op here.
+  // Same ranks as the Rust default in fs/tree.rs.
   return k === "dir" ? 0 : k === "symlink" ? 1 : 2;
 }
 
+// Natural order: "file2" before "file10", case-insensitive. Built once, a
+// Collator is far cheaper than `localeCompare` with options per comparison.
+const NAME_COLLATOR = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
+
 function nameCmp(a: DirEntry, b: DirEntry): number {
-  return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+  return NAME_COLLATOR.compare(a.name, b.name);
 }
 
 function sortEntries(entries: DirEntry[], mode: SortMode): DirEntry[] {
-  // Rust already returns dirs-first + name-asc, so skip the work on default.
-  if (mode === "default") return entries;
   const out = entries.slice();
   switch (mode) {
+    // Rust returns dirs-first by byte order; re-sort so names read naturally.
+    case "default":
     case "name-asc":
       // Folders first, then by name. Same shape as Rust default - kept
       // separate from "default" so the radio reads as an explicit pick.

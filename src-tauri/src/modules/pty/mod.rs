@@ -396,6 +396,25 @@ pub fn pty_resize(
     }
 }
 
+/// The pane went on or off screen. A hidden pane's output is batched every
+/// 100 ms instead of sent per daemon frame (see `HIDDEN_FLUSH`).
+// shortcut: the in-process fallback backend ignores this, its sessions keep
+// streaming; add batching to `session.rs` if that backend ever becomes common.
+#[tauri::command]
+pub async fn pty_set_visible(
+    state: tauri::State<'_, PtyState>,
+    id: u32,
+    visible: bool,
+) -> Result<(), String> {
+    if let PtyBackend::Daemon { client, sessions } = &state.backend {
+        let uuid = sessions.read().unwrap().get(&id).copied();
+        if let Some(uuid) = uuid {
+            client.current().set_visible(uuid, visible);
+        }
+    }
+    Ok(())
+}
+
 #[tauri::command]
 pub fn pty_close(state: tauri::State<PtyState>, id: u32) -> Result<(), String> {
     match &state.backend {

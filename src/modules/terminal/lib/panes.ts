@@ -741,6 +741,22 @@ export function nextLeafId(tree: PaneNode, currentId: PaneId, delta: 1 | -1): Pa
   return ids[(idx + delta + ids.length) % ids.length];
 }
 
+/**
+ * Exchange the positions of two leaves anywhere in the tree; every split and
+ * size stays where it was. Returns the same tree by reference when either id is
+ * missing or they are the same leaf.
+ */
+export function swapLeaves(tree: PaneNode, a: PaneId, b: PaneId): PaneNode {
+  const la = a === b ? null : findLeaf(tree, a);
+  const lb = la ? findLeaf(tree, b) : null;
+  if (!la || !lb) return tree;
+  const walk = (n: PaneNode): PaneNode => {
+    if (isLeaf(n)) return n.id === a ? lb : n.id === b ? la : n;
+    return { ...n, children: n.children.map(walk) };
+  };
+  return walk(tree);
+}
+
 export function siblingLeafOf(tree: PaneNode, leafId: PaneId): PaneId | null {
   if (isLeaf(tree)) return null;
   for (let i = 0; i < tree.children.length; i++) {

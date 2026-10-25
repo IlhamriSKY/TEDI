@@ -5,6 +5,7 @@ export {
   acknowledgeAiCli,
   focusedTerminalLeafId,
   scrollTerminalToCommand,
+  clearTerminalScrollback,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";

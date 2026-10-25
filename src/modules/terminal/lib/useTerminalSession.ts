@@ -8,7 +8,13 @@ import { cursorLineLooksLikeShellPrompt } from "./aiCliDetector";
 import type { AiCliKind } from "./aiCliStatus";
 import { isSessionBusy, sessions, type Callbacks, type Session } from "./sessionState";
 import { STUCK_RECOVERY_MS, effectiveTerminalFontSize, describeError } from "./session-helpers";
-import { respawnSession, retryPty, syncPtySize, writePtyError } from "./pty-lifecycle";
+import {
+  respawnSession,
+  retryPty,
+  syncPtySize,
+  syncPtyVisible,
+  writePtyError,
+} from "./pty-lifecycle";
 import { disconnectSsh, reconnectSsh, retrySsh } from "./ssh-session";
 import { loadWebglRenderer, disposeWebglRenderer, syncRendererForWallpaper } from "./webgl";
 import { ensureSession, attachSession, detachSession, canFit } from "./session-lifecycle";
@@ -22,6 +28,7 @@ export {
   disposeSession,
   acknowledgeAiCli,
   scrollTerminalToCommand,
+  clearTerminalScrollback,
 } from "./session-lifecycle";
 
 /**
@@ -143,6 +150,7 @@ export function useTerminalSession({
     // effect that tracks `visible` cannot do it: the session does not exist yet
     // when it runs on mount (this effect is what creates it).
     s.visible = visible;
+    s.focused = focused;
     // Pre-spawn, accept a fresher initialCwd (e.g. explorerRoot resolved between mounts).
     if (!s.pty && !s.ptyOpening && initialCwd && s.initialCwd !== initialCwd) {
       s.initialCwd = initialCwd;
@@ -319,7 +327,9 @@ export function useTerminalSession({
     // a pane nobody is looking at, and the glyph atlas repopulates lazily on the
     // next paint. Runs before the fit below so the addon sees the final size.
     s.visible = visible;
+    s.focused = focused;
     syncRendererForWallpaper(s);
+    syncPtyVisible(s);
     if (!visible) return;
     // Don't fit against a 0px container (window minimized) - it would reflow the
     // buffer the same way the ResizeObserver path does. Focus still runs.

@@ -21,6 +21,7 @@ import { WebLinksAddon } from "@xterm/addon-web-links";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import {
+  registerClipboardHandler,
   registerCwdHandler,
   registerProgressHandler,
   registerPromptTracker,
@@ -55,6 +56,7 @@ import {
   openPtyForSession,
   retryPty,
   syncPtySize,
+  syncPtyVisible,
   writePtyError,
 } from "./pty-lifecycle";
 import {
@@ -292,6 +294,8 @@ export function ensureSession(
     // `attachSession` runs), so a restored-but-hidden tab never briefly grabs a
     // WebGL context on the way up.
     visible: false,
+    visibleSent: null,
+    focused: true,
     webglLossReloads: 0,
     webglLossAt: 0,
     ready: Promise.resolve(),
@@ -533,6 +537,14 @@ export function ensureSession(
       registerProgressHandler(term, (state, progress) => {
         session.aiCliDetector?.pushProgress(state, progress);
       }),
+      // shortcut: the webview clipboard write needs a focused window, so a copy
+      // from a pane while TEDI is in the background is dropped; route it through
+      // a host clipboard command if that turns out to matter.
+      registerClipboardHandler(term, (text) => {
+        void navigator.clipboard.writeText(text).catch((e) => {
+          console.warn("OSC 52 copy failed:", e);
+        });
+      }),
     );
   })();
 
@@ -557,6 +569,15 @@ export function scrollTerminalToCommand(leafId: number, dir: -1 | 1): boolean {
   const s = sessions.get(leafId);
   if (!s || s.term.buffer.active.type === "alternate") return false;
   s.commands.scrollToCommand(dir);
+  return true;
+}
+
+/** Drop a leaf's scrollback, keeping the prompt line. A full-screen program
+ *  (alternate screen) owns its own screen, so it is left alone. */
+export function clearTerminalScrollback(leafId: number): boolean {
+  const s = sessions.get(leafId);
+  if (!s || s.term.buffer.active.type === "alternate") return false;
+  s.term.clear();
   return true;
 }
 
@@ -692,6 +713,7 @@ export function attachSession(
         flushPendingInput(s);
         s.ptySpawnedAt = Date.now();
         syncPtySize(s);
+        syncPtyVisible(s);
         armNoDataWatchdog(s, s.ptySpawnEpoch);
         // Stamp the daemon UUID onto the leaf so the workspace serializer
         // picks it up on the next save. Empty `sessionId` means the

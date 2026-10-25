@@ -18,6 +18,7 @@ import {
   focusedTerminalLeafId,
   leaves,
   scrollTerminalToCommand,
+  clearTerminalScrollback,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
 import { type EditorPaneHandle } from "@/modules/editor";
@@ -38,6 +39,7 @@ export interface ShortcutHandlerDeps {
   selectByIndex: (idx: number) => void;
   splitActivePaneInActiveTab: (dir: "row" | "col", kind?: "terminal" | "editor") => void;
   focusNextPaneInTab: (tabId: number, delta: 1 | -1) => void;
+  swapLeafWithNeighbor: (leafId: number, delta: 1 | -1) => void;
   togglePanelAndFocus: () => void;
   askFromSelection: () => void;
   openScmTab: () => number;
@@ -94,6 +96,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     selectByIndex,
     splitActivePaneInActiveTab,
     focusNextPaneInTab,
+    swapLeafWithNeighbor,
     togglePanelAndFocus,
     askFromSelection,
     openScmTab,
@@ -138,6 +141,12 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "pane.splitDown": () => splitActivePaneInActiveTab("col"),
     "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
     "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
+    "pane.swapNext": () => {
+      if (activeLeafIdInTab !== null) swapLeafWithNeighbor(activeLeafIdInTab, 1);
+    },
+    "pane.swapPrev": () => {
+      if (activeLeafIdInTab !== null) swapLeafWithNeighbor(activeLeafIdInTab, -1);
+    },
     "search.focus": () => searchInlineRef.current?.focus(),
     "editor.findReplace": () => {
       // VSCode-style Ctrl+H opens the find/replace overlay inside the
@@ -259,6 +268,10 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "terminal.nextCommand": () => {
       const leafId = focusedTerminalLeafId();
       if (leafId !== null) scrollTerminalToCommand(leafId, 1);
+    },
+    "terminal.clear": () => {
+      const leafId = focusedTerminalLeafId();
+      if (leafId !== null) clearTerminalScrollback(leafId);
     },
   };
 }

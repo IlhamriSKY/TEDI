@@ -80,6 +80,38 @@ export function registerProgressHandler(
   return () => d.dispose();
 }
 
+/** Base64 payload cap for OSC 52, about 768 KB of text. */
+export const OSC52_MAX_B64 = 1024 * 1024;
+
+/**
+ * OSC 52 clipboard WRITE (`52;<targets>;<base64>`): how tmux, nvim and a
+ * remote shell copy into the local clipboard, the only way they can over SSH.
+ * The read form (`52;c;?`) is refused, because answering it would hand any
+ * program in the terminal whatever the user last copied. Oversized, empty or
+ * malformed payloads are swallowed rather than passed on.
+ */
+export function registerClipboardHandler(
+  term: Terminal,
+  onCopy: (text: string) => void,
+): () => void {
+  const d = term.parser.registerOscHandler(52, (data) => {
+    const payload = data.slice(data.indexOf(";") + 1);
+    if (!payload || payload === "?" || payload.length > OSC52_MAX_B64 || !data.includes(";")) {
+      return true;
+    }
+    try {
+      const bin = atob(payload);
+      const bytes = Uint8Array.from(bin, (c) => c.charCodeAt(0));
+      const text = new TextDecoder().decode(bytes);
+      if (text) onCopy(text);
+    } catch {
+      // Not base64: nothing to copy.
+    }
+    return true;
+  });
+  return () => d.dispose();
+}
+
 export type TediOpenInput = {
   file: string;
   /** 1-indexed line to reveal, from a clicked `path:line` in the output. */

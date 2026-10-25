@@ -15,6 +15,8 @@ export type ShortcutId =
   | "pane.splitDown"
   | "pane.focusNext"
   | "pane.focusPrev"
+  | "pane.swapNext"
+  | "pane.swapPrev"
   | "search.focus"
   | "explorer.search"
   | "explorer.grep"
@@ -44,6 +46,7 @@ export type ShortcutId =
   | "terminal.close"
   | "terminal.prevCommand"
   | "terminal.nextCommand"
+  | "terminal.clear"
   | "commandPalette.open";
 
 export type ShortcutGroup =
@@ -154,6 +157,20 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Focus next pane",
     group: "Panes",
     defaultBindings: [{ [MOD_PROP]: true, key: "]" }],
+  },
+  {
+    // No default chord: every free one is AltGr or a shifted bracket on some
+    // layout. Run from the Command Palette, or bind one in Settings.
+    id: "pane.swapNext",
+    label: "Swap pane with next",
+    group: "Panes",
+    defaultBindings: [],
+  },
+  {
+    id: "pane.swapPrev",
+    label: "Swap pane with previous",
+    group: "Panes",
+    defaultBindings: [],
   },
   {
     id: "pane.focusPrev",
@@ -409,6 +426,14 @@ export const SHORTCUTS: Shortcut[] = [
     label: "Scroll to next command",
     group: "Terminal",
     defaultBindings: [{ [MOD_PROP]: true, key: "ArrowDown" }],
+  },
+  {
+    // Bare Ctrl+K is readline's kill-line (and Claude Code's), so off macOS the
+    // chord carries Shift. Only while a terminal holds focus on its normal screen.
+    id: "terminal.clear",
+    label: "Clear terminal scrollback",
+    group: "Terminal",
+    defaultBindings: IS_MAC ? [{ meta: true, key: "k" }] : [{ ctrl: true, shift: true, key: "k" }],
   },
 ];
 

@@ -15,7 +15,7 @@ import {
 import { containsSchemeSeparator, findLocalUrl } from "./detectUrl";
 import { forwardDetectedUrl, openSshForSession, writeSshBanner } from "./ssh-session";
 import { useTerminalTitles } from "./terminalTitles";
-import { createWriteMeter } from "./writeMeter";
+import { createWriteBatch, createWriteMeter } from "./writeMeter";
 
 /**
  * Push xterm dimensions to the live PTY, floored to MIN_PTY_DIM and
@@ -34,6 +34,27 @@ export function syncPtySize(s: Session): boolean {
 }
 
 /**
+ * Tell the host whether this pane is on screen. A hidden pane's output is then
+ * batched every 100 ms instead of one webview message per daemon frame
+ * (`HIDDEN_FLUSH` in the daemon client). A minimized or covered window counts
+ * as hidden. Call after assigning `s.pty` and whenever `s.visible` changes.
+ */
+export function syncPtyVisible(s: Session): void {
+  const pty = s.pty;
+  if (!pty?.setVisible || s.disposed) return;
+  const visible = s.visible && document.visibilityState === "visible";
+  if (s.visibleSent?.pty === pty && s.visibleSent.visible === visible) return;
+  s.visibleSent = { pty, visible };
+  void pty.setVisible(visible).catch(() => {});
+}
+
+if (typeof document !== "undefined") {
+  document.addEventListener("visibilitychange", () => {
+    for (const s of sessions.values()) syncPtyVisible(s);
+  });
+}
+
+/**
  * Flush terminal-originated bytes buffered while the PTY handle was null.
  * Call immediately after assigning `s.pty`. The critical payload is xterm's
  * reply to a DSR cursor-position query (`ESC[6n`) the shell streams during
@@ -48,6 +69,16 @@ export function flushPendingInput(s: Session): void {
   s.pendingInput = [];
   void s.pty.write(data);
 }
+
+/**
+ * A pane without keyboard focus hands xterm its output at most this often, so
+ * a second agent streaming beside the one you are typing in repaints ~30 times
+ * a second instead of on every chunk (upstream Terax caps background panes at
+ * 30 fps the same way). The focused pane is never delayed, so typing echo is
+ * unchanged. Only the xterm write waits: the AI-CLI detector, URL pill and
+ * float tap still see every byte at once.
+ */
+export const UNFOCUSED_WRITE_MS = 33;
 
 export function openPtyForSession(s: Session, cwd: string | undefined): Promise<PtySession> {
   // Capture spawn epoch. Late exit events for a superseded spawn bail before mutating newer state.
@@ -73,6 +104,11 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
   const writeMeter = createWriteMeter(
     (chunk, done) => s.term.write(chunk, done),
     () => s.disposed || myEpoch !== s.ptySpawnEpoch,
+  );
+  const batch = createWriteBatch(
+    (bytes) => writeMeter.push(bytes),
+    () => s.disposed || myEpoch !== s.ptySpawnEpoch,
+    UNFOCUSED_WRITE_MS,
   );
 
   const onData = (bytes: Uint8Array) => {
@@ -106,7 +142,7 @@ export function openPtyForSession(s: Session, cwd: string | undefined): Promise<
       s.term.write("\x1b[H\x1b[2J");
     }
     totalBytes += bytes.length;
-    writeMeter.push(bytes);
+    batch.push(bytes, s.focused);
     // Mirror the same bytes to a floating window, if one is open for this leaf.
     s.onOutputTap?.(bytes);
     s.aiCliDetector?.pushOutput(bytes);
@@ -587,6 +623,7 @@ export async function retryPty(s: Session): Promise<void> {
     flushPendingInput(s);
     s.ptySpawnedAt = Date.now();
     syncPtySize(s);
+    syncPtyVisible(s);
     armNoDataWatchdog(s, s.ptySpawnEpoch);
   } catch (e) {
     // Drop stale failures. myEpoch === 0 means synchronous throw before counter bump.
@@ -648,5 +685,6 @@ export async function respawnSession(leafId: number, cwd?: string): Promise<void
   flushPendingInput(s);
   s.ptySpawnedAt = Date.now();
   if (s.observer) syncPtySize(s);
+  syncPtyVisible(s);
   armNoDataWatchdog(s, s.ptySpawnEpoch);
 }

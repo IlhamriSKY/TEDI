@@ -65,6 +65,12 @@ export type Session = {
    * can see. Read by `webgl.ts` as part of "should the renderer be on at all".
    */
   visible: boolean;
+  /** What `syncPtyVisible` last told the host, and for which PTY: a respawned
+   *  or reattached PTY is a new object, so its first state always goes out. */
+  visibleSent: { pty: PtySession; visible: boolean } | null;
+  /** The pane holding keyboard focus in its split. Only it repaints on every
+   *  output chunk; the others batch (see `UNFOCUSED_WRITE_MS`). */
+  focused: boolean;
   /**
    * GPU context losses recovered from in the CURRENT storm. Bounded by
    * `MAX_CONTEXT_LOSS_RELOADS` in `webgl.ts` so a context storm settles on the

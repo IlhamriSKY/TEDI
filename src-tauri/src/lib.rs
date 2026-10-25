@@ -805,6 +805,7 @@ pub fn run() {
             pty::pty_attach,
             pty::pty_write,
             pty::pty_resize,
+            pty::pty_set_visible,
             pty::pty_close,
             pty::pty_list_sessions,
             pty::pty_kill_all,
