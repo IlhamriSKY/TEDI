@@ -2,7 +2,10 @@ import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Spinner } from "@/components/ui/spinner";
+import { openUrl } from "@tauri-apps/plugin-opener";
 import { buildProxyUrl } from "@/lib/proxy";
+
+const MARKETPLACE_SITE = "https://tedi.ilhamriski.com/extensions/";
 
 export type MarketplaceItem = {
   /** Catalog id, e.g. `discord-rich-presence`. Not the installed manifest id
@@ -68,10 +71,17 @@ export function MarketplacePanel({
     <div className="flex flex-col gap-2.5">
       <div className="flex items-center gap-2">
         <span className="text-muted-foreground flex-1 text-[11px]">
-          Browse the catalog at <code>tedi.ilhamriski.com/extensions/</code>. Official extensions
-          come first, then community ones: Verified and Optimized were reviewed by a TEDI admin,
-          Public ones were not. Items already installed (matched by GitHub repo) are hidden. Install
-          opens the same manifest review dialog as the GitHub tab.
+          Browse the catalog at{" "}
+          <button
+            type="button"
+            className="text-foreground font-mono underline underline-offset-2 hover:opacity-80"
+            onClick={() => void openUrl(MARKETPLACE_SITE)}
+          >
+            tedi.ilhamriski.com/extensions/
+          </button>
+          . Official extensions come first, then community ones: Verified and Optimized were
+          reviewed by a TEDI admin, Public ones were not. Items already installed (matched by GitHub
+          repo) are hidden. Install opens the same manifest review dialog as the GitHub tab.
         </span>
         <Button
           size="sm"
