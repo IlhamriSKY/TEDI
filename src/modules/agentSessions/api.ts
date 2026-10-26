@@ -17,6 +17,8 @@ export const SESSION_AGENTS: { id: SessionAgent; label: string }[] = [
 ];
 
 export type AgentSession = {
+  /** Which CLI owns it. Set here, not by the backend. */
+  agent: SessionAgent;
   id: string;
   /** Claude: the `projects/<slug>` directory name, its backend handle. Codex: "". */
   project: string;
@@ -70,16 +72,34 @@ export function groupSessions(list: AgentSession[], filter: string): SessionGrou
   return [...groups.values()];
 }
 
-export const listSessions = (agent: SessionAgent) =>
-  invoke<AgentSession[]>(agent === "claude" ? "claude_sessions_list" : "codex_sessions_list");
+const listSessions = (agent: SessionAgent) =>
+  invoke<Omit<AgentSession, "agent">[]>(
+    agent === "claude" ? "claude_sessions_list" : "codex_sessions_list",
+  ).then((list) => list.map((s): AgentSession => ({ ...s, agent })));
 
-export const renameSession = (agent: SessionAgent, s: AgentSession, title: string) =>
-  agent === "claude"
+/**
+ * Both CLIs' sessions in one list, newest first (what `groupSessions` expects).
+ * One failing keeps the other: most users have only one of them installed.
+ */
+export async function listAllSessions(): Promise<{ sessions: AgentSession[]; errors: string[] }> {
+  const results = await Promise.allSettled(SESSION_AGENTS.map((a) => listSessions(a.id)));
+  const sessions: AgentSession[] = [];
+  const errors: string[] = [];
+  for (const r of results) {
+    if (r.status === "fulfilled") sessions.push(...r.value);
+    else errors.push(String(r.reason));
+  }
+  sessions.sort((a, b) => b.modifiedMs - a.modifiedMs);
+  return { sessions, errors };
+}
+
+export const renameSession = (s: AgentSession, title: string) =>
+  s.agent === "claude"
     ? invoke<void>("claude_session_rename", { project: s.project, id: s.id, title })
     : invoke<void>("codex_session_rename", { id: s.id, title });
 
-export const deleteSession = (agent: SessionAgent, s: AgentSession) =>
-  agent === "claude"
+export const deleteSession = (s: AgentSession) =>
+  s.agent === "claude"
     ? invoke<void>("claude_session_delete", { project: s.project, id: s.id })
     : invoke<void>("codex_session_delete", { id: s.id });
 

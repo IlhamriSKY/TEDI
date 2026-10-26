@@ -24,6 +24,7 @@ function ok(label: string, cond: boolean) {
 
 function session(over: Partial<AgentSession>): AgentSession {
   return {
+    agent: "claude",
     id: "00000000-0000-4000-8000-000000000001",
     project: "D--work-app",
     cwd: "D:\\work\\app",

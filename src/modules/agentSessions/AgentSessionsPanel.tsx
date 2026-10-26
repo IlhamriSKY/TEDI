@@ -32,13 +32,12 @@ import {
   canResume,
   deleteSession,
   groupSessions,
-  listSessions,
+  listAllSessions,
   renameSession,
   resumeCommand,
   resumeHint,
   SESSION_AGENTS,
   type AgentSession,
-  type SessionAgent,
 } from "./api";
 
 type Props = {
@@ -46,24 +45,22 @@ type Props = {
   dragHandle?: ReactNode;
   /** Collapsed to its header: skip the disk read / app-server spawn entirely. */
   collapsed?: boolean;
+  /** The focused local terminal's cwd: its folder row opens by itself. */
+  activeCwd?: string | null;
 };
 
-// Which agent's sessions the section shows. Main window only, like the order.
-const AGENT_LS_KEY = "tedi:sidebar:sessionsAgent";
-
-function readAgent(): SessionAgent {
-  return localStorage.getItem(AGENT_LS_KEY) === "codex" ? "codex" : "claude";
-}
+const agentLabel = (a: AgentSession["agent"]) => SESSION_AGENTS.find((x) => x.id === a)?.label ?? a;
 
 /**
- * Claude Code's or Codex's saved sessions as a folder tree: one row per project
- * folder, its sessions under it. Double-click (or Enter) resumes in a new
- * terminal tab, F2 renames, right-click for everything. Loaded on expand, on an
- * agent switch and on refresh, never polled: the list only changes when a
+ * Claude Code's and Codex's saved sessions in one folder tree, each row marked
+ * with its CLI's icon: one row per project
+ * folder, its sessions under it; the focused terminal's folder opens by itself.
+ * Double-click (or Enter) resumes in that terminal when it is idle there, else
+ * in a split beside it, F2 renames, right-click for everything. Loaded on expand
+ * and on refresh, never polled: the list only changes when a
  * session is run or acted on here.
  */
-export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
-  const [agent, setAgent] = useState<SessionAgent>(readAgent);
+export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) {
   const [sessions, setSessions] = useState<AgentSession[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
@@ -71,37 +68,33 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgentSession | null>(null);
 
-  // Only the latest request may land: a Codex list takes about a second, and
-  // switching agents under it must not let the old answer overwrite the new.
+  // Only the latest request may land: a Codex list takes about a second, and a
+  // second refresh under it must not let the older answer overwrite the newer.
   const latest = useRef(0);
   const refresh = useCallback(async () => {
     const req = ++latest.current;
-    try {
-      const list = await listSessions(agent);
-      if (req !== latest.current) return;
-      setSessions(list);
-      setLoadError(null);
-    } catch (e) {
-      if (req !== latest.current) return;
-      // Inline, not a toast: "Codex is not installed" is a state, not an event.
-      setSessions([]);
-      setLoadError(String(e));
-    }
-  }, [agent]);
+    const { sessions: list, errors } = await listAllSessions();
+    if (req !== latest.current) return;
+    setSessions(list);
+    // Inline, not a toast, and only when nothing loaded at all: "Codex is not
+    // installed" is a state, and a Claude-only user should not see it forever.
+    setLoadError(list.length === 0 && errors.length > 0 ? errors.join(" / ") : null);
+  }, []);
 
   useEffect(() => {
     if (!collapsed) void refresh();
   }, [collapsed, refresh]);
 
-  const pickAgent = (a: SessionAgent) => {
-    if (a === agent) return;
-    localStorage.setItem(AGENT_LS_KEY, a);
-    setSessions(null);
-    setLoadError(null);
-    setRenaming(null);
-    setOpen(new Set());
-    setAgent(a);
-  };
+  // Same key shape as `groupSessions`. Opened once per folder change, so a
+  // folder the user then collapses stays collapsed until focus moves.
+  const activeKey = activeCwd ? toForwardSlash(activeCwd).replace(/\/+$/, "").toLowerCase() : null;
+  useEffect(() => {
+    if (activeKey) setOpen((prev) => (prev.has(activeKey) ? prev : new Set(prev).add(activeKey)));
+  }, [activeKey]);
+  const activeRow = useRef<HTMLLIElement>(null);
+  useEffect(() => {
+    activeRow.current?.scrollIntoView({ block: "nearest" });
+  }, [activeKey, sessions]);
 
   const groups = useMemo(() => groupSessions(sessions ?? [], filter), [sessions, filter]);
   // A search shows its hits; otherwise only the folders the user opened.
@@ -119,8 +112,9 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
     openWorktreeTab({
       path: toForwardSlash(s.cwd),
       title: s.title,
-      command: resumeCommand(agent, s.id),
-      tool: agent,
+      command: resumeCommand(s.agent, s.id),
+      tool: s.agent,
+      inActivePane: true,
     });
   };
 
@@ -128,7 +122,7 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
     setRenaming(null);
     if (!title.trim() || title.trim() === s.title) return;
     try {
-      await renameSession(agent, s, title);
+      await renameSession(s, title);
       await refresh();
     } catch (e) {
       toast(`Rename failed: ${String(e)}`, { variant: "error" });
@@ -140,41 +134,20 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
     setDeleting(null);
     if (!s) return;
     try {
-      await deleteSession(agent, s);
-      setSessions((prev) => prev?.filter((x) => x.id !== s.id) ?? prev);
+      await deleteSession(s);
+      setSessions((prev) => prev?.filter((x) => x !== s) ?? prev);
     } catch (e) {
       toast(`Delete failed: ${String(e)}`, { variant: "error" });
     }
   };
 
   const now = Date.now();
-  const agentLabel = SESSION_AGENTS.find((a) => a.id === agent)?.label ?? agent;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="tedi-panel-header">
         {dragHandle}
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">AI Sessions</span>
-        {SESSION_AGENTS.map((a) => (
-          <IconTooltip key={a.id} label={`${a.label} sessions`} side="bottom">
-            <Button
-              onClick={() => pickAgent(a.id)}
-              aria-label={`Show ${a.label} sessions`}
-              aria-pressed={agent === a.id}
-              variant="ghost"
-              size="icon"
-              className={cn(
-                "size-6",
-                agent === a.id
-                  ? "bg-accent text-foreground"
-                  : "text-muted-foreground hover:text-foreground opacity-60",
-              )}
-            >
-              <CliAgentIcon agentId={a.id} size={13} />
-            </Button>
-          </IconTooltip>
-        ))}
-        <span className="tedi-header-divider" aria-hidden />
         <IconTooltip label="Refresh" side="bottom">
           <Button
             onClick={() => void refresh()}
@@ -191,7 +164,7 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder={`Filter ${agentLabel} sessions`}
+          placeholder="Filter sessions"
           aria-label="Filter sessions"
           className="border-input bg-background/50 placeholder:text-muted-foreground focus-visible:ring-ring h-6 w-full rounded border px-2 text-xs outline-none focus-visible:ring-1"
         />
@@ -204,13 +177,13 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
             <li className="text-muted-foreground px-2 py-3 text-xs break-words">{loadError}</li>
           ) : groups.length === 0 ? (
             <li className="text-muted-foreground px-2 py-3 text-xs">
-              {filter ? "No matching sessions." : `No ${agentLabel} sessions found.`}
+              {filter ? "No matching sessions." : "No Claude Code or Codex sessions found."}
             </li>
           ) : null}
           {groups.map((g) => {
             const shown = isOpen(g.key);
             return (
-              <li key={g.key}>
+              <li key={g.key} ref={g.key === activeKey ? activeRow : undefined}>
                 <button
                   type="button"
                   onClick={() => toggle(g.key)}
@@ -232,8 +205,8 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
                 {shown ? (
                   <ul>
                     {g.sessions.map((s) =>
-                      renaming === s.id ? (
-                        <li key={s.id} className="py-0.5 pr-1 pl-6">
+                      renaming === `${s.agent}:${s.id}` ? (
+                        <li key={`${s.agent}:${s.id}`} className="py-0.5 pr-1 pl-6">
                           <InlineInput
                             initial={s.title}
                             placeholder="Session name"
@@ -242,7 +215,7 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
                           />
                         </li>
                       ) : (
-                        <ContextMenu key={s.id}>
+                        <ContextMenu key={`${s.agent}:${s.id}`}>
                           <ContextMenuTrigger asChild>
                             <li>
                               {/* Double-click opens, like the file tree: a single-click
@@ -254,19 +227,24 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
                                 onDoubleClick={() => resume(s)}
                                 onKeyDown={(e) => {
                                   if (e.key === "Enter") resume(s);
-                                  else if (e.key === "F2") setRenaming(s.id);
+                                  else if (e.key === "F2") setRenaming(`${s.agent}:${s.id}`);
                                 }}
                                 aria-disabled={!canResume(s)}
-                                title={`${s.title}\n${s.id}${s.size !== null ? ` · ${formatBytes(s.size)}` : ""}${s.live ? " · running" : ""}\n${resumeHint(s)}`}
+                                title={`${agentLabel(s.agent)}: ${s.title}\n${s.id}${s.size !== null ? ` · ${formatBytes(s.size)}` : ""}${s.live ? " · running" : ""}\n${resumeHint(s)}`}
                                 className="text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground focus-visible:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] outline-none aria-disabled:opacity-50"
                               >
                                 <span
-                                  aria-hidden
-                                  className={cn(
-                                    "size-1.5 shrink-0 rounded-full",
-                                    s.live ? "bg-icon-idle" : "bg-transparent",
-                                  )}
-                                />
+                                  aria-label={agentLabel(s.agent)}
+                                  className="relative flex shrink-0"
+                                >
+                                  <CliAgentIcon agentId={s.agent} size={12} />
+                                  {s.live ? (
+                                    <span
+                                      aria-hidden
+                                      className="bg-icon-idle ring-sidebar absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1"
+                                    />
+                                  ) : null}
+                                </span>
                                 <span
                                   className={cn(
                                     "flex-1 truncate text-left",
@@ -283,9 +261,9 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
                           </ContextMenuTrigger>
                           <ContextMenuContent>
                             <ContextMenuItem disabled={!canResume(s)} onSelect={() => resume(s)}>
-                              Resume in new tab
+                              Resume
                             </ContextMenuItem>
-                            <ContextMenuItem onSelect={() => setRenaming(s.id)}>
+                            <ContextMenuItem onSelect={() => setRenaming(`${s.agent}:${s.id}`)}>
                               Rename
                             </ContextMenuItem>
                             <ContextMenuItem
@@ -298,7 +276,7 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
                             <ContextMenuItem
                               onSelect={() =>
                                 void navigator.clipboard
-                                  .writeText(resumeCommand(agent, s.id))
+                                  .writeText(resumeCommand(s.agent, s.id))
                                   .catch(() => {})
                               }
                             >
@@ -334,7 +312,7 @@ export function AgentSessionsPanel({ dragHandle, collapsed }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete &quot;{deleting?.title}&quot;?</AlertDialogTitle>
             <AlertDialogDescription>
-              {agent === "claude"
+              {deleting?.agent === "claude"
                 ? `The transcript${deleting?.size != null ? ` (${formatBytes(deleting.size)})` : ""} and its tool results are removed from ~/.claude/projects.`
                 : "Codex permanently deletes the session and its history."}{" "}
               It can no longer be resumed. This cannot be undone.

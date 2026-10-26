@@ -372,10 +372,28 @@ export function useTabActions({
   );
 
   const openWorktree = useCallback(
-    ({ path, command, tool, title }: OpenWorktreeInput) => {
+    ({ path, command, tool, title, inActivePane }: OpenWorktreeInput) => {
+      const t = tabsRef.current.find((x) => x.id === activeId);
+      const leaf = inActivePane && command && t?.kind === "pane" ? activeLeaf(t) : null;
+      if (leaf?.leafKind === "terminal" && !leaf.sshConnectionId) {
+        const term = terminalRefs.current.get(leaf.id);
+        const norm = (p: string) => toForwardSlash(p).replace(/\/+$/, "").toLowerCase();
+        // Idle in the session's own folder: reuse it. Busy (an agent already
+        // running there) or elsewhere: a new terminal beside it, same tab.
+        if (term?.isAtPrompt() && leaf.cwd && norm(leaf.cwd) === norm(path)) {
+          term.launchAgent(command!, tool ?? null);
+          term.focus();
+          return;
+        }
+        const newLeafId = splitActivePane(activeId, "row", "terminal", path);
+        if (newLeafId !== null) {
+          launchAtPrompt(newLeafId, command!, tool ?? null);
+          return;
+        }
+      }
       openTerminalRunning(path, command, tool, title);
     },
-    [openTerminalRunning],
+    [activeId, splitActivePane, launchAtPrompt, openTerminalRunning],
   );
 
   // Publish it for Source Control, whose four hosts are too far apart (one of
