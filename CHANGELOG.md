@@ -4,6 +4,23 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.73] - 26-10-2026
+
+### Changed
+
+- **AI Sessions is one list for Claude Code and Codex.** Sessions from both CLIs
+  sit together under their project folder, newest first, each marked with its
+  CLI's logo, so the header toggle is gone. If one CLI is not installed, the
+  other's sessions still show. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **The focused terminal's folder opens by itself** in AI Sessions, so the
+  sessions for the project you are in are already showing.
+- **Resuming a session stays in the tab you are in.** When the active terminal
+  is idle at a prompt in that session's folder, the session resumes right
+  there. When an agent is already running in it, the session opens in a new
+  terminal split beside it instead of a new tab. See
+  [useTabActions.ts](src/app/hooks/useTabActions.ts).
+
 ## [0.4.72] - 26-10-2026
 
 ### Added
