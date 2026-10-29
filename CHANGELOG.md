@@ -4,6 +4,27 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.74] - 29-10-2026
+
+### Changed
+
+- **AI Sessions opens at once.** The last list is kept, so reopening the
+  section or moving it paints immediately and refreshes underneath, and Claude
+  Code sessions no longer wait the second Codex takes to answer. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **AI Sessions shows only the focused terminal's folder** (and folders under
+  it), not every project. It keeps the last folder while focus is on an editor
+  or a remote pane.
+- **A session that is open in a terminal follows its status.** Its name and
+  logo take the idle, working, waiting or done colour, the same as the tab and
+  the Workspaces row.
+
+### Added
+
+- **AI Sessions can move to the right panel**, by its header button or by
+  dragging, and be closed there, like Files and Workspaces. See
+  [sectionDock.ts](src/app/lib/sectionDock.ts).
+
 ## [0.4.73] - 26-10-2026
 
 ### Changed
