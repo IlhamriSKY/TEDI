@@ -9,7 +9,7 @@
  *
  * Three stores back the placement, for historical reasons, and this module is
  * where that is absorbed:
- *   - Files / Workspaces / AI / extension sections: `sidebarPlacementStore`
+ *   - Files / Workspaces / AI Sessions / AI / extension sections: `sidebarPlacementStore`
  *     (plus `rightPanelStore` for the live open state in the column)
  *   - Source Control: the `sourceControlInRightPanel` preference + `scmRightPanelStore`
  *   - Remote: the `sshInRightPanel` preference + `sshRightPanelStore`
@@ -31,7 +31,7 @@ import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import { revealColumn } from "@/lib/sectionDrag";
 
 /** Built-ins that may sit in either column, under the SAME key on both sides. */
-const DUAL_COLUMN_BUILTINS = ["files", "workspaces", "scm", "ssh", "ai"] as const;
+const DUAL_COLUMN_BUILTINS = ["files", "workspaces", "sessions", "scm", "ssh", "ai"] as const;
 
 function isDualColumnBuiltin(key: string): boolean {
   return (DUAL_COLUMN_BUILTINS as readonly string[]).includes(key);
@@ -86,6 +86,7 @@ export function dockRight(key: string): void {
       return;
     case "files":
     case "workspaces":
+    case "sessions":
       useSidebarPlacementStore.getState().moveRight(key);
       useRightPanelStore.getState().open(BUILTIN_SECTION_EXT, sectionPanelId(key));
       return;

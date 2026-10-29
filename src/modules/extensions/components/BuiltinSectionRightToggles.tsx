@@ -7,7 +7,7 @@
  */
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { cn } from "@/lib/utils";
-import { FolderTree, LayoutDashboard, type LucideIcon } from "lucide-react";
+import { FolderTree, History, LayoutDashboard, type LucideIcon } from "lucide-react";
 
 import { isRightPanelOpen, useRightPanelStore } from "../rightPanelStore";
 import {
@@ -21,6 +21,7 @@ import {
 const ICONS: Record<BuiltinSectionId, LucideIcon> = {
   files: FolderTree,
   workspaces: LayoutDashboard,
+  sessions: History,
 };
 
 /** One docked built-in section, as the status bar's zone layout sees it. */

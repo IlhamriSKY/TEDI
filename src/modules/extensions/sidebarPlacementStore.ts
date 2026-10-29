@@ -54,6 +54,7 @@ export const BUILTIN_SECTION_EXT = "__builtin__";
 export const MOVABLE_BUILTIN_SECTIONS = [
   { id: "files", title: "Files" },
   { id: "workspaces", title: "Workspaces" },
+  { id: "sessions", title: "AI Sessions" },
 ] as const;
 export type BuiltinSectionId = (typeof MOVABLE_BUILTIN_SECTIONS)[number]["id"];
 

@@ -80,9 +80,20 @@ const listSessions = (agent: SessionAgent) =>
 /**
  * Both CLIs' sessions in one list, newest first (what `groupSessions` expects).
  * One failing keeps the other: most users have only one of them installed.
+ * `onAgent` hears each CLI as it lands: Claude is a disk read, Codex spawns an
+ * app-server, so Claude rows need not wait the second Codex takes.
  */
-export async function listAllSessions(): Promise<{ sessions: AgentSession[]; errors: string[] }> {
-  const results = await Promise.allSettled(SESSION_AGENTS.map((a) => listSessions(a.id)));
+export async function listAllSessions(
+  onAgent?: (agent: SessionAgent, list: AgentSession[]) => void,
+): Promise<{ sessions: AgentSession[]; errors: string[] }> {
+  const results = await Promise.allSettled(
+    SESSION_AGENTS.map((a) =>
+      listSessions(a.id).then((list) => {
+        onAgent?.(a.id, list);
+        return list;
+      }),
+    ),
+  );
   const sessions: AgentSession[] = [];
   const errors: string[] = [];
   for (const r of results) {
@@ -102,6 +113,10 @@ export const deleteSession = (s: AgentSession) =>
   s.agent === "claude"
     ? invoke<void>("claude_session_delete", { project: s.project, id: s.id })
     : invoke<void>("codex_session_delete", { id: s.id });
+
+/** A session belongs to the focused terminal's folder when it ran there or below it. */
+export const inFolder = (groupKey: string, folderKey: string) =>
+  groupKey === folderKey || groupKey.startsWith(`${folderKey}/`);
 
 /** Safe to type into a shell: both backends only list hex-and-dash ids. */
 export const resumeCommand = (agent: SessionAgent, id: string) =>

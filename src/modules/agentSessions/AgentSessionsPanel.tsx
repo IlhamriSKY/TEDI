@@ -22,16 +22,27 @@ import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { toForwardSlash } from "@/lib/path";
 import { formatBytes } from "@/lib/format";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { cn } from "@/lib/utils";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { openWorktreeTab } from "@/modules/scm/worktreeBridge";
-import { ChevronRight, Folder, RefreshCw } from "lucide-react";
+import { type Tab } from "@/modules/tabs";
+import { leaves } from "@/modules/terminal";
+import {
+  aiCliIconMotionClass,
+  aiCliLabel,
+  aiCliStateColorClass,
+  type AiCliStatus,
+} from "@/modules/terminal/lib/aiCliStatus";
+import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
+import { ChevronRight, Folder, PanelLeft, PanelRight, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ago,
   canResume,
   deleteSession,
   groupSessions,
+  inFolder,
   listAllSessions,
   renameSession,
   resumeCommand,
@@ -45,9 +56,54 @@ type Props = {
   dragHandle?: ReactNode;
   /** Collapsed to its header: skip the disk read / app-server spawn entirely. */
   collapsed?: boolean;
-  /** The focused local terminal's cwd: its folder row opens by itself. */
-  activeCwd?: string | null;
+  /** The active workspace's tabs: the focused terminal picks the folder shown,
+   *  and the AI CLIs running in them mark which sessions are open. */
+  liveTabs: Tab[];
+  activeLeafId: number | null;
+  /** Left sidebar instance: dock into the right column. */
+  onMoveToRight?: () => void;
+  /** Right column instance: dock back into the left sidebar. */
+  onMoveToLeft?: () => void;
+  /** Right column instance: close the docked panel. */
+  onClose?: () => void;
 };
+
+// Survives a collapse and a move between columns (both remount the panel), so
+// reopening paints the last list at once and refreshes underneath.
+let cached: AgentSession[] | null = null;
+
+const keyOf = (path: string) => toForwardSlash(path).replace(/\/+$/, "").toLowerCase();
+const sessionKey = (s: AgentSession) => `${s.agent}:${s.id}`;
+
+/**
+ * Which listed sessions an AI CLI pane is running, and that pane's status. No
+ * pane records the session id it resumed, so per folder and CLI the N panes
+ * claim N sessions: Claude's `live` ones first (its own process registry),
+ * then the most recently written.
+ * shortcut: a heuristic, wrong when two panes run the same CLI in one folder
+ * and one is a fresh session not yet listed; tag the leaf with the resumed id
+ * if that matters.
+ */
+function openStatuses(
+  sessions: AgentSession[],
+  panes: { cwd: string; status: NonNullable<AiCliStatus> }[],
+): Map<string, NonNullable<AiCliStatus>> {
+  const out = new Map<string, NonNullable<AiCliStatus>>();
+  for (const p of panes) {
+    const folder = keyOf(p.cwd);
+    const pick = sessions
+      .filter(
+        (s) =>
+          s.agent === p.status.tool &&
+          s.cwd !== null &&
+          keyOf(s.cwd) === folder &&
+          !out.has(sessionKey(s)),
+      )
+      .sort((a, b) => Number(b.live) - Number(a.live) || b.modifiedMs - a.modifiedMs)[0];
+    if (pick) out.set(sessionKey(pick), p.status);
+  }
+  return out;
+}
 
 const agentLabel = (a: AgentSession["agent"]) => SESSION_AGENTS.find((x) => x.id === a)?.label ?? a;
 
@@ -60,8 +116,16 @@ const agentLabel = (a: AgentSession["agent"]) => SESSION_AGENTS.find((x) => x.id
  * and on refresh, never polled: the list only changes when a
  * session is run or acted on here.
  */
-export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) {
-  const [sessions, setSessions] = useState<AgentSession[] | null>(null);
+export function AgentSessionsPanel({
+  dragHandle,
+  collapsed,
+  liveTabs,
+  activeLeafId,
+  onMoveToRight,
+  onMoveToLeft,
+  onClose,
+}: Props) {
+  const [sessions, setSessions] = useState<AgentSession[] | null>(cached);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
   const [open, setOpen] = useState<Set<string>>(() => new Set());
@@ -73,9 +137,16 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
   const latest = useRef(0);
   const refresh = useCallback(async () => {
     const req = ++latest.current;
-    const { sessions: list, errors } = await listAllSessions();
+    const { sessions: list, errors } = await listAllSessions((agent, part) => {
+      if (req !== latest.current) return;
+      setSessions((prev) => {
+        const next = [...(prev ?? []).filter((s) => s.agent !== agent), ...part];
+        next.sort((a, b) => b.modifiedMs - a.modifiedMs);
+        return (cached = next);
+      });
+    });
     if (req !== latest.current) return;
-    setSessions(list);
+    setSessions((cached = list));
     // Inline, not a toast, and only when nothing loaded at all: "Codex is not
     // installed" is a state, and a Claude-only user should not see it forever.
     setLoadError(list.length === 0 && errors.length > 0 ? errors.join(" / ") : null);
@@ -85,9 +156,44 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
     if (!collapsed) void refresh();
   }, [collapsed, refresh]);
 
-  // Same key shape as `groupSessions`. Opened once per folder change, so a
-  // folder the user then collapses stays collapsed until focus moves.
-  const activeKey = activeCwd ? toForwardSlash(activeCwd).replace(/\/+$/, "").toLowerCase() : null;
+  // Local terminals only: the focused one's folder, and every AI CLI pane.
+  const statuses = useAiCliStatuses((s) => s.statuses);
+  const { activeCwd, agentPanes } = useMemo(() => {
+    let activeCwd: string | null = null;
+    const agentPanes: { cwd: string; status: NonNullable<AiCliStatus> }[] = [];
+    for (const t of liveTabs) {
+      if (t.kind !== "pane") continue;
+      for (const l of leaves(t.paneTree)) {
+        if (l.leafKind !== "terminal" || l.sshConnectionId) continue;
+        if (l.id === activeLeafId) activeCwd = l.cwd ?? null;
+        const st = statuses[l.id];
+        if (l.cwd && (st?.tool === "claude" || st?.tool === "codex")) {
+          agentPanes.push({ cwd: l.cwd, status: st });
+        }
+      }
+    }
+    return { activeCwd, agentPanes };
+  }, [liveTabs, activeLeafId, statuses]);
+
+  // A pane starting or quitting a CLI changes which sessions are live and
+  // newest, so re-list then; a state change inside a running one does not.
+  const paneSig = agentPanes.map((p) => `${p.status.tool}@${keyOf(p.cwd)}`).join("|");
+  const lastSig = useRef(paneSig);
+  useEffect(() => {
+    if (collapsed || lastSig.current === paneSig) return;
+    lastSig.current = paneSig;
+    void refresh();
+  }, [paneSig, collapsed, refresh]);
+  const openMap = useMemo(() => openStatuses(sessions ?? [], agentPanes), [sessions, agentPanes]);
+
+  // Same key shape as `groupSessions`. Kept while focus sits on an editor or a
+  // remote pane, so the list does not blank every time focus leaves a terminal.
+  // Opened once per folder change, so a folder the user then collapses stays
+  // collapsed until focus moves.
+  const [activeKey, setActiveKey] = useState<string | null>(null);
+  useEffect(() => {
+    if (activeCwd) setActiveKey(keyOf(activeCwd));
+  }, [activeCwd]);
   useEffect(() => {
     if (activeKey) setOpen((prev) => (prev.has(activeKey) ? prev : new Set(prev).add(activeKey)));
   }, [activeKey]);
@@ -96,7 +202,14 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
     activeRow.current?.scrollIntoView({ block: "nearest" });
   }, [activeKey, sessions]);
 
-  const groups = useMemo(() => groupSessions(sessions ?? [], filter), [sessions, filter]);
+  // Only the focused terminal's folder (and folders under it), not every project.
+  const groups = useMemo(
+    () =>
+      activeKey
+        ? groupSessions(sessions ?? [], filter).filter((g) => inFolder(g.key, activeKey))
+        : [],
+    [sessions, filter, activeKey],
+  );
   // A search shows its hits; otherwise only the folders the user opened.
   const isOpen = (key: string) => filter.trim() !== "" || open.has(key);
   const toggle = (key: string) =>
@@ -159,6 +272,45 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
             <RefreshCw size={13} strokeWidth={2} />
           </Button>
         </IconTooltip>
+        {onMoveToRight ? (
+          <IconTooltip label="Move to right panel" side="bottom">
+            <Button
+              onClick={onMoveToRight}
+              aria-label="Move AI Sessions to the right panel"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+            >
+              <PanelRight size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {onMoveToLeft ? (
+          <IconTooltip label="Move to left sidebar" side="bottom">
+            <Button
+              onClick={onMoveToLeft}
+              aria-label="Move AI Sessions to the left sidebar"
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+            >
+              <PanelLeft size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
+        {onClose ? (
+          <IconTooltip label="Close panel" side="bottom">
+            <Button
+              onClick={onClose}
+              aria-label="Close AI Sessions panel"
+              variant="ghost"
+              size="icon"
+              className={cn(DESTRUCTIVE_ACTION, "size-6")}
+            >
+              <X size={13} strokeWidth={2} />
+            </Button>
+          </IconTooltip>
+        ) : null}
       </div>
       <div className="px-1.5 pt-1.5">
         <input
@@ -175,9 +327,15 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
             <li className="text-muted-foreground px-2 py-3 text-xs">Loading…</li>
           ) : loadError ? (
             <li className="text-muted-foreground px-2 py-3 text-xs break-words">{loadError}</li>
+          ) : !activeKey ? (
+            <li className="text-muted-foreground px-2 py-3 text-xs">
+              Focus a local terminal to see its folder&apos;s sessions.
+            </li>
           ) : groups.length === 0 ? (
             <li className="text-muted-foreground px-2 py-3 text-xs">
-              {filter ? "No matching sessions." : "No Claude Code or Codex sessions found."}
+              {filter
+                ? "No matching sessions."
+                : "No Claude Code or Codex sessions in this folder."}
             </li>
           ) : null}
           {groups.map((g) => {
@@ -204,8 +362,9 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
                 </button>
                 {shown ? (
                   <ul>
-                    {g.sessions.map((s) =>
-                      renaming === `${s.agent}:${s.id}` ? (
+                    {g.sessions.map((s) => {
+                      const st = openMap.get(sessionKey(s));
+                      return renaming === `${s.agent}:${s.id}` ? (
                         <li key={`${s.agent}:${s.id}`} className="py-0.5 pr-1 pl-6">
                           <InlineInput
                             initial={s.title}
@@ -230,15 +389,24 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
                                   else if (e.key === "F2") setRenaming(`${s.agent}:${s.id}`);
                                 }}
                                 aria-disabled={!canResume(s)}
-                                title={`${agentLabel(s.agent)}: ${s.title}\n${s.id}${s.size !== null ? ` · ${formatBytes(s.size)}` : ""}${s.live ? " · running" : ""}\n${resumeHint(s)}`}
-                                className="text-sidebar-foreground/80 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground focus-visible:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] outline-none aria-disabled:opacity-50"
+                                title={`${st ? aiCliLabel(st) : agentLabel(s.agent)}: ${s.title}\n${s.id}${s.size !== null ? ` · ${formatBytes(s.size)}` : ""}${s.live ? " · running" : ""}\n${resumeHint(s)}`}
+                                className={cn(
+                                  "hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] outline-none aria-disabled:opacity-50",
+                                  st
+                                    ? cn("font-medium", aiCliStateColorClass(st.state))
+                                    : "text-sidebar-foreground/80 hover:text-sidebar-foreground",
+                                )}
                               >
+                                {/* Motion on the wrapper, never the svg (see aiCliIconMotionClass). */}
                                 <span
-                                  aria-label={agentLabel(s.agent)}
-                                  className="relative flex shrink-0"
+                                  aria-label={st ? aiCliLabel(st) : agentLabel(s.agent)}
+                                  className={cn(
+                                    "relative flex shrink-0",
+                                    st && aiCliIconMotionClass(st),
+                                  )}
                                 >
                                   <CliAgentIcon agentId={s.agent} size={12} />
-                                  {s.live ? (
+                                  {s.live && !st ? (
                                     <span
                                       aria-hidden
                                       className="bg-icon-idle ring-sidebar absolute -right-0.5 -bottom-0.5 size-1.5 rounded-full ring-1"
@@ -292,8 +460,8 @@ export function AgentSessionsPanel({ dragHandle, collapsed, activeCwd }: Props) 
                             </ContextMenuItem>
                           </ContextMenuContent>
                         </ContextMenu>
-                      ),
-                    )}
+                      );
+                    })}
                   </ul>
                 ) : null}
               </li>

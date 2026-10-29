@@ -10,7 +10,6 @@ import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
 import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
-import { findLeaf } from "@/modules/terminal";
 import { Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
@@ -79,7 +78,6 @@ type Props = {
 // The reorderable built-in sidebar sections, in canonical order. Extension
 // sections (keyed `xsec:<extId>:<sectionId>`) are appended dynamically — they
 // exist only while their extension is active.
-// "sessions" is left-only: it is not in sectionDock's DUAL_COLUMN_BUILTINS.
 const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces", "sessions"] as const;
 type BuiltinKey = (typeof BUILTIN_KEYS)[number];
 const BUILTIN_TITLES: Record<BuiltinKey, string> = {
@@ -163,16 +161,6 @@ export function AppSidebar({
     }
     return m;
   }, [extEntries]);
-
-  // The focused LOCAL terminal's folder, for AI Sessions to open its row.
-  const activeTerminalCwd = useMemo(() => {
-    if (activeLeafId === null) return null;
-    for (const t of liveTabs) {
-      const l = t.kind === "pane" ? findLeaf(t.paneTree, activeLeafId) : null;
-      if (l) return l.leafKind === "terminal" && !l.sshConnectionId ? (l.cwd ?? null) : null;
-    }
-    return null;
-  }, [liveTabs, activeLeafId]);
 
   const scmVisible = showSourceControl && !sourceControlInRightPanel;
   const sshVisible = hasAnySshLeaf && !sshInRightPanel;
@@ -282,7 +270,9 @@ export function AppSidebar({
           <AgentSessionsPanel
             dragHandle={controls}
             collapsed={collapsed}
-            activeCwd={activeTerminalCwd}
+            liveTabs={liveTabs}
+            activeLeafId={activeLeafId}
+            onMoveToRight={() => dockRight("sessions")}
           />
         );
     }
