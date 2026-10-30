@@ -76,6 +76,9 @@ export type StatusItemDetailRow = {
   value?: string;
   /** Muted trailing text, e.g. `"resets in 3h 9m"`. */
   note?: string;
+  /** Draw the whole row faded: a reading worth showing that does not limit
+   *  anything (e.g. a window counted but not enforced on this plan). */
+  dim?: boolean;
 };
 
 /**

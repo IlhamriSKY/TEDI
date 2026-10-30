@@ -35,11 +35,12 @@ import {
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
-import { ChevronRight, Folder, PanelLeft, PanelRight, RefreshCw, X } from "lucide-react";
+import { Folder, GitBranch, PanelLeft, PanelRight, RefreshCw, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ago,
   canResume,
+  dayBucket,
   deleteSession,
   groupSessions,
   inFolder,
@@ -108,11 +109,11 @@ function openStatuses(
 const agentLabel = (a: AgentSession["agent"]) => SESSION_AGENTS.find((x) => x.id === a)?.label ?? a;
 
 /**
- * Claude Code's and Codex's saved sessions in one folder tree, each row marked
- * with its CLI's icon: one row per project
- * folder, its sessions under it; the focused terminal's folder opens by itself.
- * Double-click (or Enter) resumes in that terminal when it is idle there, else
- * in a split beside it, F2 renames, right-click for everything. Loaded on expand
+ * Claude Code's and Codex's saved sessions for the focused terminal's folder, as
+ * cards under day headings (the Codex app / Orca history layout), each marked
+ * with its CLI's icon and, when a pane runs it, that pane's status. One click
+ * (or Enter) moves an idle terminal into the session's folder and resumes
+ * there, else resumes in a split beside it, F2 renames, right-click for everything. Loaded on expand
  * and on refresh, never polled: the list only changes when a
  * session is run or acted on here.
  */
@@ -128,7 +129,6 @@ export function AgentSessionsPanel({
   const [sessions, setSessions] = useState<AgentSession[] | null>(cached);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
-  const [open, setOpen] = useState<Set<string>>(() => new Set());
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgentSession | null>(null);
 
@@ -188,37 +188,30 @@ export function AgentSessionsPanel({
 
   // Same key shape as `groupSessions`. Kept while focus sits on an editor or a
   // remote pane, so the list does not blank every time focus leaves a terminal.
-  // Opened once per folder change, so a folder the user then collapses stays
-  // collapsed until focus moves.
   const [activeKey, setActiveKey] = useState<string | null>(null);
   useEffect(() => {
     if (activeCwd) setActiveKey(keyOf(activeCwd));
   }, [activeCwd]);
-  useEffect(() => {
-    if (activeKey) setOpen((prev) => (prev.has(activeKey) ? prev : new Set(prev).add(activeKey)));
-  }, [activeKey]);
-  const activeRow = useRef<HTMLLIElement>(null);
-  useEffect(() => {
-    activeRow.current?.scrollIntoView({ block: "nearest" });
-  }, [activeKey, sessions]);
 
-  // Only the focused terminal's folder (and folders under it), not every project.
-  const groups = useMemo(
-    () =>
-      activeKey
-        ? groupSessions(sessions ?? [], filter).filter((g) => inFolder(g.key, activeKey))
-        : [],
-    [sessions, filter, activeKey],
-  );
-  // A search shows its hits; otherwise only the folders the user opened.
-  const isOpen = (key: string) => filter.trim() !== "" || open.has(key);
-  const toggle = (key: string) =>
-    setOpen((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
+  // Only the focused terminal's folder (and folders under it), not every project,
+  // flattened newest first and cut into day sections. A session from a subfolder
+  // keeps that folder's name as a chip on its card.
+  const sections = useMemo(() => {
+    if (!activeKey) return [];
+    const now = Date.now();
+    const out: { label: string; cards: { s: AgentSession; folder: string | null }[] }[] = [];
+    const cards = groupSessions(sessions ?? [], filter)
+      .filter((g) => inFolder(g.key, activeKey))
+      .flatMap((g) => g.sessions.map((s) => ({ s, folder: g.key === activeKey ? null : g.label })))
+      .sort((a, b) => b.s.modifiedMs - a.s.modifiedMs);
+    for (const c of cards) {
+      const label = dayBucket(c.s.modifiedMs, now);
+      if (out.at(-1)?.label !== label) out.push({ label, cards: [] });
+      out.at(-1)!.cards.push(c);
+    }
+    return out;
+  }, [sessions, filter, activeKey]);
+  const count = sections.reduce((n, sec) => n + sec.cards.length, 0);
 
   const resume = (s: AgentSession) => {
     if (!canResume(s)) return;
@@ -260,7 +253,12 @@ export function AgentSessionsPanel({
     <div className="flex h-full min-h-0 flex-col">
       <div className="tedi-panel-header">
         {dragHandle}
-        <span className="text-foreground/80 flex-1 truncate text-xs font-medium">AI Sessions</span>
+        <span className="text-foreground/80 flex-1 truncate text-xs font-medium">
+          AI Sessions
+          {count > 0 ? (
+            <span className="text-muted-foreground ml-1.5 font-normal tabular-nums">{count}</span>
+          ) : null}
+        </span>
         <IconTooltip label="Refresh" side="bottom">
           <Button
             onClick={() => void refresh()}
@@ -322,90 +320,103 @@ export function AgentSessionsPanel({
         />
       </div>
       <ScrollArea className="min-h-0 flex-1">
-        <ul className="p-1 pr-2.5">
+        <div className="p-1.5 pr-2.5">
           {sessions === null ? (
-            <li className="text-muted-foreground px-2 py-3 text-xs">Loading…</li>
+            <p className="text-muted-foreground px-1 py-3 text-xs">Loading…</p>
           ) : loadError ? (
-            <li className="text-muted-foreground px-2 py-3 text-xs break-words">{loadError}</li>
+            <p className="text-muted-foreground px-1 py-3 text-xs break-words">{loadError}</p>
           ) : !activeKey ? (
-            <li className="text-muted-foreground px-2 py-3 text-xs">
+            <p className="text-muted-foreground px-1 py-3 text-xs">
               Focus a local terminal to see its folder&apos;s sessions.
-            </li>
-          ) : groups.length === 0 ? (
-            <li className="text-muted-foreground px-2 py-3 text-xs">
+            </p>
+          ) : count === 0 ? (
+            <p className="text-muted-foreground px-1 py-3 text-xs">
               {filter
                 ? "No matching sessions."
                 : "No Claude Code or Codex sessions in this folder."}
-            </li>
+            </p>
           ) : null}
-          {groups.map((g) => {
-            const shown = isOpen(g.key);
-            return (
-              <li key={g.key} ref={g.key === activeKey ? activeRow : undefined}>
-                <button
-                  type="button"
-                  onClick={() => toggle(g.key)}
-                  aria-expanded={shown}
-                  title={g.path}
-                  className="text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground flex h-7 w-full items-center gap-1 rounded px-1.5 text-xs"
-                >
-                  <ChevronRight
-                    size={11}
-                    strokeWidth={2.25}
-                    className={cn("shrink-0 transition-transform", shown && "rotate-90")}
-                  />
-                  <Folder size={13} strokeWidth={1.75} className="shrink-0" />
-                  <span className="flex-1 truncate text-left">{g.label}</span>
-                  <span className="text-muted-foreground/70 shrink-0 text-[10px] tabular-nums">
-                    {g.sessions.length}
-                  </span>
-                </button>
-                {shown ? (
-                  <ul>
-                    {g.sessions.map((s) => {
-                      const st = openMap.get(sessionKey(s));
-                      return renaming === `${s.agent}:${s.id}` ? (
-                        <li key={`${s.agent}:${s.id}`} className="py-0.5 pr-1 pl-6">
-                          <InlineInput
-                            initial={s.title}
-                            placeholder="Session name"
-                            onCommit={(v) => void commitRename(s, v)}
-                            onCancel={() => setRenaming(null)}
-                          />
-                        </li>
-                      ) : (
-                        <ContextMenu key={`${s.agent}:${s.id}`}>
-                          <ContextMenuTrigger asChild>
-                            <li>
-                              {/* Double-click opens, like the file tree: a single-click
-                                  resume would fire twice under any double-click. Not
-                                  `disabled` without a cwd, since a disabled button
-                                  gets no contextmenu and Delete would be unreachable. */}
-                              <button
-                                type="button"
-                                onDoubleClick={() => resume(s)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "Enter") resume(s);
-                                  else if (e.key === "F2") setRenaming(`${s.agent}:${s.id}`);
-                                }}
-                                aria-disabled={!canResume(s)}
-                                title={`${st ? aiCliLabel(st) : agentLabel(s.agent)}: ${s.title}\n${s.id}${s.size !== null ? ` · ${formatBytes(s.size)}` : ""}${s.live ? " · running" : ""}\n${resumeHint(s)}`}
-                                className={cn(
-                                  "hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] outline-none aria-disabled:opacity-50",
-                                  st
-                                    ? cn("font-medium", aiCliStateColorClass(st.state))
-                                    : "text-sidebar-foreground/80 hover:text-sidebar-foreground",
-                                )}
-                              >
+          {sections.map((sec) => (
+            <section key={sec.label} className="mb-2">
+              <h3 className="text-muted-foreground/80 px-1 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase">
+                {sec.label}
+              </h3>
+              <ul className="flex flex-col gap-1">
+                {sec.cards.map(({ s, folder }) => {
+                  const key = sessionKey(s);
+                  const st = openMap.get(key);
+                  const meta = [
+                    ago(s.modifiedMs, now),
+                    s.size !== null ? formatBytes(s.size) : null,
+                  ].filter(Boolean);
+                  return renaming === key ? (
+                    <li key={key} className="p-1">
+                      <InlineInput
+                        initial={s.title}
+                        placeholder="Session name"
+                        onCommit={(v) => void commitRename(s, v)}
+                        onCancel={() => setRenaming(null)}
+                      />
+                    </li>
+                  ) : (
+                    <ContextMenu key={key}>
+                      <ContextMenuTrigger asChild>
+                        <li>
+                          {/* One click resumes. `detail > 1` drops the second click of a
+                              double-click, so a habit double-click still opens it once.
+                              Not `disabled` without a cwd, since a disabled button gets
+                              no contextmenu and Delete would be unreachable. */}
+                          <IconTooltip
+                            side={onMoveToRight ? "right" : "left"}
+                            delayDuration={500}
+                            contentClassName="max-w-sm"
+                            label={
+                              <span className="flex flex-col gap-0.5">
+                                <span className="font-medium break-words">{s.title}</span>
+                                <span className="opacity-70">
+                                  {st ? aiCliLabel(st) : agentLabel(s.agent)}
+                                  {s.live && !st ? " · running" : ""}
+                                </span>
+                                {s.cwd ? (
+                                  <span className="break-all opacity-70">{s.cwd}</span>
+                                ) : null}
+                                <span className="font-mono text-[10px] opacity-50">{s.id}</span>
+                                <span className="opacity-70">{resumeHint(s)}</span>
+                              </span>
+                            }
+                          >
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                if (e.detail <= 1) resume(s);
+                              }}
+                              onKeyDown={(e) => {
+                                if (e.key === "F2") {
+                                  e.preventDefault();
+                                  setRenaming(key);
+                                }
+                              }}
+                              aria-disabled={!canResume(s)}
+                              className={cn(
+                                "group border-border/50 hover:border-border focus-visible:border-ring flex w-full flex-col gap-1 rounded-md border px-2 py-1.5 text-left outline-none aria-disabled:opacity-50",
+                                st
+                                  ? cn(
+                                      "border-l-2 border-l-current",
+                                      aiCliStateColorClass(st.state),
+                                    )
+                                  : "text-muted-foreground",
+                              )}
+                            >
+                              <span className="flex w-full items-start gap-1.5">
                                 {/* Motion on the wrapper, never the svg (see aiCliIconMotionClass). */}
                                 <span
                                   aria-label={st ? aiCliLabel(st) : agentLabel(s.agent)}
                                   className={cn(
-                                    "relative flex shrink-0",
+                                    "relative mt-px flex shrink-0",
                                     st && aiCliIconMotionClass(st),
                                   )}
                                 >
-                                  <CliAgentIcon agentId={s.agent} size={12} />
+                                  <CliAgentIcon agentId={s.agent} size={13} />
                                   {s.live && !st ? (
                                     <span
                                       aria-hidden
@@ -415,59 +426,76 @@ export function AgentSessionsPanel({
                                 </span>
                                 <span
                                   className={cn(
-                                    "flex-1 truncate text-left",
+                                    "text-sidebar-foreground/90 group-hover:text-sidebar-foreground line-clamp-2 flex-1 text-[11.5px] leading-snug break-words",
                                     s.custom && "font-medium",
                                   )}
                                 >
                                   {s.title}
                                 </span>
-                                <span className="text-muted-foreground/70 shrink-0 text-[10px] tabular-nums">
-                                  {ago(s.modifiedMs, now)}
+                              </span>
+                              <span className="flex w-full items-center gap-1.5 pl-[19px] text-[10px] tabular-nums">
+                                {st ? (
+                                  <span className="shrink-0 font-medium">
+                                    {aiCliLabel(st).split(" · ")[1]}
+                                  </span>
+                                ) : s.live ? (
+                                  <span className="shrink-0 font-medium">running</span>
+                                ) : null}
+                                <span className="text-muted-foreground truncate">
+                                  {meta.join(" · ")}
                                 </span>
-                              </button>
-                            </li>
-                          </ContextMenuTrigger>
-                          <ContextMenuContent>
-                            <ContextMenuItem disabled={!canResume(s)} onSelect={() => resume(s)}>
-                              Resume
-                            </ContextMenuItem>
-                            <ContextMenuItem onSelect={() => setRenaming(`${s.agent}:${s.id}`)}>
-                              Rename
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              onSelect={() =>
-                                void navigator.clipboard.writeText(s.id).catch(() => {})
-                              }
-                            >
-                              Copy session id
-                            </ContextMenuItem>
-                            <ContextMenuItem
-                              onSelect={() =>
-                                void navigator.clipboard
-                                  .writeText(resumeCommand(s.agent, s.id))
-                                  .catch(() => {})
-                              }
-                            >
-                              Copy resume command
-                            </ContextMenuItem>
-                            <ContextMenuSeparator />
-                            <ContextMenuItem
-                              variant="destructive"
-                              disabled={s.live}
-                              onSelect={() => setDeleting(s)}
-                            >
-                              {s.live ? "Delete (exit the session first)" : "Delete"}
-                            </ContextMenuItem>
-                          </ContextMenuContent>
-                        </ContextMenu>
-                      );
-                    })}
-                  </ul>
-                ) : null}
-              </li>
-            );
-          })}
-        </ul>
+                                {s.branch ? (
+                                  <span className="text-muted-foreground inline-flex min-w-0 items-center gap-0.5">
+                                    <GitBranch size={9} strokeWidth={2} className="shrink-0" />
+                                    <span className="truncate">{s.branch}</span>
+                                  </span>
+                                ) : null}
+                                {folder ? (
+                                  <span className="text-muted-foreground ml-auto inline-flex max-w-[45%] shrink-0 items-center gap-0.5 rounded px-1">
+                                    <Folder size={9} strokeWidth={2} className="shrink-0" />
+                                    <span className="truncate">{folder}</span>
+                                  </span>
+                                ) : null}
+                              </span>
+                            </button>
+                          </IconTooltip>
+                        </li>
+                      </ContextMenuTrigger>
+                      <ContextMenuContent>
+                        <ContextMenuItem disabled={!canResume(s)} onSelect={() => resume(s)}>
+                          Resume
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => setRenaming(key)}>Rename</ContextMenuItem>
+                        <ContextMenuItem
+                          onSelect={() => void navigator.clipboard.writeText(s.id).catch(() => {})}
+                        >
+                          Copy session id
+                        </ContextMenuItem>
+                        <ContextMenuItem
+                          onSelect={() =>
+                            void navigator.clipboard
+                              .writeText(resumeCommand(s.agent, s.id))
+                              .catch(() => {})
+                          }
+                        >
+                          Copy resume command
+                        </ContextMenuItem>
+                        <ContextMenuSeparator />
+                        <ContextMenuItem
+                          variant="destructive"
+                          disabled={s.live}
+                          onSelect={() => setDeleting(s)}
+                        >
+                          {s.live ? "Delete (exit the session first)" : "Delete"}
+                        </ContextMenuItem>
+                      </ContextMenuContent>
+                    </ContextMenu>
+                  );
+                })}
+              </ul>
+            </section>
+          ))}
+        </div>
       </ScrollArea>
 
       <AlertDialog

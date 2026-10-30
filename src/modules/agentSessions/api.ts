@@ -24,6 +24,8 @@ export type AgentSession = {
   project: string;
   /** The real working directory. Null when none was logged. */
   cwd: string | null;
+  /** Git branch it last ran on; null outside a repo. */
+  branch: string | null;
   title: string;
   /** Title came from a rename, not an auto title. */
   custom: boolean;
@@ -45,7 +47,7 @@ export const resumeHint = (s: AgentSession): string =>
     ? "No folder recorded, cannot resume"
     : s.cwdMissing
       ? `Folder no longer exists: ${s.cwd}`
-      : "Double-click to resume";
+      : "Click to resume";
 
 export type SessionGroup = { key: string; label: string; path: string; sessions: AgentSession[] };
 
@@ -121,6 +123,25 @@ export const inFolder = (groupKey: string, folderKey: string) =>
 /** Safe to type into a shell: both backends only list hex-and-dash ids. */
 export const resumeCommand = (agent: SessionAgent, id: string) =>
   agent === "claude" ? `claude --resume ${id}` : `codex resume ${id}`;
+
+/**
+ * Codex-style day headings for the card list: "Today", "Yesterday", "This week",
+ * "This month", "Older". Calendar days in local time, not 24-hour spans, so a
+ * session from 23:50 last night is Yesterday at 00:10.
+ */
+export function dayBucket(ms: number, now = Date.now()): string {
+  const midnight = new Date(now);
+  midnight.setHours(0, 0, 0, 0);
+  const day = midnight.getTime();
+  if (ms >= day) return "Today";
+  const d = new Date(day);
+  d.setDate(d.getDate() - 1);
+  if (ms >= d.getTime()) return "Yesterday";
+  d.setDate(d.getDate() - 5);
+  if (ms >= d.getTime()) return "This week";
+  d.setDate(d.getDate() - 23);
+  return ms >= d.getTime() ? "This month" : "Older";
+}
 
 /** "5m", "3h", "2d" - the sidebar has room for a few characters, not a date. */
 export function ago(ms: number, now = Date.now()): string {

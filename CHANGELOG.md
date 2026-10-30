@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.75] - 31-10-2026
+
+### Changed
+
+- **AI Sessions is a list of cards under day headings** (Today, Yesterday,
+  This week, This month, Older), the way the Codex app and Orca show history,
+  instead of a folder tree to expand. Each card shows the CLI's logo, the title,
+  how long ago, the size and the git branch the session ran on; a session from
+  a subfolder names that folder. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **One click resumes a session.** A double-click still opens it only once.
+- **Resume moves the terminal into the session's folder first.** An idle
+  terminal is `cd`'d there and resumes in place; a busy one still gets a split
+  beside it. See [useTabActions.ts](src/app/hooks/useTabActions.ts).
+- **A session card's tooltip uses TEDI's own tooltip**, with the title, status,
+  folder and session id.
+
+### Added
+
+- **The session list knows each session's git branch**, read from Claude Code's
+  transcript and Codex's thread info. See
+  [claude_sessions.rs](src-tauri/src/modules/claude_sessions.rs).
+- **Extensions can fade a status-bar tooltip row** with
+  `StatusItemDetailRow.dim`, for a reading worth showing that limits nothing
+  (AI Usage uses it for the 5-hour window on Claude Ultra). See
+  [registries.ts](src/modules/extensions/registries.ts).
+
 ## [0.4.74] - 29-10-2026
 
 ### Changed

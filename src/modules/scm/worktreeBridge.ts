@@ -41,8 +41,8 @@ export type OpenWorktreeInput = {
    */
   tool?: AiCliKind | null;
   /**
-   * Prefer the active terminal over a new tab: run `command` in it when it sits
-   * idle at a prompt in `path`, otherwise split it. A new tab only when the
+   * Prefer the active terminal over a new tab: when it sits idle at a prompt,
+   * `cd` it into `path` (if elsewhere) and run `command` there, otherwise split it. A new tab only when the
    * active tab is not a local terminal or is full. AI Sessions' resume.
    */
   inActivePane?: boolean;

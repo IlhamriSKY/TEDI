@@ -240,7 +240,10 @@ function TooltipBody({ item }: { item: StatusItem }) {
       {title ? <div className="text-foreground text-xs font-medium">{title}</div> : null}
       <PixelChart chart={chart} />
       {rows.map((r, i) => (
-        <div key={i} className="flex items-center gap-2 text-[11px] leading-none">
+        <div
+          key={i}
+          className={cn("flex items-center gap-2 text-[11px] leading-none", r.dim && "opacity-45")}
+        >
           {r.label ? <span className="text-muted-foreground w-14 shrink-0">{r.label}</span> : null}
           {r.progress != null ? (
             <PixelBar

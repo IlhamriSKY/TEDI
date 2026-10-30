@@ -10,6 +10,7 @@
 import {
   ago,
   canResume,
+  dayBucket,
   groupSessions,
   resumeCommand,
   resumeHint,
@@ -28,6 +29,7 @@ function session(over: Partial<AgentSession>): AgentSession {
     id: "00000000-0000-4000-8000-000000000001",
     project: "D--work-app",
     cwd: "D:\\work\\app",
+    branch: null,
     title: "Fix login",
     custom: false,
     modifiedMs: 0,
@@ -79,6 +81,15 @@ ok("minutes", ago(now - 5 * 60_000, now) === "5m");
 ok("hours under two days", ago(now - 47 * 3_600_000, now) === "47h");
 ok("days after that", ago(now - 3 * 86_400_000, now) === "3d");
 ok("a clock skewed into the future reads 0m, not negative", ago(now + 60_000, now) === "0m");
+
+console.log("\n[dayBucket] calendar days, not 24-hour spans");
+const noon = new Date(2026, 9, 31, 12).getTime();
+const at = (d: number, h: number) => new Date(2026, 9, d, h).getTime();
+ok("this morning is Today", dayBucket(at(31, 0), noon) === "Today");
+ok("last night 23:00 is Yesterday", dayBucket(at(30, 23), noon) === "Yesterday");
+ok("four days back is This week", dayBucket(at(27, 9), noon) === "This week");
+ok("three weeks back is This month", dayBucket(at(10, 9), noon) === "This month");
+ok("two months back is Older", dayBucket(new Date(2026, 7, 1).getTime(), noon) === "Older");
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nAll agent-sessions checks passed.");

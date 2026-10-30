@@ -35,6 +35,8 @@ pub struct AgentSession {
     /// path. Codex: empty, its own index finds a thread by id.
     pub(crate) project: String,
     pub(crate) cwd: Option<String>,
+    /// Git branch the session last ran on, when its folder was a repo.
+    pub(crate) branch: Option<String>,
     pub(crate) title: String,
     /// True when the title came from a rename, not an auto title.
     pub(crate) custom: bool,
@@ -69,6 +71,8 @@ static CACHE: Mutex<Option<Cache>> = Mutex::new(None);
 #[derive(Clone, Default)]
 struct Meta {
     cwd: Option<String>,
+    /// Latest `gitBranch`; "" (not a repo) and "HEAD" (detached) are dropped.
+    branch: Option<String>,
     custom_title: Option<String>,
     ai_title: Option<String>,
     prompt: Option<String>,
@@ -143,6 +147,11 @@ fn scan(chunk: &[u8], m: &mut Meta, project: &str) {
         } else if line.starts_with("{\"type\":\"last-prompt\"") {
             m.prompt = string_after(line, "lastPrompt").or(m.prompt.take());
         } else {
+            if let Some(b) =
+                string_after(line, "gitBranch").filter(|b| !b.is_empty() && b != "HEAD")
+            {
+                m.branch = Some(b);
+            }
             if !m.cwd_exact {
                 if let Some(c) = string_after(line, "cwd").map(native_cwd) {
                     m.cwd_exact = slug(&c) == project;
@@ -360,6 +369,7 @@ fn list_inner() -> Result<Vec<AgentSession>, String> {
                 id,
                 project: project.clone(),
                 cwd: meta.cwd.clone(),
+                branch: meta.branch.clone(),
                 title,
                 custom,
                 modified_ms,
@@ -468,8 +478,8 @@ mod tests {
             "{\"type\":\"ai-title\",\"aiTitle\":\"Old\",\"sessionId\":\"x\"}\n",
             // A `cd` into a subfolder must not move the session's folder.
             "{\"type\":\"user\",\"cwd\":\"D:\\\\a b\\\\c\\\\sub\",\"message\":{}}\n",
-            "{\"type\":\"user\",\"cwd\":\"D:\\\\a b\\\\c\",\"message\":{}}\n",
-            "{\"type\":\"user\",\"cwd\":\"D:\\\\a b\\\\c\\\\sub\",\"message\":{}}\n",
+            "{\"type\":\"user\",\"cwd\":\"D:\\\\a b\\\\c\",\"gitBranch\":\"main\",\"message\":{}}\n",
+            "{\"type\":\"user\",\"cwd\":\"D:\\\\a b\\\\c\\\\sub\",\"gitBranch\":\"feat/x\",\"message\":{}}\n",
             "{\"type\":\"custom-title\",\"customTitle\":\"First\",\"sessionId\":\"x\"}\n",
             "{\"type\":\"custom-title\",\"customTitle\":\"Mine \\\"q\\\"\",\"sessionId\":\"x\"}\n",
         );
@@ -478,6 +488,11 @@ mod tests {
         assert_eq!(m.custom_title.as_deref(), Some("Mine \"q\""));
         assert_eq!(m.ai_title.as_deref(), Some("Old"));
         assert_eq!(m.cwd.as_deref(), Some("D:\\a b\\c"));
+        assert_eq!(
+            m.branch.as_deref(),
+            Some("feat/x"),
+            "the latest branch wins"
+        );
     }
 
     /// A transcript larger than the tail window, written to a temp file.
@@ -517,6 +532,7 @@ mod tests {
             id: "a".into(),
             project: String::new(),
             cwd: cwd.map(str::to_string),
+            branch: None,
             title: String::new(),
             custom: false,
             modified_ms: 0,

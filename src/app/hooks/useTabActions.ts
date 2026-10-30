@@ -378,9 +378,15 @@ export function useTabActions({
       if (leaf?.leafKind === "terminal" && !leaf.sshConnectionId) {
         const term = terminalRefs.current.get(leaf.id);
         const norm = (p: string) => toForwardSlash(p).replace(/\/+$/, "").toLowerCase();
-        // Idle in the session's own folder: reuse it. Busy (an agent already
-        // running there) or elsewhere: a new terminal beside it, same tab.
-        if (term?.isAtPrompt() && leaf.cwd && norm(leaf.cwd) === norm(path)) {
+        // Idle: reuse it, first moving into the session's folder (a session
+        // only resumes from the folder it ran in). Busy (an agent already
+        // running there): a new terminal beside it, same tab. The shell runs
+        // the two lines in order, so the resume lands after the cd.
+        if (term?.isAtPrompt()) {
+          if (!leaf.cwd || norm(leaf.cwd) !== norm(path)) {
+            setLeafCwd(leaf.id, path);
+            term.write(`cd "${path}"\r`);
+          }
           term.launchAgent(command!, tool ?? null);
           term.focus();
           return;
@@ -393,7 +399,7 @@ export function useTabActions({
       }
       openTerminalRunning(path, command, tool, title);
     },
-    [activeId, splitActivePane, launchAtPrompt, openTerminalRunning],
+    [activeId, splitActivePane, launchAtPrompt, openTerminalRunning, setLeafCwd],
   );
 
   // Publish it for Source Control, whose four hosts are too far apart (one of

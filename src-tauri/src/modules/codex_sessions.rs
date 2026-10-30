@@ -163,6 +163,10 @@ fn to_session(t: &Value) -> Option<AgentSession> {
             .map(|c| c.strip_prefix(r"\\?\").unwrap_or(c))
             .filter(|c| !c.is_empty())
             .map(str::to_string),
+        branch: t["gitInfo"]["branch"]
+            .as_str()
+            .filter(|b| !b.is_empty() && *b != "HEAD")
+            .map(str::to_string),
         custom: name.is_some(),
         modified_ms: t["updatedAt"].as_u64().unwrap_or(0) * 1000,
         project: String::new(),
