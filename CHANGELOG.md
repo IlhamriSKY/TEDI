@@ -4,6 +4,19 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.76] - 31-10-2026
+
+### Changed
+
+- **AI Sessions day headings fold like an accordion.** Click a heading to fold
+  or open it (its session count stays visible), and the header's Collapse all /
+  Expand all button folds every day at once. A filter opens every section while
+  it is typed. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **A session card no longer spells out its status** (working, idle, running):
+  the icon's colour and the card's left edge already show it, and the tooltip
+  still says it in words.
+
 ## [0.4.75] - 31-10-2026
 
 ### Changed

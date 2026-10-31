@@ -20,6 +20,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
+import { IconSwap } from "@/components/IconMorph";
 import { toForwardSlash } from "@/lib/path";
 import { formatBytes } from "@/lib/format";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -35,7 +36,17 @@ import {
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
-import { Folder, GitBranch, PanelLeft, PanelRight, RefreshCw, X } from "lucide-react";
+import {
+  ChevronRight,
+  ChevronsDownUp,
+  ChevronsUpDown,
+  Folder,
+  GitBranch,
+  PanelLeft,
+  PanelRight,
+  RefreshCw,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ago,
@@ -72,6 +83,8 @@ type Props = {
 // Survives a collapse and a move between columns (both remount the panel), so
 // reopening paints the last list at once and refreshes underneath.
 let cached: AgentSession[] | null = null;
+// Day headings the user folded, kept the same way.
+let foldedCache = new Set<string>();
 
 const keyOf = (path: string) => toForwardSlash(path).replace(/\/+$/, "").toLowerCase();
 const sessionKey = (s: AgentSession) => `${s.agent}:${s.id}`;
@@ -213,6 +226,17 @@ export function AgentSessionsPanel({
   }, [sessions, filter, activeKey]);
   const count = sections.reduce((n, sec) => n + sec.cards.length, 0);
 
+  const [folded, setFolded] = useState(foldedCache);
+  const setFold = (next: Set<string>) => setFolded((foldedCache = next));
+  // A filter searches every section, so it opens them all while it is typed.
+  const isFolded = (label: string) => !filter && folded.has(label);
+  const allFolded = sections.length > 0 && sections.every((sec) => isFolded(sec.label));
+  const toggleSection = (label: string) => {
+    const next = new Set(folded);
+    if (!next.delete(label)) next.add(label);
+    setFold(next);
+  };
+
   const resume = (s: AgentSession) => {
     if (!canResume(s)) return;
     openWorktreeTab({
@@ -259,6 +283,27 @@ export function AgentSessionsPanel({
             <span className="text-muted-foreground ml-1.5 font-normal tabular-nums">{count}</span>
           ) : null}
         </span>
+        {sections.length > 1 ? (
+          <IconTooltip label={allFolded ? "Expand all" : "Collapse all"} side="bottom">
+            <Button
+              onClick={() =>
+                setFold(allFolded ? new Set() : new Set(sections.map((sec) => sec.label)))
+              }
+              aria-label={allFolded ? "Expand all sections" : "Collapse all sections"}
+              variant="ghost"
+              size="icon"
+              className="text-muted-foreground hover:text-foreground size-6"
+            >
+              <IconSwap
+                active={allFolded ? 0 : 1}
+                icons={[
+                  <ChevronsUpDown size={13} strokeWidth={2} />,
+                  <ChevronsDownUp size={13} strokeWidth={2} />,
+                ]}
+              />
+            </Button>
+          </IconTooltip>
+        ) : null}
         <IconTooltip label="Refresh" side="bottom">
           <Button
             onClick={() => void refresh()}
@@ -338,10 +383,26 @@ export function AgentSessionsPanel({
           ) : null}
           {sections.map((sec) => (
             <section key={sec.label} className="mb-2">
-              <h3 className="text-muted-foreground/80 px-1 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase">
-                {sec.label}
+              <h3>
+                <button
+                  type="button"
+                  onClick={() => toggleSection(sec.label)}
+                  aria-expanded={!isFolded(sec.label)}
+                  className="text-muted-foreground/80 hover:text-foreground focus-visible:text-foreground flex w-full items-center gap-1 rounded px-1 pt-1 pb-1 text-[10px] font-medium tracking-wide uppercase outline-none"
+                >
+                  <ChevronRight
+                    size={11}
+                    strokeWidth={2}
+                    className={cn(
+                      "shrink-0 transition-transform",
+                      !isFolded(sec.label) && "rotate-90",
+                    )}
+                  />
+                  <span className="flex-1 text-left">{sec.label}</span>
+                  <span className="font-normal tabular-nums">{sec.cards.length}</span>
+                </button>
               </h3>
-              <ul className="flex flex-col gap-1">
+              <ul className={cn("flex flex-col gap-1", isFolded(sec.label) && "hidden")}>
                 {sec.cards.map(({ s, folder }) => {
                   const key = sessionKey(s);
                   const st = openMap.get(key);
@@ -434,13 +495,6 @@ export function AgentSessionsPanel({
                                 </span>
                               </span>
                               <span className="flex w-full items-center gap-1.5 pl-[19px] text-[10px] tabular-nums">
-                                {st ? (
-                                  <span className="shrink-0 font-medium">
-                                    {aiCliLabel(st).split(" · ")[1]}
-                                  </span>
-                                ) : s.live ? (
-                                  <span className="shrink-0 font-medium">running</span>
-                                ) : null}
                                 <span className="text-muted-foreground truncate">
                                   {meta.join(" · ")}
                                 </span>
