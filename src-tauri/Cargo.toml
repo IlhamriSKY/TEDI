@@ -16,7 +16,7 @@ default-members = ["."]
 
 [package]
 name = "tedi"
-version = "0.4.76"
+version = "0.4.77"
 description = "TEDI - Terminal Director. A lightweight terminal with split screens, tab grouping, and workspaces."
 authors = ["IlhamriSKY"]
 license = "Apache-2.0"
@@ -208,14 +208,22 @@ windows-sys = { version = "0.59", features = [
 	"Win32_UI_Shell",
 	"Win32_System_Com",
 ] }
-# Direct access to the WebView2 COM interfaces wry does not surface. Three uses,
-# all Windows-only: `ICoreWebView2Settings3` to turn off the browser accelerator
-# keys (`lib.rs`) and to harden a browser pane (`browser/mod.rs`), and
-# `CallDevToolsProtocolMethodCompletedHandler` to drive CDP in-process
+# Direct access to the WebView2 COM interfaces wry does not surface, all
+# Windows-only: `ICoreWebView2Settings3` to turn off the browser accelerator keys
+# (`lib.rs`), the events and settings a browser pane runs on (`browser/native.rs`),
+# and `CallDevToolsProtocolMethodCompletedHandler` to drive CDP in-process
 # (`browser/cdp.rs`), which is how a pane is screenshotted and scripted.
 # Versions match the copies wry already pulls in, so no duplicate crates are
 # added.
 webview2-com = "0.38"
+# A browser pane is a RAW wry child webview rather than a Tauri one, so it never
+# gets Tauri's IPC bootstrap or custom protocols (`browser/native.rs`). The same
+# version Tauri already pulls in, so this adds an edge and no crate.
+wry = { version = "0.55", default-features = false, features = ["os-webview"] }
+# The pane's network blocker (`browser/blocker.rs`). Default features minus
+# `single-thread`, which would make the engine unusable from the thread that
+# builds it.
+adblock = { version = "0.13", default-features = false, features = ["embedded-domain-resolver", "full-regex-handling"] }
 # `Win32_Graphics_Gdi` is for the browser pane's window region (`browser/mod.rs`
 # cuts holes where the app draws over it). It compiled without being listed here
 # only because wry happens to enable the same feature and Cargo unifies them - a
@@ -230,6 +238,8 @@ windows = { version = "0.61", features = [
 	# native file drag (`modules/snapshot.rs`).
 	"Win32_System_Ole",
 	"Win32_UI_Shell",
+	# `GetKeyState`, for the chords a focused browser pane hands to its toolbar.
+	"Win32_UI_Input_KeyboardAndMouse",
 ] }
 
 # Native file drag OUT of the window for the screenshot preview

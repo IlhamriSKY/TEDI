@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "Capability for the app's own webviews. Scoped by WEBVIEW label, not window: a capability listing `windows` is granted to EVERY webview of a matching window, and a browser pane is a child webview of `main`, so `windows` here would hand every site you browse this whole permission set the moment its origin resolved as local. Every window TEDI opens is a WebviewWindow, whose webview label equals its window label, so this list is unchanged for them and `browser-*` matches nothing.",
+  "description": "Capability for the app's own webviews. Scoped by WEBVIEW label, not window: a capability listing `windows` is granted to EVERY webview of a matching window, so a Tauri child webview added later would inherit this whole permission set. Every window TEDI opens is a WebviewWindow, whose webview label equals its window label, so this list is unchanged for them. Browser panes are raw wry webviews and are not Tauri webviews at all.",
   "webviews": [
     "main",
     "settings",

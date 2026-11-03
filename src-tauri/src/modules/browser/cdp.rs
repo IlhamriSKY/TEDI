@@ -41,64 +41,87 @@ pub async fn call(
     params: &str,
 ) -> Result<String, String> {
     use tauri::Manager;
-    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
-    use windows::core::{HSTRING, PCWSTR};
 
     let webview = app
         .get_webview(label)
         .ok_or_else(|| "no open browser pane with that id".to_string())?;
+    let (slot, rx) = reply();
+    let (owned_method, owned_params) = (method.to_string(), params.to_string());
+    webview
+        .with_webview(move |platform| unsafe {
+            match platform.controller().CoreWebView2() {
+                Ok(core) => send(&core, &owned_method, &owned_params, slot),
+                Err(e) => answer(&slot, Err(format!("no CoreWebView2: {e}"))),
+            }
+        })
+        .map_err(|e| format!("webview is not reachable: {e}"))?;
+    wait(rx, method).await
+}
+
+/// One answer's channel. ONE-SHOT, NOT `wait_for_async_operation`: that helper
+/// pumps the message loop while it waits, which is safe only on the thread that
+/// owns the loop, and the waiting here happens on a Tokio worker. [`send`] runs on
+/// the main thread and hands the answer back over this.
+///
+/// SHARED, because two places can answer: the completion handler, and a call
+/// WebView2 refuses outright, which never reaches that handler at all.
+#[cfg(target_os = "windows")]
+pub(super) fn reply() -> (
+    std::sync::Arc<Reply>,
+    tokio::sync::oneshot::Receiver<Result<String, String>>,
+) {
+    let (tx, rx) = tokio::sync::oneshot::channel();
+    (std::sync::Arc::new(std::sync::Mutex::new(Some(tx))), rx)
+}
+
+/// Issue the call. Must run on the thread that owns `core`.
+#[cfg(target_os = "windows")]
+pub(super) fn send(
+    core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    method: &str,
+    params: &str,
+    slot: std::sync::Arc<Reply>,
+) {
+    use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use windows::core::{HSTRING, PCWSTR};
 
     // An EMPTY params string is not valid JSON and WebView2 rejects the whole
     // call for it, so the empty case has to become `{}` rather than being
     // passed through. Callers legitimately omit params for `Page.reload` and
     // friends.
     let params = if params.trim().is_empty() {
-        "{}".to_string()
+        "{}"
     } else {
-        params.to_string()
+        params
     };
-    let owned_method = method.to_string();
-
-    // ONE-SHOT, NOT `wait_for_async_operation`. That helper pumps the message
-    // loop while it waits, which is safe only on the thread that owns the loop;
-    // this runs on a Tokio worker, where pumping another thread's queue is
-    // undefined. The closure below runs on the main thread (that is what
-    // `with_webview` guarantees) and hands the answer back over a channel.
-    let (tx, rx) = tokio::sync::oneshot::channel::<Result<String, String>>();
-    // SHARED, because two places can answer: the completion handler, and a call
-    // WebView2 refuses outright, which never reaches that handler at all.
-    let slot: std::sync::Arc<Reply> = std::sync::Arc::new(std::sync::Mutex::new(Some(tx)));
     let for_handler = slot.clone();
+    let done = CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr, json| {
+        answer(
+            &for_handler,
+            match hr {
+                Ok(()) => Ok(json),
+                Err(e) => Err(format!("CDP call failed: {e}")),
+            },
+        );
+        Ok(())
+    }));
+    let m = HSTRING::from(method);
+    let p = HSTRING::from(params);
+    // Reported from HERE, and it used to be dropped: the caller then read "the
+    // browser pane went away" for a method WebView2 simply refused.
+    if let Err(e) =
+        unsafe { core.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &done) }
+    {
+        answer(&slot, Err(format!("CDP call failed: {e}")));
+    }
+}
 
-    webview
-        .with_webview(move |platform| unsafe {
-            let core = match platform.controller().CoreWebView2() {
-                Ok(core) => core,
-                Err(e) => return answer(&slot, Err(format!("no CoreWebView2: {e}"))),
-            };
-            let done =
-                CallDevToolsProtocolMethodCompletedHandler::create(Box::new(move |hr, json| {
-                    answer(
-                        &for_handler,
-                        match hr {
-                            Ok(()) => Ok(json),
-                            Err(e) => Err(format!("CDP call failed: {e}")),
-                        },
-                    );
-                    Ok(())
-                }));
-            let m = HSTRING::from(owned_method.as_str());
-            let p = HSTRING::from(params.as_str());
-            // Reported from HERE, and it used to be dropped: the caller then read
-            // "the browser pane went away" for a method WebView2 simply refused.
-            if let Err(e) =
-                core.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &done)
-            {
-                answer(&slot, Err(format!("CDP call failed: {e}")));
-            }
-        })
-        .map_err(|e| format!("webview is not reachable: {e}"))?;
-
+/// Wait for the answer, within [`CALL_TIMEOUT`].
+#[cfg(target_os = "windows")]
+pub(super) async fn wait(
+    rx: tokio::sync::oneshot::Receiver<Result<String, String>>,
+    method: &str,
+) -> Result<String, String> {
     match tokio::time::timeout(CALL_TIMEOUT, rx).await {
         Ok(Ok(result)) => result,
         Ok(Err(_)) => Err("the browser pane went away before it answered".to_string()),
@@ -117,12 +140,13 @@ pub async fn call(
 const CALL_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(45);
 
 #[cfg(target_os = "windows")]
-type Reply = std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Result<String, String>>>>;
+pub(super) type Reply =
+    std::sync::Mutex<Option<tokio::sync::oneshot::Sender<Result<String, String>>>>;
 
 /// Hand back the one answer. Whichever of the two answering places gets here
 /// first wins; the other finds the sender already taken.
 #[cfg(target_os = "windows")]
-fn answer(slot: &Reply, value: Result<String, String>) {
+pub(super) fn answer(slot: &Reply, value: Result<String, String>) {
     if let Ok(mut guard) = slot.lock() {
         if let Some(tx) = guard.take() {
             let _ = tx.send(value);

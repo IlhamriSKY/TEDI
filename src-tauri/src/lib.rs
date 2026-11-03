@@ -798,9 +798,7 @@ pub fn run() {
         .manage(secrets::SecretsState::default())
         .manage(ssh::SshState::default())
         .manage(extensions::ExtensionsState::default())
-        // Wrapped so that no app command answers a page in a browser pane,
-        // whatever origin that page manages to reach; see `browser/mod.rs`.
-        .invoke_handler(crate::modules::browser::refuse_browser_panes(tauri::generate_handler![
+        .invoke_handler(tauri::generate_handler![
             pty::pty_open,
             pty::pty_attach,
             pty::pty_write,
@@ -885,6 +883,28 @@ pub fn run() {
             browser::browser_list,
             browser::browser_zoom,
             browser::browser_cdp,
+            browser::browser_watch,
+            browser::browser_find,
+            browser::browser_focus,
+            browser::browser_devtools,
+            browser::browser_blocker,
+            browser::browser_blocked_count,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_prepare,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_install,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_list,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_set_enabled,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_remove,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_popup,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_click,
+            #[cfg(target_os = "windows")]
+            browser::extensions::browser_ext_popup_close,
             net::http_ping,
             net::port_is_open,
             net::http_stream,
@@ -932,7 +952,7 @@ pub fn run() {
             extensions::commands::ext_enable,
             extensions::commands::ext_disable,
             extensions::commands::ext_uninstall,
-        ]))
+        ])
         .on_window_event(|window, event| {
             // Mirror main-window minimize/restore onto the settings child.
             // Owner-window semantics handle this on Windows; the explicit

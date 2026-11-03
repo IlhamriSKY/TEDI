@@ -4,6 +4,44 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.77] - 03-11-2026
+
+The Browser extension gets these from its 0.4.0, which needs this version.
+
+### Changed
+
+- **A browser pane is a raw `wry` webview instead of a Tauri one**, so the page never
+  receives Tauri's IPC bootstrap, invoke key or custom protocols. There is nothing to
+  cut away any more, and `refuse_browser_panes` and the filter removal are gone with
+  it. The profile directory is unchanged, so logins and cookies stay. See
+  [browser/native.rs](src-tauri/src/modules/browser/native.rs).
+
+### Added
+
+- **Browser panes report over WebView2 events** (`browser_watch`): address, title,
+  loading, history, favicon, chords pressed in the page, and what only the DevTools
+  channel hears. Also `browser_find`, `browser_focus` and `browser_devtools`.
+- **A blocker for browser panes** (`browser_blocker`, `browser_blocked_count`), over
+  `adblock` with EasyList and EasyPrivacy: network rules from `WebResourceRequested`
+  with no proxy, cosmetic rules as a constructed stylesheet, a per-site pause and
+  per-site hides. Lists are fetched on first use. It does not run scriptlets, so ads
+  served from a site's own domain, such as YouTube's, still play. See
+  [browser/blocker.rs](src-tauri/src/modules/browser/blocker.rs).
+- **Chrome extensions in browser panes, from the Web Store** (`browser_ext_*`): download
+  and unpack for review, install with no restart, list, enable, remove, popups and
+  toolbar clicks. Browser extensions are now always on for the panes' environment. They
+  update when you ask, not by themselves. See
+  [browser/extensions.rs](src-tauri/src/modules/browser/extensions.rs).
+- **Hidden browser panes use less memory**: a low memory target at once, and
+  `TrySuspend` after five minutes hidden.
+
+### Fixed
+
+- **A `target="_blank"` link in a browser pane did nothing.** With no handler of its
+  own, wry answers `SetHandled(true)` and the request vanishes.
+- **A browser pane survives its renderer or browser process dying**, and a page can no
+  longer launch an external application without a click.
+
 ## [0.4.76] - 31-10-2026
 
 ### Changed
