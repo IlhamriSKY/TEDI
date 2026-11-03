@@ -697,6 +697,7 @@ fn open_session(
         rows,
         alive: true,
         created_at_ms: now_ms(),
+        pid: None,
     };
     let shell = Arc::new(DaemonSession {
         id,
@@ -733,6 +734,7 @@ fn open_session(
             return Err(e);
         }
     };
+    shell.info.lock().unwrap().pid = pty.pid();
     if shell.pty.set(pty).is_err() {
         state.sessions.write().unwrap().remove(&id);
         return Err("pty slot already filled (impossible)".to_string());
@@ -918,6 +920,7 @@ mod tests {
                 rows: 24,
                 alive: true,
                 created_at_ms: 0,
+                pid: None,
             }),
             scrollback: Mutex::new(VecDeque::new()),
             subscribers: Mutex::new(Vec::new()),

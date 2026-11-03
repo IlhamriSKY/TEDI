@@ -30,13 +30,12 @@ import { statusLabel, statusLabelClass } from "@/modules/ssh/status";
 import { aiCliLabel } from "@/modules/terminal/lib/aiCliStatus";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
-import { Fragment, useEffect, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { type Workspace } from "./store";
 import {
   AlarmClock,
   AlarmClockOff,
   ChevronRight,
-  Folder,
   FolderGit2,
   GitBranch,
   GitFork,
@@ -62,6 +61,34 @@ export type EntryRow = {
    *  are display-only, minted while rehydrating the snapshot). */
   live: boolean;
 };
+
+// One strong colour per hue, the same in light and dark themes. Literal classes,
+// so Tailwind sees them.
+const AVATAR_COLORS = [
+  "bg-[#22a99a]",
+  "bg-[#e3814f]",
+  "bg-[#5b8def]",
+  "bg-[#8b7cf6]",
+  "bg-[#3fae6a]",
+  "bg-[#d9649a]",
+];
+
+/** A workspace's mark: its initial on a colour that stays with its id, rename or not. */
+export function WorkspaceAvatar({ workspace: w }: { workspace: Workspace }) {
+  let hash = 0;
+  for (const ch of w.id) hash = (hash * 31 + ch.charCodeAt(0)) >>> 0;
+  return (
+    <span
+      aria-hidden
+      className={cn(
+        "flex size-[18px] shrink-0 items-center justify-center text-[10.5px] font-bold text-white",
+        AVATAR_COLORS[hash % AVATAR_COLORS.length],
+      )}
+    >
+      {[...w.name][0]?.toUpperCase() ?? "?"}
+    </span>
+  );
+}
 
 /**
  * A row's own LOCAL working directory, or undefined.
@@ -217,6 +244,25 @@ export function SortableWorkspaceRow({
     transition,
   };
   const hasRows = rows.length > 0;
+  /**
+   * The whole row is the accordion, since the chevron alone is a small target. A
+   * click also goes to the workspace, so one that is not active switches and opens
+   * rather than shutting what the click came to see.
+   */
+  const clickToggled = useRef(false);
+  const onRowClick = (e: React.MouseEvent) => {
+    if (isEditing || e.detail > 1) return;
+    clickToggled.current = hasRows && (isActive || !isExpanded);
+    if (!isActive) onSwitch(w.id);
+    if (clickToggled.current) onToggleExpanded(w.id);
+  };
+  // The first click of the pair already toggled, and a rename is not asking for that.
+  const onRowDoubleClick = () => {
+    if (isEditing) return;
+    if (clickToggled.current) onToggleExpanded(w.id);
+    clickToggled.current = false;
+    onStartEdit(w.id, w.name);
+  };
   const [confirmingClose, setConfirmingClose] = useState(false);
   /** Project groups the user has folded shut, by main-worktree path. Session
    *  only, and OPEN by default: a workspace is expanded to see what is in it. */
@@ -319,8 +365,10 @@ export function SortableWorkspaceRow({
       <ContextMenu>
         <ContextMenuTrigger asChild>
           <div
+            onClick={onRowClick}
+            onDoubleClick={onRowDoubleClick}
             className={cn(
-              "group relative flex h-7 items-center gap-1 rounded px-1.5 text-xs",
+              "group relative flex h-7 cursor-pointer items-center gap-1 rounded px-1.5 text-xs",
               isDragging && "opacity-30",
               isActive
                 ? "bg-accent text-accent-foreground"
@@ -331,7 +379,11 @@ export function SortableWorkspaceRow({
               type="button"
               // Stop the drag listeners; a click only toggles the tab list.
               onPointerDown={(e) => e.stopPropagation()}
-              onClick={() => hasRows && onToggleExpanded(w.id)}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasRows) onToggleExpanded(w.id);
+              }}
+              onDoubleClick={(e) => e.stopPropagation()}
               aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
               aria-expanded={isExpanded}
               disabled={!hasRows}
@@ -348,7 +400,7 @@ export function SortableWorkspaceRow({
                 className={cn("transition-transform", isExpanded && "rotate-90")}
               />
             </button>
-            <Folder size={13} strokeWidth={1.75} className="shrink-0" />
+            <WorkspaceAvatar workspace={w} />
             {/* Always visible, unlike the hover actions: a pin nobody can see
             without hovering does not explain why this workspace sits at the
             top of the list. */}
@@ -374,14 +426,8 @@ export function SortableWorkspaceRow({
                 className="border-border/60 bg-background focus:border-primary/40 min-w-0 flex-1 rounded border px-1 text-xs outline-none"
               />
             ) : (
-              <button
-                type="button"
-                onClick={() => {
-                  if (!isActive) onSwitch(w.id);
-                }}
-                onDoubleClick={() => onStartEdit(w.id, w.name)}
-                className="min-w-0 flex-1 truncate text-left"
-              >
+              // The row handles the click. This button is its keyboard way in.
+              <button type="button" className="min-w-0 flex-1 truncate text-left">
                 {w.name}
               </button>
             )}
@@ -402,7 +448,11 @@ export function SortableWorkspaceRow({
                 {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
               </TooltipContent>
             </Tooltip>
-            <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:opacity-100">
+            <span
+              onClick={(e) => e.stopPropagation()}
+              onDoubleClick={(e) => e.stopPropagation()}
+              className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:opacity-100"
+            >
               <IconTooltip label={w.pinned ? "Unpin workspace" : "Pin workspace"}>
                 <Button
                   onPointerDown={(e) => e.stopPropagation()}

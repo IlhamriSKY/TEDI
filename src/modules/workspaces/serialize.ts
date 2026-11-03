@@ -34,6 +34,17 @@ export function countSavedTabEntries(tabs: SavedTab[]): number {
   return n;
 }
 
+/** Every daemon session a saved workspace's terminals hold. */
+export function savedPtyIds(tabs: SavedTab[]): string[] {
+  const walk = (n: SavedPaneNode): string[] =>
+    n.kind === "split"
+      ? n.children.flatMap(walk)
+      : n.leafKind === "terminal" && n.ptyId
+        ? [n.ptyId]
+        : [];
+  return tabs.flatMap((t) => (t.kind === "pane" ? walk(t.paneTree) : []));
+}
+
 // live -> saved
 
 /** Every saved leaf kind may carry a canvas rectangle, so it is appended once

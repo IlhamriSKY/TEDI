@@ -1,3 +1,4 @@
+export { savedPtyIds } from "./serialize";
 export { WorkspacesPanel } from "./WorkspacesPanel";
 export { useWorkspacesStore } from "./store";
 export {

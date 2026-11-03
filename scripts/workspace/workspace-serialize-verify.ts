@@ -30,6 +30,7 @@ import {
   savedActiveTabIndex,
   savedToTab,
   restoreTabs,
+  savedPtyIds,
 } from "../../src/modules/workspaces/serialize";
 import {
   foldSshBinding,
@@ -590,17 +591,54 @@ console.log("\na saved browser leaf is dropped on restore, not restored as somet
     activeLeafIndex: 0,
     paneTree: savedBrowser,
   } as unknown as Parameters<typeof savedToTab>[0];
-  check("a browser-only tab restores as nothing", savedToTab(onlyBrowser, () => id()), null);
+  check(
+    "a browser-only tab restores as nothing",
+    savedToTab(onlyBrowser, () => id()),
+    null,
+  );
 
   // 3. The legacy standalone "preview" tab was a browser and nothing else.
   const legacy = { kind: "preview", url: "https://x.dev" } as unknown as Parameters<
     typeof savedToTab
   >[0];
-  check("the legacy preview tab goes with it", savedToTab(legacy, () => id()), null);
+  check(
+    "the legacy preview tab goes with it",
+    savedToTab(legacy, () => id()),
+    null,
+  );
 
   // 4. `restoreTabs` is the shape every caller uses: nulls never reach them.
   const kept = restoreTabs([legacy, onlyBrowser, mixed], () => id());
   check("restoreTabs drops them for the caller", kept.length, 1);
+}
+
+{
+  console.log("\nclosing a workspace must find every terminal it still holds in the daemon");
+  const term = (ptyId?: string) =>
+    ({
+      kind: "leaf",
+      leafKind: "terminal",
+      ...(ptyId ? { ptyId } : {}),
+    }) as unknown as SavedPaneNode;
+  const tabs = [
+    {
+      kind: "pane",
+      activeLeafIndex: 0,
+      paneTree: {
+        kind: "split",
+        dir: "row",
+        children: [term("a"), { kind: "split", dir: "col", children: [term("b"), term()] }],
+      },
+    },
+    { kind: "pane", activeLeafIndex: 0, paneTree: { kind: "leaf", leafKind: "editor" } },
+    { kind: "preview", url: "https://x.dev" },
+  ] as unknown as SavedTab[];
+  check(
+    "nested splits are walked, and a pane without one is skipped",
+    savedPtyIds(tabs).join(),
+    "a,b",
+  );
+  check("a workspace with no tabs holds nothing", savedPtyIds([]).length, 0);
 }
 
 // `throw` (not process.exit) for a non-zero exit, matching the other verify scripts.

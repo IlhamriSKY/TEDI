@@ -37,7 +37,15 @@ export const useAiCliStatuses = create<AiCliStatusesState>((set) => ({
       // a re-emit of the same state doesn't re-render every workspace row.
       const prev = s.statuses[leafId];
       if (prev && prev.tool === status.tool && prev.state === status.state) return s;
-      return { statuses: { ...s.statuses, [leafId]: status } };
+      // Looking at a finished agent turns done into idle. That is not the agent
+      // doing anything, so its time keeps counting from when it finished.
+      const seen = prev?.state === "done" && status.state === "idle";
+      return {
+        statuses: {
+          ...s.statuses,
+          [leafId]: seen ? { ...status, since: prev.since } : status,
+        },
+      };
     }),
   clearStatus: (leafId) =>
     set((s) => {

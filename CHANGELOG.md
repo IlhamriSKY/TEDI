@@ -4,6 +4,52 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.79] - 03-11-2026
+
+### Changed
+
+- **Workspaces and AI Sessions are one section now**: your workspaces, then Agents, then
+  History, under one search box that narrows all three. See
+  [WorkspacesPanel.tsx](src/modules/workspaces/WorkspacesPanel.tsx).
+- **Agents lists what is running now, in every workspace**, most urgent first: Needs you,
+  Done, Working, Idle. Idle starts folded, but the focused pane's row always stays on screen,
+  marked This pane. A button groups the list by workspace instead, and hovering a row can pin
+  it to the top. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **Clicking an agent goes to its pane**, across workspaces, and never starts anything.
+- **Each row says what it is doing**: the title, folder and branch, then its state and for
+  how long. Looking at a finished agent no longer resets its time.
+- **History is every saved session no pane is running**, under Pinned, Running elsewhere and
+  day headings. Hovering a row offers pin, rename and delete, and a filter narrows it to the
+  focused terminal's folder.
+- **A day heading can delete what it lists**, after a confirmation. Pinned and running
+  sessions are kept.
+- **One click on a workspace row switches to it and opens or closes it**, and a double click
+  renames it. The whole row is the target now, not just the small arrow.
+- **The status bar shows `3 agents · 1 needs you`**, so an agent asking for something is seen
+  with the sidebar shut.
+- **Workspaces carry a coloured initial** instead of a folder icon.
+
+### Fixed
+
+- **Closing a workspace you had not opened since launch left its terminals running in the
+  background**, with any agent inside them and nothing that would ever end them. It now
+  ends them. See [useWorkspaceSwitching.ts](src/app/hooks/useWorkspaceSwitching.ts).
+- **"Open in terminal" counted every old session of a folder a terminal had open**, which
+  reached 181 rows. Only sessions a pane is really running count now.
+- **A session could read as running when it was not**: a crashed Claude Code leaves its
+  registry file behind, and Windows then gives that process id to something else. One such
+  session also could not be deleted. See
+  [claude_sessions.rs](src-tauri/src/modules/claude_sessions.rs).
+- **Three Claude Code panes in one folder could show each other's sessions**, because the
+  match was a guess by folder. It is now traced from the process to its pane. Terminals
+  opened before this update keep the old guess until they are reopened, as the terminal
+  service outlives an update. Codex still matches by folder.
+- **A killed session stayed listed as running** until something else changed. The list now
+  notices within about 3 seconds.
+- **A session running in another terminal could be resumed a second time**, putting two
+  processes on one transcript. Its row now says where it is instead.
+
 ## [0.4.78] - 03-11-2026
 
 The Browser extension gets these from its 0.4.0, which needs this version or newer.

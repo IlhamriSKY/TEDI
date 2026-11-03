@@ -90,8 +90,8 @@ pub struct Session {
     #[cfg(windows)]
     _job: Option<super::job::PtyJob>,
     // Shell leader pid, kept so the Windows tree-kill can fall back to
-    // `taskkill /T` when the Job Object was never created (see `kill_tree`).
-    #[cfg(windows)]
+    // `taskkill /T` when the Job Object was never created (see `kill_tree`), and
+    // reported by `pid` so a process can be traced back to its pane.
     leader_pid: Option<u32>,
     pub killer: Mutex<Box<dyn ChildKiller + Send + Sync>>,
     pub writer: Mutex<Box<dyn Write + Send>>,
@@ -99,6 +99,10 @@ pub struct Session {
 }
 
 impl Session {
+    pub fn pid(&self) -> Option<u32> {
+        self.leader_pid
+    }
+
     /// Kill the whole child process tree, best-effort and synchronous. On Unix
     /// `killer.kill()` is the whole story. On Windows `killer.kill()` only
     /// `TerminateProcess`es the shell leader (portable-pty's ConPTY killer),
@@ -217,7 +221,6 @@ pub fn spawn_with_sink(
     let mut reader = pair.master.try_clone_reader().map_err(|e| e.to_string())?;
     let writer = pair.master.take_writer().map_err(|e| e.to_string())?;
 
-    #[cfg(windows)]
     let leader_pid = child.process_id();
     #[cfg(windows)]
     let job = match leader_pid {
@@ -234,7 +237,6 @@ pub fn spawn_with_sink(
     let session = Arc::new(Session {
         #[cfg(windows)]
         _job: job,
-        #[cfg(windows)]
         leader_pid,
         killer: Mutex::new(killer),
         writer: Mutex::new(writer),

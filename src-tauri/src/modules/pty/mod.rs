@@ -507,6 +507,28 @@ pub async fn pty_list_sessions(
         .map_err(|e| format!("pty_list_sessions join error: {e}"))?
 }
 
+/// Kill one daemon session by its UUID, for a terminal no pane in this window has
+/// attached: a workspace closed without being opened since launch still has its
+/// shells, and whatever runs in them, alive in the daemon. Closing an id the
+/// daemon no longer knows is a no-op. No-op in in-process mode, where nothing
+/// outlives the window.
+#[tauri::command]
+pub async fn pty_close_session(
+    state: tauri::State<'_, PtyState>,
+    session_id: String,
+) -> Result<(), String> {
+    let PtyBackend::Daemon { client, .. } = &state.backend else {
+        return Ok(());
+    };
+    let client = client.current();
+    let uuid: Uuid = session_id
+        .parse()
+        .map_err(|e| format!("invalid session_id: {e}"))?;
+    tauri::async_runtime::spawn_blocking(move || client.close(uuid))
+        .await
+        .map_err(|e| format!("pty_close_session join error: {e}"))?
+}
+
 /// Kill every daemon-owned session. Backs the quit prompt's "Close all
 /// terminals" choice. No-op in in-process mode (caller can just close tabs).
 /// Async + `spawn_blocking` for the same reason as `pty_list_sessions`: the

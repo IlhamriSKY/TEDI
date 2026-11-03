@@ -9,7 +9,6 @@ import {
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
 import { Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
@@ -78,23 +77,22 @@ type Props = {
 // The reorderable built-in sidebar sections, in canonical order. Extension
 // sections (keyed `xsec:<extId>:<sectionId>`) are appended dynamically — they
 // exist only while their extension is active.
-const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces", "sessions"] as const;
+const BUILTIN_KEYS = ["files", "ssh", "scm", "workspaces"] as const;
 type BuiltinKey = (typeof BUILTIN_KEYS)[number];
 const BUILTIN_TITLES: Record<BuiltinKey, string> = {
   files: "Files",
   ssh: "Remote",
   scm: "Source Control",
   workspaces: "Workspaces",
-  sessions: "AI Sessions",
 };
-// Initial split (the panel group normalizes for whichever sections are visible);
-// Files gets the most room, like the old layout. Users resize from here.
+// Initial split (the panel group normalizes for whichever sections are visible).
+// Workspaces holds three lists now (workspaces, agents, history), so it gets the
+// most room. Users resize from here.
 const BUILTIN_DEFAULT_SIZE: Record<BuiltinKey, string> = {
-  files: "45%",
+  files: "30%",
   ssh: "25%",
   scm: "18%",
-  workspaces: "12%",
-  sessions: "15%",
+  workspaces: "60%",
 };
 const EXT_DEFAULT_SIZE = "20%";
 
@@ -262,17 +260,8 @@ export function AppSidebar({
             activeLeafId={activeLeafId}
             sshStatuses={sshStatuses}
             dragHandle={controls}
-            onMoveToRight={() => dockRight("workspaces")}
-          />
-        );
-      case "sessions":
-        return (
-          <AgentSessionsPanel
-            dragHandle={controls}
             collapsed={collapsed}
-            liveTabs={liveTabs}
-            activeLeafId={activeLeafId}
-            onMoveToRight={() => dockRight("sessions")}
+            onMoveToRight={() => dockRight("workspaces")}
           />
         );
     }

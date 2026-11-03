@@ -9,12 +9,22 @@ type Props = {
   /** Escape. The panel's header toggle closes it the same way. */
   onClose: () => void;
   placeholder: string;
+  /** Off for a box that is always there: it must not take focus at app start. */
+  autoFocus?: boolean;
 };
 
 /** The box a panel's header search button opens under the header, as in Files. */
-export function PanelSearchInput({ value, onChange, onClose, placeholder }: Props) {
+export function PanelSearchInput({
+  value,
+  onChange,
+  onClose,
+  placeholder,
+  autoFocus = true,
+}: Props) {
   const inputRef = useRef<HTMLInputElement>(null);
-  useEffect(() => inputRef.current?.focus(), []);
+  useEffect(() => {
+    if (autoFocus) inputRef.current?.focus();
+  }, [autoFocus]);
   return (
     <motion.div
       className="relative shrink-0 px-2 py-1.5"

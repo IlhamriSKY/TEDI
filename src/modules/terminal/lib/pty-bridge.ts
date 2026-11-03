@@ -150,6 +150,8 @@ export type DaemonSessionInfo = {
   rows: number;
   alive: boolean;
   created_at_ms: number;
+  /** The shell's pid. Null from a daemon older than this field. */
+  pid?: number | null;
 };
 
 /** Enumerate the sessions the PTY daemon currently owns. Returns `[]` under the
@@ -157,6 +159,11 @@ export type DaemonSessionInfo = {
  *  against owned leaves simply find nothing to do. */
 export async function listDaemonSessions(): Promise<DaemonSessionInfo[]> {
   return invoke<DaemonSessionInfo[]>("pty_list_sessions");
+}
+
+/** Kill one daemon session no pane has attached, with everything running in it. */
+export async function closeDaemonSession(id: string): Promise<void> {
+  await invoke("pty_close_session", { sessionId: id });
 }
 
 /** Kill every session the daemon owns, so nothing survives the GUI exiting.

@@ -3,7 +3,8 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION, HEADER_TOGGLE_ACTIVE, HEADER_TOGGLE_IDLE } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
 import { type Tab } from "@/modules/tabs";
 import { buildEntries, entryMatches } from "@/modules/tabs/lib/entries";
 import { localOps } from "@/modules/scm/api";
@@ -29,9 +30,9 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { memo, useCallback, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { countSavedTabEntries, restoreTabs } from "./serialize";
-import { SortableWorkspaceRow, type EntryRow } from "./WorkspaceRow";
+import { SortableWorkspaceRow, WorkspaceAvatar, type EntryRow } from "./WorkspaceRow";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
-import { Folder, LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, Search, X } from "lucide-react";
+import { LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, X } from "lucide-react";
 
 type Props = {
   /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
@@ -85,6 +86,8 @@ type Props = {
   sshStatuses?: Map<number, SshStatus>;
   /** Drag handle for sidebar-section reordering, injected by the sidebar. */
   dragHandle?: ReactNode;
+  /** Collapsed to its header: its Agents and History lists read nothing. */
+  collapsed?: boolean;
   /** Left-sidebar instance: move Workspaces to the shared right panel. */
   onMoveToRight?: () => void;
   /** Right-panel instance: dock Workspaces back into the left sidebar. */
@@ -93,6 +96,8 @@ type Props = {
    *  which closes a workspace). */
   onClosePanel?: () => void;
 };
+
+const EMPTY_TABS: Tab[] = [];
 
 /** Rows for a workspace whose tabs are live (active, or visited this session). */
 function liveRows(
@@ -163,6 +168,7 @@ function WorkspacesPanelInner({
   activeLeafId,
   sshStatuses,
   dragHandle,
+  collapsed,
   onMoveToRight,
   onMoveToLeft,
   onClosePanel,
@@ -183,14 +189,9 @@ function WorkspacesPanelInner({
   const [dragId, setDragId] = useState<string | null>(null);
   // Which workspace rows are expanded to reveal their tabs (session-only).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  const [searchOpen, setSearchOpen] = useState(false);
+  // One box for all three lists: workspaces and their tabs, agents, history.
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
-  // Clears too: a closed box must not keep narrowing the list out of sight.
-  const closeSearch = () => {
-    setSearchOpen(false);
-    setSearch("");
-  };
 
   /**
    * Worktrees per PROJECT FOLDER, loaded when a workspace row is expanded rather
@@ -309,18 +310,6 @@ function WorkspacesPanelInner({
         <LayoutDashboard size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
         <span className="tedi-header-divider" aria-hidden />
-        <IconTooltip label="Search workspaces" side="bottom">
-          <Button
-            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
-            aria-label="Search workspaces"
-            aria-pressed={searchOpen}
-            variant="ghost"
-            size="icon"
-            className={cn("size-6", searchOpen ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE)}
-          >
-            <Search size={13} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
         <IconTooltip label="New workspace" side="bottom">
           <Button
             onClick={onCreate}
@@ -372,120 +361,126 @@ function WorkspacesPanelInner({
           </IconTooltip>
         ) : null}
       </div>
-      {searchOpen ? (
-        <PanelSearchInput
-          value={search}
-          onChange={setSearch}
-          onClose={closeSearch}
-          placeholder="Search workspaces and tabs"
-        />
-      ) : null}
-      <ScrollArea className="min-h-0 flex-1">
-        <DndContext
-          sensors={sensors}
-          collisionDetection={closestCenter}
-          onDragStart={(ev) => setDragId(String(ev.active.id))}
-          onDragEnd={handleDragEnd}
-          onDragCancel={() => setDragId(null)}
-        >
-          <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
-            {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
+      <PanelSearchInput
+        value={search}
+        onChange={setSearch}
+        onClose={() => setSearch("")}
+        placeholder="Search workspaces, agents, history"
+        autoFocus={false}
+      />
+      {/* Capped by a wrapper, not on the ScrollArea: its viewport inherits a
+          max-height, and a percentage would resolve a second time against it. */}
+      <div className="flex max-h-[40%] min-h-0 flex-col">
+        <ScrollArea className="min-h-0 flex-1">
+          <DndContext
+            sensors={sensors}
+            collisionDetection={closestCenter}
+            onDragStart={(ev) => setDragId(String(ev.active.id))}
+            onDragEnd={handleDragEnd}
+            onDragCancel={() => setDragId(null)}
+          >
+            <SortableContext items={sortableIds} strategy={verticalListSortingStrategy}>
+              {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
                 row's rename/close buttons and tab-count pill clear the scrollbar. */}
-            <ul className="p-1 pr-2.5">
-              {query &&
-              !workspaces.some(
-                (w) =>
-                  w.name.toLowerCase().includes(query) ||
-                  rowsFor(w).some((r) => entryMatches(r.entry, r.title, query)),
-              ) ? (
-                <li className="text-muted-foreground px-2 py-3 text-xs">No matches.</li>
-              ) : null}
-              {workspaces.map((w) => {
-                // Built once per row: the tab list and the worktree lookups read
-                // the same entries.
-                const rows = rowsFor(w);
-                // A name hit keeps the row as it was. A hit on a tab alone opens
-                // the row and lists just the tabs that hit.
-                const byTab = !!query && !w.name.toLowerCase().includes(query);
-                if (byTab && !rows.some((r) => entryMatches(r.entry, r.title, query))) return null;
-                return (
-                  <SortableWorkspaceRow
-                    key={w.id}
-                    workspace={w}
-                    isActive={w.id === activeId}
-                    isEditing={editingId === w.id}
-                    isExpanded={byTab || expanded.has(w.id)}
-                    draft={draft}
-                    tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
-                    rows={rows}
-                    rowQuery={byTab ? query : ""}
-                    canClose={workspaces.length > 1}
-                    // Editing a name needs an interactive input, so suspend drag
-                    // for the row - whether it is the workspace name or a tab's.
-                    // A filtered list has no true neighbours to reorder against.
-                    sortable={editingId !== w.id && renamingLeafId === null && !query}
-                    onSwitch={onSwitch}
-                    onClose={onClose}
-                    onStartEdit={startEdit}
-                    onSetPinned={setPinned}
-                    onDraftChange={setDraft}
-                    onCommitEdit={commitEdit}
-                    onCancelEdit={cancelEdit}
-                    onToggleExpanded={toggleExpanded}
-                    onFocusLeaf={onFocusLeaf}
-                    onRenameLeaf={onRenameLeaf}
-                    onSetTabSnoozed={onSetTabSnoozed}
-                    onCloseEntry={onCloseEntry}
-                    renamingLeafId={renamingLeafId}
-                    onSetRenamingLeaf={setRenamingLeafId}
-                    activeLeafId={activeLeafId}
-                    worktrees={worktrees}
-                    onLoadWorktrees={loadWorktrees}
-                    onNewWorktree={(cwd) => {
-                      // Creating one opens a tab, and a tab lands in the ACTIVE
-                      // workspace - so switch first, which the user has time for
-                      // while the dialog is up.
-                      if (w.id !== activeId) onSwitch(w.id);
-                      startNewWorktree(w.id, cwd);
-                    }}
-                    onOpenWorktree={(wt, list) => {
-                      // Focusing addresses LIVE tabs, which only the active
-                      // workspace has; an inactive one switches first, exactly
-                      // as its listed tab rows already do.
-                      if (w.id !== activeId) {
-                        onSwitch(w.id);
-                        return;
-                      }
-                      const open = rows.find(
-                        (r) =>
-                          r.entry.kind === "pane-leaf" &&
-                          r.entry.cwd !== undefined &&
-                          toForwardSlash(r.entry.cwd) === wt.path,
-                      );
-                      if (open?.entry.kind === "pane-leaf" && onFocusLeaf) {
-                        onFocusLeaf(open.entry.tabId, open.entry.leafId);
-                        return;
-                      }
-                      openWorktree(wt, list);
-                    }}
-                  />
-                );
-              })}
-            </ul>
-          </SortableContext>
-          <DragOverlay dropAnimation={null}>
-            {draggedWorkspace && (
-              <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded px-1.5 text-xs shadow-lg ring-1 backdrop-blur-sm">
-                <Folder size={13} strokeWidth={1.75} className="shrink-0" />
-                {draggedWorkspace.pinned && (
-                  <Pin aria-hidden size={10} strokeWidth={2.25} className="shrink-0 opacity-70" />
-                )}
-                <span className="truncate">{draggedWorkspace.name}</span>
-              </div>
-            )}
-          </DragOverlay>
-        </DndContext>
-      </ScrollArea>
+              <ul className="p-1 pr-2.5">
+                {workspaces.map((w) => {
+                  // Built once per row: the tab list and the worktree lookups read
+                  // the same entries.
+                  const rows = rowsFor(w);
+                  // A name hit keeps the row as it was. A hit on a tab alone opens
+                  // the row and lists just the tabs that hit.
+                  const byTab = !!query && !w.name.toLowerCase().includes(query);
+                  if (byTab && !rows.some((r) => entryMatches(r.entry, r.title, query)))
+                    return null;
+                  return (
+                    <SortableWorkspaceRow
+                      key={w.id}
+                      workspace={w}
+                      isActive={w.id === activeId}
+                      isEditing={editingId === w.id}
+                      isExpanded={byTab || expanded.has(w.id)}
+                      draft={draft}
+                      tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
+                      rows={rows}
+                      rowQuery={byTab ? query : ""}
+                      canClose={workspaces.length > 1}
+                      // Editing a name needs an interactive input, so suspend drag
+                      // for the row - whether it is the workspace name or a tab's.
+                      // A filtered list has no true neighbours to reorder against.
+                      sortable={editingId !== w.id && renamingLeafId === null && !query}
+                      onSwitch={onSwitch}
+                      onClose={onClose}
+                      onStartEdit={startEdit}
+                      onSetPinned={setPinned}
+                      onDraftChange={setDraft}
+                      onCommitEdit={commitEdit}
+                      onCancelEdit={cancelEdit}
+                      onToggleExpanded={toggleExpanded}
+                      onFocusLeaf={onFocusLeaf}
+                      onRenameLeaf={onRenameLeaf}
+                      onSetTabSnoozed={onSetTabSnoozed}
+                      onCloseEntry={onCloseEntry}
+                      renamingLeafId={renamingLeafId}
+                      onSetRenamingLeaf={setRenamingLeafId}
+                      activeLeafId={activeLeafId}
+                      worktrees={worktrees}
+                      onLoadWorktrees={loadWorktrees}
+                      onNewWorktree={(cwd) => {
+                        // Creating one opens a tab, and a tab lands in the ACTIVE
+                        // workspace - so switch first, which the user has time for
+                        // while the dialog is up.
+                        if (w.id !== activeId) onSwitch(w.id);
+                        startNewWorktree(w.id, cwd);
+                      }}
+                      onOpenWorktree={(wt, list) => {
+                        // Focusing addresses LIVE tabs, which only the active
+                        // workspace has; an inactive one switches first, exactly
+                        // as its listed tab rows already do.
+                        if (w.id !== activeId) {
+                          onSwitch(w.id);
+                          return;
+                        }
+                        const open = rows.find(
+                          (r) =>
+                            r.entry.kind === "pane-leaf" &&
+                            r.entry.cwd !== undefined &&
+                            toForwardSlash(r.entry.cwd) === wt.path,
+                        );
+                        if (open?.entry.kind === "pane-leaf" && onFocusLeaf) {
+                          onFocusLeaf(open.entry.tabId, open.entry.leafId);
+                          return;
+                        }
+                        openWorktree(wt, list);
+                      }}
+                    />
+                  );
+                })}
+              </ul>
+            </SortableContext>
+            <DragOverlay dropAnimation={null}>
+              {draggedWorkspace && (
+                <div className="bg-accent/95 text-accent-foreground ring-primary/50 flex h-7 cursor-grabbing items-center gap-1.5 rounded px-1.5 text-xs shadow-lg ring-1 backdrop-blur-sm">
+                  <WorkspaceAvatar workspace={draggedWorkspace} />
+                  {draggedWorkspace.pinned && (
+                    <Pin aria-hidden size={10} strokeWidth={2.25} className="shrink-0 opacity-70" />
+                  )}
+                  <span className="truncate">{draggedWorkspace.name}</span>
+                </div>
+              )}
+            </DragOverlay>
+          </DndContext>
+        </ScrollArea>
+      </div>
+
+      <AgentSessionsPanel
+        collapsed={collapsed}
+        filter={search}
+        liveTabs={liveTabs ?? EMPTY_TABS}
+        cachedTabsByWorkspace={cachedTabsByWorkspace}
+        activeLeafId={activeLeafId}
+        onSwitch={onSwitch}
+        onFocusLeaf={onFocusLeaf}
+      />
 
       {/* One dialog for the panel, not one per row: only ever a single create is
           pending, and mounting one per workspace would hydrate the CLI-agent

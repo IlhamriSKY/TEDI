@@ -255,10 +255,18 @@ fn read_meta(path: &Path, size: u64, project: &str) -> Meta {
     m
 }
 
-/// Session ids held by a running `claude`. Its registry file can outlive a
-/// crash, so the pid is checked against the process table too.
-fn live_ids(root: &Path) -> std::collections::HashSet<String> {
-    let mut by_pid: Vec<(u32, String)> = Vec::new();
+/// One `~/.claude/sessions/<pid>.json`.
+struct RegistryEntry {
+    pid: u32,
+    id: String,
+    started_at_ms: Option<u64>,
+    /// `busy`, `idle` or `waiting`. Absent until the session's first turn.
+    status: Option<String>,
+    status_updated_at: Option<u64>,
+}
+
+fn read_registry(root: &Path) -> Vec<RegistryEntry> {
+    let mut out = Vec::new();
     if let Ok(rd) = fs::read_dir(root.join("sessions")) {
         for e in rd.flatten() {
             let p = e.path();
@@ -272,16 +280,53 @@ fn live_ids(root: &Path) -> std::collections::HashSet<String> {
                 continue;
             };
             if let (Some(pid), Some(id)) = (v["pid"].as_u64(), v["sessionId"].as_str()) {
-                by_pid.push((pid as u32, id.to_string()));
+                out.push(RegistryEntry {
+                    pid: pid as u32,
+                    id: id.to_string(),
+                    started_at_ms: v["startedAt"].as_u64(),
+                    status: v["status"].as_str().map(str::to_string),
+                    status_updated_at: v["statusUpdatedAt"].as_u64(),
+                });
             }
         }
     }
-    if by_pid.is_empty() {
+    out
+}
+
+/// A registry file outlives a crash, and the OS then hands its pid to something
+/// else, so a live pid proves nothing: a process that started after the entry
+/// was written is not the one that wrote it. Seen for real, a day-old session
+/// "running" under `WUDFHost.exe`. The slack covers clock rounding.
+fn still_holds(process_start_secs: u64, started_at_ms: Option<u64>) -> bool {
+    started_at_ms.is_none_or(|ms| process_start_secs <= ms / 1000 + 5)
+}
+
+/// What `claude` runs as: its own binary, or a script under one of these.
+fn runs_claude(process_name: &str) -> bool {
+    let name = process_name.to_lowercase();
+    ["claude", "node", "bun"].iter().any(|n| name.contains(n))
+}
+
+fn holds(sys: &sysinfo::System, e: &RegistryEntry) -> bool {
+    sys.process(sysinfo::Pid::from_u32(e.pid)).is_some_and(|p| {
+        // 0: the OS refused to open it (a system service, or an elevated terminal),
+        // so it has no start time to compare and only its name is left.
+        match p.start_time() {
+            0 => runs_claude(&p.name().to_string_lossy()),
+            start => still_holds(start, e.started_at_ms),
+        }
+    })
+}
+
+/// Session ids held by a running `claude`.
+fn live_ids(root: &Path) -> std::collections::HashSet<String> {
+    let entries = read_registry(root);
+    if entries.is_empty() {
         return Default::default();
     }
-    let pids: Vec<sysinfo::Pid> = by_pid
+    let pids: Vec<sysinfo::Pid> = entries
         .iter()
-        .map(|(p, _)| sysinfo::Pid::from_u32(*p))
+        .map(|e| sysinfo::Pid::from_u32(e.pid))
         .collect();
     let mut sys = sysinfo::System::new();
     sys.refresh_processes_specifics(
@@ -289,11 +334,73 @@ fn live_ids(root: &Path) -> std::collections::HashSet<String> {
         true,
         sysinfo::ProcessRefreshKind::nothing(),
     );
-    by_pid
+    entries
         .into_iter()
-        .filter(|(p, _)| sys.process(sysinfo::Pid::from_u32(*p)).is_some())
-        .map(|(_, id)| id)
+        .filter(|e| holds(&sys, e))
+        .map(|e| e.id)
         .collect()
+}
+
+/// A session a `claude` process holds right now, as Claude itself reports it.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningSession {
+    id: String,
+    status: Option<String>,
+    status_updated_at: Option<u64>,
+    /// The process's parents, nearest first: the one that is a pane's shell says
+    /// which pane runs this session.
+    ancestors: Vec<u32>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningSessions {
+    /// The registry folder, to watch for the next change.
+    dir: String,
+    running: Vec<RunningSession>,
+}
+
+/// npm and cmd shims can sit between the shell and `claude`; never deeper.
+const MAX_ANCESTORS: usize = 8;
+
+fn running_inner() -> Result<RunningSessions, String> {
+    let root = claude_dir()?;
+    let entries = read_registry(&root);
+    let mut sys = sysinfo::System::new();
+    if !entries.is_empty() {
+        // Every process, not just the registry's: the parents are what is asked for.
+        sys.refresh_processes_specifics(
+            sysinfo::ProcessesToUpdate::All,
+            true,
+            sysinfo::ProcessRefreshKind::nothing(),
+        );
+    }
+    let running = entries
+        .into_iter()
+        .filter(|e| holds(&sys, e))
+        .map(|e| {
+            let mut ancestors = Vec::new();
+            let mut at = sysinfo::Pid::from_u32(e.pid);
+            while ancestors.len() < MAX_ANCESTORS {
+                let Some(parent) = sys.process(at).and_then(|p| p.parent()) else {
+                    break;
+                };
+                ancestors.push(parent.as_u32());
+                at = parent;
+            }
+            RunningSession {
+                id: e.id,
+                status: e.status,
+                status_updated_at: e.status_updated_at,
+                ancestors,
+            }
+        })
+        .collect();
+    Ok(RunningSessions {
+        dir: root.join("sessions").to_string_lossy().into_owned(),
+        running,
+    })
 }
 
 pub(crate) fn first_line(s: &str, max: usize) -> String {
@@ -438,6 +545,13 @@ pub async fn claude_sessions_list() -> Result<Vec<AgentSession>, String> {
     tauri::async_runtime::spawn_blocking(list_inner)
         .await
         .map_err(|e| format!("claude_sessions_list join error: {e}"))?
+}
+
+#[tauri::command]
+pub async fn claude_sessions_running() -> Result<RunningSessions, String> {
+    tauri::async_runtime::spawn_blocking(running_inner)
+        .await
+        .map_err(|e| format!("claude_sessions_running join error: {e}"))?
 }
 
 #[tauri::command]
@@ -607,10 +721,29 @@ mod tests {
         fs::remove_dir(&dir).unwrap();
     }
 
+    #[test]
+    fn a_process_started_after_the_entry_is_not_the_one_that_wrote_it() {
+        // The real pair: 1h after the entry, its pid belonged to WUDFHost.exe.
+        assert!(!still_holds(1_793_580_865, Some(1_793_577_131_518)));
+        // Claude writes `startedAt` just after its process starts.
+        assert!(still_holds(1_793_674_426, Some(1_793_674_427_717)));
+        // An older Claude logged no time: the pid is all there is.
+        assert!(still_holds(1_793_674_426, None));
+        // A process the OS will not open is judged by name.
+        assert!(!runs_claude("WUDFHost.exe"));
+        assert!(runs_claude("claude.exe") && runs_claude("node.exe"));
+    }
+
     /// Real-data smoke run: `cargo test --lib claude_sessions -- --ignored --nocapture`.
     #[test]
     #[ignore]
     fn lists_this_machines_sessions() {
+        let t = std::time::Instant::now();
+        let running = running_inner().unwrap();
+        println!("running in {} ms:", t.elapsed().as_millis());
+        for r in &running.running {
+            println!("  {} {:?} {:?}", r.id, r.status, r.ancestors);
+        }
         let t = std::time::Instant::now();
         let cold = list_inner().unwrap();
         let cold_ms = t.elapsed().as_millis();

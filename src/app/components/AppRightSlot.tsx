@@ -13,7 +13,6 @@ import {
 } from "@/modules/extensions";
 import { FileExplorer } from "@/modules/explorer";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import type { PanelImperativeHandle } from "react-resizable-panels";
@@ -220,7 +219,7 @@ export function AppRightSlot({
         key: "workspaces",
         title: "Workspaces",
         defaultSize: PANEL_DEFAULT_SIZE,
-        render: (controls) => (
+        render: (controls, collapsed) => (
           <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
             <WorkspacesPanel
               onSwitch={workspacesSection.onSwitch}
@@ -236,30 +235,9 @@ export function AppRightSlot({
               activeLeafId={workspacesSection.activeLeafId}
               sshStatuses={workspacesSection.sshStatuses}
               dragHandle={controls}
+              collapsed={collapsed}
               onMoveToLeft={() => dockSectionLeft("workspaces")}
               onClosePanel={() =>
-                useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, panel.panelId)
-              }
-            />
-          </div>
-        ),
-      });
-      continue;
-    }
-    if (builtin === "sessions") {
-      sections.push({
-        key: "sessions",
-        title: "AI Sessions",
-        defaultSize: PANEL_DEFAULT_SIZE,
-        render: (controls, collapsed) => (
-          <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
-            <AgentSessionsPanel
-              dragHandle={controls}
-              collapsed={collapsed}
-              liveTabs={workspacesSection.liveTabs}
-              activeLeafId={workspacesSection.activeLeafId}
-              onMoveToLeft={() => dockSectionLeft("sessions")}
-              onClose={() =>
                 useRightPanelStore.getState().close(BUILTIN_SECTION_EXT, panel.panelId)
               }
             />

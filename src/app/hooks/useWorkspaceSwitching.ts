@@ -1,9 +1,11 @@
 import { leaves, disposeSession } from "@/modules/terminal";
+import { closeDaemonSession } from "@/modules/terminal/lib/pty-bridge";
 import { type Tab } from "@/modules/tabs";
 import {
   defaultTabForEmptyWorkspace,
   savedActiveTabIndex,
   restoreTabs,
+  savedPtyIds,
   serializeTabs,
   useWorkspacesStore,
 } from "@/modules/workspaces";
@@ -123,6 +125,15 @@ export function useWorkspaceSwitching({
             if (leaf.leafKind === "terminal") disposeSession(leaf.id);
           }
         }
+      }
+      // A workspace not opened since launch has no session above to dispose, yet
+      // its shells, and any agent in them, are still running in the daemon, where
+      // nothing would ever end them. Closing one a dispose already closed is a
+      // no-op. Before the store forgets them, so the adopt poll never sees them
+      // as nobody's and gives them a tab.
+      const snapshot = useWorkspacesStore.getState().workspaces.find((w) => w.id === workspaceId);
+      for (const id of savedPtyIds(snapshot?.tabs ?? [])) {
+        void closeDaemonSession(id).catch(() => {});
       }
       // Drop the cached live tabs so the closed workspace's leaves stop
       // being "live" and the next tabs-effect pass disposes their PTYs.

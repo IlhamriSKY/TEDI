@@ -12,6 +12,7 @@
  * idle agent) still appears here, and the zone drops it: an empty group leaves
  * no divider behind because `.sb-group:empty` says so.
  */
+import { AgentsPill } from "@/modules/agentSessions/AgentsPill";
 import { AgentStatusPill } from "@/modules/ai/components/AgentStatusPill";
 import { AiOpenButton } from "@/modules/ai/components/AiStatusBarControls";
 import {
@@ -69,6 +70,7 @@ export function useStatusBarEntries({
     // zoom pill is the only way back to 100% that is not a keyboard shortcut -
     // both belong with what a folded bar keeps.
     entry("updater", 0, <UpdaterPill />),
+    entry("agents", 0, <AgentsPill />),
     entry("zoom", 0, <ZoomControl />),
     // A meter is a reading you glance at deliberately; a bare icon is a light
     // that only matters when it changes. That is the whole split between what

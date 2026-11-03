@@ -25,6 +25,11 @@ pub struct SessionInfo {
     /// Unix epoch ms when the daemon spawned the shell. Persisted across
     /// detach/attach so the UI can show "running for 17 min".
     pub created_at_ms: u64,
+    /// The shell's pid, which ties a process running in it back to this session.
+    /// Defaulted so a daemon from before this field still parses, with no version
+    /// bump: the daemon outlives an app update.
+    #[serde(default)]
+    pub pid: Option<u32>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -156,6 +161,18 @@ mod tests {
             }
             _ => panic!("variant mismatch"),
         }
+    }
+
+    #[test]
+    fn session_info_from_a_daemon_without_a_pid_still_parses() {
+        let old = format!(
+            r#"{{"id":"{}","cwd":null,"cols":80,"rows":24,"alive":true,"created_at_ms":1}}"#,
+            Uuid::nil()
+        );
+        assert_eq!(
+            serde_json::from_str::<SessionInfo>(&old).unwrap().pid,
+            None
+        );
     }
 
     #[test]
