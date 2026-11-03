@@ -557,4 +557,16 @@ registerBridge({
   workspaceRename: (wsId: string, name: string) =>
     renameWorkspace(String(wsId), String(name ?? "")),
   workspaceRemove: (wsId: string) => removeWorkspace(String(wsId)),
+  workspaceView: (wsId: string, view: WorkspaceView) => {
+    const s = useWorkspacesStore.getState();
+    if (!s.workspaces.some((w) => w.id === wsId)) {
+      return { ok: false, error: `No workspace "${wsId}".` };
+    }
+    // The socket takes any string, and an unknown view would persist and come back.
+    if (!["tabs", "kanban", "canvas"].includes(view)) {
+      return { ok: false, error: `No view "${view}". Have: tabs, kanban, canvas.` };
+    }
+    s.setWorkspaceView(wsId, view);
+    return { ok: true };
+  },
 });

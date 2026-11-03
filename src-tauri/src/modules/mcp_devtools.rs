@@ -140,15 +140,16 @@ pub async fn call(app: &AppHandle, args: &[Value]) -> Result<Value, String> {
 }
 
 fn misc_pack_off() -> bool {
-    for path in crate::modules::ids::settings_candidates() {
-        let Ok(text) = std::fs::read_to_string(&path) else {
-            continue;
-        };
-        return serde_json::from_str::<Value>(&text)
-            .map(|json| misc_pack_off_in(&json))
-            .unwrap_or(false);
-    }
-    false
+    settings_json().is_some_and(|json| misc_pack_off_in(&json))
+}
+
+/// The settings file as the MCP switches see it. `None` when absent or unreadable,
+/// which means nothing is switched off: a broken file must not lock the user out.
+pub fn settings_json() -> Option<Value> {
+    crate::modules::ids::settings_candidates()
+        .iter()
+        .find_map(|path| std::fs::read_to_string(path).ok())
+        .and_then(|text| serde_json::from_str(&text).ok())
 }
 
 /// The pack counts as off only when EVERY tool in it is disabled: that is what

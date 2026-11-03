@@ -6,6 +6,11 @@ export {
   focusedTerminalLeafId,
   scrollTerminalToCommand,
   clearTerminalScrollback,
+  selectAllInTerminal,
+  scrollTerminalToEdge,
+  lastCommandOutput,
+  disconnectSsh,
+  reconnectSsh,
   type TediOpenInput,
   type TediSpawnTabInput,
 } from "./lib/useTerminalSession";

@@ -83,15 +83,25 @@ export const BRIDGED = {
   workspaceCreate: "workspaceCreate",
   workspaceRename: "workspaceRename",
   workspaceRemove: "workspaceRemove",
+  workspaceView: "workspaceView",
+  statusItems: "statusItems",
+  agentSessions: "agentSessions",
   setSetting: "setSetting",
   sshConnections: "sshConnections",
   sshConnect: "sshConnect",
+  sshForward: "sshForward",
+  sftp: "sftp",
+  agentSession: "agentSession",
+  panePlace: "panePlace",
   schedules: "schedules",
   scheduleCreate: "scheduleCreate",
   scheduleCancel: "scheduleCancel",
   ai: "ai",
   aiMessages: "aiMessages",
   aiSend: "aiSend",
+  aiNew: "aiNew",
+  aiSwitch: "aiSwitch",
+  aiStop: "aiStop",
   // Panes and terminals. Anything absent from this map falls through to CDP,
   // and CDP is Windows-only, so an omission here is not a slower path - it is a
   // tool that does not exist on macOS or Linux, and one that still passes every
@@ -101,6 +111,9 @@ export const BRIDGED = {
   paneGroup: "paneGroup",
   paneRotate: "paneRotate",
   paneConsolidate: "paneConsolidate",
+  paneRename: "paneRename",
+  panePin: "panePin",
+  panelOpen: "panelOpen",
   termList: "termList",
   sshExec: "sshExec",
 };
@@ -153,12 +166,24 @@ const COERCE = {
   extControl: (action, extensionId) => [String(action), String(extensionId)],
   setSetting: (key, value) => [String(key), value],
   sshConnect: (id, isPrivate = false) => [String(id), Boolean(isPrivate)],
+  sshForward: (leafId, localPort, remoteHost, remotePort) => [
+    Number(leafId),
+    Number(localPort),
+    String(remoteHost),
+    Number(remotePort),
+  ],
+  panePlace: (leafId, rect) => [Number(leafId), rect],
   workspaceSwitch: (wsId) => [String(wsId)],
   workspaceCreate: (name) => [String(name ?? "")],
   workspaceRename: (wsId, name) => [String(wsId), String(name ?? "")],
   workspaceRemove: (wsId) => [String(wsId)],
+  workspaceView: (wsId, view) => [String(wsId), String(view)],
   aiMessages: (sessionId = null, maxChars = 8000) => [sessionId, Number(maxChars)],
   aiSend: (text) => [String(text)],
+  aiSwitch: (sessionId) => [String(sessionId)],
+  paneRename: (leafId, name) => [Number(leafId), String(name ?? "")],
+  panePin: (leafId, pinned = true) => [Number(leafId), Boolean(pinned)],
+  panelOpen: (extensionId, panelId = null) => [String(extensionId), panelId],
 };
 
 /**
@@ -295,6 +320,9 @@ export function makeTransport({ port } = {}) {
             const coerced = COERCE[method] ? COERCE[method](...args) : args;
             return await b.call(capability, coerced);
           }
+          // Nothing to fall back to, so the bridge's reason ("TEDI is not running")
+          // is the whole answer, not a footnote on a DevTools error.
+          if (!port) throw bridgeErr;
           // No bridge: fall through to CDP, which may still be available on a
           // Windows session with the debug port open. If neither works the CDP
           // error is the one worth showing, with the bridge's reason appended.
@@ -317,6 +345,7 @@ export function makeTransport({ port } = {}) {
             const d = bridgeOnlyDriver((name, callArgs) => b.call(name, callArgs));
             return await d[method](...args);
           }
+          if (!port) throw bridgeErr;
         }
         const d = await getCdp();
         const fn = d[method];

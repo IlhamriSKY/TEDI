@@ -7,6 +7,7 @@
  * it keeps two indexes beside its files that a raw delete would leave stale.
  */
 import { basename, toForwardSlash } from "@/lib/path";
+import { callBridge, registerBridge } from "@/modules/automation/bridge";
 import { invoke } from "@tauri-apps/api/core";
 
 export type SessionAgent = "claude" | "codex";
@@ -116,13 +117,62 @@ export const deleteSession = (s: AgentSession) =>
     ? invoke<void>("claude_session_delete", { project: s.project, id: s.id })
     : invoke<void>("codex_session_delete", { id: s.id });
 
-/** A session belongs to the focused terminal's folder when it ran there or below it. */
-export const inFolder = (groupKey: string, folderKey: string) =>
-  groupKey === folderKey || groupKey.startsWith(`${folderKey}/`);
-
 /** Safe to type into a shell: both backends only list hex-and-dash ids. */
 export const resumeCommand = (agent: SessionAgent, id: string) =>
   agent === "claude" ? `claude --resume ${id}` : `codex resume ${id}`;
+
+/** Most sessions one `inspect sessions` returns; a heavy user has thousands. */
+const MAX_LISTED_SESSIONS = 50;
+
+registerBridge({
+  agentSession: async (a: { action?: string; id?: string; title?: string; confirm?: boolean }) => {
+    const { sessions } = await listAllSessions();
+    const s = sessions.find((x) => x.id === a.id);
+    if (!s)
+      return { ok: false, error: `No saved session "${a.id}". \`inspect sessions\` lists them.` };
+    if (a.action === "rename") {
+      if (!a.title) return { ok: false, error: "rename needs `title`." };
+      await renameSession(s, a.title);
+      return { ok: true, id: s.id, title: a.title };
+    }
+    if (a.action !== "delete") return { ok: false, error: `Unknown action "${a.action}".` };
+    // `live` is Claude only, as Codex does not report it, so a pane running that CLI
+    // in that folder counts too. A pane in the folder may be on another session, and
+    // refusing that is the cheap mistake.
+    const panes = (await callBridge("panes")) as { agent?: string; cwd?: string }[];
+    const folder = (p?: string | null) => toForwardSlash(p ?? "").toLowerCase();
+    const open = panes.some((p) => p.agent === s.agent && folder(p.cwd) === folder(s.cwd));
+    if (s.live || open) return { ok: false, error: "That session may be running. Close it first." };
+    // The transcript goes for good, so one word from a model is not enough.
+    if (a.confirm !== true)
+      return { ok: false, error: `delete needs \`confirm: true\` for "${s.title}".` };
+    await deleteSession(s);
+    return { ok: true, deleted: s.id };
+  },
+  agentSessions: async (filter?: string | null) => {
+    const { sessions, errors } = await listAllSessions();
+    const q = filter?.trim().toLowerCase();
+    const hits = q
+      ? sessions.filter(
+          (s) => s.title.toLowerCase().includes(q) || s.cwd?.toLowerCase().includes(q),
+        )
+      : sessions;
+    return {
+      total: hits.length,
+      errors,
+      sessions: hits.slice(0, MAX_LISTED_SESSIONS).map((s) => ({
+        agent: s.agent,
+        id: s.id,
+        title: s.title,
+        cwd: s.cwd,
+        branch: s.branch,
+        modifiedMs: s.modifiedMs,
+        live: s.live,
+        resume: canResume(s) ? resumeCommand(s.agent, s.id) : null,
+      })),
+    };
+  },
+});
 
 /**
  * Codex-style day headings for the card list: "Today", "Yesterday", "This week",
@@ -141,6 +191,63 @@ export function dayBucket(ms: number, now = Date.now()): string {
   if (ms >= d.getTime()) return "This week";
   d.setDate(d.getDate() - 23);
   return ms >= d.getTime() ? "This month" : "Older";
+}
+
+export const sessionKey = (s: AgentSession) => `${s.agent}:${s.id}`;
+
+/** A session belongs to a terminal's folder when it ran there or below it. */
+const inFolder = (groupKey: string, folderKey: string) =>
+  groupKey === folderKey || groupKey.startsWith(`${folderKey}/`);
+
+export const PINNED_SECTION = "Pinned";
+export const TERMINAL_SECTION = "Open in terminal";
+
+/**
+ * The cards AI Sessions shows, under their headings. All: every session of every
+ * project, so search reaches them all. Working: the ones running right now.
+ * Either way pins first, then the folders terminals have open (the focused one
+ * leading), then the rest by day, each newest first.
+ */
+export function sessionSections(
+  list: AgentSession[],
+  opts: {
+    filter: string;
+    mode: "working" | "all";
+    /** The focused terminal's folder, same key shape as `groupSessions`. */
+    activeKey: string | null;
+    /** Every local terminal's folder, including the focused one. */
+    terminalKeys: Set<string>;
+    /** Sessions an AI CLI pane is running, by `sessionKey`. */
+    openKeys: Set<string>;
+    pinnedKeys: Set<string>;
+    now: number;
+  },
+): { label: string; cards: { s: AgentSession; folder: string; inTerminal: boolean }[] }[] {
+  const { filter, mode, activeKey, terminalKeys, openKeys, pinnedKeys, now } = opts;
+  const terminals = [...terminalKeys];
+  const cards = groupSessions(list, filter)
+    .flatMap((g) => {
+      const inTerminal = terminals.some((k) => inFolder(g.key, k));
+      const focused =
+        activeKey !== null && terminalKeys.has(activeKey) && inFolder(g.key, activeKey);
+      return g.sessions
+        .filter((s) => mode === "all" || s.live || openKeys.has(sessionKey(s)))
+        .map((s) => ({
+          s,
+          folder: g.label,
+          inTerminal,
+          rank: pinnedKeys.has(sessionKey(s)) ? 0 : focused ? 1 : inTerminal ? 2 : 3,
+        }));
+    })
+    .sort((a, b) => a.rank - b.rank || b.s.modifiedMs - a.s.modifiedMs);
+  const out: ReturnType<typeof sessionSections> = [];
+  for (const { rank, ...c } of cards) {
+    const label =
+      rank === 0 ? PINNED_SECTION : rank < 3 ? TERMINAL_SECTION : dayBucket(c.s.modifiedMs, now);
+    if (out.at(-1)?.label !== label) out.push({ label, cards: [] });
+    out.at(-1)!.cards.push(c);
+  }
+  return out;
 }
 
 /** "5m", "3h", "2d" - the sidebar has room for a few characters, not a date. */

@@ -118,7 +118,7 @@ export const usePreferencesStore = create<State>((set) => ({
  */
 export function readSettings(): Record<string, unknown> {
   const { hydrated: _h, init: _i, ...prefs } = usePreferencesStore.getState();
-  return prefs;
+  return { ...prefs, themePresets: THEME_PRESETS.map((p) => slugify(p.name)) };
 }
 
 /**
@@ -130,6 +130,17 @@ export function readSettings(): Record<string, unknown> {
  */
 export async function writeSetting(key: string, value: unknown): Promise<true | string> {
   try {
+    // Not a stored preference: a preset is the whole `customTheme` value, picked
+    // by the name `tedi theme set` and the Settings page already use.
+    if (key === "themePreset") {
+      const preset = THEME_PRESETS.find((p) => slugify(p.name) === value);
+      if (!preset) {
+        return `Unknown theme preset "${String(value)}". Have: ${THEME_PRESETS.map((p) => slugify(p.name)).join(", ")}`;
+      }
+      await setCustomTheme(preset);
+      await setCustomThemeEnabled(true);
+      return true;
+    }
     await _writePreference(key, value);
     return true;
   } catch (err) {

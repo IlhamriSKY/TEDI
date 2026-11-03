@@ -51,6 +51,8 @@ export type CommandTracker = {
   commandEnd(exitCode: number | null): FinishedCommand | null;
   /** Scroll so the previous (-1) or next (+1) command's prompt is on top. */
   scrollToCommand(dir: -1 | 1): void;
+  /** The most recently finished command, if the shell reported any. */
+  last(): FinishedCommand | null;
   dispose(): void;
 };
 
@@ -110,11 +112,18 @@ export function createCommandTracker(term: Terminal): CommandTracker {
     commandEnd(exitCode) {
       const began = startedAt;
       startedAt = 0;
-      const from = prompt;
+      // A clear or a ConPTY repaint after a resize disposes the prompt's marker, which
+      // would lose the next command. The input mark is on the same line.
+      const fromInput = prompt?.isDisposed && input && !input.marker.isDisposed;
+      const from = fromInput ? input!.marker : prompt;
       if (!from || from.isDisposed || !began || exitCode === null || isAlt()) return null;
       const command = readCommand();
-      dropInput();
-      if (command === "") return null;
+      if (fromInput) input = null;
+      else dropInput();
+      if (command === "") {
+        if (fromInput) from.dispose();
+        return null;
+      }
       const end = term.registerMarker(0);
       if (!end) return null;
       prompt = null;
@@ -173,6 +182,10 @@ export function createCommandTracker(term: Terminal): CommandTracker {
       }
     },
 
+    last() {
+      return history.at(-1)?.cmd ?? null;
+    },
+
     dispose() {
       for (const h of history) h.deco?.dispose();
       history.length = 0;
@@ -189,7 +202,8 @@ export function createCommandTracker(term: Terminal): CommandTracker {
  * test run puts the error at the bottom.
  */
 export function readCommandOutput(term: Terminal, cmd: FinishedCommand, maxChars = 12_000): string {
-  const buf = term.buffer.active;
+  // Not `active`: the markers are normal-screen lines, and a TUI's screen has its own.
+  const buf = term.buffer.normal;
   const from = cmd.prompt.line;
   const to = cmd.end.line;
   if (from < 0 || to < from) return "";

@@ -166,6 +166,12 @@ export function entryLabelClass(e: Entry): string {
   );
 }
 
+/** Whether a search (lowercased) hits an entry's name, program title or folder. */
+export function entryMatches(e: Entry, title: string | undefined, query: string): boolean {
+  const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
+  return [e.label, title, cwd].some((t) => t?.toLowerCase().includes(query));
+}
+
 export function buildEntries(
   tabs: Tab[],
   sshHosts: Map<string, SshConnection>,

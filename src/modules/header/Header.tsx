@@ -283,6 +283,7 @@ function HeaderImpl({
     <div
       ref={rootRef}
       data-tedi-header
+      data-focus-region="header"
       className="border-border/60 bg-card flex shrink-0 flex-col border-b select-none"
     >
       {/* Row 1: toolbar. Window controls and drag region scoped to this row. */}

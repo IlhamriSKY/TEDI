@@ -24,6 +24,7 @@ import {
 } from "@dnd-kit/core";
 import { horizontalListSortingStrategy, SortableContext } from "@dnd-kit/sortable";
 import { useEffect, useMemo, useRef, useState } from "react";
+import { RENAME_LEAF_EVENT } from "@/modules/shortcuts/shortcuts";
 import type { Tab } from "./lib/useTabs";
 import { stripTabs } from "./lib/tabHelpers";
 import { type Entry, type PaneEntry, buildEntries } from "./lib/entries";
@@ -171,6 +172,28 @@ export function TabBar({
   // the entry renderer, which is a plain function with nowhere to keep state.
   // Leaf ids are never reused, so a stale id after a close simply matches nothing.
   const [renamingLeafId, setRenamingLeafId] = useState<number | null>(null);
+  // The Rename shortcut. It returns focus to wherever it was pressed, since the
+  // field unmounts on commit and would otherwise leave the caret nowhere.
+  const renameReturnFocus = useRef<HTMLElement | null>(null);
+  useEffect(() => {
+    const onRename = (e: Event) => {
+      // Tells the sender a strip is here to hear it.
+      e.preventDefault();
+      const leafId = (e as CustomEvent<number>).detail;
+      // Deferred: from the Command Palette, focus only comes back after this returns.
+      queueMicrotask(() => {
+        renameReturnFocus.current ??= document.activeElement as HTMLElement | null;
+        setRenamingLeafId(leafId);
+      });
+    };
+    window.addEventListener(RENAME_LEAF_EVENT, onRename);
+    return () => window.removeEventListener(RENAME_LEAF_EVENT, onRename);
+  }, []);
+  useEffect(() => {
+    if (renamingLeafId !== null) return;
+    renameReturnFocus.current?.focus();
+    renameReturnFocus.current = null;
+  }, [renamingLeafId]);
   // Everything below works on the tabs the strip actually draws.
   const tabs = useMemo(() => stripTabs(allTabs, activeId), [allTabs, activeId]);
   const scrollRef = useRef<HTMLDivElement>(null);

@@ -334,6 +334,9 @@ async fn open_float_window(
     let builder = builder.decorations(false).transparent(true);
 
     let window = builder.build().map_err(|e| e.to_string())?;
+    // A floated terminal is often an SSH one, where Ctrl+W must delete a word and
+    // not close the window.
+    disable_browser_accelerator_keys(&window);
 
     // Authoritative "float closed / docked back" signal for the main window: the
     // float's own BYE event can be lost when its webview is torn down mid-emit,
@@ -589,6 +592,10 @@ fn has_nvidia_gpu() -> bool {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // `tedi new-tab`, `tedi state`, ...: one MCP tool against the running window.
+    // First, so `tedi pane --help` means the verb's help rather than the app's.
+    cli::handle_bridge_verb_and_exit();
+
     // `tedi --version` / `tedi --help`: print and exit without GUI boot.
     cli::handle_version_help_and_exit();
 

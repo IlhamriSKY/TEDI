@@ -2,7 +2,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { addApprovalRule } from "@/modules/settings/store";
 import type { ToolUIPart } from "ai";
-import { memo } from "react";
+import { memo, useEffect, useRef } from "react";
 import { suggestRule, type ApprovalRule } from "../lib/approvalRules";
 import { applyShellTransformers } from "../tools/shell";
 import {
@@ -66,8 +66,35 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
   const input = part.input as Record<string, unknown>;
   const rule = suggestRule(toolName, input);
 
+  // Alt+Shift+Y / Alt+Shift+N, from anywhere, since the card takes no focus. A
+  // window listener here rather than a registered command, because `run_command`
+  // runs anything registered and an agent must not approve itself. `isTrusted`
+  // keeps out an extension's synthetic keypress. Capture listeners fire in mount
+  // order and the first stops the rest, so the oldest waiting card answers first.
+  const root = useRef<HTMLDivElement>(null);
+  const respond = useRef(onRespond);
+  respond.current = onRespond;
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!e.isTrusted || !e.altKey || !e.shiftKey || e.ctrlKey || e.metaKey) return;
+      if (e.code !== "KeyY" && e.code !== "KeyN") return;
+      // Never answer a card nobody can see. A hit test, because a collapsed column
+      // keeps its cards mounted and "visible", and an older card can be scrolled away.
+      const el = root.current;
+      if (!el) return;
+      const r = el.getBoundingClientRect();
+      if (!el.contains(document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2))) return;
+      e.preventDefault();
+      e.stopImmediatePropagation();
+      // Held down, auto-repeat would answer every queued card in turn.
+      if (!e.repeat) respond.current(e.code === "KeyY");
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, []);
+
   return (
-    <div className="border-border bg-card rounded-lg border shadow-sm">
+    <div ref={root} className="border-border bg-card rounded-lg border shadow-sm">
       <div className="border-border/60 flex items-center gap-2 border-b px-3 py-2">
         <span className="bg-icon-working size-1.5 shrink-0 animate-pulse rounded-full" />
         <Icon size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />

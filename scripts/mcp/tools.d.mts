@@ -40,6 +40,16 @@ export type ToolAnnotations = {
   destructiveHint?: boolean;
 };
 
+export const ALIASES: Record<
+  string,
+  { tool: string; args?: object; positional?: string[]; select?: string; about: string }
+>;
+export function resolveVerb(verb: string): { tool: string; verb: string; args?: object } | null;
+
+export const CLI_GROUPS: [string, string[]][];
+export const CLI_EXAMPLES: Record<string, string[]>;
+export function cliGuide(tools: { name: string; description: string }[]): string;
+
 export type ToolDef = {
   /** Which pack switch governs this tool. See `src/modules/mcpInstall/packs.ts`. */
   pack: "tedi" | "settings" | "browser" | "ai" | "misc";

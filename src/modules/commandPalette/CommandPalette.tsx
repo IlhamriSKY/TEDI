@@ -5,11 +5,14 @@ import { InputGroup, InputGroupAddon } from "@/components/ui/input-group";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import {
   SHORTCUTS,
-  shortcutHint,
+  shortcutHints,
   type Shortcut,
   type ShortcutId,
 } from "@/modules/shortcuts/shortcuts";
-import { runCommand } from "@/modules/shortcuts";
+import { runUserCommand } from "@/modules/shortcuts";
+import { commandsRegistry } from "@/modules/extensions/registries";
+import { runExtensionCommand } from "@/modules/extensions/store";
+import { useRegistry } from "@/modules/extensions/useRegistry";
 import { Kbd } from "@/components/ui/kbd";
 import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { invoke } from "@tauri-apps/api/core";
@@ -99,7 +102,14 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
     [onOpenChange],
   );
 
-  const selectCommand = useCallback((id: ShortcutId) => select(() => runCommand(id)), [select]);
+  const selectCommand = useCallback((id: ShortcutId) => select(() => runUserCommand(id)), [select]);
+
+  // An extension command with no keybinding had no keyboard route at all. Only
+  // the ones with a live handler: a disabled extension's would select to nothing.
+  const extensionCommands = useRegistry(commandsRegistry).filter(
+    ({ extensionId, item }) =>
+      typeof commandsRegistry.getRuntime(extensionId, item.id) === "function",
+  );
 
   // Radix restores focus when the close animation ends. Run the action here, at
   // that moment: if it moves focus to its own target (Go to file, Search in
@@ -119,9 +129,14 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
     for (const s of SHORTCUTS) {
       // Skip commands that can't be run from a list: readOnly ones are
       // documentation-only key hints (e.g. Enter to send) with no handler;
-      // tab.selectByIndex needs a specific digit; commandPalette.open is this
-      // palette itself.
-      if (s.readOnly || s.id === "tab.selectByIndex" || s.id === "commandPalette.open") {
+      // tab.selectByIndex and workspace.selectByIndex need a specific digit;
+      // commandPalette.open is this palette itself.
+      if (
+        s.readOnly ||
+        s.id === "tab.selectByIndex" ||
+        s.id === "workspace.selectByIndex" ||
+        s.id === "commandPalette.open"
+      ) {
         continue;
       }
       const g = groups.get(s.group) ?? [];
@@ -203,22 +218,35 @@ function CommandPaletteImpl({ open, onOpenChange, explorerRoot, onOpenFile }: Pr
             <CommandEmpty>No matching command.</CommandEmpty>
             {[...items.entries()].map(([group, shortcuts]) => (
               <CommandGroup key={group} heading={group}>
-                {shortcuts.map((s) => {
-                  const hint = shortcutHint(s.id, userShortcuts);
-                  return (
-                    <CommandItem
-                      key={s.id}
-                      value={`${s.id} ${s.label}`}
-                      keywords={[s.label, s.id, group]}
-                      onSelect={() => selectCommand(s.id)}
-                    >
-                      <span className="flex-1">{s.label}</span>
-                      {hint ? <Kbd className="ml-auto">{hint}</Kbd> : null}
-                    </CommandItem>
-                  );
-                })}
+                {shortcuts.map((s) => (
+                  <CommandItem
+                    key={s.id}
+                    value={`${s.id} ${s.label}`}
+                    keywords={[s.label, s.id, group]}
+                    onSelect={() => selectCommand(s.id)}
+                  >
+                    <span className="flex-1">{s.label}</span>
+                    {shortcutHints(s.id, userShortcuts).map((hint) => (
+                      <Kbd key={hint}>{hint}</Kbd>
+                    ))}
+                  </CommandItem>
+                ))}
               </CommandGroup>
             ))}
+            {extensionCommands.length > 0 ? (
+              <CommandGroup heading="Extensions">
+                {extensionCommands.map(({ extensionId, item }) => (
+                  <CommandItem
+                    key={`${extensionId}:${item.id}`}
+                    value={`${extensionId}:${item.id} ${item.title}`}
+                    keywords={[item.title, extensionId]}
+                    onSelect={() => select(() => void runExtensionCommand(extensionId, item.id))}
+                  >
+                    {item.title}
+                  </CommandItem>
+                ))}
+              </CommandGroup>
+            ) : null}
           </>
         )}
       </CommandPrimitive.List>

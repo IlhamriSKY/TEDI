@@ -97,6 +97,8 @@ tedi [PATH]          # open a folder or file in TEDI
 tedi .               # open the current directory
 tedi ext <subcmd>    # manage extensions headlessly (install / list / update / ...)
 tedi theme <subcmd>  # manage themes from the terminal
+tedi new-tab .       # drive the running window: panes, sh, term, wait, set, ...
+tedi tools           # every verb; `tedi help <verb>` for its arguments (needs Node)
 tedi --help | --version | --update
 ```
 

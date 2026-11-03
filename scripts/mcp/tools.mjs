@@ -27,9 +27,10 @@
  *
  * `pack` is the switch that governs the tool; `src/modules/mcpInstall/packs.ts`
  * builds its categories from this field rather than keeping a second name list.
- * The tool list is loaded into EVERY request of every connected CLI for the whole
- * session, so prose here is a standing bill on every turn - see the notes in
- * `server.mjs` on what belongs in a description and what belongs in an error.
+ * An outside CLI sees one gateway tool and reads these through `tedi help`, but TEDI's
+ * own agent still loads each tool with an in-process handler on every step, so
+ * prose here is a standing bill - see `server.mjs` on what belongs in a description
+ * and what belongs in an error.
  */
 export const TOOL_DEFS = {
   state: {
@@ -63,19 +64,23 @@ export const TOOL_DEFS = {
       "absent one look identical in the UI. `settings`: every preference the app is running on " +
       "(write with `set_setting`). `workspaces`: every workspace, which one is ACTIVE, and each " +
       "one's view - tabs, kanban or canvas; `state` only ever describes the active one. `logs`: " +
-      "console output and uncaught errors - the only place a half-rendered window says why.",
+      "console output and uncaught errors - the only place a half-rendered window says why. " +
+      "`status`: what each extension shows in the status bar, its meters and tooltips, which is the " +
+      "only data an extension with no AI tools publishes. `sessions`: saved Claude Code and Codex " +
+      "sessions, newest first, each with the command that resumes it.",
     schema: {
       type: "object",
       properties: {
         what: {
           type: "string",
-          enum: ["commands", "extensions", "settings", "workspaces", "logs"],
+          enum: ["commands", "extensions", "settings", "workspaces", "logs", "status", "sessions"],
         },
         level: {
           type: "string",
           enum: ["log", "info", "warn", "error"],
           description: "logs only.",
         },
+        filter: { type: "string", description: "sessions: match the title or folder." },
       },
       required: ["what"],
     },
@@ -133,7 +138,7 @@ export const TOOL_DEFS = {
     description:
       "Change one TEDI preference; keys and current values from `inspect settings`. Applies live and " +
       "persists. The Settings page is a separate webview no tool here can read or click, so this is " +
-      "the only route to it.",
+      "the only route to it. Key `themePreset` applies a named theme from `themePresets` there.",
     schema: {
       type: "object",
       properties: {
@@ -350,14 +355,15 @@ export const TOOL_DEFS = {
       "TEDI's OWN built-in agent, which runs in the app beside you. `status`: what it is doing " +
       "right now, its pending approvals, token usage and sessions. `read`: its live conversation. " +
       "`send`: queue a prompt for it, exactly as the composer would - it does NOT bypass approval, " +
-      "so whatever it then tries still raises the user's usual cards. Use this to hand work to it, " +
-      "or to see whether it is already busy on the same thing.",
+      "so whatever it then tries still raises the user's usual cards. `new`: start a fresh chat. " +
+      "`switch`: open one by `sessionId`. `stop`: interrupt the running turn. Use this to hand work " +
+      "to it, or to see whether it is already busy on the same thing.",
     schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["status", "read", "send"] },
+        action: { type: "string", enum: ["status", "read", "send", "new", "switch", "stop"] },
         text: { type: "string", description: "send: the prompt." },
-        sessionId: { type: "string", description: "read: default the active session." },
+        sessionId: { type: "string", description: "read, switch: default the active session." },
         maxChars: { type: "number", description: "read: default 8000." },
       },
       required: ["action"],
@@ -368,7 +374,8 @@ export const TOOL_DEFS = {
     pack: "tedi",
     annotations: { destructiveHint: false },
     description:
-      "Saved SSH connections: list them, or open one in a new tab. There is no command id for this " +
+      "Saved SSH connections: list them, open one in a new tab, or `forward` a local port through " +
+      "a connected pane (`leafId`, `localPort`, `remoteHost`, `remotePort`). There is no command id for this " +
       "(`run_command` cannot reach it), so this is the only route. `connect` returns the new pane's " +
       "`leafId`, which is what you pass to `sh` to run commands ON THE REMOTE HOST - opening the " +
       "tab is not the job, working in it is. Keys and passphrases stay in the OS keyring and never " +
@@ -376,14 +383,79 @@ export const TOOL_DEFS = {
     schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["list", "connect"] },
+        action: { type: "string", enum: ["list", "connect", "forward"] },
         id: { type: "string", description: "connect: the connection id from `list`." },
+        leafId: { type: "number", description: "forward: a connected SSH pane." },
+        localPort: { type: "number", description: "forward: 0 picks a free one." },
+        remoteHost: { type: "string", description: "forward." },
+        remotePort: { type: "number", description: "forward." },
         private: {
           type: "boolean",
           description: "connect: open it as a private pane the AI cannot see.",
         },
       },
       required: ["action"],
+    },
+  },
+
+  // Neither of these two has an in-process handler, so they cost TEDI's own agent
+  // nothing: it has its own ways to the same things.
+  sftp: {
+    pack: "tedi",
+    annotations: { destructiveHint: true },
+    description:
+      "Files on the host behind a connected SSH pane, without touching its terminal. Replacing or " +
+      "deleting anything needs `confirm`: `home`, `list`, " +
+      "`read`, `write`, `stat`, `touch`, `mkdir`, `rename`, `delete` (needs `confirm`), and `upload` / " +
+      "`download` to or from a `local` path.",
+    schema: {
+      type: "object",
+      properties: {
+        action: {
+          type: "string",
+          enum: [
+            "home",
+            "list",
+            "read",
+            "write",
+            "stat",
+            "touch",
+            "mkdir",
+            "rename",
+            "delete",
+            "upload",
+            "download",
+          ],
+        },
+        leafId: { type: "number", description: "A connected SSH pane, from `state`." },
+        remote: { type: "string", description: "Remote path. upload: the remote folder." },
+        to: { type: "string", description: "rename: the new remote path." },
+        local: { type: "string", description: "upload: local file. download: local folder." },
+        content: { type: "string", description: "write." },
+        hidden: { type: "boolean", description: "list: include dotfiles." },
+        maxChars: { type: "number", description: "read: default 20000." },
+        confirm: { type: "boolean", description: "To delete or replace." },
+      },
+      required: ["action", "leafId"],
+    },
+  },
+
+  session: {
+    pack: "tedi",
+    annotations: { destructiveHint: true },
+    description:
+      "A saved Claude Code or Codex session, by the id from `inspect sessions`: `rename` it (`title`), " +
+      "or `delete` its transcript for good (needs `confirm`, refused while it is running). To resume " +
+      "one, run the `resume` command that listing gives you in a pane.",
+    schema: {
+      type: "object",
+      properties: {
+        action: { type: "string", enum: ["rename", "delete"] },
+        id: { type: "string" },
+        title: { type: "string", description: "rename." },
+        confirm: { type: "boolean", description: "delete: required." },
+      },
+      required: ["action", "id"],
     },
   },
 
@@ -449,16 +521,37 @@ export const TOOL_DEFS = {
       "`group` two or more leafIds of ANY kind into one split tab (this IS 'join tabs' - TEDI has " +
       "no Chrome-style tab-group menu, never tell the user to use one); `rotate` a pane between " +
       '"row" (beside) and "col" (stacked), which is the only way to change a split\'s orientation, ' +
-      "so never tell the user to drag; `consolidate` every terminal into one tab. `open` answers " +
-      "with the `leafId` it made - use that, do not go back to `state` for it. Cap 6 per tab.",
+      "so never tell the user to drag; `consolidate` every terminal into one tab; `rename` a pane " +
+      "(`name`, empty resets it); `pin` or unpin its tab (`pinned`); `place` it on the canvas (`x`, " +
+      "`y`, `w`, `h`, percent); `panel` opens an extension's " +
+      "panel in its own tab (`extensionId`, `panelId`), including one no command opens. `open` " +
+      "answers with the `leafId` it made - use that, do not go back to `state` for it. Cap 6 per tab.",
     schema: {
       type: "object",
       properties: {
         action: {
           type: "string",
-          enum: ["open", "close", "group", "rotate", "consolidate"],
+          enum: [
+            "open",
+            "close",
+            "group",
+            "rotate",
+            "consolidate",
+            "rename",
+            "pin",
+            "place",
+            "panel",
+          ],
         },
-        leafId: { type: "number", description: "close / rotate: the pane." },
+        leafId: { type: "number", description: "close / rotate / rename / pin: the pane." },
+        name: { type: "string", description: "rename: the new name." },
+        x: { type: "number", description: "place." },
+        y: { type: "number", description: "place." },
+        w: { type: "number", description: "place." },
+        h: { type: "number", description: "place." },
+        pinned: { type: "boolean", description: "pin: default true." },
+        extensionId: { type: "string", description: "panel: from `inspect extensions`." },
+        panelId: { type: "string", description: "panel: default its first panel." },
         leafIds: {
           type: "array",
           items: { type: "number" },
@@ -562,19 +655,20 @@ export const TOOL_DEFS = {
     annotations: { destructiveHint: true },
     description:
       "Act on a workspace, a saved set of tabs with its own view: `switch` to one, `create` one " +
-      "(which switches to it and seeds a terminal), `rename` one, or `remove` one, which closes its " +
-      "tabs and ENDS every terminal in it (the last workspace cannot be removed). `inspect " +
-      "workspaces` is the READ - it lists every workspace with the id these take. No command id " +
-      "reaches any of this, so this is the only route. Every action asks first.",
+      "(which switches to it and seeds a terminal), `rename` one, set its `view`, or `remove` one, " +
+      "which closes its tabs and ENDS every terminal in it (the last workspace cannot be removed). " +
+      "`inspect workspaces` is the READ - it lists every workspace with the id these take. No " +
+      "command id reaches any of this, so this is the only route. Every action asks first.",
     schema: {
       type: "object",
       properties: {
-        action: { type: "string", enum: ["switch", "create", "rename", "remove"] },
+        action: { type: "string", enum: ["switch", "create", "rename", "remove", "view"] },
         id: {
           type: "string",
-          description: "switch / rename / remove: an id from `inspect workspaces`.",
+          description: "switch / rename / remove / view: an id from `inspect workspaces`.",
         },
         name: { type: "string", description: "create / rename: max 60 chars." },
+        view: { type: "string", enum: ["tabs", "kanban", "canvas"], description: "view." },
       },
       required: ["action"],
     },
@@ -594,8 +688,249 @@ export const TOOL_DEFS = {
   },
 };
 
+/**
+ * Short names for what people actually type. `positional` names the arguments
+ * bare words fill; `select` keeps one key of a JSON answer.
+ */
+export const ALIASES = {
+  new_tab: {
+    tool: "pane",
+    args: { action: "open" },
+    positional: ["cwd"],
+    about: "Open a terminal in a new tab",
+  },
+  split: {
+    tool: "pane",
+    args: { action: "open", split: true },
+    positional: ["cwd"],
+    about: "Open a terminal beside the active pane",
+  },
+  close: { tool: "pane", args: { action: "close" }, positional: ["leafId"], about: "Close a pane" },
+  rename: {
+    tool: "pane",
+    args: { action: "rename" },
+    positional: ["leafId", "name"],
+    about: "Name a pane",
+  },
+  pin: { tool: "pane", args: { action: "pin" }, positional: ["leafId"], about: "Pin a pane's tab" },
+  unpin: {
+    tool: "pane",
+    args: { action: "pin", pinned: false },
+    positional: ["leafId"],
+    about: "Unpin a pane's tab",
+  },
+  panel: {
+    tool: "pane",
+    args: { action: "panel" },
+    positional: ["extensionId", "panelId"],
+    about: "Open an extension's panel",
+  },
+  panes: { tool: "state", select: "panes", about: "Every pane in every tab" },
+  focus: {
+    tool: "focus_pane",
+    positional: ["leafId"],
+    about: "Focus a pane and bring its tab forward",
+  },
+  term: {
+    tool: "read",
+    args: { source: "terminal" },
+    positional: ["leafId"],
+    about: "A terminal's scrollback",
+  },
+  editors: { tool: "read", args: { source: "editors" }, about: "Every open editor's live buffer" },
+  wait: {
+    tool: "wait_for_terminal",
+    positional: ["leafId"],
+    about: "Block until a pane is back at its prompt",
+  },
+  run: { tool: "run_command", positional: ["id"], about: "Run a command id (see `tedi commands`)" },
+  call: {
+    tool: "run_command",
+    positional: ["extensionId", "id", "args"],
+    about: "Call an extension's command or AI tool",
+  },
+  commands: { tool: "inspect", args: { what: "commands" }, about: "Every command id" },
+  extensions: {
+    tool: "inspect",
+    args: { what: "extensions" },
+    about: "Installed extensions and what they add",
+  },
+  settings: { tool: "inspect", args: { what: "settings" }, about: "Every preference" },
+  workspaces: { tool: "inspect", args: { what: "workspaces" }, about: "Every workspace" },
+  logs: {
+    tool: "inspect",
+    args: { what: "logs" },
+    about: "Console output for a few seconds (--for <seconds>)",
+  },
+  status: {
+    tool: "inspect",
+    args: { what: "status" },
+    about: "What extensions show in the status bar",
+  },
+  sessions: {
+    tool: "inspect",
+    args: { what: "sessions" },
+    positional: ["filter"],
+    about: "Saved Claude Code and Codex sessions",
+  },
+  set: { tool: "set_setting", about: "Change a preference" },
+  open: { tool: "open_file", about: "Open a file in the editor" },
+  save: { tool: "save_editor", positional: ["leafId"], about: "Save an editor pane" },
+  type: { tool: "type_text", about: "Type into whatever has focus" },
+  shot: { tool: "screenshot", positional: ["path"], about: "Capture the window to a PNG" },
+  eval: { tool: "eval_js", about: "Evaluate JavaScript in the window" },
+};
+
+/**
+ * What `tedi tools` prints: every verb under what it is for. A reader, human or
+ * model, starts here, so a verb missing from it is one nobody finds. `cli-verify`
+ * fails when a tool has neither a row here nor a shortcut that has one.
+ */
+export const CLI_GROUPS = [
+  [
+    "See what is open",
+    [
+      "panes",
+      "state",
+      "term",
+      "editors",
+      "read",
+      "inspect",
+      "commands",
+      "extensions",
+      "settings",
+      "workspaces",
+      "status",
+      "sessions",
+      "logs",
+    ],
+  ],
+  [
+    "Terminals and panes",
+    ["new_tab", "split", "close", "focus", "rename", "pin", "unpin", "sh", "wait", "pane"],
+  ],
+  ["Editor", ["open", "save"]],
+  ["App commands and extensions", ["run", "call", "panel", "extension"]],
+  ["Settings and workspaces", ["set", "workspace"]],
+  ["SSH", ["ssh", "sftp"]],
+  [
+    "Built-in agent, notes, schedule, git worktrees",
+    ["ai", "session", "notes", "schedule", "worktree"],
+  ],
+  ["Real input and the window (Misc pack)", ["keys", "type", "click", "drag", "shot", "eval"]],
+];
+
+/** Shown by `tedi help <verb>`. Real command lines beat a flag list for getting it right first time. */
+export const CLI_EXAMPLES = {
+  panes: ["tedi panes"],
+  term: ["tedi term 3", "tedi term 3 --lines 500"],
+  sh: [
+    "tedi sh git status",
+    "tedi sh --leaf-id 3 'git commit -m \"fix bug\"'",
+    "tedi sh --no-submit 'rm -rf build'",
+  ],
+  wait: ["tedi wait 3", "tedi wait 3 --text 'ready on' --timeout 120000"],
+  new_tab: ["tedi new-tab", "tedi new-tab ./project"],
+  split: ["tedi split . --dir col"],
+  close: ["tedi close 3"],
+  rename: ["tedi rename 3 build"],
+  panel: ["tedi panel tedi.sql-explorer"],
+  run: ["tedi run tab.new", "tedi run pane.float"],
+  call: ['tedi call tedi.sql-explorer sql_query \'{"sql":"select 1"}\''],
+  set: ["tedi set theme dark", "tedi set themePreset tokyo-night"],
+  open: ["tedi open src/main.ts"],
+  pane: [
+    "tedi pane open --count 2",
+    "tedi pane group --leaf-ids 3,5",
+    "tedi pane rotate 3 --dir col",
+    "tedi pane place 3 --x 10 --y 10 --w 40 --h 50",
+  ],
+  workspace: [
+    "tedi workspace create Build",
+    "tedi workspace switch ws-abc",
+    "tedi workspace view ws-abc --view canvas",
+  ],
+  extension: ["tedi extension disable tedi.sql-explorer"],
+  ssh: [
+    "tedi ssh list",
+    "tedi ssh connect c-abc",
+    "tedi ssh forward --leaf-id 3 --local-port 8080 --remote-host localhost --remote-port 80",
+  ],
+  sftp: [
+    "tedi sftp list 3 /var/www",
+    "tedi sftp read 3 /etc/hostname",
+    "tedi sftp upload 3 /var/www --local ./dist/app.js",
+    "tedi sftp delete 3 /tmp/old.log --confirm",
+  ],
+  ai: ["tedi ai status", "tedi ai send fix the failing test", "tedi ai stop"],
+  session: [
+    "tedi session rename abc-123 --title 'auth refactor'",
+    "tedi session delete abc-123 --confirm",
+  ],
+  notes: ["tedi notes read", "tedi notes add_todo buy milk", "tedi notes complete_todo t-abc"],
+  schedule: [
+    "tedi schedule list",
+    "tedi schedule create 'npm test' --delay 600",
+    "tedi schedule cancel s-abc",
+  ],
+  worktree: ["tedi worktree list", "tedi worktree add feature-x", "tedi worktree remove feature-x"],
+  read: ["tedi read terminal 3", "tedi read dom --selector '[role=dialog]'"],
+  inspect: ["tedi inspect sessions auth", "tedi inspect logs error"],
+  logs: ["tedi logs --for 10 --level error"],
+  keys: ["tedi keys Ctrl+Shift+P Escape"],
+  type: ["tedi type hello world"],
+  click: ["tedi click 'button[aria-label=\"Close pane\"]'"],
+  drag: ["tedi drag '[data-slot=resizable-handle]' 120 0 --nth 1"],
+  shot: ["tedi shot ./window.png"],
+  eval: ["tedi eval 'document.title'"],
+};
+
+const CLI_INTRO = `tedi drives the TEDI window that is already running, from any shell.
+
+Start here:
+  tedi panes                          every pane: its leaf id, folder, what is running
+  tedi sh --leaf-id 3 'git status'    run a command in that pane and print the output
+  tedi term 3                         read a pane's scrollback
+  tedi wait 3                         block until it is back at its prompt
+
+Rules:
+  tedi help <verb>      arguments and examples; dashes and underscores are the same
+  Flags go BEFORE the command in \`sh\`; quote a command that has spaces in an argument.
+  Exit status: 0 done, 1 refused or not finished, 2 the command line was wrong.
+  Answers are JSON or plain text on stdout, errors on stderr.`;
+
+/** The `tedi tools` text. `tools` is what this surface may run right now, so a verb
+ *  whose pack is off is simply not offered. */
+export function cliGuide(tools) {
+  const first = (s = "") => s.split(/(?<=\.)\s/)[0];
+  const on = new Map(tools.map((t) => [t.name, first(t.description)]));
+  const label = (v) => ALIASES[v]?.about ?? on.get(v);
+  const usable = (v) => on.has(ALIASES[v]?.tool ?? v);
+  const rows = (names) => {
+    const shown = names.filter(usable);
+    const width = Math.max(0, ...shown.map((v) => v.length)) + 2;
+    return shown.map((v) => `  ${v.replaceAll("_", "-").padEnd(width)}${label(v)}`).join("\n");
+  };
+  const sections = CLI_GROUPS.map(([title, names]) => [title, rows(names)]);
+  const ext = tools.filter((t) => t.name.startsWith("ext_")).map((t) => t.name);
+  if (ext.length) sections.push(["Extensions", rows(ext)]);
+  const body = sections
+    .filter(([, text]) => text)
+    .map(([title, text]) => `${title}\n${text}`)
+    .join("\n\n");
+  return `${CLI_INTRO}\n\n${body}\n`;
+}
+
 /** Every tool name, in table order. */
 export const TOOL_NAMES = Object.keys(TOOL_DEFS);
+
+/** A verb as typed -> what it runs, or null. Dashes and underscores are the same. */
+export function resolveVerb(verb) {
+  const v = String(verb).replaceAll("-", "_");
+  if (Object.hasOwn(ALIASES, v)) return { ...ALIASES[v], verb: v };
+  if (Object.hasOwn(TOOL_DEFS, v)) return { tool: v, verb: v };
+  return v.startsWith("ext_") ? { tool: v, verb: v } : null;
+}
 
 /** Tool names belonging to `pack`. */
 export function toolsInPack(pack) {

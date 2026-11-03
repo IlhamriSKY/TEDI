@@ -35,6 +35,10 @@ export function tediDataFiles(name) {
   const roots = [
     process.env.APPDATA,
     process.env.XDG_CONFIG_HOME,
+    process.env.XDG_DATA_HOME,
+    // Where `dirs::data_dir()` puts it on macOS. Without this every client said
+    // "TEDI is not running" on a Mac with TEDI open, and read no pack switches.
+    process.env.HOME && path.join(process.env.HOME, "Library", "Application Support"),
     process.env.HOME && path.join(process.env.HOME, ".config"),
     process.env.HOME && path.join(process.env.HOME, ".local", "share"),
     home,

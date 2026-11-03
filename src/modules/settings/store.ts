@@ -294,6 +294,8 @@ export type Preferences = {
   uiZoom: number;
   /** Pinned model ids. Shown as "Pinned" at the top of the AI model dropdown. Newest first. */
   pinnedModelIds: string[];
+  /** Pinned AI CLI sessions, as `agent:id`. They head the AI Sessions list from any folder. */
+  pinnedAgentSessions: string[];
   /**
    * Chosen reasoning level per model, keyed `provider::modelId`.
    *
@@ -489,6 +491,7 @@ const KEY_SSH_IN_RIGHT_PANEL = "sshInRightPanel";
 const KEY_SHORTCUTS = "shortcuts";
 const KEY_EXTENSION_SHORTCUTS = "extensionShortcuts";
 const KEY_PINNED_MODELS = "pinnedModelIds";
+const KEY_PINNED_AGENT_SESSIONS = "pinnedAgentSessions";
 const KEY_MODEL_REASONING = "modelReasoning";
 const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_APPROVAL_RULES = "approvalRules";
@@ -642,6 +645,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   shortcuts: {} as Record<ShortcutId, KeyBinding[]>,
   extensionShortcuts: {} as Record<string, KeyBinding[]>,
   pinnedModelIds: [],
+  pinnedAgentSessions: [],
   modelReasoning: {} as Record<string, string>,
   approvalMode: "ask",
   approvalRules: [],
@@ -787,6 +791,8 @@ export async function loadPreferences(): Promise<Preferences> {
       get<Record<string, KeyBinding[]>>(KEY_EXTENSION_SHORTCUTS) ??
       DEFAULT_PREFERENCES.extensionShortcuts,
     pinnedModelIds: get<string[]>(KEY_PINNED_MODELS) ?? DEFAULT_PREFERENCES.pinnedModelIds,
+    pinnedAgentSessions:
+      get<string[]>(KEY_PINNED_AGENT_SESSIONS) ?? DEFAULT_PREFERENCES.pinnedAgentSessions,
     modelReasoning:
       get<Record<string, string>>(KEY_MODEL_REASONING) ?? DEFAULT_PREFERENCES.modelReasoning,
     approvalMode: get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
@@ -1201,6 +1207,10 @@ export async function setPinnedModelIds(value: string[]): Promise<void> {
   await writePref(KEY_PINNED_MODELS, value);
 }
 
+export async function setPinnedAgentSessions(value: string[]): Promise<void> {
+  await writePref(KEY_PINNED_AGENT_SESSIONS, value);
+}
+
 export async function setModelReasoning(value: Record<string, string>): Promise<void> {
   await writePref(KEY_MODEL_REASONING, value);
 }
@@ -1346,7 +1356,7 @@ export async function _writeAny(key: string, value: unknown): Promise<void> {
  * when it creates its environment, so this can only ever take effect on a
  * restart, never on the running window.
  */
-const KEY_AUTOMATION_PORT = "automationPort";
+const KEY_AUTOMATION_PORT = "automationChannelPort";
 
 export async function getAutomationPort(): Promise<number> {
   return (await store.get<number>(KEY_AUTOMATION_PORT)) ?? 0;
@@ -1356,10 +1366,11 @@ export async function getAutomationPort(): Promise<number> {
  * What the MCP server offers a connected AI CLI.
  *
  * `mcpDisabledTools` is a flat list of tool NAMES resolved from the pack
- * switches (`mcpInstall/packs.ts` owns that mapping); `mcpExtensionPacks` is the
- * extension ids whose AI tools are advertised as first-class MCP tools.
+ * switches (`mcpInstall/packs.ts` owns that mapping); `mcpDisabledExtensions` is
+ * the extension ids an agent may not reach from outside. What is OFF, not what is
+ * on, so an extension installed later works without a trip to this dialog.
  *
- * Both live beside `automationPort` and OUTSIDE `Preferences` for the same
+ * Both live beside `automationChannelPort` and OUTSIDE `Preferences` for the same
  * reason: `set_setting` allow-lists on `DEFAULT_PREFERENCES`, so a driving agent
  * cannot switch its own capabilities back on. The MCP server reads these
  * straight off disk, like Rust reads the port.
@@ -1372,22 +1383,27 @@ export async function getAutomationPort(): Promise<number> {
  * is the general rule this was a special case of.
  */
 const KEY_MCP_DISABLED_TOOLS = "mcpDisabledTools";
-const KEY_MCP_EXTENSION_PACKS = "mcpExtensionPacks";
+const KEY_MCP_DISABLED_EXTENSIONS = "mcpDisabledExtensions";
 
-export async function getMcpSurface(): Promise<{ disabledTools: string[]; extensions: string[] }> {
-  const [disabledTools, extensions] = await Promise.all([
+export async function getMcpSurface(): Promise<{
+  disabledTools: string[];
+  disabledExtensions: string[];
+}> {
+  const [disabledTools, disabledExtensions] = await Promise.all([
     store.get<string[]>(KEY_MCP_DISABLED_TOOLS),
-    store.get<string[]>(KEY_MCP_EXTENSION_PACKS),
+    store.get<string[]>(KEY_MCP_DISABLED_EXTENSIONS),
   ]);
-  return { disabledTools: disabledTools ?? [], extensions: extensions ?? [] };
+  return { disabledTools: disabledTools ?? [], disabledExtensions: disabledExtensions ?? [] };
 }
 
 export async function setMcpSurface(next: {
   disabledTools?: string[];
-  extensions?: string[];
+  disabledExtensions?: string[];
 }): Promise<void> {
   if (next.disabledTools) await writePref(KEY_MCP_DISABLED_TOOLS, [...new Set(next.disabledTools)]);
-  if (next.extensions) await writePref(KEY_MCP_EXTENSION_PACKS, [...new Set(next.extensions)]);
+  if (next.disabledExtensions) {
+    await writePref(KEY_MCP_DISABLED_EXTENSIONS, [...new Set(next.disabledExtensions)]);
+  }
 }
 
 export async function setAutomationPort(port: number): Promise<void> {
@@ -1448,7 +1464,7 @@ const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
 /**
  * Preferences an AGENT may never write, whatever the value.
  *
- * `automationPort` and `mcpDisabledTools` were kept OUT of `Preferences`
+ * `automationChannelPort` and `mcpDisabledTools` were kept OUT of `Preferences`
  * entirely for this reason (see their comments above), which established the
  * rule but only covered the two keys that happened to be noticed. These are the
  * rest of them: every preference that grants the agent capability, or decides
@@ -1647,6 +1663,7 @@ export async function onPreferencesChange(
     shortcuts: KEY_SHORTCUTS,
     extensionShortcuts: KEY_EXTENSION_SHORTCUTS,
     pinnedModelIds: KEY_PINNED_MODELS,
+    pinnedAgentSessions: KEY_PINNED_AGENT_SESSIONS,
     modelReasoning: KEY_MODEL_REASONING,
     approvalMode: KEY_APPROVAL_MODE,
     approvalRules: KEY_APPROVAL_RULES,

@@ -188,6 +188,7 @@ export async function floatPane(
   onBoardFocus?: (tabId: number, leafId: number) => void,
 ): Promise<void> {
   ensureDestroyedListener();
+  const isNew = !hosts.has(params.leafId);
   // If not currently floating but a host is still registered, it's stale (the
   // window closed and the poll/Destroyed hasn't caught it yet) - tear it down so
   // a fresh window gets a clean host. When already floating, this is a "focus the
@@ -206,13 +207,26 @@ export async function floatPane(
     if (!useFloatStore.getState().floating.has(params.leafId)) hosts.get(params.leafId)?.();
     startPassiveHost(params.leafId);
   }
-  await invoke("open_float_window", {
-    leafId: params.leafId,
-    params: encodeFloatParams(params),
-    title: params.title,
-    width: Math.max(360, Math.round(size.w)),
-    height: Math.max(220, Math.round(size.h)),
-  });
+  try {
+    await invoke("open_float_window", {
+      leafId: params.leafId,
+      params: encodeFloatParams(params),
+      title: params.title,
+      width: Math.max(360, Math.round(size.w)),
+      height: Math.max(220, Math.round(size.h)),
+    });
+  } catch (err) {
+    // No window will ever close this host, and the toggle would keep asking it to.
+    if (isNew) hosts.get(params.leafId)?.();
+    throw err;
+  }
+}
+
+/** True from the moment a float is requested until its window is gone. The toggle
+ *  shortcut asks this rather than `floating`, which a terminal only sets on HELLO:
+ *  pressed again before that, it would re-open instead of docking back. */
+export function isFloatHosted(leafId: number): boolean {
+  return hosts.has(leafId);
 }
 
 /** Ask a leaf's float window to close itself (dock back). It closes on receipt,

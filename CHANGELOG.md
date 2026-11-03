@@ -4,12 +4,43 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [0.4.77] - 03-11-2026
+## [0.4.78] - 03-11-2026
 
-The Browser extension gets these from its 0.4.0, which needs this version.
+The Browser extension gets these from its 0.4.0, which needs this version or newer.
 
 ### Changed
 
+- **Ctrl+D is EOF again in a focused terminal**, so it logs out over SSH and detaches
+  `screen`. Split right is Alt+Shift+D there, and Ctrl+D still splits anywhere else.
+- **A focused terminal keeps every bare Ctrl+letter and Alt+letter**, including Ctrl+P and
+  Ctrl+G, which the file explorer was still taking. Each action on one of those also has a
+  Ctrl+Shift or Alt+Shift chord. A full-screen program (vim, Helix, tmux) keeps
+  Alt+Shift+letter too: Ctrl+Shift+J leaves it, and Ctrl+Shift+P reaches every command.
+- **The keyboard now reaches every main feature.** New chords include: rename tab
+  (Alt+Shift+R), pin (Alt+Shift+P), float a pane (Alt+Shift+O), resize a split (Alt+Shift+Z,
+  then arrows), new workspace (Alt+Shift+W), SSH connections (Alt+Shift+J), reconnect
+  (Alt+Shift+K), remote files (Alt+Shift+L), new AI chat (Alt+Shift+I), chat history
+  (Alt+Shift+H), stop (Alt+Shift+Q), approve or deny a tool call (Alt+Shift+Y and N) and copy
+  the last command with its output (Alt+Shift+C). F6 moves between the app's regions. All of
+  them are listed in Settings > Shortcuts, and the Command Palette also lists extension
+  commands. See [shortcuts.ts](src/modules/shortcuts/shortcuts.ts).
+- **The remote file tree takes arrow keys**, like the local one. See
+  [useTreeKeyNav.ts](src/modules/explorer/lib/useTreeKeyNav.ts).
+
+- **An outside AI CLI now sees one MCP tool instead of 24**, about 140 tokens on each
+  request instead of about 5,200. It tells the agent to use the `tedi` command, and it
+  still runs everything for a client with no shell. Older tool names keep working.
+  Clients can no longer auto-approve read-only tools one by one. TEDI's own agent is
+  unchanged. See [server.mjs](scripts/mcp/server.mjs).
+- **The DevTools port is closed after this update, even where it was on.** Older builds'
+  Install MCP opened it, with no authentication, and no tool needs it now. Generated MCP
+  configs no longer name a port, and terminals no longer inherit `TEDI_DEBUG_PORT`. It can
+  still be switched on in the same dialog.
+- **Each extension now has its own switch in Install MCP**, on by default, and off really
+  means off: its tools, commands, panels and status data are refused. It used to decide
+  only what was advertised, and everything stayed reachable by another route.
+- **`tedi <word>` now means the command when that word is one**, so a folder called
+  `notes` or `ai` opens with `tedi ./notes`.
 - **A browser pane is a raw `wry` webview instead of a Tauri one**, so the page never
   receives Tauri's IPC bootstrap, invoke key or custom protocols. There is nothing to
   cut away any more, and `refuse_browser_panes` and the filter removal are gone with
@@ -18,6 +49,14 @@ The Browser extension gets these from its 0.4.0, which needs this version.
 
 ### Added
 
+- **`tedi <verb>` drives the running window from a shell**: `tedi new-tab .`, `tedi panes`,
+  `tedi sh git status`, `tedi term 3`, `tedi set theme dark`. `tedi tools` lists them all
+  and `tedi help <verb>` shows the arguments. It needs Node on PATH. See
+  [cli.mjs](scripts/mcp/cli.mjs).
+- **More of the app is reachable from MCP and the command line**: rename and pin a pane,
+  open any extension panel, a workspace's view, new, switch and stop for the built-in
+  agent, named theme presets, saved Claude Code and Codex sessions, what extensions show
+  in the status bar, a pane's place on the canvas, SSH port forwards, and files over SFTP.
 - **Browser panes report over WebView2 events** (`browser_watch`): address, title,
   loading, history, favicon, chords pressed in the page, and what only the DevTools
   channel hears. Also `browser_find`, `browser_focus` and `browser_devtools`.
@@ -37,10 +76,40 @@ The Browser extension gets these from its 0.4.0, which needs this version.
 
 ### Fixed
 
+- **Closing a dialog or the Command Palette returns focus to where it was.** It used to
+  land on nothing, and a terminal took no keys until it was clicked. See
+  [use-restore-focus.tsx](src/components/ui/use-restore-focus.tsx).
+- **A split's gutter shows a focus outline**, and row buttons that only appeared on hover
+  now also appear under keyboard focus.
+- **The first command after a clear or a pane resize is recorded**, so its failure pill and
+  Copy last command no longer miss it. See [commandBlocks.ts](src/modules/terminal/lib/commandBlocks.ts).
+- **A tool's image no longer goes into the saved chat.** Each one was megabytes of base64
+  in the session file, along with whatever was on screen. See
+  [sessions.ts](src/modules/ai/lib/sessions.ts).
+- **A mistyped `tedi` command looked like it had worked**, opening nothing and printing
+  nothing. It now says so and suggests what was meant.
+- **On macOS, MCP clients said TEDI was not running while it was.** They never looked in
+  `~/Library/Application Support`, so the pack switches went unread there too.
+- **MCP pack switches could be walked around.** Only the client checked them, so anything
+  holding the bridge token could still change settings or message the built-in agent.
+  The app refuses now. See [mcp_bridge.rs](src-tauri/src/modules/mcp_bridge.rs).
+- **Private panes leaked through the control surface**: a private tab's title in `state`
+  and `read dom`, private editor text in a broad `read dom`, and a private pane's folder
+  as the working directory of a new pane.
+- **A client could drive the wrong TEDI.** With the bridge down it fell back to port 9222,
+  which has no authentication, and answered from whichever app held it.
+- **The bridge token was briefly world-readable on macOS and Linux**, between creating
+  its file and restricting it.
+- **`pane` failed without an API key**, and `close all` reported closing 0 of 0.
+- **A split right after opening a tab reported failure and left a pane behind.**
 - **A `target="_blank"` link in a browser pane did nothing.** With no handler of its
   own, wry answers `SetHandled(true)` and the request vanishes.
 - **A browser pane survives its renderer or browser process dying**, and a page can no
   longer launch an external application without a click.
+
+## [0.4.77] - not published
+
+Built and never released. Everything in it shipped in 0.4.78.
 
 ## [0.4.76] - 31-10-2026
 

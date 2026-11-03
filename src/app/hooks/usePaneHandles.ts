@@ -87,6 +87,9 @@ type Params = {
   | "splitActivePane"
   | "newTab"
   | "setEditorLeafDirty"
+  | "renameLeaf"
+  | "setTabPinned"
+  | "setCanvasRects"
 >;
 
 /**
@@ -110,6 +113,9 @@ export function usePaneHandles({
   splitActivePane,
   newTab,
   setEditorLeafDirty,
+  renameLeaf,
+  setTabPinned,
+  setCanvasRects,
   handleClose,
   requestCloseLeaf,
 }: Params): {
@@ -171,7 +177,10 @@ export function usePaneHandles({
               .filter((l) => !l.private)
               .map((l) => ({
                 tabId: t.id,
-                tabTitle: t.title,
+                // Mirrors the active leaf, so a private one would name itself here.
+                tabTitle: leaves(t.paneTree).some((x) => x.private && x.id === t.activeLeafId)
+                  ? ""
+                  : t.title,
                 leaf: l,
                 active: t.activeLeafId === l.id,
               }))
@@ -392,8 +401,31 @@ export function usePaneHandles({
         void h.save();
         return true;
       },
+      // Same normalisation as the inline rename: blank drops back to the derived name.
+      paneRename: (leafId: number, name: string) => {
+        if (!isPublic(leafId)) return { ok: false, error: `No pane with leafId ${leafId}.` };
+        renameLeaf(
+          leafId,
+          String(name ?? "")
+            .trim()
+            .slice(0, 60) || null,
+        );
+        return { ok: true };
+      },
+      panePin: (leafId: number, pinned = true) => {
+        const hit = publicLeaves().find((p) => p.leaf.id === leafId);
+        if (!hit) return { ok: false, error: `No pane with leafId ${leafId}.` };
+        setTabPinned(hit.tabId, Boolean(pinned));
+        return { ok: true };
+      },
+      // Where a pane sits in the canvas view, in percent of the canvas.
+      panePlace: (leafId: number, rect: { x?: number; y?: number; w?: number; h?: number }) => {
+        if (!isPublic(leafId)) return { ok: false, error: `No pane with leafId ${leafId}.` };
+        setCanvasRects({ [leafId]: rect });
+        return { ok: true };
+      },
     });
-  }, []);
+  }, [renameLeaf, setTabPinned, setCanvasRects]);
 
   const registerEditorHandle = useCallback(
     (leafId: number, h: EditorPaneHandle | null) => {

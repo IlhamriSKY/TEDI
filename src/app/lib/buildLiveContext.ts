@@ -207,6 +207,7 @@ export function buildLiveContext(deps: LiveContextDeps) {
         tabs,
         activeId,
         explorerRoot,
+        home,
         inheritedCwdForNewTab,
         splitActivePane,
         newTab,
@@ -214,6 +215,20 @@ export function buildLiveContext(deps: LiveContextDeps) {
       } = liveContextRef.current;
       const mode = opts.mode ?? "tab";
       const cwd = opts.cwd ?? null;
+      // A private pane's folder must not become a public pane's cwd, which every
+      // listing then reports. By value rather than by "is focus private": the
+      // explorer root and the inherited cwd keep following a private pane after focus
+      // has moved on to a public editor.
+      const privateCwds = new Set(
+        tabs.flatMap((t) =>
+          t.kind === "pane"
+            ? leaves(t.paneTree).flatMap((l) =>
+                l.private && l.leafKind === "terminal" ? [l.cwd] : [],
+              )
+            : [],
+        ),
+      );
+      const publicCwd = (c: string | null | undefined) => (c && !privateCwds.has(c) ? c : null);
       if (mode === "split") {
         const targetTabId = opts.targetTabId ?? activeId;
         const target = tabs.find((x) => x.id === targetTabId);
@@ -229,16 +244,22 @@ export function buildLiveContext(deps: LiveContextDeps) {
           cwd ??
           (() => {
             const active = findLeaf(target.paneTree, target.activeLeafId);
-            return active?.leafKind === "terminal" ? (active.cwd ?? null) : null;
+            return active?.leafKind === "terminal" && !active.private ? (active.cwd ?? null) : null;
           })() ??
-          explorerRoot ??
-          null;
-        const newLeafId = splitActivePane(targetTabId, dir, "terminal", cwdResolved ?? undefined);
+          publicCwd(explorerRoot);
+        // With no override `splitActivePane` copies the active pane's cwd, private or not.
+        const activeIsPrivate = findLeaf(target.paneTree, target.activeLeafId)?.private === true;
+        const newLeafId = splitActivePane(
+          targetTabId,
+          dir,
+          "terminal",
+          cwdResolved ?? (activeIsPrivate ? (home ?? undefined) : undefined),
+        );
         if (newLeafId === null)
           return { ok: false, error: "could not split (active leaf missing or limit reached)" };
         return { ok: true, tabId: targetTabId, leafId: newLeafId, mode: "split" };
       }
-      const targetCwd = cwd ?? explorerRoot ?? inheritedCwdForNewTab();
+      const targetCwd = cwd ?? publicCwd(explorerRoot) ?? publicCwd(inheritedCwdForNewTab());
       try {
         // Both ids, always. Answering `leafId: null` here charged every MCP
         // caller a `state` round trip after each open, purely to rediscover an

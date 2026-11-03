@@ -10,19 +10,28 @@ export type UseGlobalShortcutsOptions = {
   isDisabled?: (id: ShortcutId, e: KeyboardEvent) => boolean;
 };
 
+/**
+ * Only App knows who owns a key, but any component can dispatch ids of its own
+ * (the file explorer's search). Shared across every caller, because each one has
+ * its own listener: one without the gate would fire what App just declined, and
+ * take Ctrl+P from readline in a focused terminal.
+ */
+let sharedIsDisabled: UseGlobalShortcutsOptions["isDisabled"];
+
 export function useGlobalShortcuts(
   handlers: ShortcutHandlers,
   options?: UseGlobalShortcutsOptions,
 ) {
-  const latest = useRef({ handlers, options });
-  latest.current = { handlers, options };
+  if (options?.isDisabled) sharedIsDisabled = options.isDisabled;
+  const latest = useRef(handlers);
+  latest.current = handlers;
 
   // Access the shortcuts from the store
   const userShortcuts = usePreferencesStore((s) => s.shortcuts);
 
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
-      const { handlers, options } = latest.current;
+      const handlers = latest.current;
       for (const s of SHORTCUTS) {
         // Use user-defined bindings if they exist, otherwise use default
         const bindings = userShortcuts[s.id] || s.defaultBindings;
@@ -30,7 +39,7 @@ export function useGlobalShortcuts(
         const isMatch = bindings.some((b) => matchBinding(e, b, s.id));
         if (!isMatch) continue;
 
-        if (options?.isDisabled?.(s.id, e)) return;
+        if (sharedIsDisabled?.(s.id, e)) return;
         const h = handlers[s.id];
         if (!h) return;
         e.preventDefault();
@@ -50,10 +59,10 @@ export function useGlobalShortcuts(
   // the freshest closure.
   const idSig = Object.keys(handlers).sort().join(",");
   useEffect(() => {
-    const ids = Object.keys(latest.current.handlers) as ShortcutId[];
+    const ids = Object.keys(latest.current) as ShortcutId[];
     const invokers = new Map<ShortcutId, ShortcutHandler>();
     for (const id of ids) {
-      const invoke: ShortcutHandler = (e) => latest.current.handlers[id]?.(e);
+      const invoke: ShortcutHandler = (e) => latest.current[id]?.(e);
       invokers.set(id, invoke);
       registerCommand(id, invoke);
     }

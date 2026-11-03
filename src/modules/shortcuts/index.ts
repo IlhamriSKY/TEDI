@@ -2,6 +2,7 @@ export {
   isTerminalControlChord,
   isTerminalMetaChord,
   isVimControlChord,
+  keyboardInTerminal,
   parseKeybindingString,
   SHORTCUTS,
   SHORTCUT_GROUPS,
@@ -12,4 +13,4 @@ export {
 } from "./shortcuts";
 export { useGlobalShortcuts, type ShortcutHandlers } from "./lib/useGlobalShortcuts";
 export { useExtensionShortcuts } from "./lib/useExtensionShortcuts";
-export { runCommand, hasCommand } from "./lib/commandRegistry";
+export { runCommand, runUserCommand, isUserEvent, hasCommand } from "./lib/commandRegistry";

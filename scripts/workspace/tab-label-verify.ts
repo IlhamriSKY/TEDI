@@ -19,7 +19,7 @@
  *
  * Run: `npx tsx scripts/workspace/tab-label-verify.ts`.
  */
-import { buildEntries } from "../../src/modules/tabs/lib/entries";
+import { buildEntries, entryMatches, type Entry } from "../../src/modules/tabs/lib/entries";
 import { leafLabel, leafRenameSeed } from "../../src/modules/tabs/lib/tabHelpers";
 import { savedToTab } from "../../src/modules/workspaces/serialize";
 import type { SavedPaneNode, SavedTab } from "../../src/modules/workspaces/store";
@@ -131,11 +131,11 @@ console.log("\nbut the KIND tag is not the user's to rename away");
   );
   // A panel that has not published a title yet has nothing to derive a tag
   // from. It must not invent one, and it must not throw.
+  check("a title-less panel is renamed bare", leafLabel(extLeaf(undefined, "build")) === "build");
   check(
-    "a title-less panel is renamed bare",
-    leafLabel(extLeaf(undefined, "build")) === "build",
+    "and un-renamed panels are untouched",
+    leafLabel(extLeaf("SQL Explorer · sakila")) === "SQL Explorer · sakila",
   );
-  check("and un-renamed panels are untouched", leafLabel(extLeaf("SQL Explorer · sakila")) === "SQL Explorer · sakila");
 }
 
 console.log("\nthe rename field is seeded WITHOUT the tag");
@@ -143,7 +143,10 @@ console.log("\nthe rename field is seeded WITHOUT the tag");
   const ssh = term(undefined, { sshConnectionId: "c1" }) as PaneLeaf;
   // The bug this pins: both rename surfaces seeded from `label`, so keeping the
   // name and pressing Enter stored "ssh:prod-db" and the tab read ssh:ssh:...
-  check("an un-renamed SSH pane seeds the host name only", leafRenameSeed(ssh, hosts) === "prod-db");
+  check(
+    "an un-renamed SSH pane seeds the host name only",
+    leafRenameSeed(ssh, hosts) === "prod-db",
+  );
   check(
     "and re-committing it unchanged is idempotent",
     leafLabel({ ...ssh, customTitle: leafRenameSeed(ssh, hosts) } as PaneLeaf, hosts) ===
@@ -237,6 +240,17 @@ console.log("\na cold workspace keeps depth-first order");
     "and every id stays out of the live (positive) space",
     neg < 0 && entries.every((e) => e.tabId < 0),
   );
+}
+
+console.log("\n[entryMatches] the Workspaces panel search");
+{
+  const pane = { kind: "pane-leaf", label: "server", cwd: "D:/Work/App" } as Entry;
+  const scm = { kind: "scm", label: "Source Control" } as Entry;
+  check("hits the name", entryMatches(pane, undefined, "serv"));
+  check("hits the program title", entryMatches(pane, "Claude Code", "claude"));
+  check("hits the folder, whatever its case", entryMatches(pane, undefined, "work/app"));
+  check("misses what is in none of them", !entryMatches(pane, "x", "nope"));
+  check("a standalone tab has no folder to miss on", entryMatches(scm, undefined, "source"));
 }
 
 console.log(

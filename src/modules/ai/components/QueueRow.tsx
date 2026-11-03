@@ -29,7 +29,7 @@ export function QueueRow({
                 <button
                   type="button"
                   onClick={() => onRemove(q.id)}
-                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                  className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                   aria-label="Remove from queue"
                 >
                   <X size={10} strokeWidth={2} />

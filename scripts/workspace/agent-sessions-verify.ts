@@ -14,6 +14,9 @@ import {
   groupSessions,
   resumeCommand,
   resumeHint,
+  sessionKey,
+  sessionSections,
+  TERMINAL_SECTION,
   type AgentSession,
 } from "../../src/modules/agentSessions/api";
 
@@ -90,6 +93,91 @@ ok("last night 23:00 is Yesterday", dayBucket(at(30, 23), noon) === "Yesterday")
 ok("four days back is This week", dayBucket(at(27, 9), noon) === "This week");
 ok("three weeks back is This month", dayBucket(at(10, 9), noon) === "This month");
 ok("two months back is Older", dayBucket(new Date(2026, 7, 1).getTime(), noon) === "Older");
+
+console.log("\n[sessionSections] Working and All modes, and pins");
+const here = session({ id: "here", cwd: "D:/work/app", modifiedMs: at(31, 9) });
+const sub = session({ id: "sub", cwd: "D:/work/app/api", modifiedMs: at(31, 8) });
+const away = session({ id: "away", cwd: "D:/other", modifiedMs: at(31, 7) });
+const liveAway = session({ id: "live", cwd: "D:/other", modifiedMs: at(30, 7), live: true });
+const paned = session({ id: "paned", agent: "codex", cwd: "D:/third", modifiedMs: at(10, 7) });
+const every = [here, sub, away, liveAway, paned];
+const ids = (secs: ReturnType<typeof sessionSections>) =>
+  secs.flatMap((sec) => sec.cards.map((c) => c.s.id)).join(",");
+const base = {
+  filter: "",
+  mode: "all" as "all" | "working",
+  activeKey: "d:/work/app" as string | null,
+  terminalKeys: new Set(["d:/work/app"]),
+  openKeys: new Set<string>(),
+  pinnedKeys: new Set<string>(),
+  now: noon,
+};
+const noTerminals = { ...base, activeKey: null, terminalKeys: new Set<string>() };
+ok(
+  "All lists every folder, the terminal's own on top",
+  ids(sessionSections(every, base)) === "here,sub,away,live,paned",
+);
+ok(
+  "All needs no terminal, and then is newest first",
+  ids(sessionSections([paned, away, here], noTerminals)) === "here,away,paned",
+);
+{
+  const secs = sessionSections(every, base);
+  ok(
+    "a terminal's folder and those under it get their own heading",
+    secs[0].label === TERMINAL_SECTION && secs[0].cards.length === 2 && secs[1].label === "Today",
+  );
+  ok(
+    "the indicator follows the folder, and every card names one",
+    secs
+      .flatMap((sec) => sec.cards)
+      .map((c) => `${c.folder}:${c.inTerminal}`)
+      .join(",") === "app:true,api:true,other:false,other:false,third:false",
+  );
+  const two = sessionSections(every, {
+    ...base,
+    activeKey: "d:/third",
+    terminalKeys: new Set(["d:/work/app", "d:/third"]),
+  });
+  ok(
+    "the focused terminal's folder leads the other terminals' folders",
+    ids(two) === "paned,here,sub,away,live" && two[0].cards.length === 3,
+  );
+  ok(
+    "a closed terminal's remembered folder no longer counts",
+    sessionSections([here], { ...base, terminalKeys: new Set() })[0].label !== TERMINAL_SECTION,
+  );
+}
+const working = sessionSections(every, {
+  ...base,
+  mode: "working",
+  openKeys: new Set([sessionKey(paned)]),
+});
+ok("Working lists live and paned sessions from any folder", ids(working) === "live,paned");
+ok(
+  "Working marks a running session outside any terminal's folder",
+  working.flatMap((sec) => sec.cards).every((c) => !c.inTerminal),
+);
+ok(
+  "Working with nothing running is empty",
+  sessionSections([here, away], { ...base, mode: "working" }).length === 0,
+);
+const pinnedAway = sessionSections(every, { ...base, pinnedKeys: new Set([sessionKey(away)]) });
+ok("a pin heads All", ids(pinnedAway) === "away,here,sub,live,paned");
+ok(
+  "pins sit under their own heading",
+  pinnedAway[0].label === "Pinned" && pinnedAway[1].label === TERMINAL_SECTION,
+);
+ok(
+  "Working does not show an idle pin",
+  sessionSections([away], { ...base, mode: "working", pinnedKeys: new Set([sessionKey(away)]) })
+    .length === 0,
+);
+ok(
+  "a pin must still match the search",
+  sessionSections([away], { ...base, filter: "zzz", pinnedKeys: new Set([sessionKey(away)]) })
+    .length === 0,
+);
 
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nAll agent-sessions checks passed.");

@@ -20,6 +20,7 @@ import {
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { IconSwap } from "@/components/IconMorph";
 import { cn } from "@/lib/utils";
+import { OPEN_SSH_MENU_EVENT } from "@/modules/shortcuts/shortcuts";
 import { DESTRUCTIVE_ACTION, TOOLBAR_EXPANDED, TOOLBAR_HOVER } from "@/lib/toolbarButton";
 import { lazy, Suspense, useEffect, useRef, useState } from "react";
 import {
@@ -87,6 +88,30 @@ export function SshMenu({ onConnect }: Props) {
   const copiedTimer = useRef(0);
   useEffect(() => () => window.clearTimeout(copiedTimer.current), []);
 
+  // The `ssh.menu` shortcut. Radix would hand focus to the trigger button on
+  // close, which strands a keyboard user: Esc goes back to where they were, and
+  // connecting leaves focus free for the new terminal to take. A dialog opened
+  // from the menu holds the element until it closes, or focus lands on nothing.
+  const returnFocus = useRef<{ el: HTMLElement | null } | null>(null);
+  const dialogReturn = useRef<HTMLElement | null>(null);
+  const restoreAfterDialog = (e: Event) => {
+    const el = dialogReturn.current;
+    if (!el) return;
+    dialogReturn.current = null;
+    e.preventDefault();
+    el.focus();
+  };
+  useEffect(() => {
+    // Deferred: from the Command Palette, focus only comes back after this returns.
+    const onOpen = () =>
+      queueMicrotask(() => {
+        returnFocus.current ??= { el: document.activeElement as HTMLElement | null };
+        setMenuOpen(true);
+      });
+    window.addEventListener(OPEN_SSH_MENU_EVENT, onOpen);
+    return () => window.removeEventListener(OPEN_SSH_MENU_EVENT, onOpen);
+  }, []);
+
   useEffect(() => {
     void listConnections().then(setConns);
     const unsub = onConnectionsChanged(() => void listConnections().then(setConns));
@@ -139,6 +164,7 @@ export function SshMenu({ onConnect }: Props) {
   };
 
   const onPick = (c: SshConnection) => {
+    if (returnFocus.current) returnFocus.current.el = null;
     setMenuOpen(false);
     onConnect(c);
   };
@@ -195,7 +221,18 @@ export function SshMenu({ onConnect }: Props) {
             </Button>
           </DropdownMenuTrigger>
         </IconTooltip>
-        <DropdownMenuContent align="end" className="w-72 min-w-72">
+        <DropdownMenuContent
+          align="end"
+          className="w-72 min-w-72"
+          onCloseAutoFocus={(e) => {
+            if (!returnFocus.current) return;
+            e.preventDefault();
+            if (editorOpen || backupOpen || confirmDelete)
+              dialogReturn.current = returnFocus.current.el;
+            else returnFocus.current.el?.focus();
+            returnFocus.current = null;
+          }}
+        >
           <DropdownMenuLabel className="text-muted-foreground text-[10px] tracking-wide uppercase">
             SSH connections
           </DropdownMenuLabel>
@@ -208,6 +245,16 @@ export function SshMenu({ onConnect }: Props) {
               <DropdownMenuItem
                 key={c.id}
                 onSelect={() => onPick(c)}
+                // The row's icon buttons cannot take focus inside a menu (Radix
+                // blocks Tab), so each has a key on the row. Listed in the footer.
+                onKeyDown={(e) => {
+                  if (e.key === "F2") openEdit(c);
+                  else if (e.key === "Delete") askDelete(c);
+                  else if (e.key === "Insert" && !e.shiftKey) void openDuplicate(c);
+                  else if (e.key === "c" && e.ctrlKey) void copyLogin(c);
+                  else return;
+                  e.preventDefault();
+                }}
                 // Override Radix's blue focus styling with a muted hover so
                 // the row reads as a list entry, not a primary action.
                 // `[&_span]:text-current!` blocks the parent cascade from
@@ -262,6 +309,11 @@ export function SshMenu({ onConnect }: Props) {
               </DropdownMenuItem>
             ))
           )}
+          {conns?.length ? (
+            <div className="text-muted-foreground px-2 py-1 text-[10px]">
+              F2 edit · Ins duplicate · Del delete · Ctrl+C copy
+            </div>
+          ) : null}
           <DropdownMenuSeparator />
           <DropdownMenuItem onSelect={openAdd} className="gap-2 text-[12px]">
             <Plus size={13} strokeWidth={1.75} />
@@ -288,7 +340,12 @@ export function SshMenu({ onConnect }: Props) {
 
       {editorMounted ? (
         <Suspense fallback={null}>
-          <SshConnectionDialog open={editorOpen} onOpenChange={setEditorOpen} editing={editing} />
+          <SshConnectionDialog
+            open={editorOpen}
+            onOpenChange={setEditorOpen}
+            editing={editing}
+            onCloseAutoFocus={restoreAfterDialog}
+          />
         </Suspense>
       ) : null}
 
@@ -304,6 +361,7 @@ export function SshMenu({ onConnect }: Props) {
               if (!o) setBackup(null);
             }}
             mode={backup}
+            onCloseAutoFocus={restoreAfterDialog}
           />
         </Suspense>
       ) : null}
@@ -314,7 +372,7 @@ export function SshMenu({ onConnect }: Props) {
           if (!open) setConfirmDelete(null);
         }}
       >
-        <AlertDialogContent>
+        <AlertDialogContent onCloseAutoFocus={restoreAfterDialog}>
           <AlertDialogHeader>
             <AlertDialogTitle>Delete connection?</AlertDialogTitle>
             <AlertDialogDescription>

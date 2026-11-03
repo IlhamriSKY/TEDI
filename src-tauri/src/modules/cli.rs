@@ -42,6 +42,141 @@ pub fn is_update_flag(s: &str) -> bool {
     matches!(s, "--update" | "-u")
 }
 
+/// Every `tedi <verb>` answered by `mcp/cli.mjs`: each MCP tool name, each alias
+/// in `cli.mjs`, plus `tools` and `help`. Compared with `-` folded to `_`.
+/// `cli-verify` fails when this and those two tables disagree. A verb wins over a
+/// folder of the same name; `tedi ./notes` still opens that folder.
+const BRIDGE_VERBS: &[&str] = &[
+    "ai",
+    "call",
+    "click",
+    "close",
+    "commands",
+    "drag",
+    "editors",
+    "eval",
+    "eval_js",
+    "extension",
+    "extensions",
+    "focus",
+    "focus_pane",
+    "help",
+    "inspect",
+    "keys",
+    "logs",
+    "new_tab",
+    "notes",
+    "open",
+    "open_file",
+    "pane",
+    "panel",
+    "panes",
+    "pin",
+    "read",
+    "rename",
+    "run",
+    "run_command",
+    "save",
+    "save_editor",
+    "schedule",
+    "session",
+    "screenshot",
+    "sessions",
+    "set",
+    "set_setting",
+    "settings",
+    "sftp",
+    "sh",
+    "shot",
+    "split",
+    "ssh",
+    "state",
+    "status",
+    "term",
+    "tools",
+    "type",
+    "type_text",
+    "unpin",
+    "wait",
+    "wait_for_terminal",
+    "workspace",
+    "workspaces",
+    "worktree",
+];
+
+/// True when `arg` goes to the command line rather than being opened as a path. A
+/// bare word with no such path goes too, which is also how an `ext_*` tool gets
+/// there, since only the running app knows those names. As a path it would just
+/// focus the window and print nothing, so `tedi nwe-tab` looked like it had worked.
+pub fn is_bridge_verb(arg: &str) -> bool {
+    let verb = arg.replace('-', "_");
+    let bare = !arg.starts_with('-')
+        && !verb.is_empty()
+        && verb.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
+    // The binary's own subcommands, handled before this is ever asked.
+    if !bare || matches!(arg, "ext" | "theme" | "cmd") {
+        return false;
+    }
+    BRIDGE_VERBS.contains(&verb.as_str()) || !Path::new(arg).exists()
+}
+
+/// Where `mcp/cli.mjs` sits, as each bundle lays out its resources: beside the
+/// binary on Windows and in a dev build, under `Resources` in a macOS app, under
+/// `lib/<product>` on Linux. Read from the exe's location, never the cwd, so a
+/// folder the user happens to be in cannot supply the script.
+fn bridge_cli_script() -> Option<PathBuf> {
+    let exe = std::env::current_exe().ok()?;
+    let dir = exe.parent()?;
+    [
+        dir.join("mcp"),
+        dir.join("../Resources/mcp"),
+        dir.join("../lib/TEDI/mcp"),
+    ]
+    .into_iter()
+    .map(|d| d.join("cli.mjs"))
+    .find(|p| p.is_file())
+}
+
+/// Run `tedi <verb> ...` to completion and exit with its status.
+///
+/// shortcut: needs Node on PATH, like the MCP server these share their handlers
+/// with. ~150 ms a call measured. A native client would need the tool handlers in
+/// Rust or the webview first, worth it only if Node-less installs ever matter.
+pub fn run_bridge_verb(args: &[String]) -> ! {
+    let Some(script) = bridge_cli_script() else {
+        eprintln!("tedi: mcp/cli.mjs is missing from this install. Reinstall TEDI.");
+        std::process::exit(2);
+    };
+    // The binary knows which profile it belongs to, so a dev `tedi` drives the dev
+    // window whatever the caller's environment says.
+    let status = std::process::Command::new("node")
+        .arg(script)
+        .args(args)
+        .env("TEDI_BUNDLE_ID", crate::modules::ids::BUNDLE_ID)
+        .status();
+    match status {
+        Ok(s) => std::process::exit(s.code().unwrap_or(1)),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            eprintln!("tedi: this command needs Node.js on PATH. https://nodejs.org");
+            std::process::exit(2);
+        }
+        Err(e) => {
+            eprintln!("tedi: could not start node: {e}");
+            std::process::exit(2);
+        }
+    }
+}
+
+/// `tedi <verb>` for the binaries that reach `run()` directly (macOS, Linux, and
+/// `TEDIApp.exe` run by hand; `tedi.exe` routes itself first).
+pub fn handle_bridge_verb_and_exit() {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.first().is_some_and(|a| is_bridge_verb(a)) {
+        attach_parent_console();
+        run_bridge_verb(&args);
+    }
+}
+
 pub fn help_text() -> String {
     use crate::modules::cli_paint::{
         paint_brand as brand, paint_dim as dim, paint_header as header, paint_id as cmd,
@@ -56,6 +191,12 @@ pub fn help_text() -> String {
          {tedi} cmd {id_req}             Run a command id in the running window\n  \
          {tedi} ext {sub}      Manage extensions   {dim_more}\n  \
          {tedi} theme {sub}    Theme + wallpaper   {dim_more_t}\n\
+         \n\
+         {ctl_hdr}\n  \
+         new-tab, split, close, panes, sh, term, wait, run, open, set, ...\n  \
+         tools             Everything you can run, with a line on each\n  \
+         help {verb_arg}       Arguments for one verb\n  \
+         A folder named like a verb opens with ./name\n\
          \n\
          {flags}\n  \
          {h_short}, {h_long}         Show this help and exit\n  \
@@ -85,6 +226,8 @@ pub fn help_text() -> String {
         path = dim("[PATH]"),
         flag = dim("<FLAG>"),
         sub = dim("<subcommand>"),
+        ctl_hdr = header("CONTROL THE RUNNING WINDOW"),
+        verb_arg = dim("<verb>"),
         dim_more = dim("(tedi ext help)"),
         dim_more_t = dim("(tedi theme help)"),
         flags = header("FLAGS"),
@@ -532,6 +675,37 @@ pub fn cli_install_path_shim() -> Result<ShimInstall, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_verb_is_a_bare_word_and_anything_path_shaped_stays_a_path() {
+        for verb in [
+            "state",
+            "new-tab",
+            "new_tab",
+            "wait-for-terminal",
+            "ext_browser",
+            "tools",
+        ] {
+            assert!(is_bridge_verb(verb), "{verb} should be a verb");
+        }
+        // A typo gets told, rather than focusing the window and printing nothing.
+        assert!(is_bridge_verb("nwe-tab-no-such-path"));
+        for path in [
+            ".",
+            "./notes",
+            "src",
+            "notes.txt",
+            "ext_assets/logo.png",
+            "ext",
+            "theme",
+            "cmd",
+            "--help",
+            "-h",
+            "-u",
+        ] {
+            assert!(!is_bridge_verb(path), "{path} should not be a verb");
+        }
+    }
 
     #[test]
     fn command_requested_reads_the_id_after_the_verb() {

@@ -29,7 +29,12 @@ import {
   registerTediSpawnTabHandler,
 } from "./osc-handlers";
 import { createAiCliDetector } from "./aiCliDetector";
-import { createCommandTracker, isFailure, type FinishedCommand } from "./commandBlocks";
+import {
+  createCommandTracker,
+  isFailure,
+  readCommandOutput,
+  type FinishedCommand,
+} from "./commandBlocks";
 import { useFailedCommands } from "./failedCommandStore";
 import { registerFileLinks } from "./fileLinks";
 import type { AiCliKind } from "./aiCliStatus";
@@ -579,6 +584,24 @@ export function clearTerminalScrollback(leafId: number): boolean {
   if (!s || s.term.buffer.active.type === "alternate") return false;
   s.term.clear();
   return true;
+}
+
+export function selectAllInTerminal(leafId: number): void {
+  sessions.get(leafId)?.term.selectAll();
+}
+
+export function scrollTerminalToEdge(leafId: number, edge: "top" | "bottom"): void {
+  const term = sessions.get(leafId)?.term;
+  if (edge === "top") term?.scrollToTop();
+  else term?.scrollToBottom();
+}
+
+/** What the leaf's last finished command printed, or null when the shell has not
+ *  reported one (no shell integration, or nothing has run yet). */
+export function lastCommandOutput(leafId: number): string | null {
+  const s = sessions.get(leafId);
+  const cmd = s?.commands.last();
+  return s && cmd ? readCommandOutput(s.term, cmd, Number.MAX_SAFE_INTEGER) : null;
 }
 
 /** Write raw bytes to a leaf's PTY without React state. Returns false if no live PTY. */

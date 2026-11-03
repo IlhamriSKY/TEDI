@@ -142,6 +142,20 @@ export function SettingsApp() {
     void init();
   }, [init]);
 
+  // Esc closes the window. Bubble phase, after anything nearer has had its say: an
+  // open dialog or menu preventDefaults it, the shortcut recorder stops it at
+  // capture, and a focused field keeps Esc for itself.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Escape" || e.defaultPrevented) return;
+      const el = document.activeElement as HTMLElement | null;
+      if (el?.isContentEditable || el?.tagName === "INPUT" || el?.tagName === "TEXTAREA") return;
+      void getCurrentWebviewWindow().close();
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, []);
+
   // Seed extension contribution registries so the Extensions and Shortcuts
   // tabs can render every installed extension's declarations. The Settings
   // window doesn't activate extensions; `init()` handles non-main-window mode.

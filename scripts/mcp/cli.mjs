@@ -1,255 +1,367 @@
 #!/usr/bin/env node
 /**
- * Human-facing CLI over `driver.mjs`, for driving a running TEDI window by
- * hand and for debugging the driver itself.
+ * `tedi <verb>`: one MCP tool against the running window, then exit.
  *
- * Claude Code does NOT go through here - it talks to `server.mjs`, which holds ONE
- * connection open for a whole session instead of paying an attach/detach per
- * call. Everything below is the same `Driver`, so a verb proven here works
- * there.
+ * WHY THIS EXISTS BESIDE THE MCP SERVER. A connected AI CLI pays for the whole
+ * tool list on every request of the session, whether it drives TEDI or not. A
+ * command costs nothing until it runs, and `tedi help <verb>` shows the schema
+ * only when someone asks.
  *
- * TEDI must have been started with the debug port open:
- *   $env:TEDI_DEBUG_PORT = "9222"; pnpm tauri:dev
+ * There is no second implementation here. Every verb goes through `callTool` in
+ * `server.mjs`, so the pack switches, the validation and the answers are the ones
+ * the MCP server gives, and a new row in `tools.mjs` is a new verb with nothing
+ * else to do. `tedi.exe` (or the app binary elsewhere) routes the verbs named in
+ * `BRIDGE_VERBS` in `cli.rs` here; `cli-verify` keeps the two tables equal.
  *
- * Then, from the repo root:
- *   pnpm mcp state
- *   pnpm mcp cmd pane.splitRight
- *   pnpm mcp sh "git status"
- *   pnpm mcp sweep
+ * From the repo, `pnpm mcp <verb>` is the same thing, but it aims at the RELEASE
+ * profile unless `TEDI_BUNDLE_ID` says otherwise. `targets` and `sweep` are dev
+ * verbs that drive a window over the DevTools port (`pnpm mcp sweep --port 9333`).
+ *
+ * Exit status: 0 answered, 1 the tool or TEDI refused, 2 the command line was wrong.
  */
 
+import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import path from "node:path";
-import { connect, listTargets } from "./driver.mjs";
+import { fileURLToPath } from "node:url";
+import { callTool, closeDriver, listTools, pick } from "./server.mjs";
+import { ALIASES, CLI_EXAMPLES, cliGuide, resolveVerb, TOOL_DEFS, TOOL_NAMES } from "./tools.mjs";
 
-const USAGE = `tedi mcp - drive a running TEDI window
+/**
+ * What bare words fill, by the first word, because one slot list per tool put them
+ * in the wrong place and the handler then ignored them: `tedi workspace create Foo`
+ * filled `id` and made a workspace with no name.
+ */
+const POSITIONAL = {
+  pane: (w) => (w === "open" ? ["action", "cwd"] : ["action", "leafId"]),
+  workspace: (w) => (w === "create" ? ["action", "name"] : ["action", "id", "name"]),
+  extension: () => ["action", "id"],
+  ssh: () => ["action", "id"],
+  sftp: (w) =>
+    w === "rename" ? ["action", "leafId", "remote", "to"] : ["action", "leafId", "remote"],
+  session: () => ["action", "id"],
+  ai: (w) => (w === "send" ? ["action", "text"] : ["action", "sessionId"]),
+  worktree: () => ["action", "branch"],
+  read: (w) => (w === "dom" ? ["source", "selector"] : ["source", "leafId"]),
+  notes: (w) => (/^add_/.test(w) ? ["action", "text"] : ["action", "id", "text"]),
+  schedule: (w) => (w === "cancel" ? ["action", "id"] : ["action", "command"]),
+  inspect: (w) =>
+    w === "sessions" ? ["what", "filter"] : w === "logs" ? ["what", "level"] : ["what"],
+  focus_pane: () => ["leafId"],
+};
 
-seeing
-  targets                        list DevTools targets (also the liveness check)
-  state                          one snapshot: every pane in every tab, focus, dialogs, buttons
-  panes                          every pane in every tab: kind, cwd/path/url, agent, busy
-  extensions                     installed extensions + the commands and panels they add
-  settings                       every preference the app is running on
-  logs [level]                   console output + uncaught errors since connecting
-  term [leafId]                  a terminal's buffer (the only way to read one)
-  editors                        every open editor: path + live buffer, unsaved edits included
-  text <selector>                read the DOM back (tree, dialogs; NOT terminals or long files)
-  shot <file.png>                capture a still
-  eval <js>                      evaluate JS in the window, print the result
+/** A shortcut says for itself; one with fixed arguments and no list takes no words. */
+export function positionalFor(found, argv) {
+  if (found.positional) return found.positional;
+  if (found.args || found.select) return [];
+  return POSITIONAL[found.tool]?.(argv.find((a) => !a.startsWith("--")));
+}
 
-driving
-  commands                       list runnable TEDI command ids
-  cmd <commandId>                run a TEDI command by id
-  ext <extensionId> <commandId>  run a command an extension declared
-  extctl <action> <extensionId>  enable | disable | reload | update | uninstall
-  set <key> <value>              change one preference (see \`settings\`)
-  wait [--leaf n] [--text s]     block until a pane is back at its prompt (or prints s)
-  keys <chord> [chord...]        press chords, e.g. Ctrl+Shift+P
-  type <text>                    type text as real keystrokes, character at a time
-  sh <command>                   run a shell command in a terminal, wait, print the output
-  open <file>                    open a file in the editor by path
-  save [leafId]                  save an editor pane
-  focus <leafId>                 give a pane keyboard focus without clicking it
-  click <selector>               real mouse click at a selector's centre
-  drag <selector> <dx> <dy>      drag a selector (pane splitters resize this way)
+/** Arguments that are a whole line of someone else's syntax. */
+const FREE_TEXT = new Set(["command", "text", "expression"]);
 
-checking
-  sweep                          walk the whole surface and assert a change per area
+/** Of those, the ones a shell or an interpreter will parse again. */
+const PARSED_AGAIN = new Set(["command", "expression"]);
 
-options
-  --port <n>       DevTools port (default $TEDI_DEBUG_PORT or 9222)
-  --target <text>  match a window by url/title substring (default: the main window)
-  --leaf <n>       which pane \`sh\` runs in (default: the focused terminal)
-  --size <WxH>     override the viewport, e.g. 1920x1080
-  --delay <ms>     per-character delay for \`type\` (default 45)
-  --nth <n>        which match to click/drag when a selector hits several
-  --lines <n>      terminal lines to read back (default 200; 60 for \`sh\`)
-  --timeout <ms>   how long \`sh\` waits for the prompt (default 20000; \`wait\` 60000)
-  --text <s>       for \`wait\`: stop when this appears instead of at the prompt
-  --trace          print the stack as well as the message when something fails
-`;
+/** `leaf-id` -> `leafId`. */
+const camel = (s) => s.replace(/-([a-z])/g, (_, c) => c.toUpperCase());
 
-function parseArgs(argv) {
-  const opts = {};
-  const rest = [];
+/** A word from the shell, as the type the schema asks for. */
+function coerce(key, raw, spec) {
+  const type = spec?.type;
+  if (type === "number" || type === "integer") {
+    const n = Number(raw);
+    if (raw === "" || Number.isNaN(n))
+      throw new UsageError(`--${key} wants a number, got "${raw}".`);
+    return n;
+  }
+  if (type === "boolean") {
+    if (raw !== "true" && raw !== "false") throw new UsageError(`--${key} wants true or false.`);
+    return raw === "true";
+  }
+  if (type === "array") {
+    // Commas only split numbers: `Ctrl+,` is one chord, not two.
+    return spec.items?.type === "number" ? raw.split(",").map(Number) : [raw];
+  }
+  if (type === "object") {
+    try {
+      return JSON.parse(raw);
+    } catch {
+      throw new UsageError(`--${key} wants JSON, got: ${raw}`);
+    }
+  }
+  return raw;
+}
+
+class UsageError extends Error {}
+
+/**
+ * Argv after the verb -> tool arguments. Pure, so `cli-verify` can drive it with
+ * no app and no shell. Unknown flags and surplus words are errors: dropping one
+ * silently would run the wrong thing and report success.
+ */
+export function parseArgs(
+  argv,
+  schema,
+  { positional, fixed = {}, cwd = process.cwd(), localPaths = true } = {},
+) {
+  const props = schema?.properties ?? {};
+  // A tool with no declared properties takes anything: an extension's schema may
+  // legitimately be an open object.
+  const open = Object.keys(props).length === 0;
+  const args = { ...fixed };
+  const slots = (positional ?? schema?.required ?? []).filter((k) => !(k in fixed));
+  const words = [];
+  // `tedi sh tail --lines 5 f`: a required free-text argument takes the rest of the
+  // line, like `env` or `ssh`. Reading `--lines` as this tool's own flag would run
+  // `tail f` and cut its answer to 5 lines, which looks exactly like success. Flags
+  // for the tool go first: `tedi sh --leaf-id 3 tail --lines 5 f`.
+  const last = slots.at(-1);
+  const takesRest = FREE_TEXT.has(last) && schema?.required?.includes(last);
+
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a.startsWith("--")) opts[a.slice(2)] = argv[++i];
-    else rest.push(a);
+    if (a === "--" || (takesRest && words.length >= slots.length)) {
+      words.push(...argv.slice(a === "--" ? i + 1 : i));
+      break;
+    }
+    if (!a.startsWith("--")) {
+      words.push(a);
+      continue;
+    }
+    const eq = a.indexOf("=");
+    let flag = camel(eq === -1 ? a.slice(2) : a.slice(2, eq));
+    let inline = eq === -1 ? undefined : a.slice(eq + 1);
+    if (
+      flag.startsWith("no") &&
+      flag.length > 2 &&
+      props[flag[2].toLowerCase() + flag.slice(3)]?.type === "boolean"
+    ) {
+      flag = flag[2].toLowerCase() + flag.slice(3);
+      inline = "false";
+    }
+    const spec = props[flag];
+    if (!spec && !open) {
+      throw new UsageError(
+        `Unknown flag --${flag}. Have: ${Object.keys(props).join(", ") || "(none)"}`,
+      );
+    }
+    if (spec?.type === "boolean" && inline === undefined) {
+      // `--split` alone means true, unless the next word really is the value.
+      inline = argv[i + 1] === "true" || argv[i + 1] === "false" ? argv[++i] : "true";
+    }
+    const raw = inline ?? argv[++i];
+    if (raw === undefined) throw new UsageError(`--${flag} needs a value.`);
+    const value = coerce(flag, raw, spec);
+    args[flag] = Array.isArray(args[flag]) ? [...args[flag], ...value] : value;
   }
-  return { opts, rest };
-}
 
-const { opts, rest } = parseArgs(process.argv.slice(2));
-const [verb, ...args] = rest;
-
-if (!verb || verb === "help" || verb === "--help") {
-  process.stdout.write(USAGE);
-  process.exit(0);
-}
-
-const port = Number(opts.port) || Number(process.env.TEDI_DEBUG_PORT) || 9222;
-
-if (verb === "targets") {
-  const targets = await listTargets(port);
-  for (const t of targets)
-    console.log(`${t.type.padEnd(8)} ${t.title || "(untitled)"}\n         ${t.url}`);
-  process.exit(0);
-}
-
-const d = await connect({ port, target: opts.target });
-
-if (opts.size) {
-  const [w, h] = opts.size.split("x").map(Number);
-  if (!w || !h) throw new Error(`--size wants WxH, got "${opts.size}"`);
-  await d.setViewport(w, h);
-}
-
-const leafOpt = opts.leaf === undefined ? null : Number(opts.leaf);
-
-// `finally`, not a trailing call: a verb that throws must still hand the page
-// target back. A page target accepts ONE DevTools client, so a half-open socket
-// leaves it occupied and the NEXT run hangs on connect with no error at all.
-try {
-  switch (verb) {
-    case "commands":
-      console.log((await d.commands()).join("\n"));
-      break;
-    case "eval":
-      console.log(JSON.stringify(await d.eval(args.join(" ")), null, 2));
-      break;
-    case "cmd":
-      await d.cmd(args[0]);
-      break;
-    case "keys":
-      await d.keys(...args);
-      break;
-    case "type":
-      await d.type(args.join(" "), { delay: Number(opts.delay ?? 45) });
-      break;
-    case "state":
-      console.log(JSON.stringify(await d.state(), null, 2));
-      break;
-    case "panes":
-      console.log(JSON.stringify(await d.panes(), null, 2));
-      break;
-    case "extensions":
-      console.log(JSON.stringify(await d.extensions(), null, 2));
-      break;
-    case "ext": {
-      // A third argument is JSON, for an extension AI TOOL (which takes
-      // arguments and returns data) rather than a command (which takes none).
-      // Both live behind the same id lookup; only the answer differs.
-      const extArgs = args[2] ? JSON.parse(args.slice(2).join(" ")) : undefined;
-      const out = await d.extCommand(args[0], args[1], extArgs);
-      if (!out) {
-        throw new Error(`Nothing answers to "${args[1]}" in ${args[0]} (disabled, or no handler)`);
-      }
-      if (out.kind === "aiTool") console.log(JSON.stringify(out.result, null, 2));
-      break;
-    }
-    case "extctl": {
-      const r = await d.extControl(args[0], args[1]);
-      if (r !== true) throw new Error(String(r));
-      break;
-    }
-    case "settings":
-      console.log(JSON.stringify(await d.settings(), null, 2));
-      break;
-    case "set": {
-      // The value arrives as shell text and is coerced against the
-      // preference's own type on the other side, so `set vimMode true` works
-      // without the caller having to think about JSON.
-      const r = await d.setSetting(args[0], args.slice(1).join(" "));
-      if (r !== true) throw new Error(String(r));
-      break;
-    }
-    case "logs": {
-      const list = d.logs(args[0] ?? null);
-      console.log(list.map((l) => `${l.level}: ${l.text}`).join("\n") || "(nothing logged)");
-      break;
-    }
-    case "wait": {
-      const r = await d.waitTerminal({
-        leafId: leafOpt,
-        text: opts.text ?? null,
-        timeout: Number(opts.timeout ?? 60000),
-      });
-      console.log(`leaf ${r.leafId}: ${r.done ? "done" : "NOT done"} (${r.reason})`);
-      console.log(r.tail);
-      if (!r.done) process.exitCode = 1;
-      break;
-    }
-    case "sh": {
-      const out = await d.sh(args.join(" "), {
-        leafId: leafOpt,
-        lines: Number(opts.lines ?? 60),
-        timeout: Number(opts.timeout ?? 20000),
-      });
-      console.log(out.text);
-      // A TUI legitimately never returns to a prompt, so this is a note, not a
-      // failure - but a caller that reads stdout alone must still be told the
-      // output may be a half-finished command.
-      if (out.timedOut) console.error(`(still running after the timeout, leaf ${out.leafId})`);
-      break;
-    }
-    case "term": {
-      const list = await d.terminals(Number(opts.lines ?? 200));
-      const want = args[0] ? Number(args[0]) : await d.focusedLeaf();
-      const one = list.find((t) => t.leafId === want) ?? list.at(-1);
-      if (!one) throw new Error("No terminal panes are open.");
-      console.log(one.text);
-      break;
-    }
-    case "editors": {
-      const list = await d.editors();
-      for (const e of list) {
-        console.log(`--- leaf ${e.leafId}: ${e.path}${e.truncated ? " (truncated)" : ""}`);
-        console.log(e.text);
-      }
-      if (!list.length) console.log("(no editor panes open)");
-      break;
-    }
-    case "open":
-      await d.openFile(path.resolve(args[0]));
-      break;
-    case "save":
-      await d.editorSave(args[0] ? Number(args[0]) : await d.focusedLeaf());
-      break;
-    case "focus":
-      await d.focusPane(Number(args[0]));
-      break;
-    case "text":
-      console.log(await d.text(args[0], { nth: Number(opts.nth ?? 0) }));
-      break;
-    case "click":
-      await d.click(args[0], { nth: Number(opts.nth ?? 0) });
-      break;
-    case "drag":
-      await d.drag(args[0], Number(args[1]), Number(args[2]), { nth: Number(opts.nth ?? 0) });
-      break;
-    case "shot":
-      console.log(await d.shot(path.resolve(args[0] ?? "shot.png")));
-      break;
-    case "sweep": {
-      // Imported here, not at the top: it is 700 lines of checks that no other
-      // verb needs loaded.
-      const { default: sweep } = await import("./sweep.mjs");
-      const { pass, total } = await sweep(d);
-      if (pass < total) process.exitCode = 1;
-      break;
-    }
-    default:
-      process.stderr.write(`Unknown verb "${verb}"\n\n${USAGE}`);
-      process.exitCode = 1;
+  // The outer shell already removed the quotes, and a space cannot put them back:
+  // `tedi sh rm "my file"` would run `rm my file` and delete two other things.
+  if (
+    PARSED_AGAIN.has(last) &&
+    words.length > slots.length &&
+    words.slice(slots.length - 1).some((w) => w === "" || /\s/.test(w))
+  ) {
+    throw new UsageError(
+      `Your shell removed the quotes, so this cannot run as you wrote it. Quote the whole thing: tedi sh 'rm "my file"'`,
+    );
   }
-} catch (err) {
-  // The message, not a stack. Every error thrown down here is meant for a
-  // person - "this build predates termWrite", "a modal is open and swallows the
-  // click", "leaf 4 is not a terminal" - and a Node stack trace buries all three
-  // under the same wall of frames. `--trace` when the frames are what you want.
-  process.stderr.write(`${err.message}\n`);
-  if (opts.trace !== undefined) process.stderr.write(`${err.stack}\n`);
-  process.exitCode = 1;
-} finally {
-  await d.close();
+
+  words.forEach((word, i) => {
+    const slot = slots[i];
+    if (slot === undefined) {
+      // `tedi sh git status`: extra words belong to a trailing string or list.
+      if (props[last]?.type === "string") {
+        args[last] = `${args[last]} ${word}`;
+        return;
+      }
+      if (props[last]?.type === "array") {
+        args[last] = [...args[last], ...coerce(last, word, props[last])];
+        return;
+      }
+      throw new UsageError(`Did not expect "${word}".`);
+    }
+    args[slot] = coerce(slot, word, props[slot]);
+  });
+
+  // The window has no idea where this shell is standing. Core tools only: to an
+  // extension, `path` may be a URL path or a remote one, and rewriting that would
+  // send a request somewhere nobody asked for.
+  for (const key of localPaths ? ["cwd", "path", "local"] : []) {
+    if (typeof args[key] === "string" && props[key]) {
+      args[key] = path.resolve(cwd, args[key]).replaceAll("\\", "/");
+    }
+  }
+  return args;
+}
+
+function verbHelp(found, def) {
+  const props = def.inputSchema?.properties ?? {};
+  const slots = (positionalFor(found, []) ?? def.inputSchema?.required ?? []).filter(
+    (k) => !(k in (found.args ?? {})),
+  );
+  // A description opens with the actions it applies to ("close / rotate: the pane."),
+  // so a shortcut fixed to one action lists only the flags that action reads.
+  const action = found.args?.action;
+  const applies = (spec) => {
+    const scope = /^([a-z_+ /]+):/.exec(spec.description ?? "")?.[1];
+    return !action || !scope || scope.split(/[ /+]+/).includes(action);
+  };
+  const lines = Object.entries(props)
+    .filter(([k, spec]) => !(k in (found.args ?? {})) && applies(spec))
+    .map(([k, spec]) => {
+      const type = spec.enum ? spec.enum.join(" | ") : (spec.type ?? "any");
+      const flag = k.replace(/[A-Z]/g, (c) => `-${c.toLowerCase()}`);
+      return `  --${flag} <${type}>${spec.description ? `  ${spec.description}` : ""}`;
+    });
+  const usage = ["[flags]", ...slots.map((s) => `<${s}>`)].join(" ");
+  const examples = CLI_EXAMPLES[found.verb] ?? CLI_EXAMPLES[found.tool];
+  const shown = examples ? `\n\nExamples:\n${examples.map((e) => `  ${e}`).join("\n")}` : "";
+  return `tedi ${found.verb.replaceAll("_", "-")} ${usage}\n\n${found.about ?? def.description}\n\n${lines.join("\n")}${shown}\n`;
+}
+
+/** Text as it is; an image block goes to a temp PNG, since a shell cannot show one. */
+function render(out, select) {
+  if (typeof out === "object" && Array.isArray(out?.content)) {
+    return out.content
+      .map((block) => {
+        if (block.type !== "image") return block.text ?? "";
+        const file = path.join(mkdtempSync(path.join(tmpdir(), "tedi-")), "image.png");
+        writeFileSync(file, Buffer.from(block.data, "base64"));
+        return file;
+      })
+      .join("\n");
+  }
+  return select ? pick(out, select) : String(out);
+}
+
+/** Which verb was probably meant: the one a model or a tired hand can act on. */
+export function unknownVerb(verb) {
+  const v = verb.replaceAll("-", "_").toLowerCase();
+  const names = [...Object.keys(ALIASES), ...TOOL_NAMES];
+  const near = names.filter(
+    (n) =>
+      n.includes(v) ||
+      v.includes(n) ||
+      (v.length > 2 && n[0] === v[0] && [...v].filter((c) => n.includes(c)).length >= v.length - 1),
+  );
+  const hint = near.length
+    ? ` Did you mean: ${[...new Set(near)].slice(0, 4).join(", ").replaceAll("_", "-")}?`
+    : "";
+  return `Unknown verb "${verb}".${hint} \`tedi tools\` lists them all. To open a path, write it with a slash: tedi ./${verb}`;
+}
+
+/** Dev verbs: they want a real DevTools connection, not the tool surface. */
+async function devVerb(verb, argv) {
+  const opts = {};
+  for (let i = 0; i < argv.length; i += 2) opts[argv[i].replace(/^--/, "")] = argv[i + 1];
+  const port = Number(opts.port) || Number(process.env.TEDI_DEBUG_PORT) || 9222;
+  const { connect, listTargets } = await import("./driver.mjs");
+  if (verb === "targets") {
+    for (const t of await listTargets(port)) {
+      console.log(`${t.type.padEnd(8)} ${t.title || "(untitled)"}\n         ${t.url}`);
+    }
+    return 0;
+  }
+  const d = await connect({ port, target: opts.target });
+  try {
+    const { default: sweep } = await import("./sweep.mjs");
+    const { pass, total } = await sweep(d);
+    return pass < total ? 1 : 0;
+  } finally {
+    await d.close();
+  }
+}
+
+/** The answer came back, but what was waited for had not finished. Status 1, so
+ *  `tedi wait 5 && deploy` stops; the words are `wait_for_terminal`'s and `sh`'s. */
+export const unfinished = (out) =>
+  typeof out === "string" &&
+  (/^leaf \d+: NOT done /.test(out) || /still running after the timeout\]$/.test(out));
+
+/** Print and leave. Through the write callback because a piped stdout on Windows
+ *  is asynchronous, and exiting first cuts the tail of a long answer. */
+function finish(code, text, stream = code === 0 ? process.stdout : process.stderr) {
+  stream.write(text.endsWith("\n") ? text : `${text}\n`, () => process.exit(code));
+}
+
+async function main(argv) {
+  const [verb, ...rest] = argv;
+  if (verb === "targets" || verb === "sweep") return finish(await devVerb(verb, rest), "");
+
+  // A terminal inherits this from whatever launched TEDI, and to the transport it
+  // reads as a deliberate override. So a command aimed at a profile that was not
+  // running fell through to that port and drove ANOTHER TEDI: real keystrokes into
+  // a live session, reported as success. Which window a verb reaches is decided by
+  // the profile alone.
+  delete process.env.TEDI_DEBUG_PORT;
+
+  if (!verb || verb === "help" || verb === "tools") {
+    const tools = await listTools();
+    const wanted = verb === "help" ? rest[0] : undefined;
+    if (!wanted) return finish(0, cliGuide(tools));
+    const found = resolveVerb(wanted);
+    const def = found && tools.find((t) => t.name === found.tool);
+    if (!def) return finish(2, unknownVerb(wanted));
+    return finish(0, verbHelp(found, def));
+  }
+
+  const found = resolveVerb(verb);
+  if (!found) {
+    return finish(2, unknownVerb(verb));
+  }
+
+  const def = TOOL_DEFS[found.tool] && {
+    inputSchema: TOOL_DEFS[found.tool].schema,
+    description: TOOL_DEFS[found.tool].description,
+  };
+  const schema =
+    def?.inputSchema ?? (await listTools()).find((t) => t.name === found.tool)?.inputSchema;
+
+  // An extension's schema comes from the running app, so none means none of it answers.
+  if (!schema) {
+    return finish(
+      1,
+      `"${found.tool}" is not available: its extension is disabled, switched off in Install MCP, or not installed.`,
+    );
+  }
+
+  // Only straight after the verb: `tedi sh git --help` is a command to run.
+  if (rest[0] === "--help" || rest[0] === "-h") {
+    return finish(0, verbHelp(found, { inputSchema: schema, description: def?.description ?? "" }));
+  }
+
+  // `inspect logs` reports what arrived since this connection started capturing,
+  // and a one-shot process has only just connected. Read once to arm the capture,
+  // wait, read again; a single read would always say nothing was logged.
+  let wait = 0;
+  let argv2 = rest;
+  if (found.verb === "logs") {
+    const at = rest.indexOf("--for");
+    wait = (at === -1 ? 3 : Number(rest[at + 1]) || 3) * 1000;
+    argv2 = rest.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+  }
+
+  const args = parseArgs(argv2, schema, {
+    positional: positionalFor(found, argv2),
+    fixed: found.args,
+    localPaths: Boolean(TOOL_DEFS[found.tool]),
+  });
+  if (wait) {
+    await callTool(found.tool, args);
+    await new Promise((r) => setTimeout(r, wait));
+  }
+  const out = await callTool(found.tool, args);
+  await closeDriver();
+  return finish(unfinished(out) ? 1 : 0, render(out, found.select), process.stdout);
+}
+
+// Real paths on both sides: node runs the main module from its real path, so behind
+// a symlink a plain compare says "imported", and the command does nothing and exits 0.
+const isMain = process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+if (isMain) {
+  main(process.argv.slice(2)).catch((err) => {
+    finish(err instanceof UsageError ? 2 : 1, err.message);
+  });
 }

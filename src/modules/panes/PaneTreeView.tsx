@@ -7,6 +7,7 @@ import {
   Suspense,
   use,
   useCallback,
+  useEffect,
   useMemo,
   useRef,
   useState,
@@ -45,7 +46,7 @@ import {
 import { TERMINAL_PRESETS, type TerminalPalette } from "@/modules/settings/terminalPalette";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setLineWrap } from "@/modules/settings/store";
-import { shortcutHint } from "@/modules/shortcuts/shortcuts";
+import { FLOAT_LEAF_EVENT, shortcutHint } from "@/modules/shortcuts/shortcuts";
 import { ExtensionHeaderItems } from "@/modules/extensions/components/ExtensionHeaderItems";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ErrorBoundary } from "@/components/ErrorBoundary";
@@ -68,7 +69,7 @@ import { leafLabel } from "@/modules/tabs/lib/tabHelpers";
 import type { SshConnection } from "@/modules/ssh/connections";
 import { type AiCliState, type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
-import { closeFloat, floatPane, pushBoardCards } from "./floatHost";
+import { closeFloat, floatPane, isFloatHosted, pushBoardCards } from "./floatHost";
 import { useFloatStore } from "./floatStore";
 import type { FloatLeafParams } from "./floatProtocol";
 import {
@@ -757,6 +758,16 @@ function PaneLeafFrame({
     if (floatParams.kind === "editor") await editorHandleRef.current?.save();
     void floatPane(floatParams, { w: r?.width ?? 720, h: r?.height ?? 480 }, onFocusEntry);
   };
+  // The `pane.float` shortcut. No deps: `doFloat` closes over this render's params.
+  useEffect(() => {
+    const onFloat = (e: Event) => {
+      if ((e as CustomEvent<number>).detail !== node.id) return;
+      if (isFloatHosted(node.id)) closeFloat(node.id);
+      else void doFloat();
+    };
+    window.addEventListener(FLOAT_LEAF_EVENT, onFloat);
+    return () => window.removeEventListener(FLOAT_LEAF_EVENT, onFloat);
+  });
 
   return (
     <div

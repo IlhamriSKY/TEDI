@@ -201,6 +201,7 @@ function BoardCardItem({
     // and the inner one swallows the outer's click. So the card is a plain box
     // holding two SIBLING buttons, with the hover lit from the box via `group`.
     <div
+      data-tab-private={e.kind === "pane-leaf" && e.isPrivate ? "" : undefined}
       className="border-border bg-card hover:bg-accent hover:text-accent-foreground group/card flex w-full flex-col rounded-md border transition-colors"
       title={e.cwd}
     >

@@ -10,6 +10,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { FileTreeNode } from "@/modules/explorer/FileTreeNode";
+import { useTreeKeyNav } from "@/modules/explorer/lib/useTreeKeyNav";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { copyToClipboard } from "@/modules/explorer/lib/contextActions";
 import {
@@ -244,6 +245,17 @@ export function SshFileExplorer({
     [tree, nav, rootPath],
   );
 
+  const { onKeyDown } = useTreeKeyNav({
+    rootPath,
+    tree: treeForNode,
+    selectedPath,
+    setSelectedPath,
+    onOpenFile: (path) => {
+      if (sessionId !== null) onOpenFile?.(path, sessionId, hostLabel);
+    },
+    disabled: collapsed || !!tree.renaming || !!tree.pendingCreate,
+  });
+
   const titleNode = (
     <span className="text-foreground/80 flex min-w-0 flex-1 items-center gap-1.5 truncate text-xs font-medium">
       {accordion ? (
@@ -270,7 +282,13 @@ export function SshFileExplorer({
   const headerActionsVisible = sessionId !== null && rootPath !== null;
 
   return (
-    <div ref={containerRef} className="flex h-full flex-col outline-none">
+    <div
+      ref={containerRef}
+      className="focus-visible:ring-ring flex h-full flex-col outline-none focus-visible:ring-1 focus-visible:ring-inset"
+      role="tree"
+      tabIndex={0}
+      onKeyDown={onKeyDown}
+    >
       <div className="tedi-panel-header">
         {dragHandle}
         <Tooltip>

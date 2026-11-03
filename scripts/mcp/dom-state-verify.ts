@@ -93,30 +93,57 @@ function closest(n: StubNode | undefined, sel: string): StubNode | null {
   return null;
 }
 
+const descendants = (n: StubNode): StubNode[] =>
+  (n.children ?? []).flatMap((c) => [c, ...descendants(c)]);
+
+const textOf = (n: StubNode): string =>
+  n.textContent ?? n.innerText ?? (n.children ?? []).map(textOf).join("");
+
+function cloneTree(n: StubNode, parent?: StubNode): StubNode {
+  const copy: StubNode = { ...n, parent, children: [] };
+  copy.children = (n.children ?? []).map((c) => cloneTree(c, copy));
+  return copy;
+}
+
 function wrap(n: StubNode): Record<string, unknown> {
   return {
     tagName: n.tag.toUpperCase(),
     innerText: n.innerText ?? "",
-    textContent: n.textContent ?? n.innerText ?? "",
+    get textContent() {
+      return textOf(n);
+    },
     classList: { contains: (c: string) => n.classes?.includes(c) ?? false },
     getAttribute: (k: string) => n.attrs[k] ?? null,
     hasAttribute: (k: string) => k in n.attrs,
+    matches: (sel: string) => matches(n, sel),
+    cloneNode: () => wrap(cloneTree(n)),
+    remove: () => {
+      if (n.parent) n.parent.children = n.parent.children?.filter((c) => c !== n);
+    },
     closest: (sel: string) => {
       const hit = closest(n, sel);
       return hit ? wrap(hit) : null;
     },
     querySelector: (sel: string) => {
-      const hit = (n.children ?? []).find((c) => matches(c, sel));
+      const hit = descendants(n).find((c) => matches(c, sel));
       return hit ? wrap(hit) : null;
     },
-    querySelectorAll: (sel: string) => (n.children ?? []).filter((c) => matches(c, sel)).map(wrap),
+    querySelectorAll: (sel: string) =>
+      descendants(n)
+        .filter((c) => matches(c, sel))
+        .map(wrap),
     getBoundingClientRect: () => ({ width: 240 }),
   };
 }
 
 // --- the scene -------------------------------------------------------------
-const root = el("div");
+const root = el("div", { "data-scene-root": "" });
 const tabNode = el("div", { "data-tab-id": "1" }, { innerText: "3\nbuild\nbuild" }, root);
+// A private tab on its own, and a split where only one chip is private.
+el("div", { "data-tab-id": "2", "data-tab-private": "" }, { innerText: "4\nsecret-tab" }, root);
+const splitTab = el("div", { "data-tab-id": "3" }, {}, root);
+el("div", { "data-entry-key": "a" }, { innerText: "5\nshown" }, splitTab);
+el("div", { "data-entry-key": "b", "data-tab-private": "" }, { innerText: "6\nhidden" }, splitTab);
 const pub = el("div", { "data-pane-leaf": "3" }, {}, root);
 el("div", {}, { classes: ["xterm-screen"] }, pub);
 const priv = el("div", { "data-pane-leaf": "9", "data-pane-private": "" }, {}, root);
@@ -164,6 +191,12 @@ check(
   "a selector landing inside a private pane is refused",
   (await callBridge("text", [".cm-content", 0])) === null,
 );
+const bodyText = String(await callBridge("text", ["[data-scene-root]", 0]));
+check(
+  "a selector CONTAINING a private pane or tab chip leaves their text out",
+  !/secret|hidden/.test(bodyText) && bodyText.includes("build"),
+  bodyText,
+);
 check(
   "a selector matching nothing is null",
   (await callBridge("text", ["[data-nope]", 0])) === null,
@@ -198,8 +231,12 @@ check(
   s.leaves,
 );
 check(
-  "a split tab's repeated label is deduped and the bare leaf number dropped",
-  JSON.stringify(s.tabs) === JSON.stringify([{ id: 1, label: "build" }]),
+  "labels are deduped, bare leaf numbers dropped, and private chips absent",
+  JSON.stringify(s.tabs) ===
+    JSON.stringify([
+      { id: 1, label: "build" },
+      { id: 3, label: "shown" },
+    ]),
   s.tabs,
 );
 check("toasts counts the dismiss buttons", s.toasts === 1, s.toasts);

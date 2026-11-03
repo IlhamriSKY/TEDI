@@ -240,7 +240,7 @@ if (!/extensionToolKey/.test(tediSrc)) {
 // ERR_MODULE_NOT_FOUND before the first request - and it is invisible in dev,
 // where node resolves against the repo and everything is present. `transport`
 // and `socket` were both missing for exactly that reason.
-console.log("\n[bundle] every module server.mjs imports is a bundle resource");
+console.log("\n[bundle] every module server.mjs and cli.mjs import is a bundle resource");
 
 const reachable = new Set<string>();
 async function collectImports(file: string): Promise<void> {
@@ -250,6 +250,7 @@ async function collectImports(file: string): Promise<void> {
   for (const m of src.matchAll(/from "\.\/([A-Za-z0-9_.-]+)"/g)) await collectImports(m[1]);
 }
 await collectImports("server.mjs");
+await collectImports("cli.mjs");
 
 const conf = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8")) as {
   bundle: { resources: Record<string, string> };

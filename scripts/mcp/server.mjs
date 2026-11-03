@@ -27,12 +27,19 @@
  */
 
 import path from "node:path";
-import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath } from "node:url";
 import { makeTransport } from "./transport.mjs";
 import { tediDataFiles } from "./socket.mjs";
-import { TOOL_DEFS, TOOL_NAMES, validateArgs, extToolMedia } from "./tools.mjs";
+import {
+  TOOL_DEFS,
+  TOOL_NAMES,
+  cliGuide,
+  resolveVerb,
+  validateArgs,
+  extToolMedia,
+} from "./tools.mjs";
 
 /**
  * True only when this file is the process entry point. `scripts/mcp/driver-verify.ts`
@@ -40,7 +47,7 @@ import { TOOL_DEFS, TOOL_NAMES, validateArgs, extToolMedia } from "./tools.mjs";
  * running TEDI, and an import that hijacked the console and started reading stdin
  * would hang that check forever.
  */
-const isMain = process.argv[1] && pathToFileURL(process.argv[1]).href === import.meta.url;
+const isMain = process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
 
 // STDOUT IS THE PROTOCOL. `Driver` and `sweep` both print progress, and one
 // stray line corrupts the JSON-RPC stream in a way that reads as the server
@@ -62,24 +69,24 @@ if (isMain) console.log = console.info = console.warn = console.debug = console.
  *
  * So: the env var still wins (the Install button writes both together, and a
  * developer's explicit override must not be second-guessed), then the
- * `automationPort` the NAMED profile actually stores, and only then the default.
- * `null` means that profile has the channel switched off, which
- * `makeTransport` reports as such rather than silently reaching for 9222.
+ * `automationChannelPort` the NAMED profile actually stores, and nothing after that.
+ * `null` means that profile has no channel, which `makeTransport` reports as
+ * such. A default of 9222 outlived its reason: no tool needs the port now, and
+ * with the bridge down it answered "TEDI is not running" by driving whichever
+ * other TEDI held 9222, over a port with no authentication.
  */
-const DEFAULT_CDP_PORT = 9222;
 
 /**
  * The rule on its own, so `driver-verify` can check it without an app or a
  * settings file. `env` is the raw `TEDI_DEBUG_PORT`, `stored` the named
- * profile's `automationPort` (null when the file has no such key).
+ * profile's `automationChannelPort` (null when the file has no such key).
  */
 export function resolveCdpPort(env, stored) {
   const fromEnv = Number(env);
   if (fromEnv) return fromEnv;
   // 0 is what the UI writes for "off"; absent means this profile has never been
   // wired up. Both are "no channel here", not "try the usual port".
-  if (stored === 0) return null;
-  return stored ?? DEFAULT_CDP_PORT;
+  return stored || null;
 }
 
 const cdpPort = () => resolveCdpPort(process.env.TEDI_DEBUG_PORT, currentSurface().port);
@@ -152,6 +159,10 @@ const HANDLERS = {
         return json(await d.settings());
       case "workspaces":
         return json(await d.workspaces());
+      case "status":
+        return json(await d.statusItems());
+      case "sessions":
+        return json(await d.agentSessions(a.filter ?? null));
       case "logs": {
         // Awaited because the transport proxy is uniformly async (see
         // `transport.mjs`); `logs` itself is a synchronous read of the CDP
@@ -163,7 +174,7 @@ const HANDLERS = {
       }
       default:
         throw new Error(
-          `Unknown "what": ${a.what}. Have: commands, extensions, settings, workspaces, logs.`,
+          `Unknown "what": ${a.what}. Have: commands, extensions, settings, workspaces, logs, status, sessions.`,
         );
     }
   },
@@ -336,8 +347,21 @@ const HANDLERS = {
         if (r !== true) throw new Error(String(r));
         return `queued for the built-in agent: ${a.text.slice(0, 80)}`;
       }
+      case "new":
+        return `started chat ${await d.aiNew()}`;
+      case "switch": {
+        if (!a.sessionId) throw new Error("switch needs `sessionId` (from `ai status`).");
+        const r = await d.aiSwitch(a.sessionId);
+        if (r !== true) throw new Error(String(r));
+        return `switched to chat ${a.sessionId}`;
+      }
+      case "stop":
+        await d.aiStop();
+        return "stopped the built-in agent";
       default:
-        throw new Error(`Unknown action: ${a.action}. Have: status, read, send.`);
+        throw new Error(
+          `Unknown action: ${a.action}. Have: status, read, send, new, switch, stop.`,
+        );
     }
   },
 
@@ -365,13 +389,38 @@ const HANDLERS = {
       if (!r?.ok) throw new Error(String(r?.error ?? "could not remove"));
       return `removed workspace ${a.id}`;
     }
-    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename, remove.`);
+    if (a.action === "view") {
+      if (!a.view) throw new Error('workspace "view" needs `view`.');
+      const r = await d.workspaceView(a.id, a.view);
+      if (!r?.ok) throw new Error(String(r?.error ?? "could not change the view"));
+      return `workspace ${a.id} now shows ${a.view}`;
+    }
+    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename, remove, view.`);
+  },
+
+  sftp: async (d, a) => {
+    const r = await d.sftp(a.leafId, a);
+    return typeof r === "string" ? r : json(r);
+  },
+
+  session: async (d, a) => {
+    const r = await d.agentSession(a);
+    if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+    return json(r);
   },
 
   ssh: async (d, a) => {
     if (a.action === "list") return json(await d.sshConnections());
+    if (a.action === "forward") {
+      if (a.leafId === undefined || !a.remoteHost || !a.remotePort) {
+        throw new Error("forward needs `leafId`, `remoteHost` and `remotePort`.");
+      }
+      const r = await d.sshForward(a.leafId, a.localPort ?? 0, a.remoteHost, a.remotePort);
+      if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+      return json(r);
+    }
     if (a.action !== "connect")
-      throw new Error(`Unknown action: ${a.action}. Have: list, connect.`);
+      throw new Error(`Unknown action: ${a.action}. Have: list, connect, forward.`);
     if (!a.id) throw new Error("connect needs `id` (from `ssh list`).");
     // Opening the tab is not the job - working in it is. Without the leafId the
     // caller has a live session it cannot address. The opener answers with it
@@ -437,6 +486,9 @@ const HANDLERS = {
           if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
           tabId = r.tabId;
           out.push(r);
+          // Let the tab commit: the next open reads committed state, and against a
+          // stale pane count the updater refuses a split this has already answered for.
+          if (i < count - 1) await new Promise((r) => setTimeout(r, 60));
         }
         return json(out);
       }
@@ -478,9 +530,36 @@ const HANDLERS = {
         if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
         return json(r);
       }
+      case "rename": {
+        if (a.leafId === undefined) throw new Error("rename needs `leafId`.");
+        const r = await d.paneRename(a.leafId, a.name ?? "");
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return a.name ? `leaf ${a.leafId} is now "${a.name}"` : `leaf ${a.leafId} name reset`;
+      }
+      case "pin": {
+        if (a.leafId === undefined) throw new Error("pin needs `leafId`.");
+        const r = await d.panePin(a.leafId, a.pinned !== false);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return `${a.pinned === false ? "unpinned" : "pinned"} the tab of leaf ${a.leafId}`;
+      }
+      case "place": {
+        if (a.leafId === undefined) throw new Error("place needs `leafId`.");
+        const rect = Object.fromEntries(
+          ["x", "y", "w", "h"].filter((k) => typeof a[k] === "number").map((k) => [k, a[k]]),
+        );
+        const r = await d.panePlace(a.leafId, rect);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return `leaf ${a.leafId} placed`;
+      }
+      case "panel": {
+        if (!a.extensionId) throw new Error("panel needs `extensionId`.");
+        const r = await d.panelOpen(a.extensionId, a.panelId ?? null);
+        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
+        return json(r);
+      }
       default:
         throw new Error(
-          `Unknown action: ${a.action}. Have: open, close, group, rotate, consolidate.`,
+          `Unknown action: ${a.action}. Have: open, close, group, rotate, consolidate, rename, pin, place, panel.`,
         );
     }
   },
@@ -514,17 +593,16 @@ export const TOOLS = Object.fromEntries(
 
 // --- what this server offers -----------------------------------------------
 //
-// The tool list is loaded into EVERY request of a connected CLI for the whole
-// session, so it is a standing bill and the user gets to decide how big it is.
-// The switches live in TEDI's header (Install MCP); this end only reads the
-// answer off disk, exactly as Rust reads `automationPort`.
+// What may run. An outside CLI is advertised only `GATEWAY_TOOL`, and these decide
+// what the rest of the table will answer. The switches live in TEDI's header (Install MCP); this end only reads the
+// answer off disk, exactly as Rust reads `automationChannelPort`.
 //
 // The PACK TABLE deliberately is not here. This file ships as a bundle resource
 // with only `driver.mjs` beside it and cannot import from `src/`, so the UI
 // owns the pack -> tools mapping and writes the resolved flat list. A second
 // copy here would drift the first time a tool was renamed.
 
-/** `{ disabledTools, extensions }`, or the permissive default when the file is
+/** `{ disabled, disabledExtensions, port }`, or the permissive default when the file is
  *  absent or unreadable. Never throws: a surface setting must not be able to
  *  stop the server from starting. */
 function readSurface() {
@@ -533,16 +611,18 @@ function readSurface() {
       const j = JSON.parse(readFileSync(file, "utf8"));
       return {
         disabled: new Set(Array.isArray(j.mcpDisabledTools) ? j.mcpDisabledTools : []),
-        extensions: Array.isArray(j.mcpExtensionPacks) ? j.mcpExtensionPacks : [],
+        disabledExtensions: new Set(
+          Array.isArray(j.mcpDisabledExtensions) ? j.mcpDisabledExtensions : [],
+        ),
         // Read HERE because this is already the file that says which app we are
         // configured for - see `cdpPort` for why that matters.
-        port: typeof j.automationPort === "number" ? j.automationPort : null,
+        port: typeof j.automationChannelPort === "number" ? j.automationChannelPort : null,
       };
     } catch {
       // Missing file, unreadable, or not JSON: try the next candidate.
     }
   }
-  return { disabled: new Set(), extensions: [], port: null };
+  return { disabled: new Set(), disabledExtensions: new Set(), port: null };
 }
 
 /**
@@ -568,7 +648,7 @@ function currentSurface() {
 }
 
 /**
- * An enabled extension pack's AI tools, advertised as real MCP tools.
+ * Every enabled extension's AI tools, as verbs and as gateway tools.
  *
  * Cached to disk, because `tools/list` is usually the FIRST thing a client asks
  * and Claude Code launches this server at session start - often before TEDI is
@@ -576,36 +656,35 @@ function currentSurface() {
  * the answer survive a cold start. Prefixed `ext_` so an extension can never
  * shadow one of ours.
  */
-// KEYED BY BUNDLE ID, like the settings file and the bridge socket. A single
-// fixed name in the shared temp dir meant a dev profile's cold start served the
-// RELEASE profile's extension tool list and routed `ext_*` calls from it - the
-// same "one profile has to decide both halves" bug as the CDP port, one
-// directory over. It also let any other local user pre-plant the file.
-const CACHE = path.join(
-  tmpdir(),
-  `tedi-mcp-ext-tools-${(process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi").replace(/[^a-zA-Z0-9._-]/g, "_")}.json`,
-);
+// BESIDE THE SETTINGS FILE, so per profile and per user. A fixed name in the
+// shared temp dir served one profile's tool list to another, and on Linux let any
+// other local account pre-plant the file: `/tmp` is shared and the name is
+// predictable, and what it holds becomes tool descriptions an agent reads.
+const extCacheFile = () =>
+  tediDataFiles("tedi-settings.json")
+    .find((file) => existsSync(file))
+    ?.replace(/tedi-settings\.json$/, "mcp-ext-tools.json");
 
 async function extensionTools() {
-  if (!currentSurface().extensions.length) return { list: [], live: true };
+  const cache = extCacheFile();
   let installed = null;
   let live = true;
   try {
     installed = await (await tedi()).extensions();
-    writeFileSync(CACHE, JSON.stringify(installed));
+    if (cache) writeFileSync(cache, JSON.stringify(installed));
   } catch {
     live = false;
     // TEDI is not up yet. Serve the last snapshot rather than silently
     // dropping a pack the user switched on.
     try {
-      installed = JSON.parse(readFileSync(CACHE, "utf8"));
+      installed = JSON.parse(readFileSync(cache, "utf8"));
     } catch {
       return { list: [], live: false };
     }
   }
-  const wanted = new Set(currentSurface().extensions);
+  const off = currentSurface().disabledExtensions;
   const list = (installed ?? [])
-    .filter((e) => wanted.has(e.id))
+    .filter((e) => !off.has(e.id))
     .flatMap((e) =>
       (e.aiTools ?? []).map((t) => ({
         name: `ext_${t.name}`,
@@ -668,7 +747,7 @@ function ensureExtIndex() {
   // `surface.disabled`, so nothing else caught it - the exact bypass the switch
   // exists to prevent); turning one ON never advertised its tools, because the
   // promise had already resolved.
-  const key = [...currentSurface().extensions].sort().join(",");
+  const key = [...currentSurface().disabledExtensions].sort().join(",");
   // A DISK-FALLBACK ANSWER IS NOT CACHEABLE. Claude Code launches this server at
   // session start, routinely before TEDI is open, so the first `tools/list`
   // answers from the snapshot - and keying only on the pack list froze that
@@ -689,10 +768,9 @@ function ensureExtIndex() {
       // ~12s after a window reload advertised nothing; ~30s in it advertised
       // all 21 actions.
       //
-      // So a pack that is switched ON and resolved to NOTHING is treated as an
-      // answer still on its way. It retries at most once per `tools/list` or
-      // `tools/call`, and stops the moment tools appear.
-      extIndexLive = live && (list.length > 0 || currentSurface().extensions.length === 0);
+      // So resolving to NOTHING is treated as an answer still on its way. It
+      // retries at most once per call, and stops the moment tools appear.
+      extIndexLive = live && list.length > 0;
       return {
         advertised: list.map(({ _ext, ...rest }) => rest),
         routes: new Map(list.map((t) => [t.name, t._ext])),
@@ -712,11 +790,69 @@ function ensureExtIndex() {
   return extIndexPromise;
 }
 
-async function listTools() {
+export async function listTools() {
   return [...coreToolList(), ...(await ensureExtIndex()).advertised];
 }
 
-async function callTool(name, args) {
+/**
+ * All an outside AI CLI is offered: one tool that points at `tedi <verb>`.
+ *
+ * The full table cost ~5k tokens on every request of every connected session,
+ * whether it touched TEDI or not, and a command costs nothing until it runs. This
+ * tool is the way to learn that, and the way in for a client with no shell.
+ * The switches and validation are untouched: everything lands in `callTool`.
+ *
+ * What it gives up: per-tool annotations. A client that auto-approved `state` as
+ * read-only now sees one tool and asks, the same as for a shell command.
+ */
+export const GATEWAY_TOOL = {
+  name: "tedi",
+  description:
+    "Drive the running TEDI window: panes, terminals, editors, workspaces, settings, extensions, " +
+    "SSH and its built-in agent. With a shell, run `tedi <verb>` instead: `tedi tools` lists the " +
+    "verbs, `tedi help <verb>` shows the arguments. Without one, call this: `verb` is a tool name, " +
+    '`args` its arguments; verb "tools" lists them, and "help" with args.verb shows a schema.',
+  inputSchema: {
+    type: "object",
+    properties: { verb: { type: "string" }, args: { type: "object" } },
+    required: ["verb"],
+  },
+};
+
+const INSTRUCTIONS =
+  "Control the running TEDI window with the `tedi` command from your shell. `tedi panes` shows " +
+  "what is open, `tedi tools` lists every verb, `tedi help <verb>` shows its arguments. If `tedi` " +
+  "is not on PATH, use the `tedi` tool here the same way.";
+
+/** One key of a JSON answer, for a shortcut like `panes`. */
+export const pick = (out, key) => json(JSON.parse(out)[key] ?? null);
+
+/**
+ * The gateway's own verbs, then anything the `tedi` command takes, shortcuts
+ * included: the instructions promise "the same way", and an agent on a machine
+ * without the command on PATH will call `new-tab` because that is what it read.
+ */
+export async function callGateway(a) {
+  const verb = String(a?.verb ?? "");
+  if (verb === "tools") return cliGuide(await listTools());
+  if (verb === "help") {
+    const found = resolveVerb(a?.args?.verb ?? "");
+    const tool = found && (await listTools()).find((t) => t.name === found.tool);
+    if (!tool) throw new Error(`Unknown verb "${a?.args?.verb ?? ""}". verb "tools" lists them.`);
+    return json({ ...tool, fixedArgs: found.args });
+  }
+  const found = resolveVerb(verb);
+  if (!found) throw new Error(`Unknown verb "${verb}". verb "tools" lists them.`);
+  const out = await callTool(found.tool, { ...found.args, ...a?.args });
+  return found.select ? pick(out, found.select) : out;
+}
+
+/** Hand the connections back. For `cli.mjs`, whose process ends after one call. */
+export async function closeDriver() {
+  await driver?.close().catch(() => {});
+}
+
+export async function callTool(name, args) {
   const surface = currentSurface();
 
   // THE SWITCH IS ENFORCED HERE, NOT IN `tools/list`.
@@ -738,9 +874,10 @@ async function callTool(name, args) {
     );
   }
 
-  // Only when a pack is actually enabled: otherwise this would connect to TEDI
-  // just to learn there is nothing to route.
-  const routed = surface.extensions.length ? (await ensureExtIndex()).routes.get(name) : undefined;
+  // Only for an extension's name: anything else has nothing to route, and must not
+  // connect to TEDI to learn that.
+  const isExt = String(name).startsWith("ext_");
+  const routed = isExt ? (await ensureExtIndex()).routes.get(name) : undefined;
   if (routed) {
     const d = await tedi();
     const out = await d.extCommand(routed.extensionId, routed.tool, args ?? {});
@@ -757,6 +894,11 @@ async function callTool(name, args) {
         { type: "image", data: media.data, mimeType: media.mimeType },
       ],
     };
+  }
+  if (isExt) {
+    throw new Error(
+      `"${name}" is not available: its extension is disabled, switched off in Install MCP, or not installed.`,
+    );
   }
   const tool = TOOLS[name];
   if (!tool) {
@@ -848,9 +990,7 @@ export function discoverResult() {
     resultType: "complete",
     supportedVersions: ALL_PROTOCOL_VERSIONS,
     capabilities: { tools: { listChanged: false } },
-    instructions:
-      "TEDI's own MCP surface: read and drive its panes, terminals, editors, SSH, workspaces, " +
-      "scheduler, notes and extensions. Call `state` first - it names the leafIds the other tools take.",
+    instructions: INSTRUCTIONS,
     _meta: { "io.modelcontextprotocol/serverInfo": SERVER_INFO },
   };
 }
@@ -908,6 +1048,7 @@ async function handle(msg) {
         // not-yet-ready extension answer, so there is nothing to notify about
         // rather than a notification we quietly fail to send.
         capabilities: { tools: { listChanged: false } },
+        instructions: INSTRUCTIONS,
         // `title` is the display name the client shows (Implementation.title,
         // 2025-11-25); `name` stays the programmatic id. Older clients ignore it.
         serverInfo: SERVER_INFO,
@@ -918,13 +1059,19 @@ async function handle(msg) {
       // `resultType: "complete"` ONLY for a modern request. A legacy tools/list
       // result stays byte-identical to what shipped, so a strict legacy client
       // cannot be tripped by a field it never expected.
-      const result = { tools: await listTools() };
+      const result = { tools: [GATEWAY_TOOL] };
       return reply(modern ? { resultType: "complete", ...result } : result);
     }
     case "tools/call": {
       let result;
       try {
-        const out = await callTool(msg.params?.name, msg.params?.arguments);
+        // Old names still answer: a session that listed before this change keeps
+        // working, and they are what `tedi tools` and the gateway name anyway.
+        const name = msg.params?.name;
+        const out =
+          name === GATEWAY_TOOL.name
+            ? await callGateway(msg.params?.arguments)
+            : await callTool(name, msg.params?.arguments);
         // A handler may answer with ready-made content blocks (an image) instead
         // of a string; everything else is still wrapped as one text block.
         result =

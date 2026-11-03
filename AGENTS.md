@@ -102,10 +102,12 @@ Load-bearing. Breaking one is a bug, not a style question.
   If it decides what the agent may do or where credentials go, also add it to
   `AGENT_DENIED_PREFS`, so an agent cannot grant it to itself.
 - **New shortcut**: an entry in `SHORTCUTS` (`shortcuts/shortcuts.ts`), handled by
-  id in `App.tsx`. A focused terminal keeps its own control chords.
-- **New MCP tool**: its name, description and JSON Schema go in
-  `scripts/mcp/tools.mjs`, which BOTH servers read. A capability registered with
-  `registerBridge` (`automation/bridge.ts`) then serves both transports at once.
+  id in `shortcutHandlers.ts`. A focused terminal keeps bare Ctrl+letter and Alt+letter, so
+  such an action also needs a Mod+Shift or Alt+Shift chord (`keybindings-collision-verify`).
+- **New MCP tool**: name, description and JSON Schema in `scripts/mcp/tools.mjs`, read by
+  BOTH servers; a `registerBridge` capability (`automation/bridge.ts`) serves both transports.
+  Add the name to `BRIDGE_VERBS` (`cli.rs`), and a switchable pack's capability to
+  `GATED_CAPABILITIES` (`mcp_bridge.rs`). Outside CLIs see one gateway tool, then `tedi <verb>`.
 - **Extension API change**: `host.ts`, then `extensions/tedi.d.ts`, which `tsc`
   checks for drift. A new OPTION field on an existing method also needs a
   `HOST_FEATURES` entry, or an older host silently ignores it.

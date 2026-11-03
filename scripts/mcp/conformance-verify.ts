@@ -84,8 +84,14 @@ console.log("\n[discover] the DiscoverResult shape the spec requires");
 {
   const d = discoverResult();
   check("resultType is complete", d.resultType === "complete");
-  check("supportedVersions is the full list", JSON.stringify(d.supportedVersions) === JSON.stringify(ALL_PROTOCOL_VERSIONS));
-  check("capabilities.tools.listChanged is declared false", d.capabilities?.tools?.listChanged === false);
+  check(
+    "supportedVersions is the full list",
+    JSON.stringify(d.supportedVersions) === JSON.stringify(ALL_PROTOCOL_VERSIONS),
+  );
+  check(
+    "capabilities.tools.listChanged is declared false",
+    d.capabilities?.tools?.listChanged === false,
+  );
   check("identity is under the modern _meta key", d._meta?.[INFO]?.name === "tedi");
 }
 
@@ -96,7 +102,11 @@ const replies = await roundtrip([
     jsonrpc: "2.0",
     id: 1,
     method: "initialize",
-    params: { protocolVersion: "2025-06-18", capabilities: {}, clientInfo: { name: "p", version: "0" } },
+    params: {
+      protocolVersion: "2025-06-18",
+      capabilities: {},
+      clientInfo: { name: "p", version: "0" },
+    },
   },
   // 2. MODERN discovery.
   { jsonrpc: "2.0", id: 2, method: "server/discover", params: { _meta: { [META]: "2026-07-28" } } },
@@ -113,13 +123,19 @@ console.log("\n[legacy] the initialize handshake is unchanged");
   const r = replies.get(1)?.result;
   check("echoes the client's supported version", r?.protocolVersion === "2025-06-18");
   check("declares tools.listChanged: false", r?.capabilities?.tools?.listChanged === false);
-  check("serverInfo carries name + title", r?.serverInfo?.name === "tedi" && r?.serverInfo?.title === "TEDI");
+  check(
+    "serverInfo carries name + title",
+    r?.serverInfo?.name === "tedi" && r?.serverInfo?.title === "TEDI",
+  );
 }
 
 console.log("\n[modern] server/discover answers over the wire");
 {
   const r = replies.get(2)?.result;
-  check("resultType complete + supportedVersions", r?.resultType === "complete" && Array.isArray(r?.supportedVersions));
+  check(
+    "resultType complete + supportedVersions",
+    r?.resultType === "complete" && Array.isArray(r?.supportedVersions),
+  );
   check("advertises 2026-07-28", r?.supportedVersions?.includes("2026-07-28"));
 }
 
@@ -127,7 +143,10 @@ console.log("\n[modern] an unsupported version is -32022, not a silent downgrade
 {
   const e = replies.get(3)?.error;
   check("code is -32022", e?.code === -32022);
-  check("data.supported lists what we speak", Array.isArray(e?.data?.supported) && e.data.supported.includes("2026-07-28"));
+  check(
+    "data.supported lists what we speak",
+    Array.isArray(e?.data?.supported) && e.data.supported.includes("2026-07-28"),
+  );
   check("data.requested echoes the bad version", e?.data?.requested === "1900-01-01");
 }
 
@@ -135,9 +154,28 @@ console.log("\n[resultType] present for modern, ABSENT for legacy (no break)");
 {
   const legacy = replies.get(4)?.result;
   const mod = replies.get(5)?.result;
-  check("legacy tools/list has NO resultType", legacy && !("resultType" in legacy), Object.keys(legacy ?? {}));
+  check(
+    "the instructions name the command",
+    /tedi tools/.test(replies.get(1)?.result?.instructions ?? ""),
+    replies.get(1)?.result,
+  );
+  check(
+    "an outside CLI is offered one tool, and it is short",
+    legacy?.tools?.length === 1 &&
+      legacy.tools[0].name === "tedi" &&
+      JSON.stringify(legacy.tools[0]).length < 800,
+    legacy?.tools?.map((t: { name: string }) => t.name),
+  );
+  check(
+    "legacy tools/list has NO resultType",
+    legacy && !("resultType" in legacy),
+    Object.keys(legacy ?? {}),
+  );
   check("modern tools/list HAS resultType complete", mod?.resultType === "complete");
-  check("both still return the same tools", JSON.stringify(legacy?.tools) === JSON.stringify(mod?.tools));
+  check(
+    "both still return the same tools",
+    JSON.stringify(legacy?.tools) === JSON.stringify(mod?.tools),
+  );
 }
 
 if (failed > 0) throw new Error(`${failed} conformance check(s) failed`);

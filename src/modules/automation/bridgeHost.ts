@@ -35,6 +35,8 @@ import "@/modules/scm/worktreeAutomation";
 // notes and todos over MCP - the panel the in-app agent already reads through
 // its native `notes_read` / `notes_write`. Side-effect import, same as above.
 import "@/modules/notes/notesAutomation";
+// Registers `agentSessions`, the saved Claude Code and Codex sessions behind `inspect sessions`.
+import "@/modules/agentSessions/api";
 
 type BridgeCall = { callId: string; name: string; args?: unknown[] };
 

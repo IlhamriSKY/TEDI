@@ -25,10 +25,10 @@ import { useEffect, useRef } from "react";
 
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { commandsRegistry, keybindingsRegistry } from "@/modules/extensions/registries";
-import { focusedTerminalLeafId } from "@/modules/terminal";
 
 import {
   coreShortcutFor,
+  keyboardInTerminal,
   isTerminalControlChord,
   isTerminalMetaChord,
   matchBinding,
@@ -55,10 +55,7 @@ export function useExtensionShortcuts(): void {
       if (declared.length === 0) return;
 
       // (1) A focused terminal owns its control codes and meta sequences.
-      if (
-        (isTerminalControlChord(e) || isTerminalMetaChord(e)) &&
-        focusedTerminalLeafId() !== null
-      ) {
+      if ((isTerminalControlChord(e) || isTerminalMetaChord(e)) && keyboardInTerminal(false)) {
         return;
       }
 

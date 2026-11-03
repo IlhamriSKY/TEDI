@@ -486,7 +486,7 @@ function SessionRow({
           aria-label="Delete session"
           className={cn(
             DESTRUCTIVE_ACTION,
-            "cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100",
+            "cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
           )}
         >
           <Trash2 size={11} strokeWidth={2} />

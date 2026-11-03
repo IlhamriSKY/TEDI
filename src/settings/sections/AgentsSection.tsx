@@ -397,7 +397,7 @@ function AgentCard({
             "Use agent"
           )}
         </Button>
-        <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100">
           {onEdit ? (
             <IconTooltip label="Edit" side="top">
               <Button

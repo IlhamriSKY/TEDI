@@ -102,7 +102,7 @@ subsystems, flat files for single-purpose ones).
 | `cli_ext/`                                            | Headless `tedi ext` CLI: `list`/`install`/`update` against the public registry, plus local `create`/`types`/`validate` for authoring.                                              |
 | `browser/`                                            | Browser panes: a RAW `wry` child webview per pane with no Tauri IPC (`native.rs`), placed on the pane's rect, reporting over WebView2 events, driven over the DevTools Protocol in-process (`cdp.rs`), with a native request and cosmetic blocker (`blocker.rs`) and Chrome extensions from the Web Store (`extensions.rs`). Windows only. |
 | `mcp_bridge.rs`, `local_socket.rs`, `mcp_devtools.rs` | The local socket (named pipe / unix socket) an outside AI CLI drives a running window through, plus the in-process CDP the MCP tools use instead of an automation port.            |
-| `automation.rs`                                       | Reads `automationPort` from the settings file at startup, because WebView2 fixes its browser arguments before the first webview exists.                                            |
+| `automation.rs`                                       | Reads `automationChannelPort` from the settings file at startup, because WebView2 fixes its browser arguments before the first webview exists.                                            |
 | `chatgpt_auth.rs`                                     | OAuth PKCE sign-in with a ChatGPT account (loopback listener, refresh token straight to the keychain).                                                                             |
 | `claude_sessions.rs`, `codex_sessions.rs`             | AI Sessions sidebar backend. Claude: a 64 KB tail read per transcript (titles sit at the end). Codex: only through `codex app-server`.                                             |
 | `snapshot.rs`                                         | Watches the OS screenshot folders by directory mtime, and starts native file drags out of the preview card.                                                                        |
@@ -146,7 +146,7 @@ lives in 23 self-contained modules.
 | `notes/`          | The user's own notes and todos panel; one action handler shared by the agent and the MCP `notes` tool.                                       |
 | `snapshot/`       | Screenshot preview card with a native drag-out.                                                                                              |
 | `automation/`     | The capability bridge: one registry of everything an outside driver can call in-realm.                                                       |
-| `mcpInstall/`     | The Install MCP button: registers the stdio server with the installed AI CLIs, global or per-project.                                        |
+| `mcpInstall/`     | The Install MCP button: registers the stdio server with the installed AI CLIs, global or per-project. That server advertises one tool pointing at `tedi <verb>`.                                        |
 | `updater/`        | In-app updater UI on top of `tauri-plugin-updater`.                                                                                          |
 | `extensions/`     | The extension host: install UI, permission-gated `ctx` API, contribution registries.                                                         |
 

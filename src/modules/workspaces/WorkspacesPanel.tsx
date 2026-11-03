@@ -1,10 +1,11 @@
+import { PanelSearchInput } from "@/components/PanelSearchInput";
 import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, HEADER_TOGGLE_ACTIVE, HEADER_TOGGLE_IDLE } from "@/lib/toolbarButton";
 import { type Tab } from "@/modules/tabs";
-import { buildEntries } from "@/modules/tabs/lib/entries";
+import { buildEntries, entryMatches } from "@/modules/tabs/lib/entries";
 import { localOps } from "@/modules/scm/api";
 import { WorktreeDialog } from "@/modules/scm/components/WorktreeDialog";
 import { openWorktree } from "@/modules/scm/worktreeBridge";
@@ -30,7 +31,7 @@ import { memo, useCallback, useMemo, useState, type ReactNode, type RefObject } 
 import { countSavedTabEntries, restoreTabs } from "./serialize";
 import { SortableWorkspaceRow, type EntryRow } from "./WorkspaceRow";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
-import { Folder, LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, X } from "lucide-react";
+import { Folder, LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, Search, X } from "lucide-react";
 
 type Props = {
   /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
@@ -182,6 +183,14 @@ function WorkspacesPanelInner({
   const [dragId, setDragId] = useState<string | null>(null);
   // Which workspace rows are expanded to reveal their tabs (session-only).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [search, setSearch] = useState("");
+  const query = search.trim().toLowerCase();
+  // Clears too: a closed box must not keep narrowing the list out of sight.
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setSearch("");
+  };
 
   /**
    * Worktrees per PROJECT FOLDER, loaded when a workspace row is expanded rather
@@ -300,6 +309,18 @@ function WorkspacesPanelInner({
         <LayoutDashboard size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
         <span className="tedi-header-divider" aria-hidden />
+        <IconTooltip label="Search workspaces" side="bottom">
+          <Button
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+            aria-label="Search workspaces"
+            aria-pressed={searchOpen}
+            variant="ghost"
+            size="icon"
+            className={cn("size-6", searchOpen ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE)}
+          >
+            <Search size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
         <IconTooltip label="New workspace" side="bottom">
           <Button
             onClick={onCreate}
@@ -351,6 +372,14 @@ function WorkspacesPanelInner({
           </IconTooltip>
         ) : null}
       </div>
+      {searchOpen ? (
+        <PanelSearchInput
+          value={search}
+          onChange={setSearch}
+          onClose={closeSearch}
+          placeholder="Search workspaces and tabs"
+        />
+      ) : null}
       <ScrollArea className="min-h-0 flex-1">
         <DndContext
           sensors={sensors}
@@ -363,24 +392,38 @@ function WorkspacesPanelInner({
             {/* pr-2.5 reserves the 10px Radix ScrollArea overlay-thumb width so the
                 row's rename/close buttons and tab-count pill clear the scrollbar. */}
             <ul className="p-1 pr-2.5">
+              {query &&
+              !workspaces.some(
+                (w) =>
+                  w.name.toLowerCase().includes(query) ||
+                  rowsFor(w).some((r) => entryMatches(r.entry, r.title, query)),
+              ) ? (
+                <li className="text-muted-foreground px-2 py-3 text-xs">No matches.</li>
+              ) : null}
               {workspaces.map((w) => {
                 // Built once per row: the tab list and the worktree lookups read
                 // the same entries.
                 const rows = rowsFor(w);
+                // A name hit keeps the row as it was. A hit on a tab alone opens
+                // the row and lists just the tabs that hit.
+                const byTab = !!query && !w.name.toLowerCase().includes(query);
+                if (byTab && !rows.some((r) => entryMatches(r.entry, r.title, query))) return null;
                 return (
                   <SortableWorkspaceRow
                     key={w.id}
                     workspace={w}
                     isActive={w.id === activeId}
                     isEditing={editingId === w.id}
-                    isExpanded={expanded.has(w.id)}
+                    isExpanded={byTab || expanded.has(w.id)}
                     draft={draft}
                     tabCount={tabCounts?.[w.id] ?? countSavedTabEntries(w.tabs)}
                     rows={rows}
+                    rowQuery={byTab ? query : ""}
                     canClose={workspaces.length > 1}
                     // Editing a name needs an interactive input, so suspend drag
                     // for the row - whether it is the workspace name or a tab's.
-                    sortable={editingId !== w.id && renamingLeafId === null}
+                    // A filtered list has no true neighbours to reorder against.
+                    sortable={editingId !== w.id && renamingLeafId === null && !query}
                     onSwitch={onSwitch}
                     onClose={onClose}
                     onStartEdit={startEdit}

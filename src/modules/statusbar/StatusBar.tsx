@@ -178,6 +178,7 @@ function StatusBarInner({
 
   return (
     <footer
+      data-focus-region="statusbar"
       className={cn(
         "border-border/60 bg-card/60 flex h-8 shrink-0 items-center justify-between gap-3 border-t px-3 text-[11px]",
         dragging && "sb-dragging",

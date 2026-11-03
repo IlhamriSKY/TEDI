@@ -131,7 +131,7 @@ export function SessionHistoryDialog() {
                         aria-label={`Delete ${s.title || "session"}`}
                         className={cn(
                           DESTRUCTIVE_ACTION,
-                          "shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100",
+                          "shrink-0 cursor-pointer rounded p-1 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
                         )}
                       >
                         <X size={11} strokeWidth={2} />

@@ -44,6 +44,7 @@ import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import {
   isTerminalControlChord,
   isTerminalMetaChord,
+  keyboardInTerminal,
   isVimControlChord,
   useExtensionShortcuts,
   useGlobalShortcuts,
@@ -81,7 +82,7 @@ import type { SearchAddon } from "@xterm/addon-search";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
-import { togglePanelOpen } from "@/app/lib/panelSize";
+import { expandIfShut, togglePanelOpen } from "@/app/lib/panelSize";
 import { buildShortcutHandlers, saveEditorLeaf } from "./lib/shortcutHandlers";
 import { useApplyZoom } from "./hooks/useApplyZoom";
 import { useRightPanelExclusion } from "./hooks/useRightPanelExclusion";
@@ -305,6 +306,10 @@ export default function App() {
     if (useSidebarPlacementStore.getState().placement.ai !== "left") {
       useChatStore.getState().openPanel();
     }
+  }, []);
+  const revealAiColumn = useCallback(() => {
+    const onLeft = useSidebarPlacementStore.getState().placement.ai === "left";
+    expandIfShut(onLeft ? sidebarRef.current : rightSlotRef.current);
   }, []);
 
   // When the active workspace is closed, activeId is reassigned to a
@@ -906,6 +911,13 @@ export default function App() {
         activeLeafIdInTab,
         activeLeafKindCurrent,
         commandPaletteOpen: commandPaletteHandler,
+        switchToWorkspace,
+        createNewWorkspace,
+        revealAiColumn,
+        reorderTabs,
+        setTabPinned,
+        toggleMdPreviewForLeaf,
+        hasComposer,
       }),
     [
       activeId,
@@ -927,6 +939,13 @@ export default function App() {
       toggleRightSlot,
       openScmTab,
       commandPaletteHandler,
+      switchToWorkspace,
+      createNewWorkspace,
+      revealAiColumn,
+      reorderTabs,
+      setTabPinned,
+      toggleMdPreviewForLeaf,
+      hasComposer,
     ],
   );
 
@@ -986,10 +1005,37 @@ export default function App() {
       if (
         id === "terminal.prevCommand" ||
         id === "terminal.nextCommand" ||
-        id === "terminal.clear"
+        id === "terminal.clear" ||
+        id === "terminal.selectAll" ||
+        id === "terminal.copyLastOutput" ||
+        id === "terminal.scrollTop" ||
+        id === "terminal.scrollBottom"
       ) {
         const leafId = focusedTerminalLeafId();
         return leafId === null || !!terminalRefs.current.get(leafId)?.isAltScreen();
+      }
+
+      // A full-screen program keeps its function and page keys (htop's F6, vim's
+      // Ctrl+PageUp) and Alt+Shift+letter (Helix's A-J). Mod+Shift+J still gets out
+      // of one, and Mod+Shift+P still reaches every command.
+      if (
+        e.key === "F6" ||
+        e.key === "PageUp" ||
+        e.key === "PageDown" ||
+        (e.altKey && e.shiftKey && e.code.startsWith("Key"))
+      ) {
+        const leafId = focusedTerminalLeafId();
+        if (leafId !== null && terminalRefs.current.get(leafId)?.isAltScreen()) return true;
+      }
+
+      // An editor keeps Alt+Shift+Arrow (select syntax); only a
+      // terminal needs that form of pane focus, an editor has Ctrl+[ and Ctrl+].
+      if (
+        (id === "pane.focusNext" || id === "pane.focusPrev") &&
+        e.altKey &&
+        document.activeElement?.closest(".cm-editor")
+      ) {
+        return true;
       }
 
       // An extension's own CodeMirror owns the two find chords while it has
@@ -1006,22 +1052,21 @@ export default function App() {
       // every bare-Alt meta sequence (readline M-b / M-f / M-d / M-1..9). On
       // Win/Linux `Mod`=Ctrl, so those chords otherwise fire app actions (close
       // tab, ask AI, word-wrap, …) and the byte never reaches the shell. Let
-      // them fall through. Exceptions: pane.splitRight (Ctrl+D) always fires,
-      // while ai.askSelection (Ctrl+L) fires only when the focused local or SSH
-      // terminal has selected text. With no selection Ctrl+L still reaches the
-      // shell as clear-screen. pane.splitDown already passes because it carries
-      // Shift. Terminal-safe app chords keep Shift/Meta or add a second modifier
-      // (Ctrl+Shift+C copy, Ctrl+Shift+X close, Ctrl+Alt+P, Shift+Alt+F) and stay
-      // active; Ctrl+Tab / Ctrl+digit / zoom are not control codes either.
+      // them fall through. One exception: ai.askSelection (Ctrl+L) fires when the
+      // local or SSH terminal has selected text; with none Ctrl+L still reaches
+      // the shell as clear-screen. Every action on a bare chord has a second one
+      // with Shift (see `SHORTCUTS`), so this costs a terminal user nothing. Keyed
+      // off real focus, so the same chords still work from the composer or a tree.
+      if (!keyboardInTerminal(activeLeafKindCurrent === "terminal")) return false;
+      // Editor actions mean nothing here, so a TUI gets Ctrl+Shift+S, Shift+Alt+F.
+      if (id.startsWith("editor.")) return true;
       return (
-        id !== "pane.splitRight" &&
         !(
           id === "ai.askSelection" &&
           activeLeafIdInTab !== null &&
           !activeLeafCurrent?.private &&
           !!terminalRefs.current.get(activeLeafIdInTab)?.getSelection()?.trim()
         ) &&
-        activeLeafKindCurrent === "terminal" &&
         (isTerminalControlChord(e) || isTerminalMetaChord(e))
       );
     },
@@ -1049,6 +1094,9 @@ export default function App() {
     splitActivePane,
     newTab,
     setEditorLeafDirty,
+    renameLeaf,
+    setTabPinned,
+    setCanvasRects,
   });
 
   // AI live-context (`setLive`) + schedule-trigger engine bridges. Both read

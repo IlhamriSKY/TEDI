@@ -71,6 +71,7 @@ import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { TOOL_DEFS, validateArgs } from "@mcp/tools.mjs";
 import { readSettings, usePreferencesStore, writeSetting } from "@/modules/settings/preferences";
+import { getMcpSurface } from "@/modules/settings/store";
 import { extensionToolKey } from "../tools/toolKey";
 import { controlExtension, listExtensions, runExtensionCommand } from "@/modules/extensions/store";
 import { listCommands, runCommand } from "@/modules/shortcuts/lib/commandRegistry";
@@ -103,6 +104,12 @@ export type TediMcpDeps = {
  * number, so the same call costs the same on either transport.
  */
 const MAX_RESULT_CHARS = 20000;
+
+/** The extension switches in Install MCP, for this transport. The socket refuses in
+ *  Rust; this side has no socket, so it asks here. Read per call: it is rare. */
+async function extensionOff(id: unknown): Promise<boolean> {
+  return (await getMcpSurface()).disabledExtensions.includes(String(id));
+}
 
 /** MCP replies are content blocks. Everything here answers with one JSON block. */
 function json(value: unknown) {
@@ -295,21 +302,26 @@ async function waitTerminal(
  * caller. Advertising any of them would charge for the same thing twice.
  */
 const HANDLERS: Record<string, Handler> = {
-  inspect: async ({ what }) => {
+  inspect: async ({ what, filter }) => {
     if (what === "commands") return json({ commands: listCommands() });
     if (what === "extensions") return json(listExtensions());
     if (what === "settings") return json(readSettings());
     if (what === "workspaces") return json({ workspaces: listWorkspacesForAgent() });
+    if (what === "status") return json(await bridge("statusItems"));
+    if (what === "sessions") return json(await bridge("agentSessions", filter ?? null));
     // `logs` is in the shared schema because the stdio server reads the DevTools
     // console over CDP. There is no in-realm twin, and inventing one that
     // returned an empty list would read as "nothing was logged".
     return fail(
-      'inspect "logs" reads the DevTools console, which only the stdio MCP server can do. From here, use commands, extensions or settings.',
+      'inspect "logs" reads the DevTools console, which only the stdio MCP server can do. From here, use commands, extensions, settings, workspaces, status or sessions.',
     );
   },
 
   run_command: async ({ id, extensionId, args }) => {
     if (extensionId) {
+      if (await extensionOff(extensionId)) {
+        return fail(`${String(extensionId)} is switched off in TEDI's MCP settings.`);
+      }
       // An extension's AI tool is reachable TWO ways: as its own tool key, and
       // through here. The tool picker could only ever remove the first, so
       // switching one off hid it and left it callable by name - the same bug
@@ -351,12 +363,14 @@ const HANDLERS: Record<string, Handler> = {
     return ok === true ? json({ ok: true, opened: p }) : fail(`Could not open "${p}".`);
   },
 
-  workspace: async ({ action, id, name }) => {
+  workspace: async ({ action, id, name, view }) => {
     // The action first, so an unrecognised one is named as such rather than
     // falling through to "needs `id`", which sends the caller to fix the wrong
     // argument.
-    if (!["switch", "create", "rename", "remove"].includes(String(action))) {
-      return fail(`Unknown action "${String(action)}". Have: switch, create, rename, remove.`);
+    if (!["switch", "create", "rename", "remove", "view"].includes(String(action))) {
+      return fail(
+        `Unknown action "${String(action)}". Have: switch, create, rename, remove, view.`,
+      );
     }
     if (action === "create") {
       const r = await bridge<{ ok: boolean; wsId?: string; error?: string }>(
@@ -373,6 +387,15 @@ const HANDLERS: Record<string, Handler> = {
     if (action === "remove") {
       const r = await bridge<{ ok: boolean; error?: string }>("workspaceRemove", String(id));
       return r.ok ? json({ ok: true, removed: id }) : fail(String(r.error));
+    }
+    if (action === "view") {
+      if (!view) return fail('workspace "view" needs `view`.');
+      const r = await bridge<{ ok: boolean; error?: string }>(
+        "workspaceView",
+        String(id),
+        String(view),
+      );
+      return r.ok ? json({ ok: true, id, view }) : fail(String(r.error));
     }
     if (!name) return fail('workspace "rename" needs `name`.');
     const r = await bridge<{ ok: boolean; error?: string }>(
@@ -393,7 +416,26 @@ const HANDLERS: Record<string, Handler> = {
     return r === true ? json({ ok: true, action, id }) : fail(String(r));
   },
 
-  ssh: async ({ action, id, private: isPrivate }, deps) => {
+  ssh: async (
+    { action, id, private: isPrivate, leafId: forwardLeaf, localPort, remoteHost, remotePort },
+    deps,
+  ) => {
+    if (action === "forward") {
+      if (forwardLeaf === undefined || !remoteHost || !remotePort) {
+        return fail("forward needs `leafId`, `remoteHost` and `remotePort`.");
+      }
+      return json(
+        unwrap(
+          await bridge<PaneResult | string>(
+            "sshForward",
+            Number(forwardLeaf),
+            Number(localPort ?? 0),
+            String(remoteHost),
+            Number(remotePort),
+          ),
+        ),
+      );
+    }
     const conns = await listConnections();
     if (action === "list") {
       return json({
@@ -654,7 +696,25 @@ const HANDLERS: Record<string, Handler> = {
         );
   },
 
-  pane: async ({ action, leafId, leafIds, tabId, cwd, split, dir, count, all }) => {
+  pane: async ({
+    action,
+    leafId,
+    leafIds,
+    tabId,
+    cwd,
+    split,
+    dir,
+    count,
+    all,
+    name,
+    pinned,
+    extensionId,
+    panelId,
+    x,
+    y,
+    w,
+    h,
+  }) => {
     switch (action) {
       case "open": {
         const n = Math.min(Math.max(Number(count ?? 1), 1), 6);
@@ -673,6 +733,9 @@ const HANDLERS: Record<string, Handler> = {
           );
           intoTab = Number(r.tabId);
           opened.push(r);
+          // Let the tab commit: the next open reads committed state, and against a
+          // stale pane count the updater refuses a split this has already answered for.
+          if (i < n - 1) await new Promise((r) => setTimeout(r, 60));
         }
         return json({ opened });
       }
@@ -729,8 +792,42 @@ const HANDLERS: Record<string, Handler> = {
           ),
         );
       }
+      case "rename": {
+        if (leafId === undefined) return fail("rename needs `leafId`.");
+        return json(
+          unwrap(
+            await bridge<PaneResult | string>("paneRename", Number(leafId), String(name ?? "")),
+          ),
+        );
+      }
+      case "pin": {
+        if (leafId === undefined) return fail("pin needs `leafId`.");
+        return json(
+          unwrap(await bridge<PaneResult | string>("panePin", Number(leafId), pinned !== false)),
+        );
+      }
+      case "place": {
+        if (leafId === undefined) return fail("place needs `leafId`.");
+        const rect = Object.fromEntries(
+          Object.entries({ x, y, w, h }).filter(([, v]) => typeof v === "number"),
+        );
+        return json(unwrap(await bridge<PaneResult | string>("panePlace", Number(leafId), rect)));
+      }
+      case "panel": {
+        if (!extensionId) return fail("panel needs `extensionId`.");
+        if (await extensionOff(extensionId)) {
+          return fail(`${String(extensionId)} is switched off in TEDI's MCP settings.`);
+        }
+        return json(
+          unwrap(
+            await bridge<PaneResult | string>("panelOpen", String(extensionId), panelId ?? null),
+          ),
+        );
+      }
       default:
-        return fail(`Unknown action "${action}". Have: open, close, group, rotate, consolidate.`);
+        return fail(
+          `Unknown action "${action}". Have: open, close, group, rotate, consolidate, rename, pin, place, panel.`,
+        );
     }
   },
 };

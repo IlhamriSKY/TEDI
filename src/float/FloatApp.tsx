@@ -1,6 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { emit, listen } from "@tauri-apps/api/event";
+import { IS_MAC } from "@/lib/platform";
 import type { EditorPaneHandle } from "@/modules/editor";
 import { decodeFloatParams, floatEv, type FloatCards } from "@/modules/panes/floatProtocol";
 import type { PaneEntry } from "@/modules/tabs/lib/entries";
@@ -60,6 +61,21 @@ export function FloatApp() {
     const un = listen(floatEv.close(leafId), () => void closeWindow());
     return () => void un.then((fn) => fn());
   }, [leafId, closeWindow]);
+
+  // Mod+Shift+W, the main window's terminal-safe close: docks the pane back, and
+  // saves first, which is why it goes through `closeWindow`. The app's shortcut
+  // catalog is not live in this window. Capture, or a focused xterm would eat it.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.code !== "KeyW" || !e.shiftKey || e.altKey) return;
+      if (!(IS_MAC ? e.metaKey : e.ctrlKey)) return;
+      e.preventDefault();
+      e.stopPropagation();
+      void closeWindow();
+    };
+    window.addEventListener("keydown", onKey, { capture: true });
+    return () => window.removeEventListener("keydown", onKey, { capture: true });
+  }, [closeWindow]);
 
   return (
     <div className="bg-background text-foreground flex h-screen w-screen flex-col overflow-hidden">

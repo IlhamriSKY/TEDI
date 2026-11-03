@@ -20,7 +20,7 @@ import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
-import { entryLabelClass, type Entry } from "@/modules/tabs/lib/entries";
+import { entryLabelClass, entryMatches, type Entry } from "@/modules/tabs/lib/entries";
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { useGitBranch } from "@/modules/scm/branch";
@@ -137,6 +137,9 @@ type RowProps = {
   draft: string;
   tabCount: number;
   rows: EntryRow[];
+  /** List only the rows this search hits. `rows` stays whole, since the
+   *  last-tab and worktree rules are about what is open, not what is listed. */
+  rowQuery: string;
   canClose: boolean;
   sortable: boolean;
   onSwitch: (id: string) => void;
@@ -181,6 +184,7 @@ export function SortableWorkspaceRow({
   draft,
   tabCount,
   rows,
+  rowQuery,
   canClose,
   sortable,
   onSwitch,
@@ -276,6 +280,7 @@ export function SortableWorkspaceRow({
     const byMain = new Map<string, RowGroup>();
     const open = new Set(cwds);
     for (const r of rows) {
+      if (rowQuery && !entryMatches(r.entry, r.title, rowQuery)) continue;
       const cwd = localTerminalCwd(r.entry);
       const list = cwd ? worktrees[cwd] : undefined;
       const main = list?.find((x) => x.main)?.path;
@@ -296,8 +301,9 @@ export function SortableWorkspaceRow({
     // A worktree ALREADY open as a tab is one of the rows above it, so listing
     // it again put the same checkout on screen twice under two different icons.
     // What is left is exactly "the checkouts you have not opened yet".
-    for (const g of byMain.values())
-      g.linked = g.list.filter((x) => !x.main && !x.bare && !open.has(x.path));
+    if (!rowQuery)
+      for (const g of byMain.values())
+        g.linked = g.list.filter((x) => !x.main && !x.bare && !open.has(x.path));
   }
 
   return (
@@ -385,7 +391,7 @@ export function SortableWorkspaceRow({
                   className={cn(
                     "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
                     isActive ? "text-accent-foreground/80" : "text-muted-foreground",
-                    "group-hover:opacity-0",
+                    "group-hover:opacity-0 group-has-focus-visible:opacity-0",
                   )}
                   aria-label={`${tabCount} tabs open`}
                 >
@@ -396,7 +402,7 @@ export function SortableWorkspaceRow({
                 {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
               </TooltipContent>
             </Tooltip>
-            <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+            <span className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:opacity-100">
               <IconTooltip label={w.pinned ? "Unpin workspace" : "Pin workspace"}>
                 <Button
                   onPointerDown={(e) => e.stopPropagation()}
@@ -517,7 +523,7 @@ export function SortableWorkspaceRow({
         // never starts a workspace reorder.
         <ul onPointerDown={(e) => e.stopPropagation()} className="mt-0.5 mb-1 flex flex-col gap-px">
           {groups.map((g) => {
-            const shut = g.name !== "" && shutGroups.has(g.key);
+            const shut = !rowQuery && g.name !== "" && shutGroups.has(g.key);
             return (
               <Fragment key={g.key || `loose:${g.rows[0]?.entry.key}`}>
                 {/* Project header. Its own accordion, and the unambiguous place
@@ -906,7 +912,7 @@ function EntryRowItem({
   );
 
   return (
-    <li className="group/row relative">
+    <li className="group/row relative" data-tab-private={isPrivate ? "" : undefined}>
       {onNewWorktree ? (
         <ContextMenu>
           {inner}

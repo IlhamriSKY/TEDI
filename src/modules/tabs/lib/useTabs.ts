@@ -721,7 +721,31 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
       cwdOverride?: string,
       editorPath?: string,
     ): number | null => {
-      let newLeafId: number | null = null;
+      // Default to terminal so Ctrl+D from an editor still produces a shell.
+      const kind: "terminal" | "editor" = newKind ?? "terminal";
+
+      // Decided and allocated HERE, as `newTab` does, not inside the updater. React
+      // runs an updater synchronously only while the fiber is idle; right after
+      // another update it waits for the next render, so an id set inside it came
+      // back null for a split that then happened anyway. `new-tab` then `split`
+      // reported failure and left a pane nobody had the id of.
+      //
+      // A tab not committed yet is not in `tabsRef`, so it is let through and the
+      // updater's own guards below decide.
+      const seen = tabsRef.current.find((t) => t.id === tabId);
+      if (seen) {
+        if (seen.kind !== "pane") return null;
+        if (leafIds(seen.paneTree).length >= MAX_PANES_PER_TAB) return null;
+        const focused = findLeaf(seen.paneTree, seen.activeLeafId);
+        if (!focused) return null;
+        const canClone =
+          focused.leafKind === "editor" ||
+          leaves(seen.paneTree).some((l) => l.leafKind === "editor");
+        if (kind === "editor" && !editorPath && !canClone) return null;
+      }
+      const splitId = nextIdRef.current++;
+      const leafId = nextIdRef.current++;
+
       setTabs((curr) =>
         curr.map((t) => {
           if (t.id !== tabId || t.kind !== "pane") return t;
@@ -729,12 +753,6 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           const active = findLeaf(t.paneTree, t.activeLeafId);
           if (!active) return t;
 
-          // Default to terminal so Ctrl+D from an editor still produces a shell.
-          const kind: "terminal" | "editor" = newKind ?? "terminal";
-
-          const splitId = nextIdRef.current++;
-          const leafId = nextIdRef.current++;
-          newLeafId = leafId;
           let state: LeafState;
           if (kind === "terminal") {
             // Caller-supplied cwd wins; falls back to focused terminal's cwd, then tab mirror.
@@ -756,10 +774,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
                 : leaves(t.paneTree).find(
                     (l): l is PaneLeaf & EditorLeafState => l.leafKind === "editor",
                   );
-            if (!source) {
-              newLeafId = null;
-              return t;
-            }
+            if (!source) return t;
             const es: EditorLeafState = {
               leafKind: "editor",
               path: source.path,
@@ -777,7 +792,7 @@ export function useTabs(initial?: { cwd?: string; title?: string }) {
           return syncPaneMirror({ ...t, paneTree, activeLeafId: leafId });
         }),
       );
-      return newLeafId;
+      return leafId;
     },
     [allocOrdinal],
   );

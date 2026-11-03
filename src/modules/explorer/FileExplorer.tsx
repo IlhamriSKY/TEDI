@@ -7,6 +7,7 @@ import { SORT_MODES } from "./lib/sortModes";
 import { GitDecorationsProvider, useGitStatusPoll } from "./lib/gitDecorations";
 import { useExplorerIconsReady } from "./lib/iconResolver";
 import { useFileTree, type SortMode } from "./lib/useFileTree";
+import { useTreeKeyNav } from "./lib/useTreeKeyNav";
 import { toForwardSlash } from "@/lib/path";
 import { useGlobalShortcuts } from "@/modules/shortcuts";
 import { usePreferencesStore } from "@/modules/settings/preferences";
@@ -159,23 +160,14 @@ export function FileExplorer({
   const searchRef = useRef<ExplorerSearchHandle>(null);
   const grepRef = useRef<ExplorerGrepHandle>(null);
 
-  type FlatItem = { path: string; isDir: boolean };
-  const flat = useMemo<FlatItem[]>(() => {
-    if (!rootPath) return [];
-    const out: FlatItem[] = [];
-    const walk = (parent: string) => {
-      const node = tree.nodes[parent];
-      if (!node || node.status !== "loaded") return;
-      for (const e of node.entries) {
-        const p = tree.joinPath(parent, e.name);
-        const isDir = e.kind === "dir";
-        out.push({ path: p, isDir });
-        if (isDir && tree.expanded.has(p)) walk(p);
-      }
-    };
-    walk(rootPath);
-    return out;
-  }, [rootPath, tree.nodes, tree.expanded, tree.joinPath]);
+  const { flat, onKeyDown } = useTreeKeyNav({
+    rootPath,
+    tree,
+    selectedPath,
+    setSelectedPath,
+    onOpenFile,
+    disabled: collapsed || !!tree.renaming || !!tree.pendingCreate || isSearchOpen || isGrepOpen,
+  });
 
   useEffect(() => {
     if (selectedPath && !flat.some((f) => f.path === selectedPath)) {
@@ -291,83 +283,12 @@ export function FileExplorer({
     );
   }
 
-  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
-    if (collapsed) return;
-    if (tree.renaming || tree.pendingCreate || isSearchOpen || isGrepOpen) return;
-    const target = e.target as HTMLElement;
-    if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.isContentEditable)
-      return;
-    if (flat.length === 0) return;
-
-    const currentIdx = selectedPath ? flat.findIndex((f) => f.path === selectedPath) : -1;
-
-    const move = (next: number) => {
-      const clamped = Math.max(0, Math.min(flat.length - 1, next));
-      const path = flat[clamped].path;
-      setSelectedPath(path);
-      requestAnimationFrame(() => {
-        const el = listRef.current?.querySelector<HTMLElement>(
-          `[data-fs-path="${CSS.escape(path)}"]`,
-        );
-        el?.scrollIntoView({ block: "nearest" });
-      });
-    };
-
-    switch (e.key) {
-      case "ArrowDown":
-        e.preventDefault();
-        move(currentIdx < 0 ? 0 : currentIdx + 1);
-        break;
-      case "ArrowUp":
-        e.preventDefault();
-        move(currentIdx < 0 ? flat.length - 1 : currentIdx - 1);
-        break;
-      case "ArrowRight": {
-        if (currentIdx < 0) return;
-        e.preventDefault();
-        const item = flat[currentIdx];
-        if (item.isDir) {
-          if (!tree.expanded.has(item.path)) tree.toggle(item.path);
-          else move(currentIdx + 1);
-        }
-        break;
-      }
-      case "ArrowLeft": {
-        if (currentIdx < 0) return;
-        e.preventDefault();
-        const item = flat[currentIdx];
-        if (item.isDir && tree.expanded.has(item.path)) {
-          tree.toggle(item.path);
-        } else {
-          const cut = Math.max(item.path.lastIndexOf("/"), item.path.lastIndexOf("\\"));
-          const parent = cut > 0 ? item.path.slice(0, cut) : "";
-          if (parent && parent !== rootPath) setSelectedPath(parent);
-        }
-        break;
-      }
-      case "Enter":
-        if (currentIdx < 0) return;
-        e.preventDefault();
-        {
-          const item = flat[currentIdx];
-          if (item.isDir) tree.toggle(item.path);
-          else onOpenFile(item.path);
-        }
-        break;
-      case "F2":
-        if (currentIdx < 0) return;
-        e.preventDefault();
-        tree.beginRename(flat[currentIdx].path);
-        break;
-    }
-  };
-
   return (
     <div
-      className="flex h-full flex-col outline-none"
+      className="focus-visible:ring-ring flex h-full flex-col outline-none focus-visible:ring-1 focus-visible:ring-inset"
       role="tree"
       tabIndex={0}
-      onKeyDown={handleKeyDown}
+      onKeyDown={onKeyDown}
     >
       <ExplorerHeader
         rootPath={rootPath}

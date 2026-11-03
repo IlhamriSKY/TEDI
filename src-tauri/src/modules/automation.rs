@@ -30,7 +30,12 @@ use crate::modules::ids::settings_candidates;
 /// (`setAutomationPort` in `src/modules/settings/store.ts`); deliberately NOT a
 /// member of `Preferences`, so the MCP `set_setting` tool cannot reach it and an
 /// agent cannot make its own access permanent.
-const KEY: &str = "automationPort";
+///
+/// A NEW name, on purpose. Older builds' Install MCP switched the port on for
+/// everyone, under `automationPort`, and no tool needs it now. Reading a fresh key
+/// closes an unauthenticated port on every one of those machines at their next
+/// launch, with nothing to migrate; someone who wants it flips the switch again.
+const KEY: &str = "automationChannelPort";
 
 /// Port the automation channel should listen on, or `None` for off.
 ///

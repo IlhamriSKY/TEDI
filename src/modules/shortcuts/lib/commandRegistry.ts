@@ -45,14 +45,29 @@ export function hasCommand(id: ShortcutId): boolean {
  * owns the id, the FIRST-registered handler wins - matching the keyboard path,
  * where the first-mounted capture listener fires first and stops the rest. The
  * handler signature takes the triggering KeyboardEvent for the keyboard path; a
- * synthetic one is passed here since no palette-exposed command reads it (the
- * one that does, `tab.selectByIndex`, is excluded from the palette).
+ * synthetic one is passed here. Handlers that read it: the digit jumps, excluded
+ * from the palette, and the ones that refuse an agent (see `isUserEvent`).
  */
-export function runCommand(id: ShortcutId): boolean {
+export function runCommand(id: ShortcutId, event = new KeyboardEvent("keydown")): boolean {
   const stack = registry.get(id);
   if (!stack || stack.length === 0) return false;
-  stack[0](new KeyboardEvent("keydown"));
+  stack[0](event);
   return true;
+}
+
+const userEvents = new WeakSet<Event>();
+
+/** `runCommand` for the Command Palette, where a person picked the command. Never
+ *  put this on the bridge: `run_command` is how an agent runs one. */
+export function runUserCommand(id: ShortcutId): boolean {
+  const event = new KeyboardEvent("keydown");
+  userEvents.add(event);
+  return runCommand(id, event);
+}
+
+/** A real keypress or the palette, as opposed to `run_command`. */
+export function isUserEvent(e: Event): boolean {
+  return e.isTrusted || userEvents.has(e);
 }
 
 /**

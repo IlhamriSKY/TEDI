@@ -2,6 +2,8 @@ import { invoke } from "@tauri-apps/api/core";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { registerBridge } from "@/modules/automation/bridge";
+import { openSshForward } from "@/modules/ssh/bridge";
+import { runSftp, type SftpArgs } from "@/modules/ssh/sftpAutomation";
 import { resolveSshContext, type SshContext } from "./sshContext";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { type Tab } from "@/modules/tabs";
@@ -155,6 +157,34 @@ export function useSshLeafState({ activePaneTab, tabs }: Params): {
           // the useful half - pass it through rather than a generic failure.
           return e instanceof Error ? e.message : String(e);
         }
+      },
+      sftp: async (leafId: number, args: SftpArgs) => {
+        const leaf = Number(leafId);
+        const st = sshStatuses.get(leaf);
+        if (
+          tabsRef.current.some((t) => t.kind === "pane" && isLeafPrivateInTabs(t, leaf)) ||
+          st?.kind !== "connected"
+        ) {
+          throw new Error(`Leaf ${leafId} is not a connected SSH pane.`);
+        }
+        return await runSftp(st.sessionId, args ?? {});
+      },
+      sshForward: async (
+        leafId: number,
+        localPort: number,
+        remoteHost: string,
+        remotePort: number,
+      ) => {
+        const leaf = Number(leafId);
+        const st = sshStatuses.get(leaf);
+        if (
+          tabsRef.current.some((t) => t.kind === "pane" && isLeafPrivateInTabs(t, leaf)) ||
+          st?.kind !== "connected"
+        ) {
+          return { ok: false, error: `Leaf ${leafId} is not a connected SSH pane.` };
+        }
+        const bound = await openSshForward(st.sessionId, localPort, remoteHost, remotePort);
+        return { ok: true, localPort: bound, remoteHost, remotePort };
       },
     });
   }, [sshStatuses]);

@@ -27,10 +27,11 @@ export type BackupMode =
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (e: Event) => void;
   mode: BackupMode;
 };
 
-export function SshBackupDialog({ open, onOpenChange, mode }: Props) {
+export function SshBackupDialog({ open, onOpenChange, onCloseAutoFocus, mode }: Props) {
   const isExport = mode.kind === "export";
   const [passphrase, setPassphrase] = useState("");
   const [confirm, setConfirm] = useState("");
@@ -85,7 +86,7 @@ export function SshBackupDialog({ open, onOpenChange, mode }: Props) {
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-md">
+      <DialogContent className="sm:max-w-md" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>
             {isExport ? "Export SSH connections" : "Import SSH connections"}

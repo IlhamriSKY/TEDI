@@ -47,18 +47,57 @@ export type ShortcutId =
   | "terminal.prevCommand"
   | "terminal.nextCommand"
   | "terminal.clear"
-  | "commandPalette.open";
+  | "commandPalette.open"
+  | "tab.rename"
+  | "tab.pin"
+  | "tab.moveLeft"
+  | "tab.moveRight"
+  | "pane.float"
+  | "pane.resize"
+  | "focus.nextRegion"
+  | "focus.prevRegion"
+  | "workspace.new"
+  | "workspace.next"
+  | "workspace.prev"
+  | "workspace.selectByIndex"
+  | "ssh.menu"
+  | "ssh.files"
+  | "ssh.reconnect"
+  | "ssh.disconnect"
+  | "ai.newChat"
+  | "ai.history"
+  | "ai.stop"
+  | "ai.approve"
+  | "ai.deny"
+  | "terminal.selectAll"
+  | "terminal.copyLastOutput"
+  | "terminal.scrollTop"
+  | "terminal.scrollBottom"
+  | "terminal.scrollPage"
+  | "editor.save"
+  | "editor.markdownPreview";
 
 export type ShortcutGroup =
   | "General"
   | "Tabs"
   | "Panes"
+  | "Workspaces"
   | "Search"
   | "AI"
   | "View"
   | "Editor"
   | "Terminal"
+  | "SSH"
   | "Command Palette";
+
+/**
+ * Asks a component that owns the state to act. These live in local component
+ * state (the strip's rename field, the SSH menu, a pane's float button), so the
+ * global handler cannot reach them directly. `detail` is the leaf id.
+ */
+export const RENAME_LEAF_EVENT = "tedi:rename-leaf";
+export const FLOAT_LEAF_EVENT = "tedi:float-leaf";
+export const OPEN_SSH_MENU_EVENT = "tedi:open-ssh-menu";
 
 export type KeyBinding = {
   key: string;
@@ -78,6 +117,16 @@ export type Shortcut = {
   readOnly?: boolean;
 };
 
+/**
+ * A focused terminal owns bare Ctrl+letter and bare Alt+letter (see
+ * `isTerminalControlChord`), so every action bound to one ALSO needs a chord that
+ * still fires from inside a local or SSH terminal. The families:
+ *   Mod+Shift+<same letter>  when free (Ctrl+W -> Ctrl+Shift+W)
+ *   Alt+Shift+<letter>       otherwise; readline only folds these to bare Alt+letter,
+ *                            which still reaches it, and a full-screen program keeps them
+ *   Mod+Alt+<letter>         left to extensions, and AltGr on many layouts
+ * `keybindings-collision-verify` fails an action that has no such chord.
+ */
 export const SHORTCUTS: Shortcut[] = [
   {
     id: "settings.open",
@@ -89,7 +138,25 @@ export const SHORTCUTS: Shortcut[] = [
     id: "shortcuts.open",
     label: "Show keyboard shortcuts",
     group: "General",
-    defaultBindings: [{ [MOD_PROP]: true, key: "k" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "k" },
+      // Matches the glyph, so Ctrl+? works wherever a layout keeps the `?`.
+      { [MOD_PROP]: true, shift: true, key: "?" },
+    ],
+  },
+  {
+    // The only way out of a terminal without a mouse, since xterm keeps Tab.
+    // F6 is the standard key; Mod+Shift+J is for a TUI, which keeps F6.
+    id: "focus.nextRegion",
+    label: "Focus next region",
+    group: "General",
+    defaultBindings: [{ key: "F6" }, { [MOD_PROP]: true, shift: true, key: "j" }],
+  },
+  {
+    id: "focus.prevRegion",
+    label: "Focus previous region",
+    group: "General",
+    defaultBindings: [{ shift: true, key: "F6" }],
   },
   {
     id: "notes.toggle",
@@ -105,7 +172,10 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.new",
     label: "New tab",
     group: "Tabs",
-    defaultBindings: [{ [MOD_PROP]: true, key: "t" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "t" },
+      { alt: true, shift: true, key: "t" },
+    ],
   },
   {
     id: "tab.newPrivate",
@@ -117,7 +187,10 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.newEditor",
     label: "New editor tab",
     group: "Tabs",
-    defaultBindings: [{ [MOD_PROP]: true, key: "e" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "e" },
+      { alt: true, shift: true, key: "e" },
+    ],
   },
   {
     // Opens the AI-CLI picker, not a tab directly - the dialog decides how many
@@ -136,14 +209,45 @@ export const SHORTCUTS: Shortcut[] = [
     id: "tab.close",
     label: "Close tab or pane",
     group: "Tabs",
-    defaultBindings: [{ [MOD_PROP]: true, key: "w" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "w" },
+      { [MOD_PROP]: true, shift: true, key: "w" },
+    ],
   },
   {
-    // Horizontal split: new tab beside the focused one.
+    id: "tab.rename",
+    label: "Rename tab",
+    group: "Tabs",
+    defaultBindings: [{ alt: true, shift: true, key: "r" }],
+  },
+  {
+    id: "tab.pin",
+    label: "Pin or unpin tab",
+    group: "Tabs",
+    defaultBindings: [{ alt: true, shift: true, key: "p" }],
+  },
+  {
+    id: "tab.moveLeft",
+    label: "Move tab left",
+    group: "Tabs",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "PageUp" }],
+  },
+  {
+    id: "tab.moveRight",
+    label: "Move tab right",
+    group: "Tabs",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "PageDown" }],
+  },
+  {
+    // Horizontal split: new tab beside the focused one. Bare Ctrl+D stays EOF in
+    // a focused terminal (logout over SSH, `screen` detach), hence the second chord.
     id: "pane.splitRight",
     label: "Split pane horizontally",
     group: "Panes",
-    defaultBindings: [{ [MOD_PROP]: true, key: "d" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "d" },
+      { alt: true, shift: true, key: "d" },
+    ],
   },
   {
     // Vertical split: new tab stacked below the focused one.
@@ -156,27 +260,102 @@ export const SHORTCUTS: Shortcut[] = [
     id: "pane.focusNext",
     label: "Focus next pane",
     group: "Panes",
-    defaultBindings: [{ [MOD_PROP]: true, key: "]" }],
+    // Alt+Shift+Arrow is for a terminal, which owns Ctrl+]. A focused editor
+    // keeps it for select syntax (App's `isDisabled`) and has Ctrl+].
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "]" },
+      { alt: true, shift: true, key: "ArrowRight" },
+    ],
   },
   {
-    // No default chord: every free one is AltGr or a shifted bracket on some
-    // layout. Run from the Command Palette, or bind one in Settings.
+    // Arrows, because every free letter-free chord is AltGr or a shifted bracket
+    // on some layout.
     id: "pane.swapNext",
     label: "Swap pane with next",
     group: "Panes",
-    defaultBindings: [],
+    defaultBindings: [{ [MOD_PROP]: true, alt: true, shift: true, key: "ArrowRight" }],
   },
   {
     id: "pane.swapPrev",
     label: "Swap pane with previous",
     group: "Panes",
-    defaultBindings: [],
+    defaultBindings: [{ [MOD_PROP]: true, alt: true, shift: true, key: "ArrowLeft" }],
   },
   {
     id: "pane.focusPrev",
     label: "Focus previous pane",
     group: "Panes",
-    defaultBindings: [{ [MOD_PROP]: true, key: "[" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "[" },
+      { alt: true, shift: true, key: "ArrowLeft" },
+    ],
+  },
+  {
+    id: "pane.float",
+    label: "Float pane or dock it back",
+    group: "Panes",
+    defaultBindings: [{ alt: true, shift: true, key: "o" }],
+  },
+  {
+    // Lands on the gutter, whose arrow keys are the library's own. Pressed again
+    // it walks out to the enclosing split, for the other axis; Esc goes back.
+    id: "pane.resize",
+    label: "Resize pane with arrow keys",
+    group: "Panes",
+    defaultBindings: [{ alt: true, shift: true, key: "z" }],
+  },
+  {
+    id: "workspace.new",
+    label: "New workspace",
+    group: "Workspaces",
+    defaultBindings: [{ alt: true, shift: true, key: "w" }],
+  },
+  {
+    // A TUI keeps these (vim's tab keys); see App's `isDisabled`.
+    id: "workspace.next",
+    label: "Next workspace",
+    group: "Workspaces",
+    defaultBindings: [{ [MOD_PROP]: true, key: "PageDown" }],
+  },
+  {
+    id: "workspace.prev",
+    label: "Previous workspace",
+    group: "Workspaces",
+    defaultBindings: [{ [MOD_PROP]: true, key: "PageUp" }],
+  },
+  {
+    id: "workspace.selectByIndex",
+    label: "Jump to workspace 1–9",
+    group: "Workspaces",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "1" }],
+  },
+  {
+    // J, K, L sit together for SSH. Not S: WebView2 swallows Alt+Shift+S before the
+    // page sees it (`keybindings-collision-verify` keeps it off the catalog).
+    id: "ssh.menu",
+    label: "Open SSH connections",
+    group: "SSH",
+    defaultBindings: [{ alt: true, shift: true, key: "j" }],
+  },
+  {
+    id: "ssh.files",
+    label: "Toggle remote files panel",
+    group: "SSH",
+    defaultBindings: [{ alt: true, shift: true, key: "l" }],
+  },
+  {
+    // Only re-arms a session that has ended; a live one is left alone.
+    id: "ssh.reconnect",
+    label: "Reconnect SSH session",
+    group: "SSH",
+    defaultBindings: [{ alt: true, shift: true, key: "k" }],
+  },
+  {
+    // No default chord on purpose: one slip would drop a working remote shell.
+    id: "ssh.disconnect",
+    label: "Disconnect SSH session",
+    group: "SSH",
+    defaultBindings: [],
   },
   {
     id: "tab.next",
@@ -225,19 +404,62 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [
       { [MOD_PROP]: true, key: "p" },
       { [MOD_PROP]: true, key: "g" },
+      { alt: true, shift: true, key: "g" },
     ],
   },
   {
+    // Mod+Shift+F is Search in files, so a terminal uses the L chord.
     id: "search.focus",
-    label: "Find in terminal",
+    label: "Find in terminal or editor",
     group: "Search",
-    defaultBindings: [{ [MOD_PROP]: true, key: "f" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "f" },
+      { [MOD_PROP]: true, shift: true, key: "l" },
+    ],
   },
   {
     id: "ai.toggle",
     label: "Toggle AI agent",
     group: "AI",
-    defaultBindings: [{ [MOD_PROP]: true, key: "i" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "i" },
+      { [MOD_PROP]: true, shift: true, key: "i" },
+    ],
+  },
+  {
+    id: "ai.newChat",
+    label: "New AI chat",
+    group: "AI",
+    defaultBindings: [{ alt: true, shift: true, key: "i" }],
+  },
+  {
+    id: "ai.history",
+    label: "AI chat history",
+    group: "AI",
+    defaultBindings: [{ alt: true, shift: true, key: "h" }],
+  },
+  {
+    id: "ai.stop",
+    label: "Stop AI response",
+    group: "AI",
+    defaultBindings: [{ alt: true, shift: true, key: "q" }],
+  },
+  {
+    // readOnly, and handled inside `AiToolApproval`, never by a registered
+    // command: `run_command` runs anything registered, so the agent could
+    // otherwise approve its own tool calls.
+    id: "ai.approve",
+    label: "Approve the waiting tool call",
+    group: "AI",
+    defaultBindings: [{ alt: true, shift: true, key: "y" }],
+    readOnly: true,
+  },
+  {
+    id: "ai.deny",
+    label: "Deny the waiting tool call",
+    group: "AI",
+    defaultBindings: [{ alt: true, shift: true, key: "n" }],
+    readOnly: true,
   },
   {
     id: "ai.askSelection",
@@ -278,7 +500,10 @@ export const SHORTCUTS: Shortcut[] = [
     id: "sidebar.toggle",
     label: "Toggle file explorer",
     group: "View",
-    defaultBindings: [{ [MOD_PROP]: true, key: "b" }],
+    defaultBindings: [
+      { [MOD_PROP]: true, key: "b" },
+      { [MOD_PROP]: true, shift: true, key: "b" },
+    ],
   },
   {
     // The right column (AI panel, docked sections, extension panels). VS Code
@@ -295,14 +520,16 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "g" }],
   },
   {
-    // `=` is the unshifted "+" on US layouts. Matches VS Code and browsers,
-    // so Cmd/Ctrl + "+" works with or without Shift.
+    // `=` is the unshifted "+" on US layouts. Matches VS Code and browsers, so
+    // Cmd/Ctrl + "+" works with or without Shift. Shift+= reports key "+", so that
+    // is what the shifted binding has to say; the bare "+" is the numpad.
     id: "view.zoomIn",
     label: "Zoom in",
     group: "View",
     defaultBindings: [
       { [MOD_PROP]: true, key: "=" },
-      { [MOD_PROP]: true, shift: true, key: "=" },
+      { [MOD_PROP]: true, shift: true, key: "+" },
+      { [MOD_PROP]: true, key: "+" },
     ],
   },
   {
@@ -329,8 +556,20 @@ export const SHORTCUTS: Shortcut[] = [
     defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "m" }],
   },
   {
-    // Save As. Mod+S is CodeMirror keymap (see EditorPane), not a catalog
-    // entry, so this is the only save chord listed here.
+    // CodeMirror keymap (see EditorPane), listed so it shows in Settings.
+    id: "editor.save",
+    label: "Save file",
+    group: "Editor",
+    defaultBindings: [{ [MOD_PROP]: true, key: "s" }],
+    readOnly: true,
+  },
+  {
+    id: "editor.markdownPreview",
+    label: "Toggle markdown preview",
+    group: "Editor",
+    defaultBindings: [{ alt: true, shift: true, key: "v" }],
+  },
+  {
     id: "editor.saveAs",
     label: "Save file as",
     group: "Editor",
@@ -435,15 +674,51 @@ export const SHORTCUTS: Shortcut[] = [
     group: "Terminal",
     defaultBindings: IS_MAC ? [{ meta: true, key: "k" }] : [{ ctrl: true, shift: true, key: "k" }],
   },
+  {
+    // With no way to drag a selection from the keyboard, this, Copy last output
+    // and Find are what make terminal text copyable without a mouse.
+    id: "terminal.selectAll",
+    label: "Select all terminal text",
+    group: "Terminal",
+    defaultBindings: IS_MAC ? [{ meta: true, key: "a" }] : [{ ctrl: true, shift: true, key: "a" }],
+  },
+  {
+    id: "terminal.copyLastOutput",
+    label: "Copy last command and output",
+    group: "Terminal",
+    defaultBindings: [{ alt: true, shift: true, key: "c" }],
+  },
+  {
+    id: "terminal.scrollTop",
+    label: "Scroll to top",
+    group: "Terminal",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "Home" }],
+  },
+  {
+    id: "terminal.scrollBottom",
+    label: "Scroll to bottom",
+    group: "Terminal",
+    defaultBindings: [{ [MOD_PROP]: true, shift: true, key: "End" }],
+  },
+  {
+    // xterm's own key (Shift+PageDown too), listed so it shows in Settings.
+    id: "terminal.scrollPage",
+    label: "Scroll one page",
+    group: "Terminal",
+    defaultBindings: [{ shift: true, key: "PageUp" }],
+    readOnly: true,
+  },
 ];
 
 export const SHORTCUT_GROUPS: ShortcutGroup[] = [
   "General",
   "Tabs",
   "Panes",
+  "Workspaces",
   "View",
   "Editor",
   "Terminal",
+  "SSH",
   "Search",
   "AI",
   "Command Palette",
@@ -479,9 +754,21 @@ export function matchBinding(e: KeyboardEvent, binding: KeyBinding, id?: Shortcu
   const eventKey = canonicalKey(e);
   const bindingKey = binding.key.toLowerCase();
 
+  // Windows reports AltGr as Ctrl+Alt, so AltGr+Q typing "@" on a German layout
+  // would otherwise fire a Ctrl+Alt+Q binding and the character would be lost.
+  // Not on macOS, which has no AltGr and where Option composes a glyph by design.
+  if (
+    !IS_MAC &&
+    e.getModifierState?.("AltGraph") &&
+    e.key.length === 1 &&
+    e.key.toLowerCase() !== eventKey
+  ) {
+    return false;
+  }
+
   // Jump-to-tab matches via canonical key (e.code for digits) so the shortcut
   // works on layouts where Shift+digit or Alt changes the printable char.
-  if (id === "tab.selectByIndex") {
+  if (id === "tab.selectByIndex" || id === "workspace.selectByIndex") {
     if (!/^[1-9]$/.test(eventKey)) return false;
   } else if (eventKey !== bindingKey) {
     return false;
@@ -539,6 +826,21 @@ export function isTerminalMetaChord(e: KeyboardEvent): boolean {
   const code = e.code;
   if (code.length === 4 && code.startsWith("Key")) return true; // KeyA..KeyZ
   return code.length === 6 && code.startsWith("Digit"); // Digit0..Digit9
+}
+
+/**
+ * True while a terminal should keep its control codes: focus is inside any xterm
+ * (a pane, or one an extension renders), or on nothing at all while the active
+ * leaf is a terminal. The second case stays with the terminal because a stray
+ * Ctrl+W there must not close a tab. Focus provably elsewhere (the AI composer, a
+ * tab button, the file tree) is not the terminal's, which is why this reads the
+ * DOM rather than the active leaf: keyed off the leaf, Ctrl+I could not even close
+ * the AI panel from its own composer.
+ */
+export function keyboardInTerminal(activeLeafIsTerminal: boolean): boolean {
+  const el = document.activeElement;
+  if (!el || el === document.body) return activeLeafIsTerminal;
+  return !!el.closest(".xterm, [data-terminal-leaf-id]");
 }
 
 /**
@@ -695,7 +997,7 @@ export function getBindingTokens(binding?: KeyBinding): string[] {
   else if (lowerKey === "arrowdown") keyLabel = "↓";
   else if (lowerKey === "arrowleft") keyLabel = "←";
   else if (lowerKey === "arrowright") keyLabel = "→";
-  else if (keyLabel.length === 1) keyLabel = keyLabel.toUpperCase();
+  else keyLabel = keyLabel.charAt(0).toUpperCase() + keyLabel.slice(1);
 
   tokens.push(keyLabel);
   return tokens;
@@ -709,9 +1011,15 @@ export function shortcutHint(
   id: ShortcutId,
   userShortcuts: Record<ShortcutId, KeyBinding[]>,
 ): string {
-  const s = SHORTCUTS.find((s) => s.id === id);
-  if (!s) return "";
-  const bindings = userShortcuts[id] || s.defaultBindings;
-  if (!bindings || bindings.length === 0) return "";
-  return getBindingTokens(bindings[0]).join(KEY_SEP);
+  return shortcutHints(id, userShortcuts)[0] ?? "";
+}
+
+/** Every binding of a shortcut, for the palette: the first one is often a bare
+ *  chord a focused terminal keeps, so showing only that would mislead. */
+export function shortcutHints(
+  id: ShortcutId,
+  userShortcuts: Record<ShortcutId, KeyBinding[]>,
+): string[] {
+  const bindings = userShortcuts[id] ?? SHORTCUTS.find((s) => s.id === id)?.defaultBindings ?? [];
+  return bindings.map((b) => getBindingTokens(b).join(KEY_SEP));
 }

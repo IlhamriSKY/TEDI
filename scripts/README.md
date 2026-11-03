@@ -58,11 +58,11 @@ worth keeping:
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tools.mjs`     | **The tool table**: name → pack, description, JSON Schema. The one definition, imported by both servers. Zero imports, because it ships as a bundle resource with no `node_modules` beside it. |
 | `tools.d.mts`   | Types for the above, since it must stay plain JS.                                                                                                                                              |
-| `server.mjs`    | The stdio JSON-RPC MCP server an outside CLI (Claude Code, Codex) spawns. Handlers only; every description and schema comes from `tools.mjs`.                                                  |
+| `server.mjs`    | The stdio MCP server an outside CLI spawns. Advertises ONE gateway tool that points at `tedi <verb>`; holds the handlers `cli.mjs` also runs.                                                  |
 | `transport.mjs` | Decides, per call, whether it goes over the local socket or CDP. `BRIDGED` is the map; everything else falls through to the driver.                                                            |
 | `socket.mjs`    | Client for the local-socket bridge: reads the handshake file, presents the token, calls capabilities by name.                                                                                  |
 | `driver.mjs`    | Drives a running TEDI window over the WebView2 DevTools Protocol. Class `Driver`. Still the only way to send trusted input or capture the window.                                              |
-| `cli.mjs`       | `pnpm mcp <verb>` — the same driver, by hand, one connection per invocation.                                                                                                                   |
+| `cli.mjs`       | `tedi <verb>`: one tool, then exit, through the same `callTool` the server uses. No standing token cost. Also `pnpm mcp <verb>`, plus the dev verbs `targets` and `sweep`.                     |
 | `sweep.mjs`     | Live smoke test against a running TEDI. Needs the app open.                                                                                                                                    |
 
 ### Two ways in

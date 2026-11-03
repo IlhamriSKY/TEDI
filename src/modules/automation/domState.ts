@@ -27,6 +27,9 @@
  */
 import { callBridge, registerBridge } from "./bridge";
 
+/** What the AI must never learn of: a private pane, or the tab chip that names one. */
+const PRIVATE = "[data-pane-private],[data-tab-private]";
+
 /** Last `n` lines of a buffer, trailing blank run trimmed. */
 function tail(s: string, n: number): string {
   return String(s ?? "")
@@ -97,7 +100,15 @@ function domText(selector: string, nth = 0): string | null {
   // around the privacy rule: `.cm-content` reads a private editor's buffer line
   // by line. Refuse by ancestry rather than by selector, so no future selector
   // reopens it.
-  if (el.closest?.("[data-pane-private]")) return null;
+  if (el.closest?.(PRIVATE)) return null;
+  // The same route from above: `body` CONTAINS a private pane rather than sitting
+  // in one, and would hand back its visible text. A detached clone has no layout,
+  // so `textContent` is the only read left, which costs the line breaks.
+  if (el.querySelector?.(PRIVATE)) {
+    const clone = el.cloneNode(true) as HTMLElement;
+    for (const hidden of clone.querySelectorAll(PRIVATE)) hidden.remove();
+    return clone.textContent ?? "";
+  }
   const lines = el.classList?.contains("cm-content") ? el.querySelectorAll(".cm-line") : [];
   if (lines.length) return [...lines].map((l) => l.textContent).join("\n");
   return el.innerText || el.textContent || "";
@@ -144,8 +155,13 @@ async function state({ tail: tailLines = 3, buttons = false } = {}): Promise<
   for (const e of q("[data-tab-id]")) {
     const id = e.getAttribute("data-tab-id");
     if (!id || seen.has(id)) continue;
-    const lines = ((e as HTMLElement).innerText || "")
-      .split("\n")
+    // Chip by chip, so one private pane in a split takes only its own name out. A
+    // tab with nothing else in it is not listed at all.
+    const chips = [...e.querySelectorAll("[data-entry-key]")];
+    const shown = (chips.length ? chips : [e]).filter((c) => !c.matches(PRIVATE));
+    if (!shown.length) continue;
+    const lines = shown
+      .flatMap((c) => ((c as HTMLElement).innerText || "").split("\n"))
       .map((l) => l.trim())
       .filter((l) => l && !/^\d+$/.test(l));
     seen.set(id, [...new Set(lines)].join(" | ").slice(0, 48));
@@ -183,7 +199,9 @@ async function state({ tail: tailLines = 3, buttons = false } = {}): Promise<
   if (buttons) {
     out.buttons = [
       ...new Set(
-        q("button[aria-label]").map((b) =>
+        q("button[aria-label]")
+          .filter((b) => !b.closest(PRIVATE))
+          .map((b) =>
           // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
           // siblings are one control, and listing each buries the rest of the UI.
           (b.getAttribute("aria-label") ?? "").replace(/\s\S*[\\/]\S*$/, " <path>"),

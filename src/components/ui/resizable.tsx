@@ -36,8 +36,9 @@ function ResizableHandle({ className, ...props }: ResizablePrimitive.SeparatorPr
       className={cn(
         "w-1.5 outline-hidden aria-[orientation=horizontal]:h-1.5 aria-[orientation=horizontal]:w-full",
         // Keyboard focus is the one moment a gutter has to show itself; a
-        // pointer drag has the cursor to say it.
-        "focus-visible:outline-primary/70 focus-visible:outline-2 focus-visible:-outline-offset-2",
+        // pointer drag has the cursor to say it. `outline-solid` because
+        // `outline-hidden` leaves the outline style at none.
+        "focus-visible:outline-primary/70 focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-solid",
         className,
       )}
       {...props}

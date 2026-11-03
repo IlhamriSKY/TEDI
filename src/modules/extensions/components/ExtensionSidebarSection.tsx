@@ -365,7 +365,7 @@ export function ExtensionSidebarSection({
           ) : null}
         </button>
         {item.actions && item.actions.length > 0 && (
-          <span className="pointer-events-none absolute right-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100">
+          <span className="pointer-events-none absolute right-1 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:opacity-100">
             {item.actions.map((a) => (
               <IconTooltip key={a.id} label={a.tooltip}>
                 <Button

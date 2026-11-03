@@ -18,15 +18,19 @@ import {
 } from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { IconSwap } from "@/components/IconMorph";
+import { PanelSearchInput } from "@/components/PanelSearchInput";
 import { toForwardSlash } from "@/lib/path";
 import { formatBytes } from "@/lib/format";
-import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, HEADER_TOGGLE_ACTIVE, HEADER_TOGGLE_IDLE } from "@/lib/toolbarButton";
 import { cn } from "@/lib/utils";
 import { InlineInput } from "@/modules/explorer/InlineInput";
 import { openWorktreeTab } from "@/modules/scm/worktreeBridge";
+import { usePreferencesStore } from "@/modules/settings/preferences";
+import { setPinnedAgentSessions } from "@/modules/settings/store";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
 import {
@@ -44,22 +48,25 @@ import {
   GitBranch,
   PanelLeft,
   PanelRight,
+  Pin,
   RefreshCw,
+  Search,
+  SquareTerminal,
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import {
   ago,
   canResume,
-  dayBucket,
   deleteSession,
-  groupSessions,
-  inFolder,
   listAllSessions,
   renameSession,
   resumeCommand,
   resumeHint,
   SESSION_AGENTS,
+  sessionKey,
+  sessionSections,
+  TERMINAL_SECTION,
   type AgentSession,
 } from "./api";
 
@@ -68,8 +75,8 @@ type Props = {
   dragHandle?: ReactNode;
   /** Collapsed to its header: skip the disk read / app-server spawn entirely. */
   collapsed?: boolean;
-  /** The active workspace's tabs: the focused terminal picks the folder shown,
-   *  and the AI CLIs running in them mark which sessions are open. */
+  /** The active workspace's tabs: their terminals' folders sort to the top, the
+   *  focused one first, and the AI CLIs running in them mark which sessions are open. */
   liveTabs: Tab[];
   activeLeafId: number | null;
   /** Left sidebar instance: dock into the right column. */
@@ -85,9 +92,10 @@ type Props = {
 let cached: AgentSession[] | null = null;
 // Day headings the user folded, kept the same way.
 let foldedCache = new Set<string>();
+let modeCache: "working" | "all" = "all";
+const SECTION_PAGE = 50;
 
 const keyOf = (path: string) => toForwardSlash(path).replace(/\/+$/, "").toLowerCase();
-const sessionKey = (s: AgentSession) => `${s.agent}:${s.id}`;
 
 /**
  * Which listed sessions an AI CLI pane is running, and that pane's status. No
@@ -122,7 +130,8 @@ function openStatuses(
 const agentLabel = (a: AgentSession["agent"]) => SESSION_AGENTS.find((x) => x.id === a)?.label ?? a;
 
 /**
- * Claude Code's and Codex's saved sessions for the focused terminal's folder, as
+ * Claude Code's and Codex's saved sessions, either all of them (All) or whatever
+ * is running now (Working), the folders terminals have open on top, as
  * cards under day headings (the Codex app / Orca history layout), each marked
  * with its CLI's icon and, when a pane runs it, that pane's status. One click
  * (or Enter) moves an idle terminal into the session's folder and resumes
@@ -142,6 +151,8 @@ export function AgentSessionsPanel({
   const [sessions, setSessions] = useState<AgentSession[] | null>(cached);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [filter, setFilter] = useState("");
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [mode, setMode] = useState(modeCache);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgentSession | null>(null);
 
@@ -169,23 +180,25 @@ export function AgentSessionsPanel({
     if (!collapsed) void refresh();
   }, [collapsed, refresh]);
 
-  // Local terminals only: the focused one's folder, and every AI CLI pane.
+  // Local terminals only: their folders, and every AI CLI pane.
   const statuses = useAiCliStatuses((s) => s.statuses);
-  const { activeCwd, agentPanes } = useMemo(() => {
+  const { activeCwd, agentPanes, terminalKeys } = useMemo(() => {
     let activeCwd: string | null = null;
     const agentPanes: { cwd: string; status: NonNullable<AiCliStatus> }[] = [];
+    const terminalKeys = new Set<string>();
     for (const t of liveTabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
         if (l.leafKind !== "terminal" || l.sshConnectionId) continue;
         if (l.id === activeLeafId) activeCwd = l.cwd ?? null;
+        if (l.cwd) terminalKeys.add(keyOf(l.cwd));
         const st = statuses[l.id];
         if (l.cwd && (st?.tool === "claude" || st?.tool === "codex")) {
           agentPanes.push({ cwd: l.cwd, status: st });
         }
       }
     }
-    return { activeCwd, agentPanes };
+    return { activeCwd, agentPanes, terminalKeys };
   }, [liveTabs, activeLeafId, statuses]);
 
   // A pane starting or quitting a CLI changes which sessions are live and
@@ -200,32 +213,34 @@ export function AgentSessionsPanel({
   const openMap = useMemo(() => openStatuses(sessions ?? [], agentPanes), [sessions, agentPanes]);
 
   // Same key shape as `groupSessions`. Kept while focus sits on an editor or a
-  // remote pane, so the list does not blank every time focus leaves a terminal.
+  // remote pane, so the list does not reshuffle every time focus leaves a terminal.
   const [activeKey, setActiveKey] = useState<string | null>(null);
   useEffect(() => {
     if (activeCwd) setActiveKey(keyOf(activeCwd));
   }, [activeCwd]);
 
-  // Only the focused terminal's folder (and folders under it), not every project,
-  // flattened newest first and cut into day sections. A session from a subfolder
-  // keeps that folder's name as a chip on its card.
-  const sections = useMemo(() => {
-    if (!activeKey) return [];
-    const now = Date.now();
-    const out: { label: string; cards: { s: AgentSession; folder: string | null }[] }[] = [];
-    const cards = groupSessions(sessions ?? [], filter)
-      .filter((g) => inFolder(g.key, activeKey))
-      .flatMap((g) => g.sessions.map((s) => ({ s, folder: g.key === activeKey ? null : g.label })))
-      .sort((a, b) => b.s.modifiedMs - a.s.modifiedMs);
-    for (const c of cards) {
-      const label = dayBucket(c.s.modifiedMs, now);
-      if (out.at(-1)?.label !== label) out.push({ label, cards: [] });
-      out.at(-1)!.cards.push(c);
-    }
-    return out;
-  }, [sessions, filter, activeKey]);
+  const pinnedKeys = usePreferencesStore((s) => s.pinnedAgentSessions);
+  const togglePin = (key: string) =>
+    void setPinnedAgentSessions(
+      pinnedKeys.includes(key) ? pinnedKeys.filter((k) => k !== key) : [key, ...pinnedKeys],
+    );
+
+  const sections = useMemo(
+    () =>
+      sessionSections(sessions ?? [], {
+        filter,
+        mode,
+        activeKey,
+        terminalKeys,
+        openKeys: new Set(openMap.keys()),
+        pinnedKeys: new Set(pinnedKeys),
+        now: Date.now(),
+      }),
+    [sessions, filter, activeKey, terminalKeys, mode, openMap, pinnedKeys],
+  );
   const count = sections.reduce((n, sec) => n + sec.cards.length, 0);
 
+  const [shown, setShown] = useState<Record<string, number>>({});
   const [folded, setFolded] = useState(foldedCache);
   const setFold = (next: Set<string>) => setFolded((foldedCache = next));
   // A filter searches every section, so it opens them all while it is typed.
@@ -235,6 +250,12 @@ export function AgentSessionsPanel({
     const next = new Set(folded);
     if (!next.delete(label)) next.add(label);
     setFold(next);
+  };
+
+  // Clears too: a closed box must not keep narrowing the list out of sight.
+  const closeSearch = () => {
+    setSearchOpen(false);
+    setFilter("");
   };
 
   const resume = (s: AgentSession) => {
@@ -266,6 +287,7 @@ export function AgentSessionsPanel({
     try {
       await deleteSession(s);
       setSessions((prev) => prev?.filter((x) => x !== s) ?? prev);
+      if (pinnedKeys.includes(sessionKey(s))) togglePin(sessionKey(s));
     } catch (e) {
       toast(`Delete failed: ${String(e)}`, { variant: "error" });
     }
@@ -304,6 +326,18 @@ export function AgentSessionsPanel({
             </Button>
           </IconTooltip>
         ) : null}
+        <IconTooltip label="Search sessions" side="bottom">
+          <Button
+            onClick={() => (searchOpen ? closeSearch() : setSearchOpen(true))}
+            aria-label="Search sessions"
+            aria-pressed={searchOpen}
+            variant="ghost"
+            size="icon"
+            className={cn("size-6", searchOpen ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE)}
+          >
+            <Search size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
         <IconTooltip label="Refresh" side="bottom">
           <Button
             onClick={() => void refresh()}
@@ -355,30 +389,46 @@ export function AgentSessionsPanel({
           </IconTooltip>
         ) : null}
       </div>
-      <div className="px-1.5 pt-1.5">
-        <input
+      <Tabs
+        value={mode}
+        onValueChange={(v) => {
+          const next = v === "working" ? "working" : "all";
+          setMode((modeCache = next));
+          // `live` is only as fresh as the last list.
+          if (next === "working") void refresh();
+        }}
+        className="shrink-0 px-1.5 pt-1.5"
+      >
+        <TabsList className="bg-muted/40 h-7 w-full px-1">
+          <TabsTrigger value="working" className="h-6 flex-1 px-2.5 text-[11.5px]">
+            Working
+          </TabsTrigger>
+          <TabsTrigger value="all" className="h-6 flex-1 px-2.5 text-[11.5px]">
+            All
+          </TabsTrigger>
+        </TabsList>
+      </Tabs>
+      {searchOpen ? (
+        <PanelSearchInput
           value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filter sessions"
-          aria-label="Filter sessions"
-          className="border-input bg-background/50 placeholder:text-muted-foreground focus-visible:ring-ring h-6 w-full rounded border px-2 text-xs outline-none focus-visible:ring-1"
+          onChange={setFilter}
+          onClose={closeSearch}
+          placeholder="Search sessions"
         />
-      </div>
+      ) : null}
       <ScrollArea className="min-h-0 flex-1">
         <div className="p-1.5 pr-2.5">
           {sessions === null ? (
             <p className="text-muted-foreground px-1 py-3 text-xs">Loading…</p>
           ) : loadError ? (
             <p className="text-muted-foreground px-1 py-3 text-xs break-words">{loadError}</p>
-          ) : !activeKey ? (
-            <p className="text-muted-foreground px-1 py-3 text-xs">
-              Focus a local terminal to see its folder&apos;s sessions.
-            </p>
           ) : count === 0 ? (
             <p className="text-muted-foreground px-1 py-3 text-xs">
               {filter
                 ? "No matching sessions."
-                : "No Claude Code or Codex sessions in this folder."}
+                : mode === "working"
+                  ? "No session is running right now."
+                  : "No Claude Code or Codex sessions found."}
             </p>
           ) : null}
           {sections.map((sec) => (
@@ -398,14 +448,23 @@ export function AgentSessionsPanel({
                       !isFolded(sec.label) && "rotate-90",
                     )}
                   />
+                  {sec.label === TERMINAL_SECTION ? (
+                    <SquareTerminal size={11} strokeWidth={2} className="text-primary shrink-0" />
+                  ) : null}
                   <span className="flex-1 text-left">{sec.label}</span>
                   <span className="font-normal tabular-nums">{sec.cards.length}</span>
                 </button>
               </h3>
+              {/* Unmounted, not hidden, and paged: a heavy user has thousands of
+                  sessions, each card a tooltip and a context menu. */}
               <ul className={cn("flex flex-col gap-1", isFolded(sec.label) && "hidden")}>
-                {sec.cards.map(({ s, folder }) => {
+                {(isFolded(sec.label)
+                  ? []
+                  : sec.cards.slice(0, shown[sec.label] ?? SECTION_PAGE)
+                ).map(({ s, folder, inTerminal }) => {
                   const key = sessionKey(s);
                   const st = openMap.get(key);
+                  const pinned = pinnedKeys.includes(key);
                   const meta = [
                     ago(s.modifiedMs, now),
                     s.size !== null ? formatBytes(s.size) : null,
@@ -422,7 +481,7 @@ export function AgentSessionsPanel({
                   ) : (
                     <ContextMenu key={key}>
                       <ContextMenuTrigger asChild>
-                        <li>
+                        <li className="group/card relative">
                           {/* One click resumes. `detail > 1` drops the second click of a
                               double-click, so a habit double-click still opens it once.
                               Not `disabled` without a cwd, since a disabled button gets
@@ -462,7 +521,7 @@ export function AgentSessionsPanel({
                                 "group border-border/50 hover:border-border focus-visible:border-ring flex w-full flex-col gap-1 rounded-md border px-2 py-1.5 text-left outline-none aria-disabled:opacity-50",
                                 st
                                   ? cn(
-                                      "border-l-2 border-l-current",
+                                      "border-l-2 border-l-current hover:border-l-current focus-visible:border-l-current",
                                       aiCliStateColorClass(st.state),
                                     )
                                   : "text-muted-foreground",
@@ -487,7 +546,7 @@ export function AgentSessionsPanel({
                                 </span>
                                 <span
                                   className={cn(
-                                    "text-sidebar-foreground/90 group-hover:text-sidebar-foreground line-clamp-2 flex-1 text-[11.5px] leading-snug break-words",
+                                    "text-sidebar-foreground/90 group-hover:text-sidebar-foreground line-clamp-2 flex-1 pr-4 text-[11.5px] leading-snug break-words",
                                     s.custom && "font-medium",
                                   )}
                                 >
@@ -504,13 +563,36 @@ export function AgentSessionsPanel({
                                     <span className="truncate">{s.branch}</span>
                                   </span>
                                 ) : null}
-                                {folder ? (
-                                  <span className="text-muted-foreground ml-auto inline-flex max-w-[45%] shrink-0 items-center gap-0.5 rounded px-1">
+                                <span className="text-muted-foreground ml-auto inline-flex max-w-[45%] shrink-0 items-center gap-0.5 rounded px-1">
+                                  {inTerminal ? (
+                                    <SquareTerminal
+                                      aria-label="Open in a terminal"
+                                      size={9}
+                                      strokeWidth={2}
+                                      className="text-primary shrink-0"
+                                    />
+                                  ) : (
                                     <Folder size={9} strokeWidth={2} className="shrink-0" />
-                                    <span className="truncate">{folder}</span>
-                                  </span>
-                                ) : null}
+                                  )}
+                                  <span className="truncate">{folder}</span>
+                                </span>
                               </span>
+                            </button>
+                          </IconTooltip>
+                          {/* Beside the card's button, not in it: buttons cannot nest.
+                              Always shown once pinned, a pin nobody can see is no use. */}
+                          <IconTooltip label={pinned ? "Unpin session" : "Pin session"}>
+                            <button
+                              type="button"
+                              onClick={() => togglePin(key)}
+                              aria-label={pinned ? "Unpin session" : "Pin session"}
+                              aria-pressed={pinned}
+                              className={cn(
+                                "text-muted-foreground hover:text-foreground focus-visible:ring-ring absolute top-1 right-1 cursor-pointer rounded p-0.5 outline-none focus-visible:opacity-100 focus-visible:ring-1",
+                                !pinned && "opacity-0 group-hover/card:opacity-100",
+                              )}
+                            >
+                              <Pin size={11} strokeWidth={pinned ? 2.25 : 1.75} />
                             </button>
                           </IconTooltip>
                         </li>
@@ -518,6 +600,9 @@ export function AgentSessionsPanel({
                       <ContextMenuContent>
                         <ContextMenuItem disabled={!canResume(s)} onSelect={() => resume(s)}>
                           Resume
+                        </ContextMenuItem>
+                        <ContextMenuItem onSelect={() => togglePin(key)}>
+                          {pinned ? "Unpin Session" : "Pin Session"}
                         </ContextMenuItem>
                         <ContextMenuItem onSelect={() => setRenaming(key)}>Rename</ContextMenuItem>
                         <ContextMenuItem
@@ -547,6 +632,20 @@ export function AgentSessionsPanel({
                   );
                 })}
               </ul>
+              {!isFolded(sec.label) && sec.cards.length > (shown[sec.label] ?? SECTION_PAGE) ? (
+                <button
+                  type="button"
+                  onClick={() =>
+                    setShown((prev) => ({
+                      ...prev,
+                      [sec.label]: (prev[sec.label] ?? SECTION_PAGE) + SECTION_PAGE,
+                    }))
+                  }
+                  className="text-muted-foreground hover:text-foreground focus-visible:text-foreground mt-1 w-full rounded px-1 py-1 text-[10px] outline-none"
+                >
+                  Show {sec.cards.length - (shown[sec.label] ?? SECTION_PAGE)} more
+                </button>
+              ) : null}
             </section>
           ))}
         </div>

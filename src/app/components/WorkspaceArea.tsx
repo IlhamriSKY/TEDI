@@ -144,6 +144,7 @@ export function WorkspaceArea({
           editor, preview, diffs) render at their native scale.
           Net effective zoom here is uiZoom * (1 / uiZoom) = 1. */}
       <div
+        data-focus-region="panes"
         className="flex h-full min-h-0 flex-col"
         style={uiZoom === 1 ? undefined : { zoom: 1 / uiZoom }}
       >

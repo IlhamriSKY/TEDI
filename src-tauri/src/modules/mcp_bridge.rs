@@ -140,23 +140,82 @@ fn bind() -> std::io::Result<interprocess::local_socket::tokio::Listener> {
 
 /// Publish the socket address + token so a client can find them.
 ///
-/// Written 0600 on unix. On Windows the file inherits the user profile's ACL,
-/// which is the same protection `tedi-settings.json` beside it already relies on.
+/// 0600 on unix FROM THE FIRST BYTE: created with the default mode and chmod'd
+/// after the write, the token sat world-readable in between. `mode` only applies
+/// on creation, so a file left by a crashed run goes first. On Windows the file
+/// inherits the user profile's ACL, which is the same protection
+/// `tedi-settings.json` beside it already relies on.
 fn write_handshake() {
     let Some(path) = handshake_path() else { return };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
     let body = serde_json::json!({ "socket": socket_address(), "token": token() });
-    let Ok(mut f) = std::fs::File::create(&path) else {
+    #[cfg(unix)]
+    let file = {
+        use std::os::unix::fs::OpenOptionsExt;
+        let _ = std::fs::remove_file(&path);
+        std::fs::OpenOptions::new()
+            .write(true)
+            .create_new(true)
+            .mode(0o600)
+            .open(&path)
+    };
+    #[cfg(not(unix))]
+    let file = std::fs::File::create(&path);
+    let Ok(mut f) = file else {
         return;
     };
     let _ = f.write_all(body.to_string().as_bytes());
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        let _ = std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600));
+}
+
+/// Capability -> the MCP tool that owns it, for every tool a pack switch can turn
+/// off that does not go through DevTools (`mcp_devtools` gates those itself).
+///
+/// `server.mjs` checks the switches too, but that is the CLIENT checking itself.
+/// Anything holding the token could skip it and call `setSetting` directly, which
+/// is the hand-back-your-own-access case the switches exist for. `cli-verify`
+/// fails when a tool in a switchable pack reaches a capability not listed here.
+const GATED_CAPABILITIES: &[(&str, &str)] = &[
+    ("setSetting", "set_setting"),
+    ("extControl", "extension"),
+    ("ai", "ai"),
+    ("aiMessages", "ai"),
+    ("aiSend", "ai"),
+    ("aiNew", "ai"),
+    ("aiSwitch", "ai"),
+    ("aiStop", "ai"),
+];
+
+/// Capabilities that act on one extension, named by their first argument.
+const EXTENSION_CAPABILITIES: &[&str] = &["runExtensionCommand", "panelOpen"];
+
+fn is_gated(capability: &str) -> bool {
+    EXTENSION_CAPABILITIES.contains(&capability)
+        || GATED_CAPABILITIES.iter().any(|(c, _)| *c == capability)
+}
+
+fn listed(settings: &serde_json::Value, key: &str, value: &str) -> bool {
+    settings
+        .get(key)
+        .and_then(serde_json::Value::as_array)
+        .is_some_and(|list| list.iter().any(|d| d.as_str() == Some(value)))
+}
+
+/// Why `capability` is refused under these settings, or `None` when it may run.
+fn switched_off(
+    capability: &str,
+    args: &[serde_json::Value],
+    settings: &serde_json::Value,
+) -> Option<String> {
+    if EXTENSION_CAPABILITIES.contains(&capability) {
+        let id = args.first()?.as_str()?;
+        return listed(settings, "mcpDisabledExtensions", id)
+            .then(|| format!("{id} is switched off in TEDI's MCP settings"));
     }
+    let (_, tool) = GATED_CAPABILITIES.iter().find(|(c, _)| *c == capability)?;
+    listed(settings, "mcpDisabledTools", tool)
+        .then(|| format!("\"{tool}\" is switched off in TEDI's MCP settings"))
 }
 
 /// Remove the handshake file. Called on exit so a stale token cannot outlive the
@@ -283,6 +342,15 @@ async fn serve(
                 Ok(()) => outcome(Ok(serde_json::Value::Array(mcp_devtools::logs()))),
                 Err(why) => failure(why),
             },
+            // The table is consulted before the file is read, so an ungated call
+            // (nearly all of them) costs no disk.
+            name if is_gated(name) => {
+                match mcp_devtools::settings_json().and_then(|s| switched_off(name, &req.args, &s))
+                {
+                    Some(why) => failure(why),
+                    None => call_webview(&app, &req.name, req.args).await,
+                }
+            }
             _ => call_webview(&app, &req.name, req.args).await,
         };
         let out = serde_json::json!({
@@ -414,6 +482,31 @@ mod tests {
     fn the_address_is_stable_within_a_run() {
         assert_eq!(socket_address(), socket_address());
         assert!(!socket_address().is_empty());
+    }
+
+    /// The switch has to hold against a client that never asked `server.mjs`, and
+    /// must not touch a capability no pack governs.
+    #[test]
+    fn a_switched_off_tool_refuses_its_capabilities_and_nothing_else() {
+        let off = serde_json::json!({ "mcpDisabledTools": ["set_setting", "ai"] });
+        assert!(switched_off("setSetting", &[], &off).is_some());
+        assert!(switched_off("aiSend", &[], &off).is_some());
+        assert!(switched_off("extControl", &[], &off).is_none());
+        assert!(switched_off("state", &[], &off).is_none());
+        assert!(switched_off("setSetting", &[], &serde_json::json!({})).is_none());
+    }
+
+    /// `tedi call` and `pane panel` name the extension in their first argument, so
+    /// that is what the switch has to read.
+    #[test]
+    fn a_switched_off_extension_refuses_its_calls_and_leaves_the_others() {
+        let off = serde_json::json!({ "mcpDisabledExtensions": ["tedi.sql-explorer"] });
+        let args = |id: &str| [serde_json::json!(id), serde_json::json!("tool")];
+        assert!(switched_off("runExtensionCommand", &args("tedi.sql-explorer"), &off).is_some());
+        assert!(switched_off("panelOpen", &args("tedi.sql-explorer"), &off).is_some());
+        assert!(switched_off("runExtensionCommand", &args("tedi.browser"), &off).is_none());
+        assert!(switched_off("runExtensionCommand", &[], &off).is_none());
+        assert!(is_gated("panelOpen") && is_gated("aiSend") && !is_gated("state"));
     }
 
     #[test]

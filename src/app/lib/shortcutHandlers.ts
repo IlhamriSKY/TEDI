@@ -1,6 +1,9 @@
 import { type RefObject } from "react";
+import { toast } from "@/components/ui/toast";
 import { readClipboardText } from "@/lib/clipboard";
+import { stop as stopAi, useChatStore } from "@/modules/ai/store/chatStore";
 import { useNotesStore } from "@/modules/notes";
+import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { WorkspaceView } from "@/modules/workspaces/store";
@@ -13,11 +16,23 @@ import {
   CONTENT_ZOOM_MIN,
   CONTENT_ZOOM_STEP,
 } from "@/modules/settings/store";
-import { type ShortcutHandlers } from "@/modules/shortcuts";
+import { isUserEvent, type ShortcutHandlers } from "@/modules/shortcuts";
+import { cycleFocusRegion, focusPaneGutter } from "@/modules/shortcuts/lib/focusRegions";
 import {
+  FLOAT_LEAF_EVENT,
+  OPEN_SSH_MENU_EVENT,
+  RENAME_LEAF_EVENT,
+} from "@/modules/shortcuts/shortcuts";
+import {
+  disconnectSsh,
+  findLeaf,
   focusedTerminalLeafId,
+  lastCommandOutput,
   leaves,
+  reconnectSsh,
   scrollTerminalToCommand,
+  scrollTerminalToEdge,
+  selectAllInTerminal,
   clearTerminalScrollback,
   type TerminalPaneHandle,
 } from "@/modules/terminal";
@@ -59,6 +74,14 @@ export interface ShortcutHandlerDeps {
   activeLeafIdInTab: number | null;
   activeLeafKindCurrent: "terminal" | "editor" | "browser" | null;
   commandPaletteOpen: () => void;
+  switchToWorkspace: (workspaceId: string) => void;
+  createNewWorkspace: () => void;
+  reorderTabs: (fromTabId: number, beforeTabId: number | null) => void;
+  setTabPinned: (tabId: number, pinned: boolean) => void;
+  toggleMdPreviewForLeaf: (leafId: number) => void;
+  hasComposer: boolean;
+  /** Expand the column the AI panel lives in; open is not the same as on screen. */
+  revealAiColumn: () => void;
 }
 
 /**
@@ -113,15 +136,62 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     activeLeafIdInTab,
     activeLeafKindCurrent,
     commandPaletteOpen,
+    switchToWorkspace,
+    createNewWorkspace,
+    reorderTabs,
+    setTabPinned,
+    toggleMdPreviewForLeaf,
+    hasComposer,
+    revealAiColumn,
   } = deps;
+
+  // The terminal a command acts on: the focused one, else the active leaf, since
+  // the Command Palette holds focus itself while it runs a command.
+  const terminalLeaf = (): number | null =>
+    focusedTerminalLeafId() ?? (activeLeafKindCurrent === "terminal" ? activeLeafIdInTab : null);
+
+  // `run_command` runs registered commands with a synthetic event, so an agent
+  // could otherwise select-all or copy a private pane, whose text must never reach
+  // it, and read it back. A real keypress or the palette is the user asking.
+  const readableBy = (e: KeyboardEvent, leafId: number): boolean => {
+    if (isUserEvent(e)) return true;
+    for (const t of tabsRef.current) {
+      const leaf = t.kind === "pane" ? findLeaf(t.paneTree, leafId) : null;
+      if (leaf) return !leaf.private;
+    }
+    return false;
+  };
+
+  // Tabs in the order the strip draws them; a snoozed one is not on it.
+  const moveActiveTab = (delta: 1 | -1) => {
+    const shown = tabsRef.current.filter((t) => !t.snoozed);
+    const i = shown.findIndex((t) => t.id === activeId);
+    if (i < 0) return;
+    if (delta < 0 && i > 0) reorderTabs(activeId, shown[i - 1].id);
+    if (delta > 0 && i < shown.length - 1) reorderTabs(activeId, shown[i + 2]?.id ?? null);
+  };
+
+  const cycleWorkspace = (delta: 1 | -1) => {
+    const { workspaces, activeId: current } = useWorkspacesStore.getState();
+    if (workspaces.length < 2) return;
+    const i = workspaces.findIndex((w) => w.id === current);
+    switchToWorkspace(workspaces[(i + delta + workspaces.length) % workspaces.length].id);
+  };
+
+  const focusActivePane = (): boolean => {
+    if (activeLeafIdInTab === null) return false;
+    const handle =
+      terminalRefs.current.get(activeLeafIdInTab) ?? editorRefs.current.get(activeLeafIdInTab);
+    handle?.focus();
+    return !!handle;
+  };
 
   // Terminal copy/paste act on the pane holding KEYBOARD focus (see
   // `focusedTerminalLeafId` for why the active leaf is the wrong anchor for a
   // bare Ctrl+C / Ctrl+V), falling back to the active leaf for the Command
   // Palette - it takes focus itself, and it bypasses the keyboard gate anyway.
   const copyPasteTarget = (): TerminalPaneHandle | undefined => {
-    const leafId =
-      focusedTerminalLeafId() ?? (activeLeafKindCurrent === "terminal" ? activeLeafIdInTab : null);
+    const leafId = terminalLeaf();
     return leafId === null ? undefined : terminalRefs.current.get(leafId);
   };
 
@@ -134,10 +204,84 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "tab.close": handleCloseTabOrPane,
     "tab.next": () => cycleTab(1),
     "tab.prev": () => cycleTab(-1),
-    "tab.selectByIndex": (e) => selectByIndex(parseInt(e.key, 10) - 1),
-    // Ctrl+D: horizontal split (new pane beside focus).
+    // `e.code`, like the match: on AZERTY the digit row's `e.key` is "&" and so on.
+    "tab.selectByIndex": (e) => selectByIndex(Number(e.code.slice(-1)) - 1),
+    "tab.rename": () => {
+      if (activeLeafIdInTab === null) return;
+      const ask = new CustomEvent(RENAME_LEAF_EVENT, {
+        detail: activeLeafIdInTab,
+        cancelable: true,
+      });
+      // Uncancelled means no strip heard it: the kanban and canvas views have none.
+      if (window.dispatchEvent(ask)) toast("Switch to the tabs view to rename a tab");
+    },
+    "tab.pin": () => {
+      const tab = tabsRef.current.find((t) => t.id === activeId);
+      if (tab) setTabPinned(tab.id, !tab.pinned);
+    },
+    "tab.moveLeft": () => moveActiveTab(-1),
+    "tab.moveRight": () => moveActiveTab(1),
+    "focus.nextRegion": () => cycleFocusRegion(1, focusActivePane),
+    "focus.prevRegion": () => cycleFocusRegion(-1, focusActivePane),
+    "workspace.new": createNewWorkspace,
+    "workspace.next": () => cycleWorkspace(1),
+    "workspace.prev": () => cycleWorkspace(-1),
+    "workspace.selectByIndex": (e) => {
+      const target = useWorkspacesStore.getState().workspaces[Number(e.code.slice(-1)) - 1];
+      if (target) switchToWorkspace(target.id);
+    },
+    "ssh.menu": () => window.dispatchEvent(new Event(OPEN_SSH_MENU_EVENT)),
+    // The Remote tree is a sidebar section by default, and only a right-panel
+    // surface once docked there. With no SSH pane there is no tree to show.
+    "ssh.files": () => {
+      const hasSsh = tabsRef.current.some(
+        (t) =>
+          t.kind === "pane" &&
+          leaves(t.paneTree).some(
+            (l) => l.leafKind === "terminal" && l.sshConnectionId !== undefined,
+          ),
+      );
+      if (!hasSsh) return;
+      if (usePreferencesStore.getState().sshInRightPanel) useSshRightPanelStore.getState().toggle();
+      else toggleSidebar();
+    },
+    "ssh.reconnect": () => {
+      const leafId = terminalLeaf();
+      if (leafId !== null) void reconnectSsh(leafId);
+    },
+    "ssh.disconnect": () => {
+      const leafId = terminalLeaf();
+      if (leafId !== null) void disconnectSsh(leafId);
+    },
+    // With no provider key there is no composer to host either of these, and
+    // `togglePanelAndFocus` already sends the user to add one.
+    "ai.newChat": () => {
+      if (!hasComposer) return togglePanelAndFocus();
+      const chat = useChatStore.getState();
+      chat.newSession();
+      chat.openPanel();
+      revealAiColumn();
+      chat.focusInput();
+    },
+    "ai.history": () => {
+      if (!hasComposer) return togglePanelAndFocus();
+      const chat = useChatStore.getState();
+      chat.openPanel();
+      revealAiColumn();
+      chat.setShowHistoryPicker(true);
+    },
+    "ai.stop": stopAi,
+    // Ctrl+D: horizontal split (new pane beside focus), Alt+Shift+D inside a
+    // terminal, which keeps Ctrl+D as EOF.
     // Ctrl+Shift+D: vertical split (new pane below focus).
     "pane.splitRight": () => splitActivePaneInActiveTab("row"),
+    "pane.float": () => {
+      if (activeLeafIdInTab === null) return;
+      window.dispatchEvent(new CustomEvent(FLOAT_LEAF_EVENT, { detail: activeLeafIdInTab }));
+    },
+    "pane.resize": () => {
+      if (activeLeafIdInTab !== null) focusPaneGutter(activeLeafIdInTab, focusActivePane);
+    },
     "pane.splitDown": () => splitActivePaneInActiveTab("col"),
     "pane.focusNext": () => focusNextPaneInTab(activeId, 1),
     "pane.focusPrev": () => focusNextPaneInTab(activeId, -1),
@@ -202,6 +346,11 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     "editor.toggleWordWrap": () => {
       void setLineWrap(!usePreferencesStore.getState().lineWrap);
     },
+    "editor.markdownPreview": () => {
+      if (activeLeafKindCurrent === "editor" && activeLeafIdInTab !== null) {
+        toggleMdPreviewForLeaf(activeLeafIdInTab);
+      }
+    },
     "editor.saveAs": () => {
       if (activeLeafKindCurrent !== "editor" || activeLeafIdInTab === null) return;
       saveEditorLeaf(deps, activeLeafIdInTab, "saveAs");
@@ -219,7 +368,9 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
     // App's isDisabled only routes BARE Ctrl+C here when the focused terminal
     // has a selection - with none it falls through to xterm as SIGINT.
     "terminal.copy": (e) => {
-      const term = copyPasteTarget();
+      const leafId = terminalLeaf();
+      if (leafId === null || !readableBy(e, leafId)) return;
+      const term = terminalRefs.current.get(leafId);
       const sel = term?.getSelection();
       if (!sel) return;
       // Clipboard WRITES work through the webview API on every OS (they ride
@@ -260,18 +411,45 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       if (terminalLeafCount <= 1) return;
       requestCloseLeaf(activeLeafIdInTab);
     },
-    // App's `isDisabled` only lets these through while a terminal has focus.
+    // App's `isDisabled` only lets these keys through while a terminal has focus.
     "terminal.prevCommand": () => {
-      const leafId = focusedTerminalLeafId();
+      const leafId = terminalLeaf();
       if (leafId !== null) scrollTerminalToCommand(leafId, -1);
     },
     "terminal.nextCommand": () => {
-      const leafId = focusedTerminalLeafId();
+      const leafId = terminalLeaf();
       if (leafId !== null) scrollTerminalToCommand(leafId, 1);
     },
     "terminal.clear": () => {
-      const leafId = focusedTerminalLeafId();
+      const leafId = terminalLeaf();
       if (leafId !== null) clearTerminalScrollback(leafId);
+    },
+    "terminal.selectAll": (e) => {
+      const leafId = terminalLeaf();
+      if (leafId !== null && readableBy(e, leafId)) selectAllInTerminal(leafId);
+    },
+    "terminal.copyLastOutput": (e) => {
+      const leafId = terminalLeaf();
+      if (leafId === null || !readableBy(e, leafId)) return;
+      const output = lastCommandOutput(leafId);
+      // Empty too: a cleared screen disposes the markers, and copying "" would wipe
+      // the clipboard while reporting success.
+      if (!output) {
+        toast("No finished command to copy yet", { variant: "error" });
+        return;
+      }
+      void navigator.clipboard.writeText(output).then(
+        () => toast("Copied last command output"),
+        (err) => console.warn("terminal.copyLastOutput: clipboard write failed:", err),
+      );
+    },
+    "terminal.scrollTop": () => {
+      const leafId = terminalLeaf();
+      if (leafId !== null) scrollTerminalToEdge(leafId, "top");
+    },
+    "terminal.scrollBottom": () => {
+      const leafId = terminalLeaf();
+      if (leafId !== null) scrollTerminalToEdge(leafId, "bottom");
     },
   };
 }

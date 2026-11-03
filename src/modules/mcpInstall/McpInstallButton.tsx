@@ -31,7 +31,7 @@ import {
   setMcpSurface,
 } from "@/modules/settings/store";
 import { listExtensions } from "@/modules/extensions/store";
-import { disabledToolsFor, MCP_EXTENSION_ALLOWLIST, MCP_PACKS } from "./packs";
+import { disabledToolsFor, MCP_PACKS } from "./packs";
 import {
   Dialog,
   DialogContent,
@@ -85,15 +85,12 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
    *  cwd, falling back to the last picked root. */
   const root = projectRoot ?? pickedRoot();
 
-  /** Pack ids switched OFF, and extension ids switched ON. Stored that way round
-   *  so a pack added later is on by default and a new extension is not. */
+  /** What is switched OFF, so anything added later is on without a visit here. */
   const [offPacks, setOffPacks] = useState<string[]>([]);
-  const [onExts, setOnExts] = useState<string[]>([]);
-  /** Only extensions that are installed, ENABLED, and really register AI tools.
-   *  Anything else would be a switch the server cannot honour. */
-  const [exts, setExts] = useState<{ id: string; name: string; tools: number; usable: boolean }[]>(
-    [],
-  );
+  const [offExts, setOffExts] = useState<string[]>([]);
+  /** Extensions that are installed, ENABLED and have something to reach. A disabled
+   *  one has nothing live to switch: deactivation clears its registry entries. */
+  const [exts, setExts] = useState<{ id: string; name: string; summary: string }[]>([]);
 
   const refresh = useCallback(async () => {
     const [cli, storedPort, path, surfaceCfg] = await Promise.all([
@@ -105,44 +102,38 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
     setRows(cli);
     setPort(storedPort);
     setServer(path);
-    setOnExts(surfaceCfg.extensions);
+    setOffExts(surfaceCfg.disabledExtensions);
     // Stored as tool names; mapped back to pack ids so the switches reflect it.
     const off = new Set(surfaceCfg.disabledTools);
     setOffPacks(
       MCP_PACKS.filter((p) => !p.always && p.tools.every((t) => off.has(t))).map((p) => p.id),
     );
-    // The ALLOW-LIST, not "everything that registers a tool". Advertising an
-    // extension costs tokens on every request, so only the two an agent really
-    // drives are offered; the rest stay reachable through `run_command`.
-    // `listExtensions` reads the RUNTIME registry, so the count is what each
-    // one really registers, not what its manifest claims.
-    const live = listExtensions();
+    // `listExtensions` reads the RUNTIME registry, so a tool count is what each one
+    // really registers, not what its manifest claims.
     setExts(
-      MCP_EXTENSION_ALLOWLIST.map(({ id, label }) => {
-        const found = live.find((e) => e.id === id);
-        return {
-          id,
-          name: label,
-          tools: found?.aiTools.length ?? 0,
-          // INSTALLED AND ENABLED, and it really has tools. All three, because
-          // each fails differently: not installed = nothing to switch;
-          // disabled = deactivation CLEARS its runtime registry entries, so it
-          // would advertise tools that answer nothing; zero tools = a switch
-          // that turns nothing on. A row for any of those is a promise the
-          // server cannot keep.
-          usable: Boolean(found?.enabled) && (found?.aiTools.length ?? 0) > 0,
-        };
-      }).filter((e) => e.usable),
+      listExtensions()
+        .filter((e) => e.enabled && e.aiTools.length + e.commands.length + e.panels.length > 0)
+        .map((e) => ({
+          id: e.id,
+          name: e.name,
+          summary: [
+            e.aiTools.length && `${e.aiTools.length} AI tool${e.aiTools.length === 1 ? "" : "s"}`,
+            e.commands.length &&
+              `${e.commands.length} command${e.commands.length === 1 ? "" : "s"}`,
+            e.panels.length && `${e.panels.length} panel${e.panels.length === 1 ? "" : "s"}`,
+          ]
+            .filter(Boolean)
+            .join(", "),
+        }))
+        .sort((x, y) => x.name.localeCompare(y.name)),
     );
   }, [scope, root]);
 
   const writeSurface = useCallback(async (nextOff: string[], nextExts: string[]) => {
     setOffPacks(nextOff);
-    setOnExts(nextExts);
-    await setMcpSurface({ disabledTools: disabledToolsFor(nextOff), extensions: nextExts });
-    toast("MCP surface saved - TEDI's own agent already has it; reconnect your AI CLI", {
-      variant: "default",
-    });
+    setOffExts(nextExts);
+    await setMcpSurface({ disabledTools: disabledToolsFor(nextOff), disabledExtensions: nextExts });
+    toast("Saved. It applies from the next call, with nothing to restart.", { variant: "default" });
   }, []);
 
   // Once on mount for the indicator, and again whenever the dialog opens - a
@@ -161,7 +152,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
    * schemas.
    */
   const onPacks = MCP_PACKS.filter((p) => p.always || !offPacks.includes(p.id));
-  const onCount = onPacks.length + exts.filter((e) => onExts.includes(e.id)).length;
+  const onCount = onPacks.length + exts.filter((e) => !offExts.includes(e.id)).length;
   const totalCount = MCP_PACKS.length + exts.length;
 
   const installed = (rows ?? []).some((r) => r.installed);
@@ -171,9 +162,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
     async (row: TargetStatus, next: boolean) => {
       setBusy(row.id);
       try {
-        await (next
-          ? install(row, scope, root, port || DEFAULT_PORT)
-          : uninstall(row, scope, root));
+        await (next ? install(row, scope, root) : uninstall(row, scope, root));
         // No port is switched on here any more: the bridge carries every tool,
         // so the config works the moment it is written, with no restart.
         await refresh();
@@ -186,7 +175,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
         setBusy(null);
       }
     },
-    [port, refresh, scope, root],
+    [refresh, scope, root],
   );
 
   /** One click to wire every found CLI in the current scope. Skips the ones
@@ -196,7 +185,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
     if (targets.length === 0) return;
     setBusy("all");
     try {
-      for (const row of targets) await install(row, scope, root, port || DEFAULT_PORT);
+      for (const row of targets) await install(row, scope, root);
       await refresh();
       toast(`MCP installed for ${targets.length} CLI${targets.length === 1 ? "" : "s"}`, {
         variant: "success",
@@ -206,7 +195,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
     } finally {
       setBusy(null);
     }
-  }, [rows, scope, root, port, refresh]);
+  }, [rows, scope, root, refresh]);
 
   const setChannel = useCallback(async (on: boolean) => {
     await setAutomationPort(on ? DEFAULT_PORT : 0);
@@ -273,8 +262,9 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
           <DialogHeader>
             <DialogTitle>Control TEDI from your AI CLI</DialogTitle>
             <DialogDescription>
-              Registers TEDI&rsquo;s MCP server so an agent can read your panes, terminals, editors,
-              settings and extensions, and drive them. Only CLIs found on this machine are listed.
+              Registers TEDI&rsquo;s MCP server, which tells an agent about the <code>tedi</code>{" "}
+              command so it can read and drive your panes, terminals, editors, settings and
+              extensions. Only CLIs found on this machine are listed.
             </DialogDescription>
           </DialogHeader>
 
@@ -393,12 +383,10 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
               )}
             </div>
 
-            {/* What the server advertises. The tool list is loaded into EVERY
-              request of a connected CLI for the whole session, so this is a
-              standing bill and the user is the one who should size it. */}
+            {/* What an agent may reach. Off means refused, by the app itself. */}
             <details className="border-border/60 rounded-md border">
               <summary className="hover:bg-accent/40 cursor-pointer px-3 py-2 text-sm">
-                What the MCP exposes
+                What agents can reach
                 <span className="text-muted-foreground ml-1.5 text-xs tabular-nums">
                   {onCount} of {totalCount} on
                 </span>
@@ -427,7 +415,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                       onCheckedChange={(on) =>
                         void writeSurface(
                           on ? offPacks.filter((x) => x !== p.id) : [...offPacks, p.id],
-                          onExts,
+                          offExts,
                         )
                       }
                     />
@@ -437,7 +425,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                 {exts.length > 0 && (
                   <>
                     <span className="text-muted-foreground mt-1 px-2 text-[10px] tracking-wide uppercase">
-                      Extension packs
+                      Extensions
                     </span>
                     {exts.map((e) => (
                       <label
@@ -447,17 +435,16 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                         <span className="min-w-0">
                           <span className="text-[13px]">{e.name}</span>
                           <span className="text-muted-foreground block text-[11px]">
-                            {e.tools} AI tool{e.tools === 1 ? "" : "s"} advertised directly, so a
-                            CLI sees them without asking first.
+                            {e.summary}
                           </span>
                         </span>
                         <Switch
-                          checked={onExts.includes(e.id)}
+                          checked={!offExts.includes(e.id)}
                           aria-label={e.name}
                           onCheckedChange={(on) =>
                             void writeSurface(
                               offPacks,
-                              on ? [...onExts, e.id] : onExts.filter((x) => x !== e.id),
+                              on ? offExts.filter((x) => x !== e.id) : [...offExts, e.id],
                             )
                           }
                         />
@@ -476,7 +463,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                     ? `Open on port ${port || DEFAULT_PORT}. Anything running as you can drive this window, and it keeps TEDI heavier. MCP does not need it.`
                     : port
                       ? `Opens on port ${port} after a restart. MCP does not need it.`
-                      : "Off. MCP works fully without it; only DevTools tooling outside MCP needs it."}
+                      : "Off, and it should stay off. MCP and the tedi command work without it. It only serves DevTools tools outside TEDI."}
                 </span>
               </span>
               <Switch

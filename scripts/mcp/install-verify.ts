@@ -32,12 +32,9 @@ const ok = (msg: string): void => console.log(`  ok: ${msg}`);
 
 const SERVER = "C:/Program Files/TEDI/resources/mcp/server.mjs";
 const OLD_SERVER = "C:/Users/x/old-tedi/scripts/mcp/server.mjs";
-const PORT = 9222;
-/** The installing app's own bundle id. It is written beside the port because the
- *  server picks the app to DRIVE from the port but reads the pack switches from
- *  a settings file named by this id - so a config carrying only the port drove
- *  one app while reading another's switches, and toggling a pack changed nothing
- *  the CLI could see. */
+/** The installing app's own bundle id. The bridge and the pack switches both live
+ *  in a directory named by it, so a config without it read another app's switches
+ *  and toggling a pack changed nothing the CLI could see. */
 const BUNDLE = "id.ilhamrisky.tedi";
 
 const byId = (id: string): Target => {
@@ -60,7 +57,7 @@ console.log("[mcpServers] an existing config survives the merge");
     null,
     2,
   );
-  const after = withEntry(byId("claude"), before, SERVER, PORT, BUNDLE);
+  const after = withEntry(byId("claude"), before, SERVER, BUNDLE);
   const json = JSON.parse(after) as {
     numStartups: number;
     projects: Record<string, unknown>;
@@ -78,11 +75,7 @@ console.log("[mcpServers] an existing config survives the merge");
     fail("its own entry does not read back");
   else ok("the entry reads back as installed");
 
-  // The port picks which app to DRIVE; the bundle id picks whose pack switches
-  // to READ (the settings file lives in a directory named by it). An entry
-  // carrying only the port drove one TEDI while reading another's switches, so
-  // toggling a pack changed nothing the CLI could see - it stayed on whatever
-  // the default profile said.
+  // The bundle id picks which app to reach and whose pack switches to read.
   if (!JSON.stringify(json.mcpServers.tedi).includes("TEDI_BUNDLE_ID"))
     fail("the entry does not carry TEDI_BUNDLE_ID - pack toggles will not reach the CLI");
   else ok("the entry names the profile whose switches it reads");
@@ -96,7 +89,7 @@ console.log("[mcpServers] an existing config survives the merge");
   else ok("an entry with no bundle id reads as stale, so the button offers to fix it");
 
   // Idempotence, and the round trip.
-  const twice = withEntry(byId("claude"), after, SERVER, PORT, BUNDLE);
+  const twice = withEntry(byId("claude"), after, SERVER, BUNDLE);
   if (twice !== after) fail("installing twice changed the file the second time");
   else ok("installing twice is a no-op");
 
@@ -124,7 +117,7 @@ console.log("\n[mcpServers] the per-project scope of ~/.claude.json counts too")
         "D:\\repo": {
           history: [{ display: "hi" }],
           mcpServers: {
-            tedi: entryFor("mcpServers", SERVER, PORT, BUNDLE),
+            tedi: entryFor("mcpServers", SERVER, BUNDLE),
             keepme: { command: "node", args: ["x.mjs"] },
           },
         },
@@ -154,7 +147,7 @@ console.log("\n[mcpServers] the per-project scope of ~/.claude.json counts too")
 
   // Installing has to converge on ONE entry: a leftover project-scoped copy
   // outranks the top-level one and would keep pointing at its own old path.
-  const installed = JSON.parse(withEntry(byId("claude"), localScope, SERVER, PORT, BUNDLE)) as {
+  const installed = JSON.parse(withEntry(byId("claude"), localScope, SERVER, BUNDLE)) as {
     mcpServers: Record<string, unknown>;
     projects: Record<string, { mcpServers: Record<string, unknown> }>;
   };
@@ -169,7 +162,7 @@ console.log("\n[mcpServers] the per-project scope of ~/.claude.json counts too")
 // ---------------------------------------------------------------------------
 console.log("\n[mcpServers] an empty or missing file becomes a valid config");
 {
-  const fresh = withEntry(byId("cursor"), "", SERVER, PORT, BUNDLE);
+  const fresh = withEntry(byId("cursor"), "", SERVER, BUNDLE);
   const json = JSON.parse(fresh) as { mcpServers: Record<string, { args: string[] }> };
   if (json.mcpServers.tedi.args[0] !== SERVER)
     fail(`fresh file points at ${json.mcpServers.tedi.args[0]}`);
@@ -192,7 +185,7 @@ console.log("\n[codex] TOML edits stop at our own table");
     "",
   ].join("\n");
 
-  const after = withEntry(byId("codex"), before, SERVER, PORT, BUNDLE);
+  const after = withEntry(byId("codex"), before, SERVER, BUNDLE);
   if (!after.includes('model = "gpt-5"')) fail("dropped a top-level key");
   else if (!after.includes("[mcp_servers.other]")) fail("dropped a sibling server table");
   else if (!after.includes("[shell_environment_policy]")) fail("dropped a later table");
@@ -203,7 +196,7 @@ console.log("\n[codex] TOML edits stop at our own table");
   else ok("our table is written with a quoted path");
 
   // Text format: this is the one that can genuinely duplicate.
-  const twice = withEntry(byId("codex"), after, SERVER, PORT, BUNDLE);
+  const twice = withEntry(byId("codex"), after, SERVER, BUNDLE);
   const count = (twice.match(/\[mcp_servers\.tedi\]/g) ?? []).length;
   if (count !== 1) fail(`installing twice left ${count} [mcp_servers.tedi] tables`);
   else ok("installing twice leaves exactly one table");
@@ -257,7 +250,7 @@ console.log("\n[codex] a server owns its NESTED sub-tables too");
   else ok("nested sub-tables go with their server, and the next server survives");
 
   // Re-install must replace the whole thing, not append beside the orphans.
-  const reinstalled = withEntry(byId("codex"), before, SERVER, PORT, BUNDLE);
+  const reinstalled = withEntry(byId("codex"), before, SERVER, BUNDLE);
   if (reinstalled.includes("mcp_servers.tedi.tools")) {
     fail("re-install left stale sub-tables from the previous entry");
   } else if ((reinstalled.match(/\[mcp_servers\.tedi\]/g) ?? []).length !== 1) {
@@ -299,7 +292,7 @@ console.log("\n[codex] our table can also be in the MIDDLE of the file");
   else ok("removing a mid-file table leaves everything after it");
 
   // Same for install, which strips before it appends.
-  const reinstalled = withEntry(byId("codex"), before, SERVER, PORT, BUNDLE);
+  const reinstalled = withEntry(byId("codex"), before, SERVER, BUNDLE);
   if (!reinstalled.includes("[shell_environment_policy]")) {
     fail("re-install ate the tables after our old one");
   } else if ((reinstalled.match(/\[mcp_servers\.tedi\]/g) ?? []).length !== 1) {
@@ -345,16 +338,21 @@ console.log("\n[stale] an entry pointing at an old install is NOT installed");
 // ---------------------------------------------------------------------------
 console.log("\n[opencode] gets its own entry shape, not the standard one");
 {
-  const after = withEntry(byId("opencode"), "", SERVER, PORT, BUNDLE);
+  const after = withEntry(byId("opencode"), "", SERVER, BUNDLE);
   const json = JSON.parse(after) as { mcp?: Record<string, { type?: string; command?: string[] }> };
   if (!json.mcp) fail(`opencode entry landed under ${Object.keys(json).join(", ")}, want "mcp"`);
   else if (json.mcp.tedi?.type !== "local") fail("opencode entry is missing type:local");
   else if (json.mcp.tedi.command?.[0] !== "node") fail("opencode command is not an argv array");
   else ok('opencode gets { mcp: { tedi: { type: "local", command: [...] } } }');
 
-  const std = entryFor("mcpServers", SERVER, PORT, BUNDLE) as { env: Record<string, string> };
-  if (std.env.TEDI_DEBUG_PORT !== String(PORT)) fail("the standard entry lost its port env");
-  else ok("the port reaches the server process as TEDI_DEBUG_PORT");
+  const std = entryFor("mcpServers", SERVER, BUNDLE) as { env: Record<string, string> };
+  // A port here is an override the server obeys with the bridge down, which drives
+  // whichever TEDI holds it. No tool needs one.
+  if ("TEDI_DEBUG_PORT" in std.env) fail("the entry names a port again");
+  else ok("the entry names no port");
+  if (/TEDI_DEBUG_PORT/.test(withEntry(byId("codex"), "", SERVER, BUNDLE))) {
+    fail("the Codex entry names a port again");
+  } else ok("nor does the Codex one");
 }
 
 // ---------------------------------------------------------------------------

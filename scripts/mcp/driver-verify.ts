@@ -77,7 +77,9 @@ const fakeCdp = {
           : // The pane mutators answer `{ok}` or a reason, and every handler
             // branches on `ok === true`. A bare `{}` would send them all down
             // the failure path, so the check would prove only that they throw.
-            /__tedi\?\.(paneOpen|paneClose|paneGroup|paneRotate|paneConsolidate)/.test(e)
+            /__tedi\?\.(paneOpen|paneClose|paneGroup|paneRotate|paneConsolidate|paneRename|panePin|panePlace|panelOpen|sshForward|agentSession)/.test(
+                e,
+              )
             ? { ok: true, tabId: 1, leafId: 2, orientation: "row", changed: true, moved: 2 }
             : // `browserAct` answers a status string; "ok" is the success one.
               /__tedi\?\.browserAct/.test(e)
@@ -305,12 +307,26 @@ const args: Record<string, Record<string, unknown>[]> = {
   eval_js: [{ expression: "1" }],
   set_setting: [{ key: "theme", value: "dark" }],
   extension: [{ action: "disable", id: "tedi.sql-explorer" }],
-  ai: [{ action: "status" }, { action: "read" }, { action: "send", text: "hi" }],
-  ssh: [{ action: "list" }, { action: "connect", id: "c-abc" }],
+  ai: [
+    { action: "status" },
+    { action: "read" },
+    { action: "send", text: "hi" },
+    { action: "new" },
+    { action: "switch", sessionId: "s-abc" },
+    { action: "stop" },
+  ],
+  ssh: [
+    { action: "list" },
+    { action: "connect", id: "c-abc" },
+    { action: "forward", leafId: 1, remoteHost: "localhost", remotePort: 80 },
+  ],
+  sftp: [{ action: "list", leafId: 1 }],
+  session: [{ action: "rename", id: "s", title: "t" }],
   workspace: [
     { action: "switch", id: "ws-abc" },
     { action: "create", name: "Scratch" },
     { action: "rename", id: "ws-abc", name: "Scratch" },
+    { action: "view", id: "ws-abc", view: "canvas" },
   ],
   schedule: [
     { action: "list" },
@@ -342,11 +358,22 @@ const args: Record<string, Record<string, unknown>[]> = {
     { action: "group", leafIds: [1, 2] },
     { action: "rotate", leafId: 1, dir: "col" },
     { action: "consolidate" },
+    { action: "rename", leafId: 1, name: "build" },
+    { action: "pin", leafId: 1, pinned: false },
+    { action: "place", leafId: 1, x: 10 },
+    { action: "panel", extensionId: "tedi.sql-explorer" },
   ],
   // Every branch, not just one. A consolidated verb hides a dead mode: the tool
   // still exists, its schema still lists the enum value, and only the arm behind
   // it is broken.
-  inspect: [{ what: "commands" }, { what: "extensions" }, { what: "settings" }, { what: "logs" }],
+  inspect: [
+    { what: "status" },
+    { what: "sessions" },
+    { what: "commands" },
+    { what: "extensions" },
+    { what: "settings" },
+    { what: "logs" },
+  ],
   read: [{ source: "terminal" }, { source: "editors" }, { source: "dom", selector: "button" }],
 };
 for (const [name, t] of Object.entries(tools)) {
@@ -780,6 +807,8 @@ console.log("\n[privacy] leaf-addressed capabilities outside usePaneHandles carr
 {
   const outside: { file: string; capability: string }[] = [
     { file: "src/app/hooks/useSshLeafState.ts", capability: "sshExec" },
+    { file: "src/app/hooks/useSshLeafState.ts", capability: "sftp" },
+    { file: "src/app/hooks/useSshLeafState.ts", capability: "sshForward" },
   ];
   for (const { file, capability } of outside) {
     const text = await readFile(file, "utf8");
@@ -1183,7 +1212,7 @@ console.log("\n[cdp port] the port comes from the profile the bundle id names");
     ["...even when the profile says off", "9500", 0, 9500],
     ["no env var: the profile's own port", undefined, 9223, 9223],
     ["a profile with the channel off resolves to nothing", undefined, 0, null],
-    ["a profile that never stored one falls back to the default", undefined, null, 9222],
+    ["a profile that never stored one has no port, not the usual one", undefined, null, null],
     ["an empty env var is not a port", "", 9223, 9223],
     ["a non-numeric env var is not a port", "yes", 9223, 9223],
   ];

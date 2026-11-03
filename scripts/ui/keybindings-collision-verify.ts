@@ -15,6 +15,10 @@
  *   D. Every Ctrl chord the vim keymap defines AND core also binds falls through
  *      to a focused vim editor (`isVimControlChord`), plus a drift guard against
  *      the installed `@replit/codemirror-vim`.
+ *   E. Every action still has a chord that fires from inside a terminal, so a
+ *      keyboard user is never stuck there; and App exempts no control chord.
+ *   F. `matchBinding` edge cases: the shifted zoom key, digit jumps, AltGr typing,
+ *      plus `keyboardInTerminal` deciding off real focus.
  *
  * Run: `npx tsx scripts/ui/keybindings-collision-verify.ts`.
  *
@@ -30,52 +34,18 @@ import {
   isTerminalControlChord,
   isTerminalMetaChord,
   isVimControlChord,
+  keyboardInTerminal,
+  matchBinding,
   parseKeybindingString,
   type KeyBinding,
 } from "../../src/modules/shortcuts/shortcuts";
 
 const ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
-// Actions with a global handler in src/app/lib/shortcutHandlers.ts. The
-// readOnly Enter-family (ai.send / ai.queueWhileBusy / ai.newline) is NOT here:
-// it is documentation-only and handled locally in the AI input, so those chords
-// fall through globally (that is how Enter reaches the shell in a terminal).
-const HANDLED = new Set<string>([
-  "commandPalette.open",
-  "tab.new",
-  "tab.newPrivate",
-  "tab.newEditor",
-  "tab.newAgent",
-  "tab.close",
-  "tab.next",
-  "tab.prev",
-  "tab.selectByIndex",
-  "pane.splitRight",
-  "pane.splitDown",
-  "pane.focusNext",
-  "pane.focusPrev",
-  "search.focus",
-  "editor.findReplace",
-  "ai.toggle",
-  "ai.askSelection",
-  "scm.open",
-  "shortcuts.open",
-  "settings.open",
-  "notes.toggle",
-  "sidebar.toggle",
-  "rightPanel.toggle",
-  "view.zoomIn",
-  "view.zoomOut",
-  "view.zoomReset",
-  "editor.toggleWordWrap",
-  "editor.formatDocument",
-  "editor.saveAs",
-  "terminal.copy",
-  "terminal.paste",
-  "terminal.close",
-  "terminal.prevCommand",
-  "terminal.nextCommand",
-]);
+// A readOnly entry (Enter to send, Mod+/ in the editor, Alt+Shift+Y on an approval
+// card) has no global handler, so its chord falls through; every other entry is
+// handled. Derived, because a hand-kept list went stale and hid real shadows.
+const isHandled = (id: string) => !SHORTCUTS.find((s) => s.id === id)?.readOnly;
 
 function canon(b: KeyBinding): string {
   const mods = [b.ctrl && "Ctrl", b.shift && "Shift", b.alt && "Alt", b.meta && "Meta"]
@@ -149,7 +119,7 @@ function terminalAction(ev: KeyboardEvent): string | null {
     // App.tsx isDisabled: terminal focused + control/meta chord -> fall through.
     if (isTerminalControlChord(ev) || isTerminalMetaChord(ev)) return null;
     // No global handler -> early return without preventDefault -> fall through.
-    if (!HANDLED.has(s.id)) return null;
+    if (!isHandled(s.id)) return null;
     return s.id; // captured: this app action fires, shell never sees the key
   }
   return null; // unbound -> reaches the shell
@@ -296,6 +266,167 @@ try {
 } catch {
   console.log("  (drift guard skipped: @replit/codemirror-vim not installed)");
 }
+
+// --- E. No action is unreachable from inside a terminal --------------------
+console.log("\n[E] every action keeps a chord that fires inside a local or SSH terminal");
+// `ssh.disconnect` has no chord on purpose: one slip would drop a remote shell.
+// `ai.askSelection` is App's one exemption: Ctrl+L fires while there is a selection,
+// which is the only time it has anything to do.
+const NO_TERMINAL_CHORD = new Set(["ssh.disconnect", "ai.askSelection"]);
+const terminalFires = (b: KeyBinding) => {
+  const ev = toEvent(b);
+  return !isTerminalControlChord(ev) && !isTerminalMetaChord(ev);
+};
+let stranded = 0;
+for (const s of SHORTCUTS) {
+  // Editor actions act on an editor, and App hands their chords to the TUI.
+  if (s.readOnly || s.id.startsWith("editor.") || NO_TERMINAL_CHORD.has(s.id)) continue;
+  if (!s.defaultBindings.some(terminalFires)) {
+    console.error(`  STRANDED: ${s.id} has only bare chords a focused terminal keeps`);
+    stranded++;
+    failed++;
+  }
+}
+if (stranded === 0) console.log("  ok: no action is stranded");
+// `terminalAction` above models the gate from the predicates alone, so it cannot
+// see a hard-coded exemption in App. Pin the source too.
+const appSource = readFileSync(join(ROOT, "src/app/App.tsx"), "utf8");
+if (/id !== "pane\.splitRight"/.test(appSource)) {
+  console.error("  EXEMPT: App lets pane.splitRight take Ctrl+D from a focused terminal");
+  failed++;
+} else {
+  console.log("  ok: App exempts no chord, so Ctrl+D is EOF in a terminal");
+}
+
+// Measured by pressing every chord in a live WebView2: this one never reaches the
+// page, so a binding on it is silently dead. Core or an extension.
+const SWALLOWED = "Shift+Alt+s";
+const swallowedBy = byChord.get(SWALLOWED) ?? [];
+const swallowedExt = extBindings.filter((b) => b.chord === SWALLOWED).map((b) => b.ext);
+if (swallowedBy.length + swallowedExt.length > 0) {
+  console.error(
+    `  DEAD: ${[...swallowedBy, ...swallowedExt].join(", ")} on Alt+Shift+S, which WebView2 eats`,
+  );
+  failed++;
+} else {
+  console.log("  ok: nothing is bound to Alt+Shift+S, which WebView2 eats");
+}
+// A full-screen program, local or over SSH, keeps Alt+Shift+letter (Helix's A-J).
+if (!/e\.altKey && e\.shiftKey && e\.code\.startsWith\("Key"\)/.test(appSource)) {
+  console.error("  STOLEN: App takes Alt+Shift+letter from a full-screen program");
+  failed++;
+} else {
+  console.log("  ok: a full-screen program keeps Alt+Shift+letter");
+}
+// The approve chord is the one key here that lets a command run. It must not answer
+// a card nobody can see, nor several while held down.
+const approvalSource = readFileSync(
+  join(ROOT, "src/modules/ai/components/AiToolApproval.tsx"),
+  "utf8",
+);
+if (!/elementFromPoint/.test(approvalSource) || !/!e\.repeat/.test(approvalSource)) {
+  console.error("  UNSAFE: the approval chord lost its hit test or its repeat guard");
+  failed++;
+} else {
+  console.log("  ok: the approval chord answers only a visible card, once per press");
+}
+// Each `useGlobalShortcuts` caller has its own listener, so one without the gate
+// fires whatever App just declined, while section B still reports the key reaching
+// the shell.
+const hookSource = readFileSync(
+  join(ROOT, "src/modules/shortcuts/lib/useGlobalShortcuts.ts"),
+  "utf8",
+);
+if (!/if \(sharedIsDisabled\?\.\(s\.id, e\)\) return;/.test(hookSource)) {
+  console.error("  UNGATED: a useGlobalShortcuts caller can bypass App's isDisabled");
+  failed++;
+} else {
+  console.log("  ok: every useGlobalShortcuts listener obeys App's gate");
+}
+// The SSH tree is a separate component from the local one, and for a long time
+// had no arrow keys at all: the same keyboard must drive both.
+const treesWithoutKeys = [
+  "src/modules/explorer/FileExplorer.tsx",
+  "src/modules/ssh/SshFileExplorer.tsx",
+].filter((f) => !/useTreeKeyNav\(/.test(readFileSync(join(ROOT, f), "utf8")));
+if (treesWithoutKeys.length > 0) {
+  console.error(`  NO KEYS: ${treesWithoutKeys.join(", ")} lacks tree key navigation`);
+  failed++;
+} else {
+  console.log("  ok: local and remote file trees share one keyboard");
+}
+
+// --- F. Matching edge cases -------------------------------------------------
+console.log("\n[F] matching: shifted zoom, digit jumps, AltGr, real focus");
+function checkF(label: string, got: boolean, want: boolean): void {
+  if (got !== want) {
+    console.error(`  FAIL: ${label} = ${got}, want ${want}`);
+    failed++;
+  } else {
+    console.log(`  ok: ${label}`);
+  }
+}
+const firstFor = (e: KeyboardEvent) =>
+  SHORTCUTS.find((s) => s.defaultBindings.some((b) => matchBinding(e, b, s.id)))?.id;
+const pressed = (over: Partial<KeyboardEvent>) =>
+  ({ ctrlKey: false, shiftKey: false, altKey: false, metaKey: false, ...over }) as KeyboardEvent;
+checkF(
+  "Ctrl+Shift+= (reports key +) zooms in",
+  firstFor(pressed({ ctrlKey: true, shiftKey: true, code: "Equal", key: "+" })) === "view.zoomIn",
+  true,
+);
+checkF(
+  "Ctrl+Numpad+ zooms in",
+  firstFor(pressed({ ctrlKey: true, code: "NumpadAdd", key: "+" })) === "view.zoomIn",
+  true,
+);
+checkF(
+  "Ctrl+Shift+3 (reports key #) jumps to a workspace",
+  firstFor(pressed({ ctrlKey: true, shiftKey: true, code: "Digit3", key: "#" })) ===
+    "workspace.selectByIndex",
+  true,
+);
+const altGr = (code: string, key: string) =>
+  pressed({
+    ctrlKey: true,
+    altKey: true,
+    code,
+    key,
+    getModifierState: (m: string) => m === "AltGraph",
+  } as Partial<KeyboardEvent>);
+const ctrlAltB = { ctrl: true, alt: true, key: "b" };
+checkF(
+  "AltGr+B typing { does not fire Ctrl+Alt+B",
+  matchBinding(altGr("KeyB", "{"), ctrlAltB),
+  false,
+);
+checkF("AltGr+B typing nothing still fires it", matchBinding(altGr("KeyB", "b"), ctrlAltB), true);
+
+const withFocus = (active: unknown, run: () => boolean): boolean => {
+  const body = {};
+  (globalThis as { document?: unknown }).document = { activeElement: active ?? body, body };
+  try {
+    return run();
+  } finally {
+    delete (globalThis as { document?: unknown }).document;
+  }
+};
+const focusedOn = (inXterm: boolean) => ({ closest: () => (inXterm ? {} : null) });
+checkF(
+  "focus in an xterm: the terminal owns the keys",
+  withFocus(focusedOn(true), () => keyboardInTerminal(false)),
+  true,
+);
+checkF(
+  "focus in the composer with a terminal active: the app owns them",
+  withFocus(focusedOn(false), () => keyboardInTerminal(true)),
+  false,
+);
+checkF(
+  "focus on nothing with a terminal active: still the terminal's",
+  withFocus(null, () => keyboardInTerminal(true)),
+  true,
+);
 
 // --- Informational: app chords that still fire inside a terminal ----------
 console.log(

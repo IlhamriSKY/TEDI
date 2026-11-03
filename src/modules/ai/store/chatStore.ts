@@ -1115,14 +1115,7 @@ export function forkChatBefore(messageIndex: number): string | null {
  * prompt from outside is indistinguishable from one the user typed. It does NOT
  * bypass approval: whatever the agent then tries still raises its usual cards.
  */
-/**
- * Why a browser call can fail while nothing is actually broken: THIS MODULE IS
- * LOADED LAZILY with the AI panel, and the browser helpers below borrow the live
- * ToolContext that panel builds. Before it has mounted once there is no context
- * to borrow, and the honest answer is to say so rather than look absent.
- */
-const NO_CONTEXT =
-  "TEDI has no live AI context yet - the AI panel is lazy-loaded. Run the ai.toggle command once, then retry.";
+const live = () => useChatStore.getState().live;
 
 registerBridge({
   ai: () => {
@@ -1171,19 +1164,16 @@ registerBridge({
   },
   // NEVER return a bare `null` from any of these. The driver's `#tedi`
   // helper reads `null` as "this function does not exist on this build" and
-  // reports it as a missing automation surface - so a browser call made
-  // before the AI panel has ever mounted came back as "start TEDI with
-  // TEDI_DEBUG_PORT set", which is both wrong and unactionable. A sentence
-  // is the answer; null is a different question.
+  // reports it as a missing automation surface. A sentence is the answer; null is
+  // a different question.
   /**
    * Pane and terminal control, for the `pane` and `sh` MCP tools.
    *
-   * These borrow the live ToolContext exactly as the browser helpers above do,
-   * and for the same reason: they are the ONE place the app's pane mutators are
-   * reachable without importing React. Everything here is an App-level closure
-   * that behaves identically whichever chat session is active - the only
-   * session-specific parts of a ToolContext are `getCwd`, `readCache` and
-   * `getSessionId`, and nothing below reads them.
+   * Through `live`, NOT a chat's ToolContext. A context only exists once a chat
+   * does, and a chat needs an API key, so without a key `pane` answered "no live
+   * context" and `close all` reported closing 0 of 0. Moving panes has nothing to
+   * do with AI. `live` is what every ToolContext delegates these to anyway, and
+   * App sets it at boot.
    *
    * DELIBERATELY DUMB. No shell denylist, no transformer chain: `termRun` is the
    * bridge, and the guard belongs to the caller that has a policy. The stdio
@@ -1197,38 +1187,31 @@ registerBridge({
     mode?: "tab" | "split";
     splitDir?: "row" | "col";
     targetTabId?: number | null;
-  }) => getToolContext()?.openTerminalAdvanced(opts ?? {}) ?? NO_CONTEXT,
-  paneClose: (leafId: number) => getToolContext()?.closeTerminalLeaf(Number(leafId)) ?? NO_CONTEXT,
+  }) => live().openTerminalAdvanced(opts ?? {}),
+  paneClose: (leafId: number) => live().closeTerminalLeaf(Number(leafId)),
   paneGroup: (leafIds: number[], tabId?: number) =>
-    getToolContext()?.groupLeavesIntoTab(leafIds.map(Number), tabId) ?? NO_CONTEXT,
-  paneRotate: (leafId: number, dir?: "row" | "col") =>
-    getToolContext()?.rotatePaneSplit(Number(leafId), dir) ?? NO_CONTEXT,
-  paneConsolidate: (tabId: number) =>
-    getToolContext()?.consolidateTerminalsIntoGroup(Number(tabId)) ?? NO_CONTEXT,
-  termList: () => getToolContext()?.listTerminals() ?? [],
+    live().groupLeavesIntoTab(leafIds.map(Number), tabId),
+  paneRotate: (leafId: number, dir?: "row" | "col") => live().rotatePaneSplit(Number(leafId), dir),
+  paneConsolidate: (tabId: number) => live().consolidateTerminalsIntoGroup(Number(tabId)),
+  termList: () => live().listTerminals(),
   termBusy: (leafId?: number) =>
-    getToolContext()?.isTerminalBusy(leafId === undefined ? undefined : { leafId }) ?? true,
+    live().isTerminalBusy(leafId === undefined ? undefined : { leafId }),
   /** The half of `termBusy` that a write is ALLOWED to land in: a full-screen
-   *  program reading its own input. No context means no, so the busy refusal
-   *  stands rather than being waved through by a missing bridge. */
+   *  program reading its own input. */
   termAltScreen: (leafId?: number) =>
-    getToolContext()?.isTerminalAltScreen(leafId === undefined ? undefined : { leafId }) ?? false,
+    live().isTerminalAltScreen(leafId === undefined ? undefined : { leafId }),
   termRun: (leafId: number | undefined, command: string) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
     const ok =
       leafId === undefined
-        ? c.runInActiveTerminal(String(command))
-        : c.runInTerminal({ leafId: Number(leafId) }, String(command));
+        ? live().runInActiveTerminal(String(command))
+        : live().runInTerminal({ leafId: Number(leafId) }, String(command));
     return ok || "target terminal not found";
   },
   termInject: (leafId: number | undefined, text: string) => {
-    const c = getToolContext();
-    if (!c) return NO_CONTEXT;
     const ok =
       leafId === undefined
-        ? c.injectIntoActivePty(String(text))
-        : c.injectIntoTerminal({ leafId: Number(leafId) }, String(text));
+        ? live().injectIntoActivePty(String(text))
+        : live().injectIntoTerminal({ leafId: Number(leafId) }, String(text));
     return ok || "target terminal not found";
   },
 
@@ -1237,6 +1220,17 @@ registerBridge({
     const t = String(text ?? "").trim();
     if (!t) return "empty prompt";
     useChatStore.getState().enqueuePrompt(t);
+    return true;
+  },
+  aiNew: () => useChatStore.getState().newSession(),
+  aiSwitch: (id: string) => {
+    const s = useChatStore.getState();
+    if (!s.sessions.some((x) => x.id === id)) return `No AI session "${id}".`;
+    s.switchSession(id);
+    return true;
+  },
+  aiStop: () => {
+    stop();
     return true;
   },
 });

@@ -38,6 +38,15 @@ fn main() {
     let args: Vec<String> = std::env::args().collect();
     let rest = &args[1..];
 
+    // `tedi new-tab`, `tedi state`, ...: straight to the bridge client, with no
+    // TEDIApp.exe in between. First, so `tedi pane --help` is the verb's help.
+    if rest
+        .first()
+        .is_some_and(|a| tedi_lib::modules::cli::is_bridge_verb(a))
+    {
+        tedi_lib::modules::cli::run_bridge_verb(rest);
+    }
+
     // --help / --version: handle natively. Reuses `tedi_lib::cli::help_text`
     // so the text never drifts from the GUI binary's `--help` output.
     if rest.iter().any(|a| matches!(a.as_str(), "--help" | "-h")) {

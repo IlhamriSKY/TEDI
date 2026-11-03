@@ -131,6 +131,8 @@ export function renderEntryBody(args: RenderEntryArgs): ReactNode {
       value={e.key}
       data-entry-key={e.key}
       data-tab-id={e.tabId}
+      // Its title is the pane's name or folder, so `state` and `read dom` skip it.
+      data-tab-private={e.kind === "pane-leaf" && e.isPrivate ? "" : undefined}
       data-tauri-drag-region="false"
       onDoubleClick={() => {
         // Italic = still in the preview slot (an editor leaf or a git diff).

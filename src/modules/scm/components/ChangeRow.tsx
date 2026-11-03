@@ -102,7 +102,7 @@ export function ChangeRow({ change, onClickDiff, onDiscard, onToggleStage, busy 
         </span>
         <DiffStats change={change} />
         {onDiscard ? (
-          <span className="ml-1 hidden shrink-0 items-center group-hover:flex">
+          <span className="ml-1 hidden shrink-0 items-center group-focus-within:flex group-hover:flex">
             <IconTooltip label="Discard changes" side="bottom">
               <Button
                 variant="ghost"

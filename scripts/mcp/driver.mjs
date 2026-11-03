@@ -656,6 +656,25 @@ export class Driver {
   aiSend(text) {
     return this.#tedi("aiSend", String(text));
   }
+  aiNew() {
+    return this.#tedi("aiNew");
+  }
+  aiSwitch(sessionId) {
+    return this.#tedi("aiSwitch", String(sessionId));
+  }
+  aiStop() {
+    return this.#tedi("aiStop");
+  }
+
+  /** What each extension shows in the status bar: meters, states and tooltips. */
+  statusItems() {
+    return this.#tedi("statusItems");
+  }
+
+  /** Saved Claude Code and Codex sessions, newest first. */
+  agentSessions(filter = null) {
+    return this.#tedi("agentSessions", filter);
+  }
 
   /**
    * Pane layout, through the app's own live context.
@@ -691,6 +710,18 @@ export class Driver {
   paneConsolidate(tabId) {
     return this.#tedi("paneConsolidate", Number(tabId));
   }
+  paneRename(leafId, name) {
+    return this.#tedi("paneRename", Number(leafId), String(name ?? ""));
+  }
+  panePin(leafId, pinned = true) {
+    return this.#tedi("panePin", Number(leafId), Boolean(pinned));
+  }
+  panePlace(leafId, rect) {
+    return this.#tedi("panePlace", Number(leafId), rect);
+  }
+  panelOpen(extensionId, panelId = null) {
+    return this.#tedi("panelOpen", String(extensionId), panelId);
+  }
   termList() {
     return this.#tedi("termList");
   }
@@ -714,6 +745,30 @@ export class Driver {
   }
   workspaceRemove(wsId) {
     return this.#tedi("workspaceRemove", String(wsId));
+  }
+  workspaceView(wsId, view) {
+    return this.#tedi("workspaceView", String(wsId), String(view));
+  }
+
+  /** A local port forwarded through a connected SSH pane's session. */
+  sshForward(leafId, localPort, remoteHost, remotePort) {
+    return this.#tedi(
+      "sshForward",
+      Number(leafId),
+      Number(localPort),
+      String(remoteHost),
+      Number(remotePort),
+    );
+  }
+
+  /** A connected SSH pane's files. */
+  sftp(leafId, args = {}) {
+    return this.#tedi("sftp", Number(leafId), args);
+  }
+
+  /** Rename or delete a saved Claude Code or Codex session. */
+  agentSession(args = {}) {
+    return this.#tedi("agentSession", args);
   }
 
   /** Saved SSH connections. Never their keys or passphrases: those stay in the

@@ -1,3 +1,4 @@
+import { extToolMedia } from "@mcp/tools.mjs";
 import type { UIMessage } from "@ai-sdk/react";
 import { LazyStore } from "@tauri-apps/plugin-store";
 
@@ -46,8 +47,26 @@ export async function saveActiveId(id: string | null): Promise<void> {
   await store.set(KEY_ACTIVE, id);
 }
 
+/**
+ * A tool's image is for the model, this turn. Saved, it is megabytes of base64 in
+ * the one store file, which is rewritten whole on every save, and whatever was on
+ * screen sitting on disk in plaintext. `extToolMedia` reads an empty `data` as no
+ * media, so a reopened chat sends the note instead of a broken image.
+ */
+function withoutMedia(messages: UIMessage[]): UIMessage[] {
+  type Part = UIMessage["parts"][number];
+  const strip = (part: Part): Part => {
+    const output = (part as { output?: unknown }).output;
+    const media = extToolMedia(output);
+    if (!media) return part;
+    const content = media.text || "[image not kept]";
+    return { ...part, output: { ...(output as object), data: "", content } } as Part;
+  };
+  return messages.map((m) => (m.parts ? { ...m, parts: m.parts.map(strip) } : m));
+}
+
 export async function saveMessages(id: string, messages: UIMessage[]): Promise<void> {
-  await store.set(messagesKey(id), messages);
+  await store.set(messagesKey(id), withoutMedia(messages));
 }
 
 /** Force a durable write of all pending store mutations. `autoSave: 200` only

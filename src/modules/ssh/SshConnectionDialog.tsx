@@ -45,6 +45,7 @@ import { ChevronDown, X } from "lucide-react";
 type Props = {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  onCloseAutoFocus?: (e: Event) => void;
   /** Connection to edit, or `null` to create a new one. */
   editing: SshConnection | null;
   onSaved?: (conn: SshConnection) => void;
@@ -98,7 +99,13 @@ type ImportState =
 type AgentState =
   { kind: "checking" } | { kind: "ok"; keys: SshAgentKey[] } | { kind: "error"; message: string };
 
-export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Props) {
+export function SshConnectionDialog({
+  open,
+  onOpenChange,
+  onCloseAutoFocus,
+  editing,
+  onSaved,
+}: Props) {
   const [draft, setDraft] = useState<Draft>(EMPTY_DRAFT);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -439,7 +446,7 @@ export function SshConnectionDialog({ open, onOpenChange, editing, onSaved }: Pr
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="sm:max-w-lg">
+      <DialogContent className="sm:max-w-lg" onCloseAutoFocus={onCloseAutoFocus}>
         <DialogHeader>
           <DialogTitle>{editing ? "Edit SSH connection" : "New SSH connection"}</DialogTitle>
           <DialogDescription>

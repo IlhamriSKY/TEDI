@@ -18,7 +18,9 @@ import { toast } from "@/components/ui/toast";
 import { evictExtensionIcon } from "./icon";
 import * as loader from "./loader";
 import type { InstalledExtension, UpdateCheckResult } from "./loader";
-import { aiToolsRegistry, commandsRegistry } from "./registries";
+import { getMcpSurface } from "@/modules/settings/store";
+import { aiToolsRegistry, commandsRegistry, statusItemsRegistry } from "./registries";
+import { openExtensionPane } from "./tabsBridge";
 
 const EXT_CHANGED_EVENT = "tedi://ext-changed";
 
@@ -431,9 +433,8 @@ export async function runExtensionCommand(
   // left to synthetic clicks.
   //
   // No approval prompt here, unlike ai-native's copy of this call. That is not
-  // an oversight: this path only exists while the automation channel is open,
-  // and that channel already carries `sh` and `eval_js`. The boundary is the
-  // channel, not the tool (see SECURITY.md).
+  // an oversight: whoever reaches this holds the bridge token, which already
+  // carries `sh`. The boundary is the socket, not the tool (see SECURITY.md).
   const tool = aiToolsRegistry.getRuntime(extensionId, id);
   if (typeof tool === "function") {
     const result = await (tool as (a: Record<string, unknown>) => unknown)(args ?? {});
@@ -449,11 +450,18 @@ export async function runExtensionCommand(
  *
  * INSTALL IS NOT HERE for either of them. See the note above `extControl`'s
  * registration: new third-party code goes through the permission review.
+ *
+ * Only an agent comes through here: the Settings page calls the store itself.
  */
 export async function controlExtension(action: string, id: string): Promise<true | string> {
   const s = useExtensionsStore.getState();
   if (!s.list.some((e) => e.id === id)) {
     return `No extension "${id}" is installed. Installed: ${s.list.map((e) => e.id).join(", ") || "(none)"}`;
+  }
+  // Starting it mirrors live terminals through a relay, so an injected agent could
+  // publish them. Turning it off stays allowed: that only reduces exposure.
+  if (id === "tedi.remote-access" && (action === "enable" || action === "reload")) {
+    return "Only the user can start Remote Access, from Settings.";
   }
   try {
     switch (action) {
@@ -480,8 +488,54 @@ export async function controlExtension(action: string, id: string): Promise<true
   }
 }
 
+/**
+ * What every extension shows in the status bar. For an extension with no AI tools
+ * (usage meters, process and network monitors, relay state) this is the only data
+ * it publishes anywhere. The icon and chart are drawing, not information.
+ */
+async function listStatusItems() {
+  const off = new Set((await getMcpSurface()).disabledExtensions);
+  const items = statusItemsRegistry.list().filter(({ extensionId }) => !off.has(extensionId));
+  return items.map(({ extensionId, item }) => ({
+    extensionId,
+    id: item.id,
+    tooltip: item.tooltip,
+    tone: item.tone,
+    label: item.label,
+    progress: item.progress,
+    title: item.detail?.title,
+    rows: item.detail?.rows,
+  }));
+}
+
+/** Open a panel by id, including one no command opens. `right` panels dock rather
+ *  than open a pane, so those are refused with the reason. */
+function openPanel(extensionId: string, panelId: string | null) {
+  const ext = useExtensionsStore.getState().list.find((e) => e.id === extensionId);
+  if (!ext) return `No extension "${extensionId}" is installed.`;
+  if (!ext.enabled) return `${extensionId} is disabled. Enable it first.`;
+  const panels = ext.manifest.contributes.panels ?? [];
+  const panel = panelId ? panels.find((p) => p.id === panelId) : panels[0];
+  if (!panel) {
+    return `${extensionId} has no panel "${panelId ?? ""}". Panels: ${panels.map((p) => p.id).join(", ") || "(none)"}`;
+  }
+  if (panel.surface === "right")
+    return `${panel.id} docks in the right panel and cannot be a pane.`;
+  // A pane rather than `openExtensionTab`'s aux tab, which no listing shows, so
+  // nothing could then find it, group it or close it.
+  const tabId = openExtensionPane({
+    extensionId,
+    panelId: panel.id,
+    title: panel.title,
+    icon: panel.icon,
+  });
+  return tabId === null ? "TEDI's window is not ready yet." : { ok: true, tabId };
+}
+
 registerBridge({
   extensions: listExtensions,
   runExtensionCommand,
   extControl: controlExtension,
+  statusItems: listStatusItems,
+  panelOpen: openPanel,
 });

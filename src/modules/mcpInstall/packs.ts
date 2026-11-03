@@ -1,5 +1,10 @@
 /**
- * Which parts of the MCP surface an outside AI CLI is offered.
+ * Which parts of the MCP surface may run.
+ *
+ * An outside AI CLI is no longer ADVERTISED these: it sees one gateway tool and
+ * reaches the rest by `tedi <verb>` (`GATEWAY_TOOL` in `server.mjs`). So for it these
+ * switches decide what may run, not what it pays for. The bill below is now TEDI's
+ * own agent, whose in-process server still lists everything it may call.
  *
  * The whole point is the token bill. A connected CLI loads the tool list into
  * EVERY request for the whole session, whether it drives TEDI or not, so the
@@ -41,9 +46,8 @@ export type McpPack = {
  * "the browser" or "the built-in agent" - so those capabilities had nowhere to
  * live and nobody noticed they were missing.
  *
- * Extensions are the sixth category and are deliberately NOT in this list: they
- * are resolved at runtime from what is installed AND enabled, so they appear as
- * their own switches only while they can actually answer.
+ * Extensions are deliberately NOT in this list: each one installed AND enabled gets
+ * its own switch, on by default, in the dialog.
  */
 export const MCP_PACKS: McpPack[] = [
   {
@@ -61,10 +65,6 @@ export const MCP_PACKS: McpPack[] = [
     hint: "Preferences, theme, shortcuts, agents; enable/disable/update extensions.",
     tools: toolsInPack("settings"),
   },
-  // NO generic "Extensions" pack. It would have no static tools of its own -
-  // API Client and Database Viewer ARE the extension entries, and they are
-  // resolved at runtime into their own switches below the fixed ones. An empty
-  // category here was a permanently disabled row that explained nothing.
   {
     id: "ai",
     name: "AI (built-in agent)",
@@ -74,7 +74,7 @@ export const MCP_PACKS: McpPack[] = [
   {
     id: "misc",
     name: "Misc",
-    hint: "Real input (keys, typing, clicks, drags), screenshots, and the eval_js escape hatch.",
+    hint: "Real input, screenshots, and eval_js, which runs with the app's full privileges and can read your saved API keys.",
     tools: toolsInPack("misc"),
   },
 ];
@@ -92,37 +92,6 @@ export const MCP_PACKS: McpPack[] = [
     );
   }
 }
-
-/**
- * The extensions that get a first-class MCP pack, by id.
- *
- * An allow-list, not "whatever registers AI tools". Advertising an extension's
- * tools costs real tokens on every request of every connected CLI (API Client's
- * eleven are ~1625), so it is only worth paying for the ones an agent genuinely
- * drives: sending API requests, and querying a database. RTK Bridge registers a
- * tool too and was being offered here, which is a switch nobody wants and a bill
- * nobody chose.
- *
- * Leaving one out does NOT put it out of reach: every extension's AI tools stay
- * callable through `run_command` with `extensionId` + `args`. This list is only
- * about which ones are worth ADVERTISING up front.
- */
-export const MCP_EXTENSION_ALLOWLIST: { id: string; label: string }[] = [
-  { id: "tedi.api-client", label: "API Client" },
-  { id: "tedi.sql-explorer", label: "Database Viewer" },
-  // The local PHP/Node/database environment the user's sites actually run on.
-  // Worth advertising for the same reason as the two above: an agent asked why
-  // a site is down, or to point a project at another PHP, otherwise has to be
-  // walked through a dashboard it cannot see. Five tools, one of them the
-  // read that answers most of those questions in a single call.
-  { id: "tedi.devenv", label: "Dev Environment" },
-  // A real browser pane. ONE tool with an action enum, so the whole surface -
-  // open, snapshot, click, fill, read, console, screenshot - costs a single
-  // schema rather than twenty, which is what makes it cheap enough to advertise
-  // at all. An outside CLI that can drive a browser is the difference between
-  // "check whether the page works" and "walk me through what you see".
-  { id: "tedi.browser", label: "Browser" },
-];
 
 /**
  * Pack ids -> the flat disabled-tool list the server reads.

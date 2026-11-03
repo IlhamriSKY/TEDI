@@ -42,7 +42,7 @@ export function ChipsRow({
                   <button
                     type="button"
                     onClick={() => onRemoveCommand(cmd.name)}
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                     aria-label="Remove command"
                   >
                     <X size={10} strokeWidth={2} />
@@ -69,7 +69,7 @@ export function ChipsRow({
                 <button
                   type="button"
                   onClick={() => onRemoveSnippet(s.id)}
-                  className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                  className="hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                   aria-label="Remove snippet"
                 >
                   <X size={10} strokeWidth={2} />
@@ -119,7 +119,7 @@ export function ChipsRow({
                   <button
                     type="button"
                     onClick={() => onRemoveFile(f.id)}
-                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100"
+                    className="text-muted-foreground hover:bg-destructive/10 hover:text-destructive ml-0.5 cursor-pointer rounded p-0.5 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100"
                     aria-label="Remove"
                   >
                     <X size={10} strokeWidth={2} />

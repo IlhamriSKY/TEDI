@@ -1,5 +1,6 @@
 import * as React from "react";
 import { AlertDialog as AlertDialogPrimitive } from "radix-ui";
+import { useRestoreFocus } from "@/components/ui/use-restore-focus";
 
 import { cn } from "@/lib/utils";
 import { Button } from "@/components/ui/button";
@@ -40,11 +41,13 @@ function AlertDialogContent({
   size = "default",
   showCloseButton = true,
   children,
+  onCloseAutoFocus,
   ...props
 }: React.ComponentProps<typeof AlertDialogPrimitive.Content> & {
   size?: "default" | "sm";
   showCloseButton?: boolean;
 }) {
+  const restore = useRestoreFocus(onCloseAutoFocus);
   return (
     <AlertDialogPortal>
       <AlertDialogOverlay />
@@ -55,8 +58,10 @@ function AlertDialogContent({
           "group/alert-dialog-content bg-popover text-popover-foreground ring-foreground/5 dark:ring-foreground/10 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95 fixed top-1/2 left-1/2 z-50 grid w-full -translate-x-1/2 -translate-y-1/2 gap-6 p-6 shadow-xl ring-1 duration-100 outline-none data-[size=default]:max-w-xs data-[size=sm]:max-w-xs data-[size=default]:sm:max-w-md",
           className,
         )}
+        onCloseAutoFocus={restore.onCloseAutoFocus}
         {...props}
       >
+        {restore.captureFocus}
         {/* Rendered before children so the footer Cancel (mounted last) keeps
             Radix's open-auto-focus - the X just mirrors it visually. */}
         {showCloseButton && (

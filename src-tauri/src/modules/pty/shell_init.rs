@@ -79,6 +79,9 @@ fn strip_inherited_claude_env(cmd: &mut CommandBuilder) {
 }
 
 fn apply_common(cmd: &mut CommandBuilder, cwd: Option<String>) {
+    // Whatever launched TEDI may have set this. Inherited, it reads as a deliberate
+    // override to every tool started in a terminal, which then drives the wrong app.
+    cmd.env_remove("TEDI_DEBUG_PORT");
     cmd.env("TERM", "xterm-256color");
     cmd.env("COLORTERM", "truecolor");
     cmd.env("TEDI_TERMINAL", "1");

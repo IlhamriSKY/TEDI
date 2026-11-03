@@ -130,7 +130,9 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
       ? `Switching workspace`
       : i.action === "remove"
         ? `Deleting workspace`
-        : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
+        : i.action === "view"
+          ? `Switching workspace view`
+          : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
   mcp__tedi__schedule: (i) =>
     i.action === "create"
       ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
@@ -139,6 +141,9 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   // `notes_read`/`notes_write` and does not reach it, but the surface check wants
   // a label for every tedi tool.
   mcp__tedi__notes: (i) => notesStepLabel(String(i.action ?? "read")),
+  // Outside CLIs only too, for the same reason.
+  mcp__tedi__sftp: (i) => `SSH files ${String(i.action ?? "")}`.trim(),
+  mcp__tedi__session: (i) => `${i.action === "delete" ? "Deleting" : "Renaming"} session`,
   mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
   notes_read: () => `Reading your notes and todos`,

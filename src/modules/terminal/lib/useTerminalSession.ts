@@ -29,6 +29,9 @@ export {
   acknowledgeAiCli,
   scrollTerminalToCommand,
   clearTerminalScrollback,
+  selectAllInTerminal,
+  scrollTerminalToEdge,
+  lastCommandOutput,
 } from "./session-lifecycle";
 
 /**

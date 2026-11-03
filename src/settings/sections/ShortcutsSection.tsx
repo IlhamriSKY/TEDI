@@ -81,8 +81,12 @@ export function ShortcutsSection() {
   const [resetDialogOpen, setResetDialogOpen] = useState(false);
 
   const filteredShortcuts = useMemo(() => {
-    // Filter out non-overridable shortcuts like tab.selectByIndex.
-    const base = SHORTCUTS.filter((s) => s.id !== "tab.selectByIndex");
+    // The digit jumps match any digit, so they are shown but cannot be rebound.
+    const base = SHORTCUTS.map((s) =>
+      s.id === "tab.selectByIndex" || s.id === "workspace.selectByIndex"
+        ? { ...s, readOnly: true }
+        : s,
+    );
     if (!search) return base;
     const lower = search.toLowerCase();
     return base.filter(
@@ -90,7 +94,7 @@ export function ShortcutsSection() {
     );
   }, [search]);
 
-  // Recomputed per render: 43 catalog entries plus a handful of extension
+  // Recomputed per render: some 70 catalog entries plus a handful of extension
   // bindings, and it has to follow both the overrides and a live install.
   const owners = chordOwners(userShortcuts, extKeybindings, extOverrides);
 
@@ -230,17 +234,23 @@ function ShortcutRow({
   const isModified = userBindings !== undefined;
   const hasBindings = bindings && bindings.length > 0;
   const isReadOnly = !!shortcut.readOnly;
-  // Anything else on this chord. Excluded by id, so a shortcut that lists the
-  // same chord twice (zoomIn's `Mod+=` and `Mod+Shift+=`) is not its own clash.
-  const clash = hasBindings
-    ? [
-        ...new Set(
-          (owners.get(chordKey(bindings[0])) ?? [])
-            .filter((o) => o.id !== ownerId)
-            .map((o) => o.label),
-        ),
-      ]
-    : [];
+  // The trigger is unmounted while recording, and the reset button when it is used,
+  // which would drop a keyboard user back at the top of the window.
+  const triggerRef = useRef<HTMLDivElement>(null);
+  const wasRecording = useRef(false);
+  useEffect(() => {
+    if (wasRecording.current && !isRecording) triggerRef.current?.focus();
+    wasRecording.current = isRecording;
+  }, [isRecording]);
+  // Anything else on any of this row's chords. Excluded by id, so a shortcut that
+  // lists the same chord twice is not its own clash.
+  const clash = [
+    ...new Set(
+      bindings.flatMap((b) =>
+        (owners.get(chordKey(b)) ?? []).filter((o) => o.id !== ownerId).map((o) => o.label),
+      ),
+    ),
+  ];
 
   return (
     <div className="group hover:bg-muted/30 flex items-center justify-between px-3 py-2.5 transition-colors">
@@ -260,7 +270,9 @@ function ShortcutRow({
         ) : (
           <>
             <div
+              ref={triggerRef}
               role={isReadOnly ? undefined : "button"}
+              aria-label={isReadOnly ? undefined : `Rebind ${shortcut.label}`}
               tabIndex={isReadOnly ? undefined : 0}
               onClick={isReadOnly ? undefined : onStartRecording}
               onKeyDown={
@@ -275,25 +287,27 @@ function ShortcutRow({
               }
               className={
                 isReadOnly
-                  ? "flex min-w-[100px] items-center justify-end gap-1"
-                  : "flex min-w-[100px] cursor-pointer items-center justify-end gap-1"
+                  ? "flex min-w-[100px] flex-wrap items-center justify-end gap-x-2 gap-y-1"
+                  : "focus-visible:ring-ring flex min-w-[100px] cursor-pointer flex-wrap items-center justify-end gap-x-2 gap-y-1 rounded outline-none focus-visible:ring-2"
               }
             >
               {hasBindings ? (
-                <KbdGroup>
-                  {getBindingTokens(bindings[0]).map((t, i) => (
-                    <Kbd
-                      key={i}
-                      className={
-                        isReadOnly
-                          ? "opacity-80"
-                          : "group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
-                      }
-                    >
-                      {t}
-                    </Kbd>
-                  ))}
-                </KbdGroup>
+                bindings.map((b) => (
+                  <KbdGroup key={chordKey(b)}>
+                    {getBindingTokens(b).map((t, i) => (
+                      <Kbd
+                        key={i}
+                        className={
+                          isReadOnly
+                            ? "opacity-80"
+                            : "group-hover:bg-accent group-hover:text-accent-foreground transition-colors"
+                        }
+                      >
+                        {t}
+                      </Kbd>
+                    ))}
+                  </KbdGroup>
+                ))
               ) : (
                 <span className="text-muted-foreground text-[11px] italic">Unassigned</span>
               )}
@@ -307,7 +321,10 @@ function ShortcutRow({
                       variant="ghost"
                       size="icon"
                       className="text-muted-foreground hover:text-foreground size-7"
-                      onClick={onReset}
+                      onClick={() => {
+                        onReset();
+                        triggerRef.current?.focus();
+                      }}
                       aria-label="Reset to default"
                     >
                       <CornerUpLeft size={12} />
@@ -320,7 +337,7 @@ function ShortcutRow({
                     size="icon"
                     className={cn(
                       DESTRUCTIVE_ACTION,
-                      "size-7 opacity-0 transition-opacity group-hover:opacity-100",
+                      "size-7 opacity-0 transition-opacity group-hover:opacity-100 focus-visible:opacity-100",
                     )}
                     onClick={onClear}
                     aria-label="Clear shortcut"
@@ -363,9 +380,9 @@ function Recorder({
 
       if (["Control", "Shift", "Alt", "Meta"].includes(e.key)) return;
 
-      // Require at least one primary modifier (Ctrl, Alt, Meta). Reject
-      // Shift-only shortcuts that would insert a character.
-      const hasPrimaryModifier = e.ctrlKey || e.altKey || e.metaKey;
+      // Require at least one primary modifier (Ctrl, Alt, Meta), or a function key,
+      // which types nothing. Reject Shift-only shortcuts that would insert a character.
+      const hasPrimaryModifier = e.ctrlKey || e.altKey || e.metaKey || /^F\d+$/.test(e.key);
       const isCharacterKey = e.key.length === 1; // anything that types a glyph
       // Blocks shortcuts like Shift+2 ("@") and Shift+, ("<") on many layouts.
       if (!hasPrimaryModifier && (!e.shiftKey || isCharacterKey)) {
