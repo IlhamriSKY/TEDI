@@ -1,7 +1,9 @@
+import { Button } from "@/components/ui/button";
 import { ResizablePanel } from "@/components/ui/resizable";
 import { FileExplorer } from "@/modules/explorer";
 import {
   ExtensionSidebarSection,
+  reopenLeft,
   sidebarSectionsRegistry,
   useRegistry,
   useSidebarPlacementStore,
@@ -9,6 +11,7 @@ import {
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
+import { runCommand, useGlobalShortcuts, type ShortcutId } from "@/modules/shortcuts";
 import {
   Suspense,
   type ComponentProps,
@@ -113,12 +116,35 @@ const extSectionKey = (extensionId: string, sectionId: string): string =>
 const ORDER_LS_KEY = "tedi:sidebar:sectionOrder";
 
 /**
+ * "Go to file" and "Search in files" belong to the file tree, so with Files closed
+ * they would do nothing at all. Mounted only then: it reopens the tree and runs
+ * the command again once the tree has registered its own.
+ */
+function FilesClosedShortcuts() {
+  const reopenThen = (id: ShortcutId) => () => {
+    reopenLeft("files");
+    requestAnimationFrame(() => runCommand(id));
+  };
+  useGlobalShortcuts({
+    "explorer.search": reopenThen("explorer.search"),
+    "explorer.grep": reopenThen("explorer.grep"),
+    "explorer.replaceAll": reopenThen("explorer.replaceAll"),
+  });
+  return null;
+}
+
+/**
  * The left sidebar column. Sections (Files, Remote/SSH, Source Control,
  * Workspaces, plus the AI panel when it is docked here) are stacked resizable
  * panels, collapsible to their header and drag-reorderable by the grip in that
  * header - all of which lives in the shared `SectionStack`, so the right column
  * behaves identically. Which column a section sits in is `lib/sectionDock`'s
  * call, and the whole column minimizes via `sidebarRef`.
+ *
+ * Each section but the last closes with the X on its header, as on the right. A closed
+ * one stays closed across launches and comes back from its status-bar icon. With
+ * nothing left some other way (the last one docked right, a host disconnecting) the
+ * column lists what can come back.
  */
 export function AppSidebar({
   sidebarRef,
@@ -175,6 +201,11 @@ export function AppSidebar({
   // Extension sections moved to the right slot (placement === "right") leave the
   // left sidebar; they're reachable from a status-bar icon instead.
   const placement = useSidebarPlacementStore((s) => s.placement);
+  const leftClosed = useSidebarPlacementStore((s) => s.leftClosed);
+  // The last section keeps no X: closing it would leave a column with nothing in it.
+  // Read when a section renders, which is after `sections` below is complete.
+  const closeSection = (key: string) =>
+    sections.length > 1 ? () => useSidebarPlacementStore.getState().closeLeft(key) : undefined;
   // The AI panel is the one surface whose HOME is the right column, so it takes
   // the opposite default: it appears here only once explicitly docked left.
   const aiInSidebar = placement.ai === "left" && aiKeysLoaded && aiPanelOpen;
@@ -223,6 +254,7 @@ export function AppSidebar({
             collapsed={collapsed}
             activeFilePath={activeFilePath}
             onMoveToRight={() => dockRight("files")}
+            onClose={closeSection("files")}
             hideSort
           />
         );
@@ -234,6 +266,7 @@ export function AppSidebar({
               hostLabel={activeSshContext.hostLabel}
               currentCwd={activeSshContext.cwd}
               onOpenFile={onOpenRemoteFile}
+              onClose={closeSection("ssh")}
               dragHandle={controls}
               collapsed={collapsed}
             />
@@ -247,6 +280,7 @@ export function AppSidebar({
               onPathDeleted={onPathDeleted}
               onOpenDiff={openGitDiffTab}
               onOpenInTab={openScmTab}
+              onClose={closeSection("scm")}
               dragHandle={controls}
               collapsed={collapsed}
               sshSessionId={activeSshContext.fromActiveLeaf ? activeSshContext.sessionId : null}
@@ -273,16 +307,22 @@ export function AppSidebar({
             dragHandle={controls}
             collapsed={collapsed}
             onMoveToRight={() => dockRight("workspaces")}
+            onClosePanel={closeSection("workspaces")}
           />
         );
     }
   };
 
   const sections: StackSection[] = [];
+  const closedHere: { key: string; title: string }[] = [];
   for (const key of BUILTIN_KEYS) {
     if (key === "scm" && !scmVisible) continue;
     if (key === "ssh" && !sshVisible) continue;
     if (placement[key] === "right") continue;
+    if (leftClosed[key]) {
+      closedHere.push({ key, title: BUILTIN_TITLES[key] });
+      continue;
+    }
     sections.push({
       key,
       title: BUILTIN_TITLES[key],
@@ -292,6 +332,10 @@ export function AppSidebar({
   }
   for (const [key, ext] of extByKey) {
     if (placement[key] === "right") continue;
+    if (leftClosed[key]) {
+      closedHere.push({ key, title: ext.section.title });
+      continue;
+    }
     sections.push({
       key,
       title: ext.section.title,
@@ -302,6 +346,7 @@ export function AppSidebar({
           section={ext.section}
           dragHandle={controls}
           collapsed={collapsed}
+          onClose={closeSection(key)}
         />
       ),
     });
@@ -310,6 +355,9 @@ export function AppSidebar({
   // chat store's `panelOpen`, shared with the right column, so only the
   // placement decides which side it appears on.
   if (aiInSidebar) sections.push(aiStackSection(hasComposer, onAddProviderKey));
+
+  // Reachable only with the last section docked away or gone with its host or extension.
+  const empty = sections.length === 0;
 
   return (
     <ResizablePanel
@@ -337,15 +385,35 @@ export function AppSidebar({
           is minimized shut, which is not aimable - `SectionDropRail` stands in
           for exactly that case, so a drag from the right lands somewhere. */}
       <SectionDropRail column="left" />
+      {leftClosed.files && placement.files !== "right" ? <FilesClosedShortcuts /> : null}
       <div data-section-column="left" className="flex h-full flex-col">
-        <SectionStack
-          sections={sections}
-          orderStorageKey={ORDER_LS_KEY}
-          idPrefix="sidebar"
-          column="left"
-          canMoveColumn={canDrag}
-          onMoveColumn={dockRight}
-        />
+        {empty ? (
+          // What a reopened column shows: anything else would be a blank tray with
+          // the way back in a status bar that may be folded.
+          <div className="bg-background tedi-glass-panel flex h-full flex-col gap-0.5 overflow-hidden rounded-md border p-1.5">
+            <span className="text-muted-foreground px-1.5 py-1 text-[11px]">Nothing open here</span>
+            {closedHere.map(({ key, title }) => (
+              <Button
+                key={key}
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground hover:text-foreground h-7 justify-start px-1.5 text-xs font-normal"
+                onClick={() => reopenLeft(key)}
+              >
+                Open {title}
+              </Button>
+            ))}
+          </div>
+        ) : (
+          <SectionStack
+            sections={sections}
+            orderStorageKey={ORDER_LS_KEY}
+            idPrefix="sidebar"
+            column="left"
+            canMoveColumn={canDrag}
+            onMoveColumn={dockRight}
+          />
+        )}
       </div>
     </ResizablePanel>
   );

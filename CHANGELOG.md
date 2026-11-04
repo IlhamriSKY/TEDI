@@ -4,6 +4,15 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **Sections in the left sidebar close with an X**, as they do in the right column: Files, Workspaces,
+  Source Control, Remote and extension sections. A closed one stays closed across launches and comes
+  back from its status-bar icon. The last section keeps no X, so the sidebar is never left empty that
+  way, and "Go to file" and "Search in files" reopen Files. See [AppSidebar.tsx](src/app/components/AppSidebar.tsx).
+
 ## [0.4.80] - 04-11-2026
 
 ### Added

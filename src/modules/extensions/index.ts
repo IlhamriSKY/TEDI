@@ -39,6 +39,7 @@ export {
   useSidebarPlacementStore,
   sidebarSectionKey,
   undockTarget,
+  reopenLeft,
   sectionPanelId,
   parseSectionPanelId,
   BUILTIN_SECTION_EXT,

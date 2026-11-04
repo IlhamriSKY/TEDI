@@ -3,6 +3,7 @@ import { toast } from "@/components/ui/toast";
 import { readClipboardText } from "@/lib/clipboard";
 import { stop as stopAi, useChatStore } from "@/modules/ai/store/chatStore";
 import { useNotesStore } from "@/modules/notes";
+import { reopenLeft, useSidebarPlacementStore } from "@/modules/extensions/sidebarPlacementStore";
 import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { useWorkspacesStore } from "@/modules/workspaces";
@@ -243,6 +244,7 @@ export function buildShortcutHandlers(deps: ShortcutHandlerDeps): ShortcutHandle
       );
       if (!hasSsh) return;
       if (usePreferencesStore.getState().sshInRightPanel) useSshRightPanelStore.getState().toggle();
+      else if (useSidebarPlacementStore.getState().leftClosed.ssh) reopenLeft("ssh");
       else toggleSidebar();
     },
     "ssh.reconnect": () => {
