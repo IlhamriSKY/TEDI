@@ -48,7 +48,7 @@ export function useTabSideEffects({ tabs, editorRefs, wsActiveId }: Params): {
       }
     }
     // Prune ids whose ai-diff tab no longer exists so the set stays bounded
-    // over long sessions (mirrors the openedRef pruning in AgentRunBridge).
+    // over long sessions.
     const live = new Set(tabs.filter((t) => t.kind === "ai-diff").map((t) => t.approvalId));
     for (const id of appliedDiffsRef.current) {
       if (!live.has(id)) appliedDiffsRef.current.delete(id);

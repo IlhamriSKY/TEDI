@@ -2,6 +2,7 @@ import { useChat, type UIMessage } from "@ai-sdk/react";
 import type { ToolUIPart, UIMessagePart } from "ai";
 import { memo, useEffect, useMemo, useRef } from "react";
 import type { AiDiffStatus } from "@/modules/tabs";
+import { toast } from "@/components/ui/toast";
 import { usePreferencesStore } from "@/modules/settings/preferences";
 import { native } from "../lib/native";
 import { ruleAllows } from "../lib/approvalRules";
@@ -17,8 +18,8 @@ import {
 /**
  * Mirrors chat lifecycle into the store so the status pill, mini-window, and
  * panel can react outside the chat hook tree.
- * Patches `agentMeta`, auto-opens the mini-window on pending approvals, opens
- * AI diff tabs for pending file mutations, and persists messages on change.
+ * Patches `agentMeta`, auto-opens the mini-window on pending approvals, opens an
+ * AI diff tab when a card asks for one, and persists messages on change.
  */
 
 type DiffOpenInput = {
@@ -63,12 +64,53 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   const openMini = useChatStore((s) => s.openMini);
   const persistMessages = useChatStore((s) => s.persistMessages);
   const setApprovalResponder = useChatStore((s) => s.setApprovalResponder);
+  const setApprovalDiffOpener = useChatStore((s) => s.setApprovalDiffOpener);
 
   // Expose the approval responder so the diff tab can resolve approvals.
   useEffect(() => {
     setApprovalResponder((id, approved) => addToolApprovalResponse({ id, approved }));
     return () => setApprovalResponder(null);
   }, [setApprovalResponder, addToolApprovalResponse]);
+
+  // A diff tab opens only when the user asks from the card: an agent editing a run
+  // of files must not keep taking the screen away from them.
+  useEffect(() => {
+    setApprovalDiffOpener((part) => {
+      const info = extractFileMutation(part as AnyPart);
+      if (!info?.approvalId) return;
+      const { approvalId, path, derive } = info;
+      void (async () => {
+        let abs: string;
+        try {
+          abs = resolvePath(path, useChatStore.getState().live.getCwd());
+        } catch {
+          abs = path;
+        }
+        const original = await readOriginal(abs);
+        let proposed: string;
+        if (derive.kind === "literal") {
+          proposed = derive.content;
+        } else {
+          const r = applyEditsLocally(original.content, derive.edits);
+          if (!r.ok) {
+            toast("This edit no longer matches the file, so there is no diff to show.", {
+              variant: "error",
+            });
+            return;
+          }
+          proposed = r.content;
+        }
+        openAiDiffTab({
+          path: abs,
+          originalContent: original.content,
+          proposedContent: proposed,
+          approvalId,
+          isNewFile: original.isNewFile,
+        });
+      })();
+    });
+    return () => setApprovalDiffOpener(null);
+  }, [setApprovalDiffOpener, openAiDiffTab]);
 
   // Auto-approve based on approvalMode:
   //   ask  - every mutating tool needs the user
@@ -173,12 +215,9 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     if (approvalsPending > 0) openMini();
   }, [approvalsPending, openMini]);
 
-  // AI diff tab management. Track opened approvalIds so re-renders don't
-  // double-open. Reset on session change.
-  const openedRef = useRef<Set<string>>(new Set());
+  // Keeps an open AI diff tab's status in step with its card. Reset on session change.
   const fileMutationFingerprintRef = useRef<string>("");
   useEffect(() => {
-    openedRef.current = new Set();
     fileMutationFingerprintRef.current = "";
     // Prune the auto-approve dedup set on session switch.
     autoRespondedRef.current = new Set();
@@ -187,12 +226,6 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
   // fileMutationFingerprint comes from the same pass as approvalsPending (see
   // `messageStats`). Short-circuits when unchanged so text-only tokens stay cheap.
   useEffect(() => {
-    type Pending = {
-      approvalId: string;
-      path: string;
-      /** Literal content (write_file) or edits applied to the on-disk original. */
-      derive: { kind: "literal"; content: string } | { kind: "edits"; edits: EditOp[] };
-    };
     type StatusUpdate = { approvalId: string; status: AiDiffStatus };
 
     if (fileMutationFingerprint === fileMutationFingerprintRef.current) {
@@ -200,26 +233,16 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     }
     fileMutationFingerprintRef.current = fileMutationFingerprint;
 
-    const pending: Pending[] = [];
     const statusUpdates: StatusUpdate[] = [];
-    // Track currently-requested approval ids so `openedRef` can be pruned
-    // when a part transitions past `approval-requested`. Keeps the set
-    // bounded over long sessions with many file mutations.
-    const stillRequested = new Set<string>();
 
     for (const m of messages) {
       if (m.role !== "assistant") continue;
       for (const part of m.parts as AnyPart[]) {
         const info = extractFileMutation(part);
         if (!info) continue;
-        const { state, approvalId, path, derive } = info;
+        const { state, approvalId } = info;
         if (!approvalId) continue;
-        if (state === "approval-requested") {
-          stillRequested.add(approvalId);
-          if (!openedRef.current.has(approvalId)) {
-            pending.push({ approvalId, path, derive });
-          }
-        } else if (state === "approval-responded") {
+        if (state === "approval-responded") {
           // If `approved` is missing, leave it pending; the next output-* settles it.
           const approved = (part as { approval?: { approved?: boolean } }).approval?.approved;
           if (typeof approved === "boolean") {
@@ -237,52 +260,7 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
     }
 
     for (const u of statusUpdates) setAiDiffStatus(u.approvalId, u.status);
-    for (const id of openedRef.current) {
-      if (!stillRequested.has(id)) openedRef.current.delete(id);
-    }
-
-    if (pending.length === 0) return;
-
-    let cancelled = false;
-    void (async () => {
-      const cwd = useChatStore.getState().live.getCwd();
-      for (const p of pending) {
-        if (cancelled) return;
-        // Mark opened up-front so a re-render mid-await doesn't double-open.
-        openedRef.current.add(p.approvalId);
-        let abs: string;
-        try {
-          abs = resolvePath(p.path, cwd);
-        } catch {
-          abs = p.path;
-        }
-        const original = await readOriginal(abs);
-        if (cancelled) return;
-        let proposed = "";
-        if (p.derive.kind === "literal") {
-          proposed = p.derive.content;
-        } else {
-          const r = applyEditsLocally(original.content, p.derive.edits);
-          if (!r.ok) {
-            // Edit failed (string not found or not unique). The approval modal surfaces the error.
-            continue;
-          }
-          proposed = r.content;
-        }
-        openAiDiffTab({
-          path: abs,
-          originalContent: original.content,
-          proposedContent: proposed,
-          approvalId: p.approvalId,
-          isNewFile: original.isNewFile,
-        });
-      }
-    })();
-
-    return () => {
-      cancelled = true;
-    };
-  }, [messages, fileMutationFingerprint, openAiDiffTab, setAiDiffStatus]);
+  }, [messages, fileMutationFingerprint, setAiDiffStatus]);
 
   return null;
 }
@@ -371,9 +349,8 @@ function applyEditsLocally(
   let content = original;
   // Mirror `applyEditsLocked`: the model emits LF while `native.readFile` keeps
   // the file's CRLF, so a multi-line old_string matches only after translation.
-  // Without it every multi-line edit to a CRLF file returned !ok, the caller
-  // `continue`d, and the review tab never opened - the user approved a write
-  // having seen no diff.
+  // Without it every multi-line edit to a CRLF file returned !ok and the review
+  // tab could not open.
   const crlf = original.includes("\r\n");
   const norm = (s: string) => (crlf ? s.replace(/\r?\n/g, "\r\n") : s);
   for (const e of edits) {

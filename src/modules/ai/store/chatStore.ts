@@ -175,6 +175,9 @@ type StoreState = {
   approvalResponder: ApprovalResponder | null;
   setApprovalResponder: (fn: ApprovalResponder | null) => void;
   respondToApproval: (approvalId: string, approved: boolean) => void;
+  /** Also set by AgentRunBridge: opens a file-mutation card's diff tab, on request. */
+  approvalDiffOpener: ((part: unknown) => void) | null;
+  setApprovalDiffOpener: (fn: ((part: unknown) => void) | null) => void;
 
   apiKeys: ProviderKeys;
   setApiKeys: (keys: ProviderKeys) => void;
@@ -636,6 +639,8 @@ export const useChatStore = create<StoreState>((set, get) => ({
     const fn = get().approvalResponder;
     if (fn) fn(approvalId, approved);
   },
+  approvalDiffOpener: null,
+  setApprovalDiffOpener: (fn) => set({ approvalDiffOpener: fn }),
 
   apiKeys: { ...EMPTY_PROVIDER_KEYS },
   setApiKeys: (keys) => set({ apiKeys: keys }),

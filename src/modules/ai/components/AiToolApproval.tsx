@@ -4,6 +4,7 @@ import { addApprovalRule } from "@/modules/settings/store";
 import type { ToolUIPart } from "ai";
 import { memo, useEffect, useRef } from "react";
 import { suggestRule, type ApprovalRule } from "../lib/approvalRules";
+import { useChatStore } from "../store/chatStore";
 import { applyShellTransformers } from "../tools/shell";
 import {
   Check,
@@ -107,6 +108,17 @@ function AiToolApprovalImpl({ part, toolName, onRespond }: Props) {
       </div>
 
       <div className="border-border/60 flex items-center justify-end gap-1.5 border-t px-3 py-2">
+        {toolName === "write_file" || toolName === "edit" || toolName === "multi_edit" ? (
+          <Button
+            size="sm"
+            variant="ghost"
+            onClick={() => useChatStore.getState().approvalDiffOpener?.(part)}
+            className="mr-auto h-7 gap-1.5 text-[11px]"
+          >
+            <Eye size={12} strokeWidth={2} />
+            Review diff
+          </Button>
+        ) : null}
         <Button
           size="sm"
           variant="ghost"
@@ -187,7 +199,7 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
     );
   }
   // Skip content preview for file mutations; streaming thrashes the UI and the
-  // diff tab is where users review changes. Show path and a one-line size hint.
+  // card's Review diff opens the tab for that. Show path and a one-line size hint.
   if (toolName === "write_file") {
     const content = typeof input.content === "string" ? input.content : "";
     const lines = content ? content.split("\n").length : 0;
@@ -195,7 +207,7 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="text-muted-foreground">{String(input.path ?? "")}</div>
         <div className="text-muted-foreground/80 text-[10.5px]">
-          {lines} line{lines === 1 ? "" : "s"} · review in the diff tab
+          {lines} line{lines === 1 ? "" : "s"}
         </div>
       </div>
     );
@@ -212,8 +224,7 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
           {input.replace_all ? " · replace all" : ""}
         </div>
         <div className="text-muted-foreground/80 text-[10.5px]">
-          −{removed} / +{added} line{added === 1 && removed === 1 ? "" : "s"} · review in the diff
-          tab
+          −{removed} / +{added} line{added === 1 && removed === 1 ? "" : "s"}
         </div>
       </div>
     );
@@ -226,7 +237,7 @@ function PreviewBlock({ toolName, input }: { toolName: string; input: Record<str
       <div className="space-y-0.5 font-mono text-[11px]">
         <div className="text-muted-foreground">{String(input.path ?? "")}</div>
         <div className="text-muted-foreground/80 text-[10.5px]">
-          {edits.length} edit{edits.length === 1 ? "" : "s"} · review in the diff tab
+          {edits.length} edit{edits.length === 1 ? "" : "s"}
         </div>
       </div>
     );

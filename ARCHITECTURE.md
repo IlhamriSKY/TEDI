@@ -187,8 +187,8 @@ explicit "add a key" error. The layering:
   preloaded** from the workspace root, sharing one 12 KB budget so a second doc
   cannot double what every request pays for its cached prefix.
 - **`tools/`**: the agent's tool definitions. Read-only tools auto-run; mutating tools are
-  approval-gated and route AI-proposed edits through a side-by-side `ai-diff` tab
-  that the user accepts or rejects per hunk before any write. Extension- and
+  approval-gated, and an approval card can open a side-by-side `ai-diff` tab where the
+  user accepts or rejects per hunk before any write. Extension- and
   MCP-contributed tools merge in ahead of the built-ins, so neither can shadow one.
 - **`agents/`**: ten named sub-agents with their own tool subset, invoked via
   `run_subagents` (a bounded-concurrency DAG scheduler with `depends_on` and
@@ -236,8 +236,8 @@ mounts a CodeMirror view, picks the language mode, and wires format-on-save.
 
 **Asking the AI to edit a file.** The composer submits to `ai/lib/agent.ts`,
 which streams the model's tool calls -> the model calls the approval-gated `edit`
-tool, the agent pauses, and the change opens in an `ai-diff` tab -> on accept the
-tool runs `invoke("fs_write_file", ...)`, after the `security.ts` deny-list check.
+tool, the agent pauses on an approval card, whose Review diff opens the change in an
+`ai-diff` tab -> on approve or accept the tool runs `invoke("fs_write_file", ...)`, after the `security.ts` deny-list check.
 
 ### PTY daemon persistence
 
