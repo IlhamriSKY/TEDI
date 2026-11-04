@@ -56,6 +56,7 @@ import {
 } from "./registries";
 import {
   openExtensionTab as openExtTabBridge,
+  closeExtensionPane as closeExtPaneBridge,
   openExtensionPane as openExtPaneBridge,
   openTerminalTab as openTerminalTabBridge,
   setExtensionTabState as setExtensionTabStateBridge,
@@ -77,6 +78,13 @@ import { pinTab as pinTabBridge, renameTab as renameTabBridge } from "./tabContr
 import type { ExtensionTabState } from "@/modules/tabs/lib/useTabs";
 import { getActiveEditor, setActiveEditorContent, type ActiveEditorSnapshot } from "./editorBridge";
 import { inert } from "./inert";
+import { toForwardSlash } from "@/lib/path";
+import { watchTree } from "@/modules/explorer/lib/treeWatch";
+import {
+  ATTACH_PAGE_CONTEXT_EVENT,
+  pageContextFrom,
+  registerMentionSource,
+} from "@/modules/ai/lib/mentionSources";
 
 type ExtensionRuntime = {
   id: string;
@@ -423,6 +431,9 @@ export type ExtensionContext = {
   app: {
     getContext(): AppContextSnapshot;
     onContextChange(cb: (ctx: AppContextSnapshot) => void): Disposer;
+    /** Hear which files changed under a folder. Shares the host's one watcher per
+     *  folder, which a raw `fs_watch` would replace. Requires `invoke:fs_watch`. */
+    watchFiles(root: string, onChange: (files: string[]) => void): Disposer;
     /** Show or hide the left sidebar (file explorer + SCM). Useful for
      *  extensions that take over the workspace and want more horizontal
      *  room. No permission gate; reversible by the user clicking the
@@ -493,6 +504,21 @@ export type ExtensionContext = {
     /** Stop the active run. Ungated: de-escalating, and the user can always
      *  do it from the UI. */
     stop(): void;
+    /** Put a chip in the composer, with an optional picture. Nothing is sent: the
+     *  user sees it and decides. Requires `ai:context`. */
+    attachContext(item: {
+      name: string;
+      text: string;
+      imageDataUrl?: string;
+      searchTerms?: string[];
+    }): void;
+    /** Add entries to the composer's `@` picker. `items` is read each time the
+     *  picker opens; `pick` usually ends in {@link attachContext}. Requires
+     *  `ai:context`. */
+    registerMentionSource(source: {
+      items(): { id: string; label: string; detail?: string }[];
+      pick(id: string): void | Promise<void>;
+    }): Disposer;
   };
   /** Invoke a Rust command. Each command id needs an `invoke:` permission.
    *  Commands listed in {@link InvokeResults} resolve to their real shape;
@@ -621,6 +647,9 @@ export type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
+    /** Close your own pane leaf, matched on `(panelId, reuseKey)`. False when there
+     *  is no such pane, or it is the last tab left. Requires `tabs:open`. */
+    closeExtensionPane(opts: { panelId: string; reuseKey?: string }): boolean;
     /**
      * Open a REAL terminal tab, working directory `cwd`.
      *
@@ -947,6 +976,14 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         addDisposer(dispose);
         return dispose;
       },
+      watchFiles: (root, onChange) => {
+        requirePermission(ext.id, declared, "invoke:fs_watch");
+        const { dispose } = watchTree(String(root), (change) => {
+          if (change.files?.length) onChange(change.files);
+        });
+        addDisposer(dispose);
+        return dispose;
+      },
       setSidebarVisible: (visible) => setSidebarVisibleBridge(visible, ext.id),
       setRightSidebarVisible: (visible) => setRightSidebarVisibleBridge(visible, ext.id),
       createWorkspace: (name) => {
@@ -1019,6 +1056,26 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         return chatMod.sendMessage(String(text ?? ""));
       },
       stop: () => chatMod.stop(),
+      attachContext(item) {
+        requirePermission(ext.id, declared, "ai:context");
+        // Never the home folder: it is what an unopened explorer shows, and a search
+        // of everything the user owns is no way to find one file.
+        const open = getAppContext().workspaceCwd;
+        const samePlace =
+          open && home && toForwardSlash(open).toLowerCase() === toForwardSlash(home).toLowerCase();
+        const root = open && !samePlace ? open : undefined;
+        window.dispatchEvent(
+          new CustomEvent(ATTACH_PAGE_CONTEXT_EVENT, {
+            detail: { ...pageContextFrom(item), root },
+          }),
+        );
+      },
+      registerMentionSource(source) {
+        requirePermission(ext.id, declared, "ai:context");
+        const dispose = registerMentionSource(source);
+        addDisposer(dispose);
+        return dispose;
+      },
     },
     settings: {
       async get<T = unknown>(key: string): Promise<T | undefined> {
@@ -1271,6 +1328,14 @@ export async function buildContext(ext: ExtensionRuntime): Promise<{
         requirePermission(ext.id, declared, "tabs:open");
         const target = resolvePanelTarget(ext.id, opts);
         return target === null ? null : openExtPaneBridge({ ...target, ...rest(opts) });
+      },
+      closeExtensionPane(opts) {
+        requirePermission(ext.id, declared, "tabs:open");
+        return closeExtPaneBridge({
+          extensionId: ext.id,
+          panelId: String(opts?.panelId ?? ""),
+          reuseKey: opts?.reuseKey,
+        });
       },
       openTerminal(opts) {
         requirePermission(ext.id, declared, "tabs:open");

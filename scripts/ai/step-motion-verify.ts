@@ -51,12 +51,14 @@ check("no TOOL_LABELS verb falls through to the default sweep", missing.length =
 check("the labels were actually read", new Set(verbs).size >= 12, [...new Set(verbs)].sort());
 
 console.log("\n[mcp] every tool TEDI's own agent can call on TEDI is labelled");
-// The in-process MCP server serves every name in TOOL_DEFS that has a handler,
-// so an unlabelled one reaches the step line as "Calling mcp__tedi__eval_js"
-// and the block falls back to the generic gait. Six of the twenty were in that
-// state; this is what stops the next one from being.
+// The `tedi` tool reaches every name in TOOL_DEFS, so an unlabelled one reaches the step line
+// as "Calling eval_js" and the block falls back to the generic gait.
+const tediLabels = src.slice(
+  src.indexOf("const TEDI_STEP_LABELS"),
+  src.indexOf("function tediStepLabel"),
+);
 const unlabelled = Object.keys(TOOL_DEFS)
-  .filter((n) => !src.includes(`mcp__tedi__${n}:`))
+  .filter((n) => !new RegExp(`^  ${n}:`, "m").test(tediLabels))
   .sort();
 check(
   `all ${Object.keys(TOOL_DEFS).length} tedi MCP tools have a step label`,

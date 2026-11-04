@@ -2,9 +2,17 @@ import { useEffect, useRef } from "react";
 import { PopoverContent } from "@/components/ui/popover";
 import { cn } from "@/lib/utils";
 import { fileIconUrl, folderIconUrl } from "@/modules/explorer/lib/iconResolver";
-import { Code, Terminal } from "lucide-react";
+import { Code, MousePointerClick, Terminal } from "lucide-react";
 
 export type MentionItem =
+  | {
+      /** Something an extension can show the agent (`ctx.ai.registerMentionSource`). */
+      kind: "page";
+      key: string;
+      label: string;
+      detail: string;
+      pick: () => void;
+    }
   | {
       kind: "file";
       /** Absolute path. */
@@ -48,7 +56,7 @@ export function MentionPickerContent({
   loading,
   query,
 }: Props) {
-  // Sections in order: selections, open files, other files, folders. Caller
+  // Sections in order: selections, pages, open files, other files, folders. Caller
   // must pre-sort `items` in this order so `absIndex` matches visual order.
   const sections: {
     label: string;
@@ -56,10 +64,12 @@ export function MentionPickerContent({
   }[] = [];
   const indexed = items.map((item, i) => ({ item, absIndex: i }));
   const sel = indexed.filter((x) => x.item.kind === "selection");
+  const pages = indexed.filter((x) => x.item.kind === "page");
   const openFiles = indexed.filter((x) => x.item.kind === "file" && x.item.open);
   const otherFiles = indexed.filter((x) => x.item.kind === "file" && !x.item.open);
   const folders = indexed.filter((x) => x.item.kind === "folder");
   if (sel.length) sections.push({ label: "Current selection", items: sel });
+  if (pages.length) sections.push({ label: "Browser", items: pages });
   if (openFiles.length) sections.push({ label: "Open files", items: openFiles });
   if (otherFiles.length) sections.push({ label: "Workspace files", items: otherFiles });
   if (folders.length) sections.push({ label: "Folders", items: folders });
@@ -130,6 +140,11 @@ export function MentionPickerContent({
 }
 
 function ItemIcon({ item }: { item: MentionItem }) {
+  if (item.kind === "page") {
+    return (
+      <MousePointerClick size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
+    );
+  }
   if (item.kind === "selection") {
     return item.source === "editor" ? (
       <Code size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
@@ -147,6 +162,7 @@ function ItemIcon({ item }: { item: MentionItem }) {
 }
 
 function itemPrimary(item: MentionItem): string {
+  if (item.kind === "page") return item.label;
   if (item.kind === "selection") {
     return item.source === "editor" ? "Editor selection" : "Terminal selection";
   }
@@ -154,6 +170,7 @@ function itemPrimary(item: MentionItem): string {
 }
 
 function itemSecondary(item: MentionItem): string {
+  if (item.kind === "page") return item.detail;
   if (item.kind === "selection") {
     return `${item.lineCount} line${item.lineCount === 1 ? "" : "s"} · ${item.preview}`;
   }
@@ -162,6 +179,7 @@ function itemSecondary(item: MentionItem): string {
 }
 
 function itemKey(item: MentionItem, fallback: number): string {
+  if (item.kind === "page") return item.key;
   if (item.kind === "selection") return `sel-${fallback}`;
   return item.path;
 }

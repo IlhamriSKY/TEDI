@@ -24,8 +24,6 @@ import {
   MAX_AGENT_STEPS,
   acceptsForcedToolChoice,
   ORCHESTRATION_PROMPT_BODY,
-  ORCHESTRATION_PROMPT_BODY_LITE,
-  pickSystemPromptVariant,
   PLAN_MODE_PROMPT_BODY,
   providerNeedsKey,
   providersServingModel,
@@ -42,10 +40,12 @@ import { recordChatGptActivity, recordChatGptUsage } from "./codexUsage";
 import { classifyError, TediErrorCode } from "./errors";
 import type { ProviderKeys } from "./keyring";
 import { withLanguageNote, withReasoningPassback } from "./agentrouter";
+import { withImageFallback } from "./imageFallback";
 import { corsFallbackFetch, proxyOnlyFetch, withStreamIdleTimeout } from "./httpProxy";
-import { buildExtensionTools } from "../tools/extensions";
 import { buildTools, type ToolContext } from "../tools/tools";
-import { applyToolFilter, mcpSummaryFor } from "../tools/catalog";
+import { applyToolFilter } from "../tools/catalog";
+import { refreshFileDefinitions } from "./fileDefinitions";
+import { runStopHooks, withHooks } from "./hooks";
 import type { Tool } from "ai";
 import {
   applyCacheBreakpoints,
@@ -60,6 +60,7 @@ import {
   type CompactStages,
 } from "./compact";
 import { wantsForcedFanout } from "./orchestrationIntent";
+import { resolveVerb, verbArgs } from "@mcp/tools.mjs";
 import { HOST_PROMPT_LINE } from "./osTag";
 import { resolvePromptText, resolvePromptTemperature } from "./prompts";
 import { getPromptOverrides } from "../store/promptsStore";
@@ -92,62 +93,8 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   bash_logs: () => `Reading logs`,
   bash_list: () => `Listing background processes`,
   bash_kill: () => `Stopping background process`,
-  // Panes, terminals and the browser are served by TEDI's own in-process MCP
-  // server, so their labels are keyed on the `mcp__<server>__<tool>` key the SDK
-  // reports. Without these the step line reads "Calling mcp__tedi__sh" instead
-  // of naming the command, which is the whole point of this map.
-  //
-  // ALL OF THEM, not the six that were here: the agent can call every tool in
-  // `scripts/mcp/tools.mjs` whose pack is on, and an unlabelled one both showed
-  // its raw `mcp__tedi__` name and dropped the running block back to the generic
-  // gait, since `stepMotion` reads these labels. `step-motion-verify` fails if a
-  // tool is added to that table without a line here.
-  mcp__tedi__sh: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
-  mcp__tedi__read: (i) => `Reading ${String(i.source ?? "terminal")}`,
-  mcp__tedi__state: () => `Reading the window`,
-  mcp__tedi__wait_for_terminal: (i) =>
-    i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
-  mcp__tedi__pane: (i) => `Pane ${String(i.action ?? "")}`,
-  mcp__tedi__worktree: (i) =>
-    `Worktree ${String(i.action ?? "list")}${i.branch ? ` ${String(i.branch)}` : ""}`,
-  mcp__tedi__focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
-  mcp__tedi__inspect: (i) => `Inspecting ${String(i.what ?? "TEDI")}`,
-  mcp__tedi__run_command: (i) => `Running ${String(i.id ?? "command")}`,
-  mcp__tedi__set_setting: (i) => `Setting ${String(i.key ?? "")}`,
-  mcp__tedi__extension: (i) => `Extension ${String(i.action ?? "")} ${String(i.id ?? "")}`.trim(),
-  mcp__tedi__open_file: (i) => `Opening ${shortPath(i.path)}`,
-  mcp__tedi__save_editor: () => `Saving the editor`,
-  mcp__tedi__keys: (i) =>
-    `Pressing ${ellipsize(Array.isArray(i.chords) ? i.chords.join(" ") : "", 40)}`,
-  mcp__tedi__type_text: (i) => `Typing ${ellipsize(String(i.text ?? ""), 40)}`,
-  mcp__tedi__click: (i) => `Clicking ${ellipsize(String(i.selector ?? ""), 40)}`,
-  mcp__tedi__drag: (i) => `Dragging ${ellipsize(String(i.selector ?? ""), 40)}`,
-  mcp__tedi__screenshot: () => `Capturing the window`,
-  mcp__tedi__ai: (i) => `Asking TEDI to ${String(i.action ?? "")}`.trim(),
-  mcp__tedi__ssh: (i) => `SSH ${String(i.action ?? "")}`.trim(),
-  mcp__tedi__workspace: (i) =>
-    i.action === "switch"
-      ? `Switching workspace`
-      : i.action === "remove"
-        ? `Deleting workspace`
-        : i.action === "view"
-          ? `Switching workspace view`
-          : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
-  mcp__tedi__schedule: (i) =>
-    i.action === "create"
-      ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
-      : `Scheduling ${String(i.action ?? "")}`.trim(),
-  // The stdio server serves this to outside CLIs; the in-app agent uses native
-  // `notes_read`/`notes_write` and does not reach it, but the surface check wants
-  // a label for every tedi tool.
-  mcp__tedi__notes: (i) => notesStepLabel(String(i.action ?? "read")),
-  // Outside CLIs only too, for the same reason.
-  mcp__tedi__sftp: (i) => `SSH files ${String(i.action ?? "")}`.trim(),
-  mcp__tedi__session: (i) => `${i.action === "delete" ? "Deleting" : "Renaming"} session`,
-  mcp__tedi__eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
+  tedi: (i) => tediStepLabel(i),
   todo_write: (i) => `Updating plan (${Array.isArray(i.todos) ? i.todos.length : 0} items)`,
-  notes_read: () => `Reading your notes and todos`,
-  notes_write: (i) => notesStepLabel(String(i.op ?? "")),
   run_subagent: (i) => `Spawning ${String(i.type ?? "subagent")} subagent`,
   run_subagents: (i) => {
     const tasks = Array.isArray(i.tasks) ? i.tasks : [];
@@ -164,9 +111,65 @@ export const TOOL_LABELS: Record<string, (input: Record<string, unknown>) => str
   },
 };
 
-/** One label for the notes actions, shared by `notes_write` and the MCP `notes`
- *  tool since both run the same `runNotesAction`. Every verb already owns a gait
- *  in STEP_MOTIONS; a new one would fail step-motion-verify. */
+/**
+ * What the `tedi` tool is doing, by the verb it was given. Without these the step line reads
+ * "Calling tedi" instead of naming the command, and an unlabelled one drops the running block
+ * back to the generic gait, since `stepMotion` reads the label. `step-motion-verify` fails if a
+ * tool is added to the table without a line here.
+ */
+const TEDI_STEP_LABELS: Record<string, (i: Record<string, unknown>) => string> = {
+  sh: (i) => `Running ${ellipsize(String(i.command ?? ""), 60)}`,
+  lsp: (i) => `Reading ${String(i.op ?? "")} ${shortPath(i.path)}`,
+  skill: (i) => (i.name ? `Reading skill ${String(i.name)}` : `Listing skills`),
+  read: (i) => `Reading ${String(i.source ?? "terminal")}`,
+  state: () => `Reading the window`,
+  wait_for_terminal: (i) =>
+    i.text ? `Waiting for "${ellipsize(String(i.text), 40)}"` : `Waiting for the prompt`,
+  pane: (i) => `Pane ${String(i.action ?? "")}`,
+  worktree: (i) =>
+    `Worktree ${String(i.action ?? "list")}${i.branch ? ` ${String(i.branch)}` : ""}`,
+  focus_pane: (i) => `Focusing pane ${String(i.leafId ?? "")}`,
+  inspect: (i) => `Inspecting ${String(i.what ?? "TEDI")}`,
+  run_command: (i) => `Running ${String(i.id ?? "command")}`,
+  set_setting: (i) => `Setting ${String(i.key ?? "")}`,
+  extension: (i) => `Extension ${String(i.action ?? "")} ${String(i.id ?? "")}`.trim(),
+  open_file: (i) => `Opening ${shortPath(i.path)}`,
+  save_editor: () => `Saving the editor`,
+  keys: (i) => `Pressing ${ellipsize(Array.isArray(i.chords) ? i.chords.join(" ") : "", 40)}`,
+  type_text: (i) => `Typing ${ellipsize(String(i.text ?? ""), 40)}`,
+  click: (i) => `Clicking ${ellipsize(String(i.selector ?? ""), 40)}`,
+  drag: (i) => `Dragging ${ellipsize(String(i.selector ?? ""), 40)}`,
+  screenshot: () => `Capturing the window`,
+  ai: (i) => `Asking TEDI to ${String(i.action ?? "")}`.trim(),
+  ssh: (i) => `SSH ${String(i.action ?? "")}`.trim(),
+  workspace: (i) =>
+    i.action === "switch"
+      ? `Switching workspace`
+      : i.action === "remove"
+        ? `Deleting workspace`
+        : i.action === "view"
+          ? `Switching workspace view`
+          : `${i.action === "create" ? "Creating" : "Renaming"} workspace ${String(i.name ?? "")}`.trim(),
+  schedule: (i) =>
+    i.action === "create"
+      ? `Scheduling ${ellipsize(String(i.command ?? ""), 40)}`
+      : `Scheduling ${String(i.action ?? "")}`.trim(),
+  notes: (i) => notesStepLabel(String(i.action ?? "read")),
+  sftp: (i) => `SSH files ${String(i.action ?? "")}`.trim(),
+  session: (i) => `${i.action === "delete" ? "Deleting" : "Renaming"} session`,
+  eval_js: (i) => `Evaluating ${ellipsize(String(i.expression ?? ""), 40)}`,
+};
+
+function tediStepLabel(input: Record<string, unknown>): string {
+  const verb = String(input.verb ?? "");
+  if (verb === "help" || verb === "tools") return `Reading the tedi reference`;
+  const found = resolveVerb(verb);
+  const label = found && TEDI_STEP_LABELS[found.tool];
+  return label ? label(verbArgs(found, input.args)) : `Calling ${verb.replace(/^ext_/, "")}`;
+}
+
+/** One label for the notes actions. Every verb already owns a gait in STEP_MOTIONS; a new one
+ *  would fail step-motion-verify. */
 function notesStepLabel(action: string): string {
   const [verb, thing] = action.split("_");
   const noun = thing === "note" ? "note" : "todo";
@@ -218,6 +221,10 @@ export type BuildModelOptions = {
 // Memoize built models. Provider clients register middleware and parse keys,
 // so rebuilding per `sendMessages` is wasteful. LRU-capped so rotating keys
 // or base URLs doesn't grow the cache forever.
+/** Every provider's fetch: a text-only model still gets the text of a page mention. */
+const chatFetch = (fetchFn: typeof globalThis.fetch) =>
+  withStreamIdleTimeout(withImageFallback(fetchFn));
+
 const MODEL_CACHE_LIMIT = 16;
 const modelCache = new Map<string, LanguageModel>();
 
@@ -311,7 +318,7 @@ export async function buildLanguageModel(
         apiKey: key,
         // Idle-timeout the native fetch so a gateway that stalls mid-SSE fails
         // with a retryable error instead of hanging the turn forever.
-        fetch: withStreamIdleTimeout(globalThis.fetch),
+        fetch: chatFetch(globalThis.fetch),
         // Ask for usage in the streaming response so the app can see input/
         // cached-token counts (else the streamed final chunk carries none and
         // the context/cache-hit UI is dead for this provider).
@@ -329,7 +336,7 @@ export async function buildLanguageModel(
         // proxy's idle guard never runs). Wrap it so a wedged mid-stream request
         // aborts with a retryable error instead of hanging the turn forever -
         // the single most common mid-stream stall on this gateway.
-        fetch: withStreamIdleTimeout(globalThis.fetch),
+        fetch: chatFetch(globalThis.fetch),
         // Surface streaming usage so the context/cache-hit indicator reflects
         // real spend on SumoPod (without this the endpoint isn't asked for usage
         // and the app is blind to its own token cost).
@@ -350,7 +357,7 @@ export async function buildLanguageModel(
         headers: { ...AGENTROUTER_HEADERS },
         // DeepSeek there refuses a step whose earlier tool call had no reasoning,
         // and the gateway refuses non-English user text.
-        fetch: withStreamIdleTimeout(withLanguageNote(withReasoningPassback(proxyOnlyFetch))),
+        fetch: chatFetch(withLanguageNote(withReasoningPassback(proxyOnlyFetch))),
         // Real spend in the context/cache indicator instead of zero every turn.
         includeUsage: true,
       })(resolvedModelId);
@@ -377,7 +384,7 @@ export async function buildLanguageModel(
         // Native-first CORS fallback so self-hosted endpoints without CORS
         // headers still stream. Idle-timeout because a cloud gateway takes the
         // native path and so bypasses the Rust proxy's own guard.
-        fetch: withStreamIdleTimeout(corsFallbackFetch),
+        fetch: chatFetch(corsFallbackFetch),
         // Ask for streaming usage so token/cache accounting works for custom
         // OpenAI-compatible endpoints too.
         includeUsage: true,
@@ -394,7 +401,7 @@ export async function buildLanguageModel(
       built = createOpenAICompatible({
         name: "lmstudio",
         baseURL,
-        fetch: withStreamIdleTimeout(corsFallbackFetch),
+        fetch: chatFetch(corsFallbackFetch),
       })(resolvedModelId);
       break;
     }
@@ -422,7 +429,7 @@ export async function buildLanguageModel(
           // header reads as "account none" and 401s less clearly than absence.
           ...(auth.accountId ? { "chatgpt-account-id": auth.accountId } : {}),
         },
-        fetch: withStreamIdleTimeout(proxyOnlyFetch),
+        fetch: chatFetch(proxyOnlyFetch),
       }).responses(resolvedModelId);
       // Deliberately NOT cached: the access token rotates on refresh, and the
       // cache key is computed before this point, so a cached model would keep
@@ -572,14 +579,10 @@ function buildSystemPrompt(opts: {
     return `${resolvePromptText(overrides, "chat", CHAT_MODE_PROMPT)}${personaBlock}${customBlock}`;
   }
 
-  // Resolve the core prompt: the user can override the full or compact variant
-  // independently, so the byte-stable lite/full token split survives overrides.
-  const variant = pickSystemPromptVariant(opts.modelId);
   // The built-in default is composed from only the sections whose tools survive.
   // An override is the user's own text, so it goes out verbatim: they wrote it,
   // TEDI does not get to prune it.
-  const builtinBase = buildCorePrompt(variant, has);
-  const base = resolvePromptText(overrides, variant === "lite" ? "core-lite" : "core", builtinBase);
+  const base = resolvePromptText(overrides, "core", buildCorePrompt(has));
   // Host tag is captured once at boot; prepending it keeps the prefix
   // byte-stable across turns for prompt caching.
   const hostBlock = HOST_PROMPT_LINE ? `${HOST_PROMPT_LINE}\n\n` : "";
@@ -595,18 +598,12 @@ function buildSystemPrompt(opts: {
   const savedMemory = opts.memory?.trim() ? `\n\nSaved memory:\n${opts.memory.trim()}` : "";
   const memBlock =
     savedMemory || has("write_file")
-      ? `\n\n## MEMORY\nDurable project memory lives in \`.tedi/memory/*.md\`, auto-loaded here when present.${
+      ? `\n\n## MEMORY\n${
           has("write_file")
-            ? ` To remember a fact across sessions, write or update a short markdown file there (create the folder if missing).`
-            : ""
+            ? `To remember a fact across sessions, write a short markdown file in \`.tedi/memory/\`; it loads here.`
+            : `Durable project memory, from \`.tedi/memory/\`.`
         }${savedMemory}`
       : "";
-  // Derived from the tools that survived rather than from the live servers, so a
-  // server whose tools are all unticked (or that failed to connect) is not
-  // advertised as "available in your tool list". Names only, no tool count: the
-  // count moved when a server finished listing between turns, and that re-priced
-  // this whole prefix as a cache miss for the rest of the session.
-  const mcpBlock = mcpSummaryFor(opts.toolNames);
   const planBody = resolvePromptText(overrides, "plan-mode", PLAN_MODE_PROMPT_BODY);
   const planBlock = opts.planMode ? `\n\n${planBody}` : "";
   // Auto-orchestration nudge, appended only when the spawn tool will actually be
@@ -615,9 +612,11 @@ function buildSystemPrompt(opts: {
   // tool, is pure wasted tokens and a guaranteed failed call. Stable across a
   // turn, so the cached prefix holds until the user changes the picker.
   const orchestrationOn = has("run_subagents");
-  const orchestrationDefault =
-    variant === "lite" ? ORCHESTRATION_PROMPT_BODY_LITE : ORCHESTRATION_PROMPT_BODY;
-  const orchestrationBody = resolvePromptText(overrides, "orchestration", orchestrationDefault);
+  const orchestrationBody = resolvePromptText(
+    overrides,
+    "orchestration",
+    ORCHESTRATION_PROMPT_BODY,
+  );
   const orchestrationBlock = orchestrationOn ? `\n\n${orchestrationBody}` : "";
   // Standing goal from `/goal`. Last, so it is the final thing read before the
   // conversation, and stable across turns until the user changes it, which keeps
@@ -630,7 +629,7 @@ function buildSystemPrompt(opts: {
   const goalBlock = opts.goal?.trim()
     ? `\n\n## SESSION GOAL\n${opts.goal.trim()}\n\nThis stands for the whole session, not just one message. Keep it in view: when a request is ambiguous, resolve it toward this goal. Do not restate it back to the user unprompted.${goalRun}\n\nWhen the goal is fully met AND you have verified it, end that message with this exact line and nothing after it:\n${GOAL_DONE_MARKER}\nNever write that line for any other reason.`
     : "";
-  return `${hostBlock}${base}${memoryBlock}${memBlock}${mcpBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
+  return `${hostBlock}${base}${memoryBlock}${memBlock}${personaBlock}${customBlock}${planBlock}${orchestrationBlock}${goalBlock}`;
 }
 
 /** Appended for the turn when the user writes "ultrathink": a provider-agnostic
@@ -685,22 +684,29 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
   // lazily, and the same identity keeps buildTools' WeakMap cache hitting.
   opts.toolContext.abortSignal = opts.abortSignal;
 
-  // Built-ins spread LAST so an extension/MCP can never shadow one (bash_run).
+  // Built-ins spread LAST so an MCP server can never shadow one (bash_run). An
+  // extension's tools go behind `tedi`, so they cannot either.
   // Chat mode builds none: ~77 schemas is the biggest fixed per-step cost and a
   // conversation cannot use them. Filtering here, after every source is merged,
   // is the only place a picker-disabled tool cannot slip through another path.
   // Built FIRST: the system prompt is composed from what survives here, and the
   // history conversion below needs it too - see there.
+  await refreshFileDefinitions(opts.toolContext.getWorkspaceRoot());
+  // Hooked before the history below is converted from it: a hook's note has to read the same on
+  // every later step, or the cached prefix breaks at that message.
   const merged = chatMode
     ? undefined
-    : {
-        ...buildExtensionTools(opts.toolContext),
-        ...opts.mcpTools,
-        ...buildTools(opts.toolContext),
-      };
-  const tools = merged
+    : withHooks(
+        {
+          ...opts.mcpTools,
+          ...buildTools(opts.toolContext),
+        },
+        opts.toolContext.getCwd,
+      );
+  const allowed = merged
     ? applyToolFilter(merged, new Set(usePreferencesStore.getState().disabledTools))
     : undefined;
+  const tools = allowed;
   const allToolNames = new Set(Object.keys(tools ?? {}));
 
   // Every assembled tool is sent. Nothing is withheld per turn: browser control
@@ -986,6 +992,9 @@ export async function runAgentStream(opts: RunAgentOptions & { mcpTools?: McpToo
     },
     onFinish: (result) => {
       if (provider === "chatgpt") void recordChatGptActivity();
+      // A stream also ends at each approval card, which is not the end of the turn.
+      const reason = (result as { finishReason?: string } | undefined)?.finishReason;
+      if (!chatMode && reason !== "tool-calls") runStopHooks(opts.toolContext.getCwd);
       opts.onStep?.(null);
       const finishReason = (result as { finishReason?: string } | undefined)?.finishReason ?? "";
       opts.onFinishMeta?.({

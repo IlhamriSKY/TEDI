@@ -129,7 +129,8 @@
  * an animation it cannot see (compositeFailed: AnimationHasNoVisibleChange), so
  * each agent glyph in a hidden tab still ticked style + paint every frame on the
  * main thread for an icon nobody can see. */
-.invisible :is(.animate-ai-breathe, .ai-breathe-settle, .animate-pulse) {
+.invisible :is(.animate-ai-breathe, .ai-breathe-settle, .animate-pulse),
+.invisible .tedi-spinner::before {
   animation: none;
 }
 
@@ -437,6 +438,39 @@
   }
   to {
     transform: scaleX(0);
+  }
+}
+
+/* The one loading glyph (components/ui/spinner.tsx): a faint ring carrying a
+ * bright arc whose tail fades into it. It takes the text colour, so it sits on a
+ * primary button or in a status colour without a variant.
+ *
+ * THE RING STANDS STILL AND ONLY THE LIGHT TURNS. A compositor rotation resamples a
+ * bitmap every frame, so at 12px a ring that turned with it had no clean edge. The
+ * mask is an SVG circle because that is what gets real antialiasing: the hard stops
+ * of a gradient mask came out stair-stepped at the same size. */
+.tedi-spinner {
+  display: inline-block;
+  position: relative;
+  flex: none;
+  mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'%3E%3Ccircle cx='8' cy='8' r='6.75' fill='none' stroke='%23000' stroke-width='2.5'/%3E%3C/svg%3E")
+    center / 100% 100% no-repeat;
+}
+.tedi-spinner::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: conic-gradient(
+    color-mix(in srgb, currentColor 18%, transparent) 15%,
+    currentColor 96%,
+    color-mix(in srgb, currentColor 18%, transparent)
+  );
+  animation: tedi-spinner 0.9s linear infinite;
+  will-change: transform;
+}
+@keyframes tedi-spinner {
+  to {
+    transform: rotate(360deg);
   }
 }
 

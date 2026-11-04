@@ -23,23 +23,11 @@ export type McpServerConfig = {
   /** Bumped when those keychain credentials change, so a window holding a live
    *  connection sees a new fingerprint and reconnects with them. */
   authRev?: number;
-  /** TEDI's own in-process server. No process is spawned: `command`/`args` are
-   *  unused and the client is linked to it over an in-memory transport. Never
-   *  persisted - it is synthesized per turn by `buildMcpToolsAsync`. */
-  builtin?: boolean;
 };
 
 /**
- * Name of TEDI's own in-process server. Becomes the `MCP: tedi` group and the
- * `mcp__tedi__*` key prefix, so changing it renames every tool the model sees.
- *
- * IT LIVES HERE, not beside the server it names, and that is load-bearing. The
- * name is needed by UI as light as the `/mcp` list; taking it from
- * `tediMcpServer` would pull that module's whole dependency tree - the extension
- * store, the shell tools, the command registry - into the importer's graph, and
- * through the composer that closes a cycle. A cycle there does not warn: a
- * context object reads as undefined and the AI panel renders its error boundary.
- * This file is config with a single dependency, so nothing can cycle back.
+ * Reserved: the picker stores a TEDI verb as `mcp__tedi__<verb>`, so a server of this name
+ * would share its keys.
  */
 export const TEDI_MCP_SERVER_NAME = "tedi";
 
@@ -136,7 +124,7 @@ export async function setMcpServersEnabled(on: boolean): Promise<void> {
 }
 
 /** The configured servers a turn should connect: none while the master switch
- *  is off, otherwise the enabled ones, never a config shadowing the built-in. */
+ *  is off, otherwise the enabled ones, never one using the reserved name. */
 export function serversToConnect(
   servers: McpServerConfig[],
   serversEnabled: boolean,

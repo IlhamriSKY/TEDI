@@ -1,6 +1,5 @@
 /**
- * Self-check for `runNotesAction`, the one implementation behind both the MCP
- * `notes` tool and the in-app agent's `notes_write`.
+ * Self-check for `runNotesAction`, the one implementation behind the `notes` verb.
  * Run: `npx tsx scripts/mcp/notes-actions-verify.ts`.
  *
  * Pins the management actions that used to be missing (edit, reopen, delete,

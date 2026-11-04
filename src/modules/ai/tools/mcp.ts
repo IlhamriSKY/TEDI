@@ -6,12 +6,8 @@ import {
   getMcpServers,
   getMcpServersEnabled,
   serversToConnect,
-  TEDI_MCP_SERVER_NAME,
   type McpServerConfig,
 } from "../lib/mcpConfig";
-import { TOOL_DEFS } from "@mcp/tools.mjs";
-import { type TediMcpDeps } from "../lib/tediMcpServer";
-import { getMcpSurface } from "@/modules/settings/store";
 import type { ToolContext } from "./context";
 import { clampToolKey, sanitizeToolName } from "./toolKey";
 
@@ -53,37 +49,8 @@ function capResult(text: string): string {
   return `${text.slice(0, MAX_RESULT_CHARS)}\n... truncated at ${MAX_RESULT_CHARS} characters. Ask for something narrower.`;
 }
 
-/**
- * The approval rule for one BUILTIN tool: `true` (always ask), or a predicate
- * over the call's `action`.
- *
- * Only reached for `config.builtin`. `auto` is a field in this repo's own tool
- * table, not an annotation, so it never crosses the protocol and no third-party
- * server can set one - see the note on `ToolDef.auto`.
- *
- * `auto` IS THE WHOLE LIST. Nothing else may answer "no card needed": a branch
- * that waived approval on some other property of the input (this one carried a
- * trusted-host check for a browser tool that has since moved into an extension)
- * silently exempts actions the table never freed - here, `pane` `open`, which
- * starts terminals.
- */
-function autoApprover(toolName: string): boolean | ((input: Record<string, unknown>) => boolean) {
-  const auto = TOOL_DEFS[toolName]?.auto;
-  if (!auto?.length) return true;
-  const free = new Set<string>(auto);
-  return (input) => !free.has(String(input?.action ?? ""));
-}
-
 /** Convert an MCP tool definition to an AI SDK tool. */
-function mcpToolToAiTool(
-  mcpTool: McpTool,
-  config: McpServerConfig,
-  ctx: ToolContext,
-  /** The SAME deps `buildMcpToolsAsync` connected with. Passing them again is
-   *  not redundant: they are part of the client cache key, so omitting them here
-   *  resolves to a DIFFERENT client than the one that advertised this tool. */
-  builtinDeps: TediMcpDeps | undefined,
-) {
+function mcpToolToAiTool(mcpTool: McpTool, config: McpServerConfig, ctx: ToolContext) {
   const serverName = config.name;
   return tool({
     // No `[server]` suffix. The key the model calls is already
@@ -96,36 +63,12 @@ function mcpToolToAiTool(
     inputSchema: jsonSchema<Record<string, unknown>>(
       mcpTool.inputSchema as Parameters<typeof jsonSchema>[0],
     ),
-    // Approval on every MCP call, with ONE exception: a tool the BUILT-IN `tedi`
-    // server annotates `readOnlyHint`.
-    //
-    // The spec is explicit that a client MUST treat annotations as untrusted,
-    // and that is exactly why the exception is scoped to `config.builtin`: that
-    // server is TEDI's own code in TEDI's own realm, and its annotations come
-    // from the table in this repo, not from a third party. A third-party server
-    // could claim `readOnlyHint` on anything, so its claim buys it nothing.
-    //
-    // In practice this is exactly one tool: `inspect`, the only handler the
-    // in-process server both serves and annotates read-only. It reads TEDI's own
-    // command / extension / settings / workspace lists, which carry no secrets,
-    // and it used to raise a card the user had to clear before the agent could
-    // see anything - while `read_file`, a strictly wider read, ran unattended
-    // because it happens to be a native tool.
-    // A tool that folds a whole surface behind one `action` enum is read-only
-    // for some values and not others, so a per-tool flag cannot express it. For
-    // the builtin server only, `auto` in the shared table names the values that
-    // run unattended - which is how `read`, `scroll` and `console` keep the
-    // no-card behaviour the native browser tools had. Looked up by NAME in this
-    // repo's own table, never taken off the wire, so a third-party server cannot
-    // grant itself one.
-    needsApproval: config.builtin
-      ? mcpTool.annotations?.readOnlyHint === true
-        ? false
-        : autoApprover(mcpTool.name)
-      : true,
+    // Approval on every MCP call. The spec says a client MUST treat a server's annotations
+    // as untrusted, and a third party could claim `readOnlyHint` on anything.
+    needsApproval: true,
     execute: async (input: Record<string, unknown>) => {
       try {
-        const client = await getMcpClient(config, ctx.getCwd() ?? undefined, builtinDeps);
+        const client = await getMcpClient(config, ctx.getCwd() ?? undefined);
         // Pressing Stop has to reach the server too, or the model stream aborts
         // while the call keeps running.
         const result = await client.callTool(mcpTool.name, input, {
@@ -211,38 +154,11 @@ function mcpToolToAiTool(
 const _warnedFailedServers = new Set<string>();
 
 export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<string, Tool>> {
-  // The pack switches in the MCP dialog gate the built-in server too, not just
-  // the stdio one an outside CLI connects to. One surface, one set of switches:
-  // turning the Settings pack off has to take `set_setting` away from TEDI's own
-  // agent as well, or the switch is trivially bypassed from inside.
-  const [servers, surface, serversEnabled] = await Promise.all([
-    getMcpServers(),
-    getMcpSurface(),
-    getMcpServersEnabled(),
-  ]);
-  const disabledTools = surface.disabledTools;
-  // TEDI's own control surface is an MCP server like any other (see
-  // `lib/tediMcpServer.ts`) - it just runs in-process. Listing it first keeps it
-  // ahead of a user server that happens to share the name; the loop below then
-  // suffixes theirs on conflict rather than dropping either.
-  const configured = serversToConnect(servers, serversEnabled);
-  dropUnwantedMcpClients(configured);
-  const enabled: McpServerConfig[] = [
-    { name: TEDI_MCP_SERVER_NAME, command: "", args: [], enabled: true, builtin: true },
-    ...configured,
-  ];
+  const [servers, serversEnabled] = await Promise.all([getMcpServers(), getMcpServersEnabled()]);
+  const enabled = serversToConnect(servers, serversEnabled);
+  dropUnwantedMcpClients(enabled);
 
   const tools: Record<string, Tool> = {};
-
-  // ONE deps object, used for the connect here AND captured by every tool's
-  // `execute`. They are part of the client cache key (`mcpClient.ts`), so the
-  // two call sites MUST agree or `execute` misses the cache and builds a second
-  // server from the default deps - `{ openSshTab: () => false }` and no disabled
-  // list. That is what made `mcp__tedi__ssh` answer `{ok:true, opened}` while
-  // opening nothing, and it re-registered every tool the packs had switched off.
-  // It only bit once a pack was disabled, because until then both keys computed
-  // the same empty variant.
-  const builtinDeps: TediMcpDeps = { openSshTab: ctx.openSshTab, disabledTools };
 
   // Connect every server AT ONCE, then register in the fixed `enabled` order.
   // Serially awaiting each spawn + handshake + tools/list meant an `npx -y` cold
@@ -251,7 +167,7 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
   // deterministic, which is what a provider prompt cache keys on - a tool set
   // that reorders between turns re-prices the whole prefix.
   const connected = await Promise.allSettled(
-    enabled.map((s) => getMcpClient(s, ctx.getCwd() ?? undefined, builtinDeps)),
+    enabled.map((s) => getMcpClient(s, ctx.getCwd() ?? undefined)),
   );
 
   for (const [i, server] of enabled.entries()) {
@@ -270,12 +186,7 @@ export async function buildMcpToolsAsync(ctx: ToolContext): Promise<Record<strin
         // suffix on conflict (re-clamped) so neither tool is silently dropped.
         let aiName = base;
         for (let n = 2; tools[aiName]; n++) aiName = clampToolKey(`${base}_${n}`);
-        tools[aiName] = mcpToolToAiTool(
-          mcpTool,
-          server,
-          ctx,
-          server.builtin ? builtinDeps : undefined,
-        );
+        tools[aiName] = mcpToolToAiTool(mcpTool, server, ctx);
       }
     } catch (e) {
       // Server failed to start — skip its tools, and tell the user once (an

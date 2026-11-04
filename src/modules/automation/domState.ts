@@ -30,12 +30,17 @@ import { callBridge, registerBridge } from "./bridge";
 /** What the AI must never learn of: a private pane, or the tab chip that names one. */
 const PRIVATE = "[data-pane-private],[data-tab-private]";
 
-/** Last `n` lines of a buffer, trailing blank run trimmed. */
+/**
+ * Last `n` lines of a buffer, trailing blank run trimmed. A preview, so a TUI's
+ * wide padding goes too: one status line can be 150 spaces and two words.
+ */
 function tail(s: string, n: number): string {
+  if (n <= 0) return "";
   return String(s ?? "")
     .trimEnd()
     .split("\n")
     .slice(-n)
+    .map((line) => line.trimEnd().replace(/ {8,}/g, "   "))
     .join("\n");
 }
 
@@ -202,10 +207,10 @@ async function state({ tail: tailLines = 3, buttons = false } = {}): Promise<
         q("button[aria-label]")
           .filter((b) => !b.closest(PRIVATE))
           .map((b) =>
-          // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
-          // siblings are one control, and listing each buries the rest of the UI.
-          (b.getAttribute("aria-label") ?? "").replace(/\s\S*[\\/]\S*$/, " <path>"),
-        ),
+            // Collapse the per-file controls: 'Stage src/app/App.tsx' and its 60
+            // siblings are one control, and listing each buries the rest of the UI.
+            (b.getAttribute("aria-label") ?? "").replace(/\s\S*[\\/]\S*$/, " <path>"),
+          ),
       ),
     ].sort();
   }
@@ -213,7 +218,10 @@ async function state({ tail: tailLines = 3, buttons = false } = {}): Promise<
   // Tails merged INTO the pane list rather than sitting in a list of their own:
   // one row per pane carrying both what the pane IS and what it last printed.
   try {
-    const list = (await callBridge("terminals", [BUFFER_ROWS])) as TerminalRow[];
+    // No tail asked for means no buffer walk per pane.
+    const list = (
+      tailLines > 0 ? await callBridge("terminals", [BUFFER_ROWS]) : []
+    ) as TerminalRow[];
     const panes = (await callBridge("panes")) as Array<{ leafId: number }>;
     const tails = new Map(list.map((t) => [t.leafId, tail(t.text, tailLines)]));
     out.panes = panes.map((p) => (tails.has(p.leafId) ? { ...p, tail: tails.get(p.leafId) } : p));

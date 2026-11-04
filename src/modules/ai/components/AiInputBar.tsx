@@ -7,7 +7,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useComposerFileDrop } from "../hooks/useComposerFileDrop";
 import { useMentionSearch } from "../hooks/useMentionSearch";
 import { useComposer, type FileAttachment } from "../lib/composer";
-import { recallUserMessage, type RecalledMessage } from "../lib/messageBody";
+import { recallUserMessage, selectionLabel, type RecalledMessage } from "../lib/messageBody";
 import { detectPickerTrigger, type PickerTrigger } from "../lib/pickerTrigger";
 import {
   TAG_COMMANDS,
@@ -264,6 +264,11 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
     c.setValue(`${before}${sep}${after}`);
     setTrigger(null);
     setActiveIndex(0);
+    if (item.kind === "page") {
+      // The page takes the keyboard for the picker; the chip brings it back here.
+      item.pick();
+      return;
+    }
     if (item.kind === "file") {
       void c.attachFileByPath(item.path);
     } else if (item.kind === "folder") {
@@ -312,7 +317,7 @@ export function AiInputBar({ messages }: { messages?: UIMessage[] } = {}) {
       }));
       const selAtts: FileAttachment[] = entry.selections.map((s, i) => ({
         id: `recall-sel-${i}`,
-        name: s.source === "editor" ? "Editor selection" : "Terminal selection",
+        name: s.name ?? selectionLabel(s.source),
         kind: "selection",
         mediaType: "text/plain",
         text: s.text,

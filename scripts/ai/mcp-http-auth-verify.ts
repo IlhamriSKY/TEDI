@@ -75,11 +75,7 @@ check(
   true,
 );
 check("remote requests go through the Rust proxy", client.includes("fetch: proxyOnlyFetch"), true);
-check(
-  "only Settings may open a sign-in",
-  /new McpClient\(config, cwd, undefined, true\)/.test(client),
-  true,
-);
+check("only Settings may open a sign-in", /new McpClient\(config, cwd, true\)/.test(client), true);
 
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`);

@@ -26,7 +26,7 @@ export const STEP_MOTIONS: Record<string, PixelMotion> = {
   Copying: "edit",
   // Renaming a workspace changes a name in place, which is the same family.
   Renaming: "edit",
-  // Driving TEDI's own window over its in-process MCP server. All four are the
+  // Driving TEDI's own window through the `tedi` tool. All four are the
   // same act - a discrete input landing somewhere - so they share the caret,
   // which is the gait that already stands for a keystroke.
   Typing: "edit",

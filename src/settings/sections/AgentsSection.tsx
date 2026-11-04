@@ -38,6 +38,7 @@ import { SystemPromptsCard } from "./components/SystemPromptsCard";
 import { SubagentsCard } from "./components/SubagentsCard";
 import { McpServersCard } from "./components/McpServersCard";
 import { ApprovalRulesCard } from "./components/ApprovalRulesCard";
+import { HooksCard } from "./components/HooksCard";
 import { SettingsAccordion } from "../components/SettingsAccordion";
 import { CircleCheck, Pencil, Plus, RefreshCw, Sparkles, Trash2 } from "lucide-react";
 
@@ -151,6 +152,8 @@ export function AgentsSection() {
       <McpServersCard />
 
       <ApprovalRulesCard />
+
+      <HooksCard />
 
       <SettingsAccordion
         title="Snippets"

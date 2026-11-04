@@ -1,19 +1,7 @@
 /**
- * The user's own notes and todos on the automation bridge, so an OUTSIDE AI CLI
- * reaches the same list over MCP that TEDI's own agent reaches through the native
- * `notes_read` / `notes_write` tools (`ai/tools/notes.ts`).
- *
- * WHY THIS EXISTS SEPARATELY. The native tools live in the ai-native tool module
- * and only the in-app agent has them; an outside CLI driving TEDI over the stdio
- * MCP server had no route to the panel at all - not even to SEE what the user had
- * jotted against the work it was about to do. This is the bridge capability the
- * stdio server calls, exactly the shape `schedule` took
- * (`scheduler/lib/bridge.ts`): one function, registered at module scope so it
- * answers from the moment the window is up, imported for its side effect by
- * `automation/bridgeHost.ts` beside `worktreeAutomation`.
- *
- * ONE IMPLEMENTATION. `notes_write` calls `runNotesAction` too, so the two
- * surfaces cannot disagree about what an action does or which ids it accepts.
+ * The user's own notes and todos on the automation bridge: one function, registered at module
+ * scope so it answers from the moment the window is up, reached by the `notes` verb from `tedi`
+ * in a shell, the MCP gateway and TEDI's own agent alike.
  *
  * NOT `todo_write`. That is the AGENT's plan for one turn and lives per session;
  * this is the list the user keeps in the toolbar panel, which outlives every

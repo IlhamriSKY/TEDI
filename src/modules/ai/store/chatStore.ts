@@ -75,7 +75,6 @@ type Live = Pick<
   | "getCwd"
   | "getWorkspaceRoot"
   | "injectIntoActivePty"
-  | "openSshTab"
   | "openTerminal"
   | "openTerminalAdvanced"
   | "consolidateTerminalsIntoGroup"
@@ -138,7 +137,11 @@ const IDLE_META: AgentMeta = {
 export type PendingSelection = {
   id: string;
   text: string;
-  source: "terminal" | "editor";
+  source: "terminal" | "editor" | "web";
+  /** The chip's label, when the source's own name is not enough. */
+  name?: string;
+  /** A picture of what was selected, sent with the text. */
+  imageUrl?: string;
 };
 
 export type OpenEditorFile = {
@@ -196,7 +199,11 @@ type StoreState = {
   consumePrefill: () => string | null;
 
   pendingSelections: PendingSelection[];
-  attachSelection: (text: string, source: "terminal" | "editor") => void;
+  attachSelection: (
+    text: string,
+    source: PendingSelection["source"],
+    extra?: Pick<PendingSelection, "name" | "imageUrl">,
+  ) => void;
   consumeSelections: () => PendingSelection[];
 
   /** Files open in editor leaves. Surfaced as suggestion chips above the AI
@@ -239,7 +246,6 @@ const NOOP_LIVE: Live = {
   injectIntoActivePty: () => false,
   getWorkspaceRoot: () => null,
   getActiveFile: () => null,
-  openSshTab: () => null,
   openTerminal: () => false,
   openTerminalAdvanced: () => ({ ok: false, error: "live bridge not ready" }),
   consolidateTerminalsIntoGroup: () => ({ ok: false, error: "live bridge not ready" }),
@@ -439,8 +445,6 @@ function makeChat(sessionId: string): Chat<UIMessage> {
       return promptWorkspaceRoot;
     },
     injectIntoActivePty: (text) => useChatStore.getState().live.injectIntoActivePty(text),
-    openSshTab: (id, name, isPrivate) =>
-      useChatStore.getState().live.openSshTab(id, name, isPrivate),
     openTerminal: (cwd) => useChatStore.getState().live.openTerminal(cwd),
     openTerminalAdvanced: (opts) => useChatStore.getState().live.openTerminalAdvanced(opts),
     consolidateTerminalsIntoGroup: (targetTabId) =>
@@ -678,14 +682,14 @@ export const useChatStore = create<StoreState>((set, get) => ({
   },
 
   pendingSelections: [],
-  attachSelection: (text, source) => {
+  attachSelection: (text, source, extra) => {
     const trimmed = text.trim();
     if (!trimmed) return;
     const id = `sel-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
     set((s) => ({
       panelOpen: true,
       focusSignal: s.focusSignal + 1,
-      pendingSelections: [...s.pendingSelections, { id, text: trimmed, source }],
+      pendingSelections: [...s.pendingSelections, { id, text: trimmed, source, ...extra }],
     }));
   },
   consumeSelections: () => {
@@ -1176,11 +1180,10 @@ registerBridge({
    * App sets it at boot.
    *
    * DELIBERATELY DUMB. No shell denylist, no transformer chain: `termRun` is the
-   * bridge, and the guard belongs to the caller that has a policy. The stdio
-   * server writes raw (an outside CLI has its own approval model); the
-   * in-process `sh` handler runs `checkedShellCommand` first, which is what
-   * ai-native's `run_in_terminal` did. Putting the check here would silently
-   * change the stdio contract as a side effect.
+   * bridge, and the guard belongs to the caller that has a policy. An outside agent
+   * has its own approval model; TEDI's own runs `checkedShellCommand` first
+   * (`ai/tools/tedi.ts`). Putting the check here would change the first as a side
+   * effect of the second.
    */
   paneOpen: (opts: {
     cwd?: string | null;

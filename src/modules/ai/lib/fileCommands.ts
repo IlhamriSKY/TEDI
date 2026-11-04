@@ -43,11 +43,7 @@ export function commandNameFromFile(file: string): string | null {
 }
 
 /** Frontmatter keys and the body under it. Only flat `key: value` lines. */
-export function parseCommandFile(text: string): {
-  description: string;
-  argHint?: string;
-  body: string;
-} {
+export function parseFrontmatter(text: string): { meta: Record<string, string>; body: string } {
   const src = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n");
   const m = src.match(/^---\n([\s\S]*?)\n---\n?/);
   const meta: Record<string, string> = {};
@@ -57,7 +53,15 @@ export function parseCommandFile(text: string): {
       if (kv) meta[kv[1].toLowerCase()] = kv[2].trim().replace(/^["']|["']$/g, "");
     }
   }
-  const body = (m ? src.slice(m[0].length) : src).trim();
+  return { meta, body: (m ? src.slice(m[0].length) : src).trim() };
+}
+
+export function parseCommandFile(text: string): {
+  description: string;
+  argHint?: string;
+  body: string;
+} {
+  const { meta, body } = parseFrontmatter(text);
   const firstLine =
     body
       .split("\n")

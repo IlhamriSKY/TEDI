@@ -23,7 +23,7 @@ import {
   withFileLock,
   type ToolContext,
 } from "./context";
-import { flexArrayReq, flexBoolOpt } from "./schedule";
+import { flexArrayReq, flexBoolOpt } from "./coerce";
 
 /**
  * Model-facing view of an edit result. `removedText`/`addedText` only feed the

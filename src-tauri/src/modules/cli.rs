@@ -43,7 +43,7 @@ pub fn is_update_flag(s: &str) -> bool {
 }
 
 /// Every `tedi <verb>` answered by `mcp/cli.mjs`: each MCP tool name, each alias
-/// in `cli.mjs`, plus `tools` and `help`. Compared with `-` folded to `_`.
+/// in `tools.mjs`, plus `tools`, `help` and `mcp`. Compared with `-` folded to `_`.
 /// `cli-verify` fails when this and those two tables disagree. A verb wins over a
 /// folder of the same name; `tedi ./notes` still opens that folder.
 const BRIDGE_VERBS: &[&str] = &[
@@ -64,6 +64,8 @@ const BRIDGE_VERBS: &[&str] = &[
     "inspect",
     "keys",
     "logs",
+    "lsp",
+    "mcp",
     "new_tab",
     "notes",
     "open",
@@ -88,6 +90,8 @@ const BRIDGE_VERBS: &[&str] = &[
     "sftp",
     "sh",
     "shot",
+    "skill",
+    "skills",
     "split",
     "ssh",
     "state",
@@ -118,6 +122,19 @@ pub fn is_bridge_verb(arg: &str) -> bool {
         return false;
     }
     BRIDGE_VERBS.contains(&verb.as_str()) || !Path::new(arg).exists()
+}
+
+/// `is_bridge_verb` for a whole command line. `--json` and `--human` may come first, and read
+/// as a path they would focus the window and print nothing, which looks like it worked.
+pub fn is_bridge_call(args: &[String]) -> bool {
+    match args
+        .iter()
+        .find(|a| !matches!(a.as_str(), "--json" | "--human"))
+    {
+        Some(first) => is_bridge_verb(first),
+        // Only the flag: the guide, rather than a window and silence.
+        None => !args.is_empty(),
+    }
 }
 
 /// Where `mcp/cli.mjs` sits, as each bundle lays out its resources: beside the
@@ -171,7 +188,7 @@ pub fn run_bridge_verb(args: &[String]) -> ! {
 /// `TEDIApp.exe` run by hand; `tedi.exe` routes itself first).
 pub fn handle_bridge_verb_and_exit() {
     let args: Vec<String> = std::env::args().skip(1).collect();
-    if args.first().is_some_and(|a| is_bridge_verb(a)) {
+    if is_bridge_call(&args) {
         attach_parent_console();
         run_bridge_verb(&args);
     }
@@ -196,6 +213,8 @@ pub fn help_text() -> String {
          new-tab, split, close, panes, sh, term, wait, run, open, set, ...\n  \
          tools             Everything you can run, with a line on each\n  \
          help {verb_arg}       Arguments for one verb\n  \
+         mcp               Connect an AI agent: status, install, config\n  \
+         Tables on a terminal, JSON when piped; --json or --human force either\n  \
          A folder named like a verb opens with ./name\n\
          \n\
          {flags}\n  \
@@ -705,6 +724,19 @@ mod tests {
         ] {
             assert!(!is_bridge_verb(path), "{path} should not be a verb");
         }
+    }
+
+    #[test]
+    fn an_output_flag_may_come_before_the_verb() {
+        let line =
+            |argv: &[&str]| is_bridge_call(&argv.iter().map(|s| s.to_string()).collect::<Vec<_>>());
+        assert!(line(&["panes"]));
+        assert!(line(&["--json", "panes"]));
+        assert!(line(&["--human", "--json", "mcp", "status"]));
+        assert!(line(&["--json"]));
+        assert!(!line(&["--json", "."]));
+        assert!(!line(&["--help"]));
+        assert!(!line(&[]));
     }
 
     #[test]

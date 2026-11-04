@@ -31,7 +31,7 @@ fails on files nobody touched, so format only your own paths
 - `src-tauri/src/modules/`: one folder or file per OS resource. `pty/` runs
   terminals and `pty_daemon/` is the sidecar that keeps them alive across a
   window close; also `fs/`, `shell/`, `git/`, `ssh/`, `extensions/`, `browser/`,
-  and `mcp_bridge.rs` (the local socket outside AI CLIs connect through).
+  `mcp_bridge.rs` (the local socket outside AI CLIs connect through), and `lsp.rs`.
 - `src/app/App.tsx`: cross-module wiring only.
 - `src/modules/<area>/`: every feature. `ai/` is the agent, `terminal/` the
   xterm side, `tabs/` + `panes/` + `workspaces/` the layout model, `extensions/`
@@ -39,8 +39,8 @@ fails on files nobody touched, so format only your own paths
   call in-realm.
 - `src/settings/`: the Settings window, a SEPARATE webview. Its state layer is
   `src/modules/settings/`, shared with the main window through the store.
-- `scripts/`: the verify suite (one folder per subsystem), `mcp/` (the stdio MCP
-  server and its shared tool table) and `release/`.
+- `scripts/`: the verify suite (one folder per subsystem), `mcp/` (the `tedi` command, the
+  stdio MCP server, and their shared tool table and handlers) and `release/`.
 - `extensions/`: gitignored working copies of the extension repos. Only
   `README.md`, `tedi.d.ts` and `manifest.schema.json` are committed here.
 
@@ -92,10 +92,10 @@ Load-bearing. Breaking one is a bug, not a style question.
 - **New Tauri command**: an `async` `#[tauri::command]` in its module, registered
   in `lib.rs` `invoke_handler`. A sync one fails the `ui_thread_guard` test. An
   extension can only call it with an `invoke:<name>` permission.
-- **New AI tool**: a builder in `src/modules/ai/tools/` with an honest
-  `needsApproval`, added in `buildTools` (`tools.ts`); its picker group lives in
-  `catalog.ts`. Tool schemas are re-sent on every step of every turn, so
-  `tool-budget-verify` fails a chatty description.
+- **New AI tool**: first ask whether it is a verb (`tedi`, below): a typed tool is billed on every
+  step of every turn, so only what is used on nearly every step earns one. A builder in
+  `src/modules/ai/tools/` with an honest `needsApproval`, added in `buildTools` (`tools.ts`); its picker
+  group lives in `catalog.ts`. `tool-budget-verify` fails a chatty description or a grown prompt.
 - **New AI provider or model**: `src/modules/ai/config.ts` (`PROVIDERS`,
   `MODELS`) is the single source of truth.
 - **New setting**: a key in `DEFAULT_PREFERENCES` (`src/modules/settings/store.ts`).
@@ -104,10 +104,10 @@ Load-bearing. Breaking one is a bug, not a style question.
 - **New shortcut**: an entry in `SHORTCUTS` (`shortcuts/shortcuts.ts`), handled by
   id in `shortcutHandlers.ts`. A focused terminal keeps bare Ctrl+letter and Alt+letter, so
   such an action also needs a Mod+Shift or Alt+Shift chord (`keybindings-collision-verify`).
-- **New MCP tool**: name, description and JSON Schema in `scripts/mcp/tools.mjs`, read by
-  BOTH servers; a `registerBridge` capability (`automation/bridge.ts`) serves both transports.
-  Add the name to `BRIDGE_VERBS` (`cli.rs`), and a switchable pack's capability to
-  `GATED_CAPABILITIES` (`mcp_bridge.rs`). Outside CLIs see one gateway tool, then `tedi <verb>`.
+- **New verb**: name, description and JSON Schema in `scripts/mcp/tools.mjs`; what it does in
+  `scripts/mcp/handlers.mjs`, over a `registerBridge` capability (`automation/bridge.ts`). `tedi <verb>`,
+  the stdio server and TEDI's own agent (one `tedi` tool, `ai/tools/tedi.ts`) all run those. Add the name
+  to `BRIDGE_VERBS` (`cli.rs`), a switchable pack's capability to `GATED_CAPABILITIES` (`mcp_bridge.rs`).
 - **Extension API change**: `host.ts`, then `extensions/tedi.d.ts`, which `tsc`
   checks for drift. A new OPTION field on an existing method also needs a
   `HOST_FEATURES` entry, or an older host silently ignores it.
@@ -195,6 +195,6 @@ tag push is the ship.
 - **Writing an extension**: [extensions/README.md](extensions/README.md) - the
   manifest schema, the permission-gated `ctx` API, and the reference extensions.
 - **The self-check suite**: [scripts/README.md](scripts/README.md).
-- **The MCP surface**: `scripts/mcp/tools.mjs` is the one tool table both the
-  stdio server and TEDI's in-process server read.
+- **The app's control surface**: `scripts/mcp/tools.mjs` is the one tool table the
+  command, the stdio server and TEDI's own agent read.
 - **What changed and when**: [CHANGELOG.md](CHANGELOG.md).

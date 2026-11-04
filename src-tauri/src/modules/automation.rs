@@ -162,7 +162,9 @@ fn browser_args(port: Option<u16>) -> String {
 ///
 /// Per-webview `additional_browser_args` that differ from the main webview's
 /// render a child permanently BLANK on Windows (tauri-apps/tauri#13092), which is
-/// why this is process-wide rather than set where a webview is built.
+/// why this is process-wide rather than set where a webview is built. Browser panes
+/// are the one exception: they have their own data directory, and take this variable
+/// away for the instant they create their environment (`browser/native.rs`).
 ///
 /// Must run once at startup, before the first webview is created.
 #[cfg(target_os = "windows")]

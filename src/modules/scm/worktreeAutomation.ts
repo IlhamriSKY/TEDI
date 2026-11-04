@@ -4,8 +4,7 @@
  *
  * ONE capability, not five, and registered here rather than in each server: the
  * bridge is the single door both transports reach the app through, so this
- * function IS the stdio server's `d.worktree(...)` and the in-process server's
- * `bridge("worktree", ...)` at the same time. Adding an action costs one `case`
+ * function IS what the `worktree` verb calls, from a shell and from TEDI's own agent alike. Adding an action costs one `case`
  * here instead of a round of plumbing in three files, and the two servers cannot
  * drift because neither of them implements anything.
  *

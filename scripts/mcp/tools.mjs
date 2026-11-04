@@ -1,10 +1,9 @@
 /**
  * THE tool table. Name -> pack + description + JSON Schema, and nothing else.
  *
- * WHY THIS FILE EXISTS. TEDI serves the same control surface over two
- * transports: a stdio JSON-RPC server an outside AI CLI drives (`server.mjs`), and
- * an in-process MCP server TEDI's own agent talks to
- * (`src/modules/ai/lib/tediMcpServer.ts`). Both used to declare their own
+ * WHY THIS FILE EXISTS. TEDI serves the same control surface three ways: the `tedi` command, a
+ * stdio JSON-RPC server an outside AI CLI drives (`server.mjs`), and one tool TEDI's own agent
+ * calls (`src/modules/ai/tools/tedi.ts`). They used to declare their own
  * tools. The rule was already written down - "the duplication worth removing is
  * the definition, not the transport" - and then not followed: descriptions were
  * hand-copied and the schemas drifted. `ssh` ended up meaning `{action, id}`
@@ -12,9 +11,7 @@
  * silently LISTED connections instead of opening one - and `driver-verify`
  * could not see it, because it compared tool NAMES with a regex over source text.
  *
- * So: one table, imported by both. Handlers stay separate, because they really
- * are different - one drives the window over CDP, the other calls the same
- * functions inside its own JS realm.
+ * So: one table, imported by both, and one set of handlers beside it (`handlers.mjs`).
  *
  * ZERO IMPORTS, AND IT MUST STAY THAT WAY. `server.mjs` ships as a bundle resource
  * with no `node_modules` beside it, and this file is ALSO imported by the app
@@ -27,10 +24,8 @@
  *
  * `pack` is the switch that governs the tool; `src/modules/mcpInstall/packs.ts`
  * builds its categories from this field rather than keeping a second name list.
- * An outside CLI sees one gateway tool and reads these through `tedi help`, but TEDI's
- * own agent still loads each tool with an in-process handler on every step, so
- * prose here is a standing bill - see `server.mjs` on what belongs in a description
- * and what belongs in an error.
+ * No agent is billed for these any more: an outside CLI sees one gateway tool and TEDI's own agent
+ * one `tedi` tool, and both read a description only when they ask for `help`.
  */
 export const TOOL_DEFS = {
   state: {
@@ -67,7 +62,9 @@ export const TOOL_DEFS = {
       "console output and uncaught errors - the only place a half-rendered window says why. " +
       "`status`: what each extension shows in the status bar, its meters and tooltips, which is the " +
       "only data an extension with no AI tools publishes. `sessions`: saved Claude Code and Codex " +
-      "sessions, newest first, each with the command that resumes it.",
+      "sessions, newest first, each with the command that resumes it. `filter` narrows any list; " +
+      "it is also how to see an extension's tool arguments or a long setting, which a plain list " +
+      "leaves out.",
     schema: {
       type: "object",
       properties: {
@@ -80,7 +77,7 @@ export const TOOL_DEFS = {
           enum: ["log", "info", "warn", "error"],
           description: "logs only.",
         },
-        filter: { type: "string", description: "sessions: match the title or folder." },
+        filter: { type: "string", description: "Keep what holds this text." },
       },
       required: ["what"],
     },
@@ -116,8 +113,8 @@ export const TOOL_DEFS = {
       "split panes, open tabs, toggle the sidebar, open Source Control, zoom. Ids from `inspect " +
       "commands`. With `extensionId` it also reaches what an EXTENSION declared - both its " +
       "commands AND its AI tools, which take `args` and RETURN DATA (that is how you send an API " +
-      "Client request or run a SQL Explorer query, rather than just opening the panel). Ids and " +
-      "argument names for both come from `inspect extensions`.",
+      "Client request or run a SQL Explorer query, rather than just opening the panel). Ids come " +
+      "from `inspect extensions`, argument names from the same with `filter` set to the extension.",
     schema: {
       type: "object",
       properties: {
@@ -196,9 +193,9 @@ export const TOOL_DEFS = {
     description:
       "Run a shell command in a TEDI terminal pane and return its output - the USER'S shell, cwd, " +
       "env and SSH session. Use your own Bash tool for ordinary work. Written to the PTY, so it " +
-      "cannot lose characters, and it waits for the prompt. A pane running a FULL-SCREEN program " +
-      "(an AI CLI, vim) accepts a write too - that is how you type into one, and the reply says " +
-      "`intoTui`; only a command running on the NORMAL screen is refused, because it is not " +
+      "cannot lose characters, and it waits for the prompt. A pane running an AI CLI or a " +
+      "full-screen program (vim) accepts a write too - that is how you type into one, and the reply " +
+      "says `intoTui`; any other running command is refused, because it is not " +
       "reading input. Starting a known AI CLI here tags the pane, so it gets its badge and its " +
       "status in `<env>`. `submit: false` types the command and stops there, for when the " +
       "answer IS a command and the user should press Enter. USE `capture: true` WHENEVER YOU WANT " +
@@ -331,6 +328,41 @@ export const TOOL_DEFS = {
     },
   },
 
+  lsp: {
+    pack: "tedi",
+    description:
+      "Ask the project's language server: where a symbol is defined or used, its type, a file's symbols, " +
+      "its errors. Exact where grep guesses. Name the line and the symbol on it. Starts the server on " +
+      "first use (it must be on PATH) and stops it when idle; starting one can run project build scripts.",
+    schema: {
+      type: "object",
+      properties: {
+        op: {
+          type: "string",
+          enum: ["definition", "implementation", "references", "hover", "symbols", "diagnostics"],
+        },
+        path: { type: "string", description: "The file, which also picks the language." },
+        line: { type: "number", description: "1-based. Not for symbols or diagnostics." },
+        symbol: { type: "string", description: "The name on that line." },
+        column: { type: "number", description: "1-based, instead of symbol." },
+        query: { type: "string", description: "symbols: search the whole project for this name." },
+      },
+      required: ["op", "path"],
+    },
+  },
+
+  skill: {
+    pack: "tedi",
+    annotations: { readOnlyHint: true },
+    description:
+      "List the skills in .tedi/skills and ~/.tedi/skills, or load one by name: its instructions, and " +
+      "the folder holding the files they refer to.",
+    schema: {
+      type: "object",
+      properties: { name: { type: "string", description: "Omit to list them." } },
+    },
+  },
+
   screenshot: {
     pack: "misc",
     // Writes a fresh temp PNG, so not read-only, but it captures rather than
@@ -373,6 +405,8 @@ export const TOOL_DEFS = {
   ssh: {
     pack: "tedi",
     annotations: { destructiveHint: false },
+    // Names and hosts, never a key: opening a connection or a port is what needs a card.
+    auto: ["list"],
     description:
       "Saved SSH connections: list them, open one in a new tab, or `forward` a local port through " +
       "a connected pane (`leafId`, `localPort`, `remoteHost`, `remotePort`). There is no command id for this " +
@@ -398,8 +432,6 @@ export const TOOL_DEFS = {
     },
   },
 
-  // Neither of these two has an in-process handler, so they cost TEDI's own agent
-  // nothing: it has its own ways to the same things.
   sftp: {
     pack: "tedi",
     annotations: { destructiveHint: true },
@@ -749,13 +781,24 @@ export const ALIASES = {
     positional: ["extensionId", "id", "args"],
     about: "Call an extension's command or AI tool",
   },
-  commands: { tool: "inspect", args: { what: "commands" }, about: "Every command id" },
+  commands: {
+    tool: "inspect",
+    args: { what: "commands" },
+    positional: ["filter"],
+    about: "Every command id",
+  },
   extensions: {
     tool: "inspect",
     args: { what: "extensions" },
+    positional: ["filter"],
     about: "Installed extensions and what they add",
   },
-  settings: { tool: "inspect", args: { what: "settings" }, about: "Every preference" },
+  settings: {
+    tool: "inspect",
+    args: { what: "settings" },
+    positional: ["filter"],
+    about: "Every preference",
+  },
   workspaces: { tool: "inspect", args: { what: "workspaces" }, about: "Every workspace" },
   logs: {
     tool: "inspect",
@@ -779,6 +822,9 @@ export const ALIASES = {
   type: { tool: "type_text", about: "Type into whatever has focus" },
   shot: { tool: "screenshot", positional: ["path"], about: "Capture the window to a PNG" },
   eval: { tool: "eval_js", about: "Evaluate JavaScript in the window" },
+  lsp: { tool: "lsp", positional: ["op", "path"], about: "Ask the language server about code" },
+  skill: { tool: "skill", positional: ["name"], about: "List the skills, or load one" },
+  skills: { tool: "skill", about: "List the skills" },
 };
 
 /**
@@ -810,6 +856,7 @@ export const CLI_GROUPS = [
     ["new_tab", "split", "close", "focus", "rename", "pin", "unpin", "sh", "wait", "pane"],
   ],
   ["Editor", ["open", "save"]],
+  ["Code and skills", ["lsp", "skill"]],
   ["App commands and extensions", ["run", "call", "panel", "extension"]],
   ["Settings and workspaces", ["set", "workspace"]],
   ["SSH", ["ssh", "sftp"]],
@@ -822,7 +869,14 @@ export const CLI_GROUPS = [
 
 /** Shown by `tedi help <verb>`. Real command lines beat a flag list for getting it right first time. */
 export const CLI_EXAMPLES = {
-  panes: ["tedi panes"],
+  panes: ["tedi panes", "tedi panes --json"],
+  lsp: [
+    "tedi lsp definition src/a.ts --line 12 --symbol foo",
+    "tedi lsp diagnostics src/a.ts",
+    "tedi lsp symbols src/a.ts --query foo",
+  ],
+  settings: ["tedi settings font", "tedi settings customTheme --json"],
+  extensions: ["tedi extensions", "tedi extensions sql-explorer --json"],
   term: ["tedi term 3", "tedi term 3 --lines 500"],
   sh: [
     "tedi sh git status",
@@ -892,12 +946,36 @@ Start here:
   tedi sh --leaf-id 3 'git status'    run a command in that pane and print the output
   tedi term 3                         read a pane's scrollback
   tedi wait 3                         block until it is back at its prompt
+  tedi mcp status                     which AI agents are connected; \`tedi mcp install\` connects them
 
 Rules:
   tedi help <verb>      arguments and examples; dashes and underscores are the same
   Flags go BEFORE the command in \`sh\`; quote a command that has spaces in an argument.
   Exit status: 0 done, 1 refused or not finished, 2 the command line was wrong.
-  Answers are JSON or plain text on stdout, errors on stderr.`;
+
+Output:
+  On a terminal an answer is a table or plain text, for people. Piped, it is one JSON value, for
+  programs and AI agents; --json and --human force either, and so does TEDI_OUTPUT=json|human.
+  Stdout holds the answer, stderr says why there is none.`;
+
+/** The same rows as data, for `tedi tools --json`. */
+export function cliVerbs(tools) {
+  const first = (s = "") => s.split(/(?<=\.)\s/)[0];
+  const on = new Map(tools.map((t) => [t.name, first(t.description)]));
+  const rows = (names, group) =>
+    names
+      .filter((v) => on.has(ALIASES[v]?.tool ?? v))
+      .map((v) => ({
+        verb: v.replaceAll("_", "-"),
+        about: ALIASES[v]?.about ?? on.get(v),
+        group,
+      }));
+  const ext = tools.filter((t) => t.name.startsWith("ext_")).map((t) => t.name);
+  return [
+    ...CLI_GROUPS.flatMap(([group, names]) => rows(names, group)),
+    ...rows(ext, "Extensions"),
+  ];
+}
 
 /** The `tedi tools` text. `tools` is what this surface may run right now, so a verb
  *  whose pack is off is simply not offered. */
@@ -921,6 +999,86 @@ export function cliGuide(tools) {
   return `${CLI_INTRO}\n\n${body}\n`;
 }
 
+/**
+ * The one tool TEDI's own agent drives the app through (`ai/tools/tedi.ts`). Sent on every step
+ * of every turn, so `tool-budget-verify` caps it: only what stops a wrong choice earns a place
+ * here. Everything else is one `help` away.
+ */
+export const TEDI_TOOL = {
+  name: "tedi",
+  description:
+    'Drive TEDI itself. Pass `verb` and `args`: {verb:"help",args:{verb:"pane"}} shows one verb\'s ' +
+    'arguments, {verb:"tools"} lists all.\n' +
+    "- sh {command, leafId?}: run in the USER'S visible terminal and wait for the prompt, for their " +
+    "shell, cwd and SSH session; also how to type into an AI CLI or vim. bash_run stays your own shell.\n" +
+    "- term {leafId?, lines?}: scrollback. wait {leafId?, text?}: block until it is done or text " +
+    "appears, never poll. panes: every pane's leafId; <env> already lists the terminals.\n" +
+    "- new_tab {cwd?}, split {cwd?}, close {leafId}, pane {action}: group, rotate, rename, pin. TEDI " +
+    "has no tab-group menu or drag shortcut, so never tell the user to use one.\n" +
+    "- lsp {op, path, line, symbol}: definition, references, hover, symbols, diagnostics; exact where grep guesses.\n" +
+    "- keys, type, click, drag: real input into this window. shot: see it.\n" +
+    "- Also: notes (the USER's own notes and todos; only when asked), schedule (run a command later), " +
+    "open {path}, run {id}, set {key, value}, settings, commands, extensions, workspace, ssh, sftp, " +
+    "worktree, sessions.",
+  inputSchema: {
+    type: "object",
+    properties: { verb: { type: "string" }, args: { type: "object" } },
+    required: ["verb"],
+  },
+};
+
+/** `args` as a gateway caller sent them. Some models and harnesses stringify an object. */
+export function gatewayArgs(args) {
+  if (typeof args === "string") {
+    try {
+      return gatewayArgs(JSON.parse(args));
+    } catch {
+      return {};
+    }
+  }
+  return args && typeof args === "object" && !Array.isArray(args) ? args : {};
+}
+
+/**
+ * A verb's arguments, as the schema's types. `args` is an untyped object on the wire, and a real
+ * model sent `{"leafId":"2"}`: refusing that spends a step on nothing. Its fixed ones win, so `term`
+ * stays a terminal read whatever else is sent.
+ */
+export function verbArgs(found, args) {
+  const out = { ...gatewayArgs(args), ...found.args };
+  const props = TOOL_DEFS[found.tool]?.schema.properties ?? {};
+  for (const [key, spec] of Object.entries(props)) {
+    const v = out[key];
+    if (spec.type === "array" && v !== undefined && v !== null && !Array.isArray(v)) {
+      out[key] = [v];
+    }
+    if (typeof v !== "string") continue;
+    if (spec.type === "number" && v.trim() !== "" && Number.isFinite(Number(v)))
+      out[key] = Number(v);
+    if (spec.type === "boolean" && (v === "true" || v === "false")) out[key] = v === "true";
+  }
+  return out;
+}
+
+/**
+ * Whether TEDI's own agent needs a card for this call. Only a read does not: a tool annotated
+ * read-only, or an action the table lists as `auto`. A call that will be refused has nothing to
+ * approve, and asking anyway makes someone click through a card for a typo. An extension's tool
+ * is third-party code, so it always asks.
+ */
+export function verbNeedsApproval(verb, args) {
+  const v = String(verb ?? "");
+  if (v === "tools" || v === "help") return false;
+  const found = resolveVerb(v);
+  if (!found) return false;
+  const def = TOOL_DEFS[found.tool];
+  if (!def) return true;
+  const a = verbArgs(found, args);
+  if (validateArgs(found.tool, a)) return false;
+  if (def.annotations?.readOnlyHint) return false;
+  return !def.auto?.includes(a.action);
+}
+
 /** Every tool name, in table order. */
 export const TOOL_NAMES = Object.keys(TOOL_DEFS);
 
@@ -941,10 +1099,10 @@ export function toolsInPack(pack) {
  * Check `args` against a tool's schema. Null when it passes, else a sentence
  * naming what is wrong.
  *
- * Deliberately shallow: required keys, primitive `type`, and `enum`. That is the
- * set of mistakes an agent actually makes, and it is what the two servers were
+ * Deliberately shallow: required keys, unknown keys, top-level `type`, and `enum`. That is
+ * the set of mistakes an agent actually makes, and it is what the two servers were
  * each doing BY HAND and inconsistently - the stdio side wrote `if (!a.id) throw`
- * per tool and skipped most of them, while the in-process side got Zod
+ * per tool and skipped most of them, while TEDI's own agent got Zod
  * validation for free and so behaved differently for the identical call. One
  * shallow check both sides share beats two different deeper ones.
  *
@@ -958,7 +1116,15 @@ export function validateArgs(name, args) {
   for (const key of schema.required ?? []) {
     if (a[key] === undefined || a[key] === null) return name + ' needs "' + key + '".';
   }
-  for (const [key, spec] of Object.entries(schema.properties ?? {})) {
+  // A misspelt argument is ignored by the handler, so the call does something else and says it
+  // worked. `pane {action:"open", folder:"x"}` opened a terminal somewhere else entirely.
+  const known = schema.properties ?? {};
+  for (const key of Object.keys(a)) {
+    if (!Object.hasOwn(known, key)) {
+      return name + ' has no argument "' + key + '". Have: ' + Object.keys(known).join(", ") + ".";
+    }
+  }
+  for (const [key, spec] of Object.entries(known)) {
     const v = a[key];
     if (v === undefined || v === null) continue;
     if (spec.enum && !spec.enum.includes(v)) {
@@ -973,8 +1139,10 @@ export function validateArgs(name, args) {
         ")."
       );
     }
-    if (spec.type && spec.type !== "object" && spec.type !== "array" && typeof v !== spec.type) {
-      return name + "." + key + " must be a " + spec.type + " (got " + typeof v + ").";
+    // Arrays too: `keys {chords:"Enter"}` spread the string and pressed E, n, t, e, r.
+    const got = Array.isArray(v) ? "array" : typeof v;
+    if (spec.type && got !== spec.type) {
+      return name + "." + key + " must be of type " + spec.type + " (got " + got + ").";
     }
   }
   return null;

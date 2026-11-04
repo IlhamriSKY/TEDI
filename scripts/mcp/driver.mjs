@@ -24,82 +24,10 @@
 
 import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { HANDLERS } from "./handlers.mjs";
+import { parseChord, sleep, WindowInput } from "./input.mjs";
 
-/** CDP's modifier bitmask. `mod` follows TEDI's own Mod = Cmd on mac, Ctrl elsewhere. */
-const MODIFIER_BITS = {
-  alt: 1,
-  ctrl: 2,
-  control: 2,
-  meta: 4,
-  cmd: 4,
-  super: 4,
-  shift: 8,
-  mod: process.platform === "darwin" ? 4 : 2,
-};
-
-/** Keys that are not a single printable character. `text` is what a terminal wants. */
-const NAMED_KEYS = {
-  enter: { key: "Enter", code: "Enter", vk: 13, text: "\r" },
-  return: { key: "Enter", code: "Enter", vk: 13, text: "\r" },
-  tab: { key: "Tab", code: "Tab", vk: 9, text: "\t" },
-  escape: { key: "Escape", code: "Escape", vk: 27 },
-  esc: { key: "Escape", code: "Escape", vk: 27 },
-  backspace: { key: "Backspace", code: "Backspace", vk: 8 },
-  delete: { key: "Delete", code: "Delete", vk: 46 },
-  space: { key: " ", code: "Space", vk: 32, text: " " },
-  up: { key: "ArrowUp", code: "ArrowUp", vk: 38 },
-  down: { key: "ArrowDown", code: "ArrowDown", vk: 40 },
-  left: { key: "ArrowLeft", code: "ArrowLeft", vk: 37 },
-  right: { key: "ArrowRight", code: "ArrowRight", vk: 39 },
-  home: { key: "Home", code: "Home", vk: 36 },
-  end: { key: "End", code: "End", vk: 35 },
-  pageup: { key: "PageUp", code: "PageUp", vk: 33 },
-  pagedown: { key: "PageDown", code: "PageDown", vk: 34 },
-};
-for (let n = 1; n <= 12; n++) NAMED_KEYS[`f${n}`] = { key: `F${n}`, code: `F${n}`, vk: 111 + n };
-
-/**
- * US-layout `code` + Windows virtual-key for the printable characters that are
- * neither a letter nor a digit, with the shifted character that shares the key.
- * Synthesised keystrokes need a real virtual-key code: an event carrying only
- * `text` is not a keystroke any renderer takes seriously.
- */
-const PUNCTUATION = [
-  [" ", " ", "Space", 32],
-  ["-", "_", "Minus", 189],
-  ["=", "+", "Equal", 187],
-  ["[", "{", "BracketLeft", 219],
-  ["]", "}", "BracketRight", 221],
-  ["\\", "|", "Backslash", 220],
-  [";", ":", "Semicolon", 186],
-  ["'", '"', "Quote", 222],
-  ["`", "~", "Backquote", 192],
-  [",", "<", "Comma", 188],
-  [".", ">", "Period", 190],
-  ["/", "?", "Slash", 191],
-];
-const SHIFTED_DIGITS = ")!@#$%^&*(";
-
-/** CDP key-event fields for one printable character, as a real keyboard sends it. */
-function charEvent(ch) {
-  const upper = ch.toUpperCase();
-  if (ch >= "a" && ch <= "z") return { code: `Key${upper}`, vk: upper.charCodeAt(0), shift: false };
-  if (ch >= "A" && ch <= "Z") return { code: `Key${upper}`, vk: upper.charCodeAt(0), shift: true };
-  if (ch >= "0" && ch <= "9") return { code: `Digit${ch}`, vk: ch.charCodeAt(0), shift: false };
-  const shiftedDigit = SHIFTED_DIGITS.indexOf(ch);
-  if (shiftedDigit !== -1) {
-    return { code: `Digit${shiftedDigit}`, vk: 48 + shiftedDigit, shift: true };
-  }
-  for (const [plain, shifted, code, vk] of PUNCTUATION) {
-    if (ch === plain) return { code, vk, shift: false };
-    if (ch === shifted) return { code, vk, shift: true };
-  }
-  // Anything else (accents, CJK, emoji) has no US-layout key. Fall back to a
-  // text-only event; it is not a keystroke, but it beats dropping the character.
-  return { code: undefined, vk: 0, shift: false };
-}
-
-export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+export { parseChord, sleep };
 
 // SH_PROBE, PANE_HANDLE_EXPR and TAIL_FN are gone. Every one of them was an
 // injected-JS fragment, and injection is CDP, and CDP is Windows-only - which is
@@ -107,38 +35,6 @@ export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 // Linux at all. The same reductions now live in the app
 // (`modules/automation/domState.ts` and the `termTails` / `termProbe`
 // capabilities) and are reached by name over whichever transport is available.
-
-/** `Ctrl+Shift+P` -> the CDP key event fields for one press. Exported for the
- *  sweep's chord check, which is the only guard on the virtual-key mapping: the
- *  `Ctrl+/` check passes either way, because CodeMirror reads `event.key`. */
-export function parseChord(chord) {
-  const parts = String(chord).split("+").filter(Boolean);
-  const last = parts.pop();
-  let modifiers = 0;
-  for (const p of parts) {
-    const bit = MODIFIER_BITS[p.toLowerCase()];
-    if (!bit) throw new Error(`Unknown modifier "${p}" in "${chord}"`);
-    modifiers |= bit;
-  }
-  const named = NAMED_KEYS[String(last).toLowerCase()];
-  if (named) return { ...named, modifiers };
-  if (last.length !== 1) throw new Error(`Unknown key "${last}" in "${chord}"`);
-  const upper = last.toUpperCase();
-  // Through `charEvent`, not a second hand-rolled lookup: deriving the virtual
-  // key from the character itself gave `Ctrl+/` vk 47 instead of 191, which
-  // survived only because CodeMirror reads `event.key`. Anything reading the
-  // virtual key saw a different key entirely.
-  const { code, vk } = charEvent(last);
-  return {
-    key: modifiers & MODIFIER_BITS.shift ? upper : last,
-    code,
-    vk: vk || upper.charCodeAt(0),
-    // A char event only fires without Ctrl/Meta held; sending `text` alongside
-    // them makes the page see a literal character on top of the shortcut.
-    text: modifiers & (MODIFIER_BITS.ctrl | MODIFIER_BITS.meta) ? undefined : last,
-    modifiers,
-  };
-}
 
 /** How many console entries to keep. See `Cdp#logs`. */
 const LOG_RING = 200;
@@ -430,11 +326,11 @@ export async function connect({ port = Number(process.env.TEDI_DEBUG_PORT) || 92
 }
 
 /** Everything a driver gets: one connected window, hands and eyes. */
-export class Driver {
+export class Driver extends WindowInput {
   constructor(cdp, target) {
-    this.cdp = cdp;
+    super(cdp);
     this.target = target;
-    /** Set by `bridgeOnlyDriver`. See `#tedi`. */
+    /** Set by `bridgeDevtoolsDriver`. See `#tedi`. */
     this.bridgeCall = null;
   }
 
@@ -448,30 +344,6 @@ export class Driver {
   }
 
   /** Evaluate JS in the window and return its value. Awaits promises. */
-  async eval(expression) {
-    const { result, exceptionDetails } = await this.cdp.send("Runtime.evaluate", {
-      expression,
-      awaitPromise: true,
-      returnByValue: true,
-      userGesture: true,
-    });
-    if (exceptionDetails) {
-      throw new Error(exceptionDetails.exception?.description ?? exceptionDetails.text);
-    }
-    return result.value;
-  }
-
-  /**
-   * Call a Tauri command in the app's own realm.
-   *
-   * `__TAURI_INTERNALS__` is injected into every TEDI webview, so every Rust
-   * command is one hop away without registering anything new on `window.__tedi`.
-   * That is what reaches capabilities with no frontend function to expose: a
-   * Rust command that nothing on `window.__tedi` wraps is still one hop away.
-   *
-   * Arguments go through `JSON.stringify`, so a URL with quotes or a Windows
-   * path full of backslashes cannot end the injected string early.
-   */
   async invoke(command, args = {}) {
     // Caught IN THE PAGE and rethrown with a message. A Tauri command rejects
     // with a plain STRING, not an Error, and CDP renders that as
@@ -522,12 +394,8 @@ export class Driver {
     return this.#tedi("termTails", Number(lines));
   }
 
-  /** Boolean form of `waitTerminal`'s prompt case, for `command()`. `running`
-   *  comes from OSC 133 / alt-screen and `atPrompt` from the PS1 heuristic;
-   *  requiring both keeps a custom prompt (starship, oh-my-posh) from reading as
-   *  "done" mid-command. */
-  async waitForPrompt({ leafId = null, timeout = 20000, settle = 250 } = {}) {
-    return (await this.waitTerminal({ leafId, timeout, settle })).done;
+  async waitForPrompt({ leafId = null, timeout = 20000 } = {}) {
+    return (await this.waitTerminal({ leafId, timeout })).done;
   }
   /**
    * Leaf id holding keyboard focus, or null. xterm keeps focus in a hidden
@@ -549,10 +417,7 @@ export class Driver {
    * property and the cause is three minutes back in the launch command.
    */
   async #tedi(fn, ...args) {
-    // A bridge-backed driver calls the capability directly. That is what lets
-    // the COMPOSITE methods below - `sh`, `waitTerminal` - run over the local
-    // socket without a second copy of their poll loops: every primitive they use
-    // is a capability, so redirecting this one method redirects all of them.
+    // A bridge-backed driver calls the capability directly.
     if (this.bridgeCall) return await this.bridgeCall(fn, args);
     // Wrapped as `{ v }`, not returned bare. A capability that legitimately
     // answers NULL - `focusedLeaf` when focus is outside any pane, `text` when
@@ -854,74 +719,14 @@ export class Driver {
     return this.cdp.logs(level);
   }
 
-  /**
-   * Block until a terminal pane is done, then report why it returned.
-   *
-   * The point is that ONE call replaces a polling loop. A driver that watches a
-   * build by re-reading the buffer every second pays a round trip and a tool
-   * result for every one of those seconds; this waits inside the driver and
-   * answers once.
-   *
-   * Two conditions, because a prompt is not always the finish line. With no
-   * `text`, it waits for the prompt to come back - the right answer for a
-   * command. With `text`, it waits for that string to appear in the buffer,
-   * which is the only workable signal for something that never returns: a dev
-   * server printing its port, a TUI reaching a screen, an AI CLI asking a
-   * question.
-   *
-   * Never throws on a timeout. Returns `{ done: false, reason: "timeout" }` with
-   * the tail, because "it is still going" is an answer, not a failure.
-   */
-  async waitTerminal({
-    leafId = null,
-    text = null,
-    timeout = 60000,
-    settle = 250,
-    // How much tail to report when it returns. NOT how much to poll: waiting for
-    // a prompt reads two booleans, so the poll asks for one row and the tail is
-    // fetched once at the end; waiting for TEXT has to search the buffer, and
-    // that read must be a full-width one or it can come back empty (see the
-    // constant).
-    lines = 8,
-  } = {}) {
-    const target = leafId ?? (await this.focusedLeaf());
-    const deadline = Date.now() + timeout;
-    /** The tail is only needed when this returns, so it costs one read, not one per poll. */
-    const finish = async (leaf, done, reason) => {
-      const t = (await this.terminals(lines)).find((x) => x.leafId === leaf);
-      return { leafId: leaf, done, reason, tail: t?.text ?? "" };
-    };
-    // The needle is tested IN THE APP (`termProbe`), which ships one boolean
-    // per pane instead of every pane's whole buffer three times a second.
-    for (;;) {
-      // `wantHash: false` - this loop reads two booleans and a substring test,
-      // never the hash, so there is no reason for the app to build a buffer for
-      // the prompt case at all.
-      const list = await this.#tedi("termProbe", text ?? null, false, target);
-      // Nothing will ever come back, so stalling the full timeout would only
-      // hide the mistake (waiting on an editor pane, or on a private one).
-      if (!list.length)
-        return { leafId: target, done: false, reason: "no terminal panes", tail: "" };
-      // Same rule `sh` states above, and for a sharper reason: waiting is a
-      // claim about ONE pane. Falling back to the last terminal answered "done,
-      // prompt returned" from a pane the caller never named - so an agent
-      // waiting on its build was told it had finished by an idle shell sitting
-      // next to it. Only the no-leaf case may fall back, and only because
-      // `focusedLeaf` legitimately points at something that is not a terminal.
-      const t =
-        list.find((x) => x.leafId === target) ?? (leafId === null ? list[list.length - 1] : null);
-      if (!t) {
-        throw new Error(
-          `Leaf ${leafId} is not a terminal. Terminals: ${list.map((x) => x.leafId).join(", ")}`,
-        );
-      }
-      if (text ? t.hit : t.atPrompt && !t.running) {
-        await sleep(settle);
-        return await finish(t.leafId, true, text ? "text appeared" : "prompt returned");
-      }
-      if (Date.now() > deadline) return await finish(t.leafId, false, "timeout");
-      await sleep(300);
-    }
+  /** `wait_for_terminal`, over this connection. `sweep` waits on panes it just drove. */
+  waitTerminal({ leafId, text, timeout, lines } = {}) {
+    return HANDLERS.wait_for_terminal((name, ...args) => this.#tedi(name, ...args), {
+      leafId: leafId ?? undefined,
+      text,
+      timeout,
+      lines,
+    });
   }
 
   /**
@@ -945,73 +750,19 @@ export class Driver {
   }
 
   /**
-   * Run a shell command in a terminal pane and return what it printed.
+   * `sh`, over this connection.
    *
-   * The text goes to the PTY in one write rather than as synthesised keystrokes.
-   * That is not only ~45ms/char faster: a terminal that has just taken focus
-   * swallows the FIRST synthetic keystroke it is sent (`echo x` arrives as
-   * `cho x`, with full key events and IME commits alike), and a PTY write cannot
-   * lose a character because it never goes near the keyboard path at all.
-   *
-   * The cost of that shortcut is that xterm's `onData` never sees it, so the
-   * AI-CLI detector does not fire. Launching an AI CLI is the one case that
-   * wants real keys - use `command()` for that.
-   *
-   * Completion is "the buffer changed AND the prompt is back", not just "the
-   * prompt is back". A PTY write returns before the shell has echoed anything,
-   * so a bare prompt check passes instantly against the PREVIOUS prompt and the
-   * output gets read before it exists. Waiting for the echo first closes that.
-   *
-   * Returns `{ leafId, text, timedOut }`. A TUI (vim, lazygit, an AI CLI) never
-   * comes back to a prompt, so a timeout is reported rather than thrown:
-   * opening one on purpose is legitimate, and the buffer is still the answer.
+   * Written to the PTY in one write, not as synthesised keystrokes, so xterm's `onData` never
+   * sees it and the AI-CLI detector does not fire. Launching an AI CLI is the one case that
+   * wants real keys: use `command()` for that.
    */
-  async sh(text, { leafId = null, timeout = 20000, lines = 60, settle = 150 } = {}) {
-    const list = await this.#tedi("termProbe", null);
-    if (!list.length) throw new Error("No terminal pane is open. Run `cmd tab.new` first.");
-    // Which pane, decided explicitly. The focused leaf is often NOT a terminal -
-    // `data-pane-leaf` is on every leaf, so an editor or extension pane answers
-    // here too - and the earlier version then fell back to "the last terminal in
-    // mount order", which is a background pane in some other tab, possibly an
-    // SSH session on another host, silently. One terminal open is unambiguous;
-    // more than one is a question only the caller can answer.
-    const focused = leafId ?? (await this.focusedLeaf());
-    // The one-terminal shortcut applies ONLY when no leaf was named. An explicit
-    // leafId that is not a terminal must never be quietly redirected somewhere
-    // else - that is the caller being wrong about the world, not a convenience.
-    const before =
-      list.find((t) => t.leafId === focused) ??
-      (leafId === null && list.length === 1 ? list[0] : null);
-    if (!before) {
-      throw new Error(
-        leafId === null
-          ? `Focus is not in a terminal, and ${list.length} are open - name one. ` +
-              `Terminals: ${list.map((t) => t.leafId).join(", ")}`
-          : `Leaf ${leafId} is not a terminal. Terminals: ${list.map((t) => t.leafId).join(", ")}`,
-      );
-    }
-    const target = before.leafId;
-    if (!(await this.termWrite(target, `${text}\r`))) {
-      throw new Error(`Terminal ${target} went away before the write landed`);
-    }
-    const deadline = Date.now() + timeout;
-    for (;;) {
-      await sleep(settle);
-      const now = (await this.#tedi("termProbe", null, true, target)).find(
-        (t) => t.leafId === target,
-      );
-      if (!now) throw new Error(`Terminal ${target} disappeared mid-command`);
-      // Hashes, not the text itself. "Has the buffer changed" is one bit, and
-      // shipping ~20KB across the socket every 150ms to answer it is the whole
-      // cost of running a command through here. A collision only costs one more
-      // poll (the next read will differ), so 32 bits is plenty.
-      const done = now.hash !== before.hash && now.atPrompt && !now.running;
-      if (done || Date.now() > deadline) {
-        // The full text is fetched ONCE, at the end, already trimmed in-page.
-        const out = (await this.terminals(lines)).find((t) => t.leafId === target);
-        return { leafId: target, text: out?.text ?? "", timedOut: !done };
-      }
-    }
+  sh(text, { leafId, timeout, lines } = {}) {
+    return HANDLERS.sh((name, ...args) => this.#tedi(name, ...args), {
+      command: text,
+      leafId: leafId ?? undefined,
+      timeout,
+      lines,
+    });
   }
 
   /**
@@ -1041,67 +792,6 @@ export class Driver {
   }
 
   /** Press one or more chords, e.g. `keys("Ctrl+Shift+P", "Escape")`. */
-  async keys(...chords) {
-    for (const chord of chords) {
-      const k = parseChord(chord);
-      const base = {
-        modifiers: k.modifiers,
-        key: k.key,
-        code: k.code,
-        windowsVirtualKeyCode: k.vk,
-        nativeVirtualKeyCode: k.vk,
-      };
-      await this.cdp.send("Input.dispatchKeyEvent", {
-        ...base,
-        type: k.text ? "keyDown" : "rawKeyDown",
-        text: k.text,
-        unmodifiedText: k.text,
-      });
-      await this.cdp.send("Input.dispatchKeyEvent", { ...base, type: "keyUp" });
-      await sleep(12);
-    }
-  }
-
-  /**
-   * Type text a character at a time. The per-character delay is the point: an
-   * instant paste reads as a cut in the footage, a human cadence does not.
-   * A trailing "\r" or "\n" is sent as Enter, which is what a PTY wants.
-   */
-  /**
-   * Type text a character at a time, as real key events.
-   *
-   * NOT `Input.insertText`: Chromium delivers that as an IME commit, and xterm's
-   * composition handling swallows the first one into a freshly focused terminal,
-   * so every `echo` typed into a just-split pane arrived as `cho` no matter how
-   * long the take waited first. Full key events (with a genuine `code` and
-   * virtual-key, which an earlier text-only version was missing) go down the
-   * ordinary keydown path and land intact.
-   */
-  async type(text, { delay = 45 } = {}) {
-    for (const ch of String(text)) {
-      if (ch === "\n" || ch === "\r") {
-        await this.keys("Enter");
-      } else {
-        const { code, vk, shift } = charEvent(ch);
-        const base = {
-          modifiers: shift ? MODIFIER_BITS.shift : 0,
-          key: ch,
-          code,
-          windowsVirtualKeyCode: vk,
-          nativeVirtualKeyCode: vk,
-        };
-        await this.cdp.send("Input.dispatchKeyEvent", {
-          ...base,
-          type: "keyDown",
-          text: ch,
-          unmodifiedText: ch,
-        });
-        await this.cdp.send("Input.dispatchKeyEvent", { ...base, type: "keyUp" });
-      }
-      if (delay) await sleep(delay);
-    }
-  }
-
   /**
    * Dismiss every toast, and report how many went.
    *
@@ -1149,21 +839,6 @@ export class Driver {
     await this.type(text, opts);
     await this.keys("Enter");
     if (awaitPrompt) await this.waitForPrompt({ timeout, leafId });
-  }
-
-  /**
-   * Viewport rect of a CSS selector, or null. `nth` picks among matches, which
-   * is not optional in practice: a split window has one
-   * `[data-slot=resizable-handle]` per divider and only the index tells them
-   * apart.
-   */
-  box(selector, { nth = 0 } = {}) {
-    return this.eval(`(() => {
-      const el = document.querySelectorAll(${JSON.stringify(selector)})[${Number(nth)}];
-      if (!el) return null;
-      const r = el.getBoundingClientRect();
-      return { x: r.x, y: r.y, width: r.width, height: r.height };
-    })()`);
   }
 
   /**
@@ -1224,128 +899,6 @@ export class Driver {
     return this.#tedi("state", { tail, buttons });
   }
 
-  async waitFor(selector, { nth = 0, timeout = 10000 } = {}) {
-    const deadline = Date.now() + timeout;
-    for (;;) {
-      const box = await this.box(selector, { nth });
-      // One dimension is enough. A collapsed sidebar's resize handle is 0 wide
-      // and ~1000 tall, and demanding both made it unreachable, which is exactly
-      // when you need to grab it: to drag the sidebar back open.
-      if (box && (box.width > 0 || box.height > 0)) return box;
-      if (Date.now() > deadline) throw new Error(`Timed out waiting for "${selector}" [${nth}]`);
-      await sleep(100);
-    }
-  }
-
-  async #mouse(type, x, y, extra = {}) {
-    await this.cdp.send("Input.dispatchMouseEvent", {
-      type,
-      x,
-      y,
-      button: "left",
-      buttons: type === "mouseMoved" ? (extra.held ? 1 : 0) : 1,
-      clickCount: 1,
-      ...extra,
-    });
-  }
-
-  /**
-   * Bring a target into view before pointing at it. `getBoundingClientRect` is
-   * viewport-relative, so an element below the fold reports coordinates outside
-   * the window and the synthetic mouse event lands on whatever is actually
-   * there. That failure is silent: the call "succeeds" and nothing happens.
-   */
-  async #scrollIntoView(selector, nth) {
-    await this.eval(`(() => {
-      const el = document.querySelectorAll(${JSON.stringify(selector)})[${Number(nth)}];
-      el?.scrollIntoView({ block: "center", inline: "center" });
-      return true;
-    })()`);
-    await sleep(250);
-  }
-
-  /**
-   * Is something else on top of this element, or is input disabled on it?
-   * Returns a description of the blocker, or null when the click can land.
-   *
-   * An open Radix modal sets `pointer-events: none` on `document.body`, so every
-   * button behind it silently ignores clicks while still reporting a perfectly
-   * good bounding box. A toast stacked over the header does the same locally.
-   * Both cost hours before this check existed.
-   */
-  #blocker(selector, nth) {
-    return this.eval(`(() => {
-      const el = document.querySelectorAll(${JSON.stringify(selector)})[${Number(nth)}];
-      if (!el) return "element is gone";
-      const r = el.getBoundingClientRect();
-      const top = document.elementFromPoint(Math.round(r.x + r.width / 2), Math.round(r.y + r.height / 2));
-      if (top === el || el.contains(top) || (top && top.contains(el))) return null;
-      const modal = document.querySelector('[role=dialog][data-state=open],[role=alertdialog][data-state=open]');
-      const label = modal ? (modal.textContent || "").trim().slice(0, 60) : null;
-      return (modal ? 'a modal is open ("' + label + '") and its overlay swallows the click; ' : "") +
-        "topmost element there is " + (top ? top.tagName + "." + String(top.className).slice(0, 30) : "nothing");
-    })()`);
-  }
-
-  /**
-   * Move the pointer over a selector and leave it there.
-   *
-   * Rows that reveal their controls on hover need this before the control can be
-   * clicked at all: a workspace row shows a tab-count badge until you hover it,
-   * and the Rename / Close buttons sit underneath that badge.
-   */
-  async hover(selector, { nth = 0 } = {}) {
-    await this.#scrollIntoView(selector, nth);
-    const box = await this.waitFor(selector, { nth });
-    await this.#mouse("mouseMoved", box.x + box.width / 2, box.y + box.height / 2);
-    await sleep(400);
-    return box;
-  }
-
-  /** Real mouse click at the centre of a selector. */
-  async click(selector, { nth = 0 } = {}) {
-    await this.waitFor(selector, { nth });
-    await this.#scrollIntoView(selector, nth);
-    let blocked = await this.#blocker(selector, nth);
-    if (blocked) {
-      // Try hovering once before giving up. A lot of this UI only materialises
-      // under the pointer: a workspace row and a pane header both show a count
-      // badge until hovered, with Rename / Close sitting underneath it. Moving
-      // the mouse onto the badge still hovers the row, which reveals them.
-      await this.hover(selector, { nth });
-      blocked = await this.#blocker(selector, nth);
-    }
-    if (blocked) throw new Error(`cannot click "${selector}" [${nth}]: ${blocked}`);
-    const box = await this.waitFor(selector, { nth });
-    const x = box.x + box.width / 2;
-    const y = box.y + box.height / 2;
-    await this.#mouse("mouseMoved", x, y);
-    await this.#mouse("mousePressed", x, y);
-    await this.#mouse("mouseReleased", x, y);
-    await sleep(60);
-  }
-
-  /**
-   * Drag from the centre of a selector by (dx, dy) in steps, so pane splitters
-   * see the intermediate moves they need. This is how panes get resized: they
-   * are `react-resizable-panels` handles, driven by pointer movement.
-   */
-  async drag(selector, dx, dy, { steps = 20, nth = 0 } = {}) {
-    await this.waitFor(selector, { nth });
-    await this.#scrollIntoView(selector, nth);
-    const box = await this.waitFor(selector, { nth });
-    const x0 = box.x + box.width / 2;
-    const y0 = box.y + box.height / 2;
-    await this.#mouse("mouseMoved", x0, y0);
-    await this.#mouse("mousePressed", x0, y0);
-    for (let i = 1; i <= steps; i++) {
-      await this.#mouse("mouseMoved", x0 + (dx * i) / steps, y0 + (dy * i) / steps, { held: true });
-      await sleep(16);
-    }
-    await this.#mouse("mouseReleased", x0 + dx, y0 + dy);
-    await sleep(60);
-  }
-
   /** Resize the page's viewport, independent of the real window size. */
   async setViewport(width, height, deviceScaleFactor = 1) {
     await this.cdp.send("Emulation.setDeviceMetricsOverride", {
@@ -1367,38 +920,9 @@ export class Driver {
 
   /** Single still. `file` gets the PNG. */
   async shot(file) {
-    const { data } = await this.cdp.send("Page.captureScreenshot", { format: "png" });
+    const data = await this.capture();
     await mkdir(path.dirname(path.resolve(file)), { recursive: true });
     await writeFile(file, Buffer.from(data, "base64"));
     return file;
   }
-}
-
-/**
- * Driver methods that are pure COMPOSITIONS of bridged capabilities.
- *
- * Each is a loop over `#tedi` calls and nothing else - no `this.eval`, no
- * `this.cdp`, no trusted input - so a driver whose `#tedi` points at the local
- * socket runs them unchanged. That is what makes `sh` and `wait_for_terminal`
- * work on macOS and Linux, where the DevTools port does not exist, WITHOUT a
- * second copy of the poll loops (which would drift, and drift here is a silent
- * wrong answer rather than an error).
- *
- * They are not in `BRIDGED` because they are not single capability calls;
- * `driver-verify` checks that distinction from both sides.
- */
-export const COMPOSITE = ["sh", "waitTerminal", "waitForPrompt"];
-
-/**
- * A `Driver` with no DevTools connection at all, whose `#tedi` calls go straight
- * to a capability caller.
- *
- * Only the `#tedi`-only methods and the COMPOSITE ones above will work on it -
- * anything reaching for `this.cdp` throws, which is the honest answer for a
- * platform with no debug port.
- */
-export function bridgeOnlyDriver(call) {
-  const d = new Driver(null, null);
-  d.bridgeCall = call;
-  return d;
 }

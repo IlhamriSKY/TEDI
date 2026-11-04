@@ -12,9 +12,7 @@
  *  2. `BridgeCdp` carries a call and the console buffer the way `Cdp` did.
  *  3. The settle wait before the first input is BOUNDED: without the port's
  *     flags a covered window runs no animation frames.
- *  4. The bridge is taken whenever it gives a real answer. Only a TEDI that has
- *     no `devtools` capability falls back to the port, and a refusal (the misc
- *     pack switched off) is never routed around through an open port.
+ *  4. A refusal (the misc pack switched off) is the answer. Nothing routes around it.
  *  5. Installing MCP no longer turns the port on.
  */
 /// <reference types="node" />
@@ -22,8 +20,7 @@ import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { BRIDGE_SETTLE, BridgeCdp } from "./driver.mjs";
-import { openDevtools } from "./transport.mjs";
+import { BRIDGE_SETTLE, BridgeCdp, bridgeDevtoolsDriver } from "./driver.mjs";
 import { TOOL_DEFS } from "./tools.mjs";
 
 const ROOT = resolve(fileURLToPath(new URL("../..", import.meta.url)));
@@ -126,11 +123,6 @@ console.log("3. the settle wait is bounded");
 console.log("4. which way DevTools is reached");
 {
   const devtoolsBridge = { call: async () => ({ result: { value: 1 } }) };
-  const noCapability = {
-    call: async () => {
-      throw new Error('No capability "devtools" is registered. Available: panes, state');
-    },
-  };
   const refusing = {
     call: async () => {
       throw new Error(
@@ -138,45 +130,14 @@ console.log("4. which way DevTools is reached");
       );
     },
   };
-  let portUsed = 0;
-  const connectPort = async () => {
-    portUsed++;
-    return "port-driver";
-  };
-  const run = (bridge: unknown, port: number | null, err: Error | null = null) =>
-    openDevtools({ getBridge: async () => bridge, bridgeError: () => err, port, connectPort });
+  const d = (await bridgeDevtoolsDriver(devtoolsBridge)) as { cdp: unknown };
+  assert(d?.cdp instanceof BridgeCdp, "a driver over the bridge speaks through it");
 
-  const d = (await run(devtoolsBridge, 9222)) as { cdp: unknown };
-  assert(
-    d?.cdp instanceof BridgeCdp && portUsed === 0,
-    "a capable TEDI is driven through the bridge, even with a port configured",
-  );
-
-  assert(
-    (await run(noCapability, 9222)) === "port-driver" && portUsed === 1,
-    "an older TEDI falls back to the port",
-  );
-
-  const oldNoPort = await run(noCapability, null).then(
+  const refused = await bridgeDevtoolsDriver(refusing).then(
     () => "",
     (e: Error) => e.message,
   );
-  assert(/newer TEDI/.test(oldNoPort), "an older TEDI with no port says to update");
-
-  const refused = await run(refusing, 9222).then(
-    () => "",
-    (e: Error) => e.message,
-  );
-  assert(
-    /misc pack/.test(refused) && portUsed === 1,
-    "a refusal is the answer, never routed around through the port",
-  );
-
-  const down = await run(null, null, new Error("TEDI is not running")).then(
-    () => "",
-    (e: Error) => e.message,
-  );
-  assert(/not running/.test(down), "no bridge and no port names the bridge's reason");
+  assert(/misc pack/.test(refused), "a refusal reaches the caller as the reason");
 }
 
 console.log("5. installing MCP leaves the port alone");

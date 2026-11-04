@@ -23,6 +23,133 @@ import { _internals, TARGETS, type Target } from "../../src/modules/mcpInstall/i
 
 const { withEntry, withoutEntry, readsAsInstalled, entryFor } = _internals;
 
+console.log("[hermes] a hand-edited config.yaml survives, comments included");
+{
+  const hermes = TARGETS.find((x) => x.id === "hermes") as Target;
+  const server = "C:/Program Files/TEDI/mcp/server.mjs";
+  const bundle = "id.ilhamrisky.tedi";
+  const check = (label: string, cond: boolean, detail?: string) => {
+    if (cond) console.log(`  ok: ${label}`);
+    else {
+      console.error(`  FAIL: ${label}`, detail ?? "");
+      process.exitCode = 1;
+      throw new Error(label);
+    }
+  };
+  const before = [
+    "# my hermes",
+    "model:",
+    "  default: nous/hermes-4 # the good one",
+    "",
+    "# servers I use",
+    "mcp_servers:",
+    "    github:",
+    '        command: "npx"',
+    '        args: ["-y", "@modelcontextprotocol/server-github"]',
+    "",
+    "# terminal settings",
+    "terminal:",
+    "  backend: local",
+    "",
+  ].join("\n");
+  const after = withEntry(hermes, before, server, bundle);
+  for (const kept of before.split("\n").filter(Boolean)) {
+    check(`keeps "${kept.trim()}"`, after.includes(kept));
+  }
+  check("reads back as installed", readsAsInstalled(hermes, after, server, bundle), after);
+  check("follows the file's own indent", after.includes("\n    tedi:\n        command:"), after);
+  check(
+    "lands inside mcp_servers, before the next key",
+    after.indexOf("tedi:") > after.indexOf("mcp_servers:") &&
+      after.indexOf("tedi:") < after.indexOf("# terminal settings"),
+    after,
+  );
+  check(
+    "a Windows path stays one string",
+    after.includes('args: ["C:/Program Files/TEDI/mcp/server.mjs"]'),
+    after,
+  );
+  check(
+    "installing twice leaves one entry",
+    withEntry(hermes, after, server, bundle) === after,
+    withEntry(hermes, after, server, bundle),
+  );
+  const moved = withEntry(hermes, after, "D:/new/server.mjs", bundle);
+  check("a stale path is replaced", moved.includes("D:/new") && !moved.includes(server), moved);
+  check(
+    "and a stale entry reads as not installed",
+    !readsAsInstalled(hermes, after, "D:/new/server.mjs", bundle),
+  );
+  check(
+    "removing it restores the file",
+    withoutEntry(hermes, after) === before,
+    withoutEntry(hermes, after),
+  );
+
+  const fresh = withEntry(hermes, "", server, bundle);
+  check("an empty file gets the key", fresh.startsWith("mcp_servers:\n  tedi:\n"), fresh);
+  check(
+    "removing the only server leaves an empty map",
+    /^mcp_servers: \{\}/m.test(withoutEntry(hermes, fresh)),
+    withoutEntry(hermes, fresh),
+  );
+
+  const noKey = "model:\n  default: x\n";
+  const added = withEntry(hermes, noKey, server, bundle);
+  check(
+    "no key yet appends one",
+    added.startsWith(noKey) && /\nmcp_servers:\n  tedi:/.test(added),
+    added,
+  );
+
+  for (const empty of [
+    "mcp_servers: {}\n",
+    "mcp_servers: null\nother: 1\n",
+    "mcp_servers:\nother: 1\n",
+  ]) {
+    const out = withEntry(hermes, empty, server, bundle);
+    check(`${JSON.stringify(empty)} takes the entry`, /^mcp_servers:\n  tedi:/m.test(out), out);
+  }
+  let refused = false;
+  try {
+    withEntry(hermes, "mcp_servers: { a: { command: x } }\n", server, bundle);
+  } catch {
+    refused = true;
+  }
+  check("a flow mapping with servers in it is left alone", refused);
+
+  const crlf = before.replaceAll("\n", "\r\n");
+  const crlfAfter = withEntry(hermes, crlf, server, bundle);
+  check("CRLF stays CRLF", !/[^\r]\n/.test(crlfAfter), JSON.stringify(crlfAfter));
+  check("and removes cleanly", withoutEntry(hermes, crlfAfter) === crlf);
+
+  for (const form of [
+    '"mcp_servers":\n  a:\n    command: x\n',
+    "mcp_servers :\n  a:\n    command: x\n",
+    "\uFEFFmcp_servers:\n  a:\n    command: x\n",
+  ]) {
+    const out = withEntry(hermes, form, server, bundle);
+    check(
+      `${JSON.stringify(form.slice(0, 16))} gets no second key`,
+      (out.match(/mcp_servers/g) ?? []).length === 1 &&
+        out.includes("command: x") &&
+        readsAsInstalled(hermes, out, server, bundle),
+      out,
+    );
+  }
+  let flow = false;
+  try {
+    withoutEntry(hermes, "mcp_servers:\n  tedi: {\n    command: x\n  }\n");
+  } catch {
+    flow = true;
+  }
+  check("a flow-style entry of ours is refused, not half cut", flow);
+
+  const commented = "mcp_servers:\n  # tedi:\n  a:\n    command: x\n";
+  check("a commented-out tedi is not ours", !readsAsInstalled(hermes, commented, server, bundle));
+  check("nothing of ours means nothing changes", withoutEntry(hermes, commented) === commented);
+}
+
 let failed = 0;
 const fail = (msg: string): void => {
   console.error(`  FAIL: ${msg}`);

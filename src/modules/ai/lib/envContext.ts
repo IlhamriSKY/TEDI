@@ -82,8 +82,8 @@ export function injectContext(
 }
 
 /** Env block prepended to a user message. Short so the cacheable prefix stays
- *  stable. Terminal scrollback is not included; the agent calls the MCP `read`
- *  tool when it needs it. */
+ *  stable. Terminal scrollback is not included; the agent asks `tedi` for it
+ *  when it needs it. */
 export function formatEnvBlock(live: LiveSnapshot): string | null {
   const lines: string[] = [];
   if (live.workspaceRoot) lines.push(`workspace_root: ${live.workspaceRoot}`);

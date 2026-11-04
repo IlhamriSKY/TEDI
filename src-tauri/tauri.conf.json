@@ -35,6 +35,10 @@
     "resources": {
       "../scripts/mcp/cli.mjs": "mcp/cli.mjs",
       "../scripts/mcp/server.mjs": "mcp/server.mjs",
+      "../scripts/mcp/handlers.mjs": "mcp/handlers.mjs",
+      "../scripts/mcp/input.mjs": "mcp/input.mjs",
+      "../scripts/mcp/render.mjs": "mcp/render.mjs",
+      "../scripts/mcp/targets.mjs": "mcp/targets.mjs",
       "../scripts/mcp/transport.mjs": "mcp/transport.mjs",
       "../scripts/mcp/socket.mjs": "mcp/socket.mjs",
       "../scripts/mcp/driver.mjs": "mcp/driver.mjs",

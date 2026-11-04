@@ -40,6 +40,7 @@ const MAX_BATCH: Duration = Duration::from_millis(1000);
 /// rescan: a directory rename can move tens of thousands of paths, and all of
 /// them together mean exactly what refreshing everything does.
 const MAX_BATCH_DIRS: usize = 512;
+const MAX_BATCH_FILES: usize = 64;
 
 pub(crate) static WATCHES: Registry = Registry::new();
 
@@ -127,6 +128,9 @@ pub struct FsChange {
     /// The batch was too big or an event was lost: refresh every loaded
     /// directory rather than trusting `dirs`.
     pub rescan: bool,
+    /// The files behind the batch, forward-slash, for a listener that cares which.
+    /// Capped at [`MAX_BATCH_FILES`], and empty on a rescan.
+    pub files: Vec<String>,
 }
 
 /// Collect events into quiet-terminated batches and report each batch. Returns
@@ -161,6 +165,7 @@ fn pump(rx: Receiver<notify::Result<notify::Event>>, on_change: impl Fn(FsChange
 struct Batch {
     /// Parent directories that may list differently.
     dirs: HashSet<PathBuf>,
+    files: HashSet<PathBuf>,
     /// An error, an overflow, a batch too big to trust: refresh everything.
     rescan: bool,
 }
@@ -192,6 +197,9 @@ impl Batch {
                 continue;
             }
             self.dirs.insert(dir);
+            if self.files.len() < MAX_BATCH_FILES {
+                self.files.insert(p);
+            }
         }
     }
 
@@ -200,13 +208,17 @@ impl Batch {
             return FsChange {
                 dirs: Vec::new(),
                 rescan: true,
+                files: Vec::new(),
             };
         }
         let mut dirs: Vec<String> = self.dirs.iter().map(crate::modules::fs::to_canon).collect();
         dirs.sort();
+        let mut files: Vec<String> = self.files.iter().map(crate::modules::fs::to_canon).collect();
+        files.sort();
         FsChange {
             dirs,
             rescan: false,
+            files,
         }
     }
 }

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { newTodoId, validateTodos, type Todo } from "../lib/todos";
 import { useTodosStore } from "../store/todoStore";
 import type { ToolContext } from "./context";
-import { flexArrayReq } from "./schedule";
+import { flexArrayReq } from "./coerce";
 
 const TodoStatus = z.enum(["pending", "in_progress", "completed"]);
 

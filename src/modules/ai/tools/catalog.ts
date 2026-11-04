@@ -38,16 +38,14 @@ const MCP_PREFIX = "mcp__";
  * Derived from the name, not a hand-kept list, so a new tool is grouped without
  * anyone remembering to register it.
  *
- * Built-ins only. Panes, terminals and browsers come from TEDI's own in-process
- * MCP server, and `describeTools` asks `mcpGroup` before this is reached.
+ * Built-ins only. TEDI's own verbs carry an `mcp__tedi__` key, and `describeTools`
+ * asks `mcpGroup` before this is reached.
  */
 export function builtinGroup(name: string): string {
   if (name.startsWith("bash_")) return "Shell";
   if (name.startsWith("run_subagent")) return "Sub-agents";
-  if (name.includes("schedule")) return "Schedule";
   if (name === "fetch") return "Web";
   if (name === "todo_write") return "Tasks";
-  if (name.startsWith("notes_")) return "Notes";
   if (
     name === "edit" ||
     name === "multi_edit" ||
@@ -89,36 +87,6 @@ export function mcpGroup(name: string): string | null {
  */
 export function extensionGroup(extensionId: string): string {
   return extensionId.replace(/^tedi\./, "") || extensionId;
-}
-
-/**
- * The "## MCP SERVERS" prompt block, derived from the tools the turn is really
- * sending.
- *
- * Deriving it here rather than from the live server list is the point: a server
- * whose tools the user unticked, or that failed to connect, has nothing in the
- * tool set and must not be advertised as "available in your tool list".
- *
- * NAMES ONLY, NO COUNT. This block sits in the SYSTEM PROMPT, which is the
- * cached prefix of every request in the session, so anything volatile in it
- * costs real money: an MCP server that finished listing its tools between two
- * turns flipped "(1 tool)" to "(2 tools)", and that one word re-priced the whole
- * prefix as a cache MISS for every later request. Measured in a real session:
- * the change landed on request 4 of 11. The count was never worth that - the
- * model receives the tool definitions themselves in the same request, so it can
- * already see exactly which tools each server gave it. Server names change only
- * when a server appears or drops out, which is both rarer and worth a re-cache.
- */
-export function mcpSummaryFor(toolNames: Iterable<string>): string {
-  const servers = new Set<string>();
-  for (const name of toolNames) {
-    const server = mcpServerOf(name);
-    if (server === null) continue;
-    servers.add(server || "MCP");
-  }
-  if (servers.size === 0) return "";
-  const lines = [...servers].sort((a, b) => a.localeCompare(b)).map((s) => `- **${s}**`);
-  return `\n\n## MCP SERVERS\nThese MCP servers' tools are available in your tool list:\n${lines.join("\n")}`;
 }
 
 /**
@@ -178,7 +146,7 @@ const SECTION_ORDER: ToolSection[] = ["Built-in", "MCP", "Extensions"];
 /** Stable order for the built-in sub-groups. MCP servers and extensions are
  *  sorted by name instead - there is no meaningful fixed order for what the
  *  user happened to install. */
-const GROUP_ORDER = ["Files", "Edit", "Search", "Shell", "Web", "Sub-agents", "Tasks", "Schedule"];
+const GROUP_ORDER = ["Files", "Edit", "Search", "Shell", "Web", "Sub-agents", "Tasks"];
 
 export type ToolGroup = { group: string; tools: ToolDescriptor[] };
 export type ToolSectionGroup = {
@@ -231,16 +199,13 @@ export function sectionTools(rows: ToolDescriptor[]): ToolSectionGroup[] {
     .sort((a, b) => SECTION_ORDER.indexOf(a.section) - SECTION_ORDER.indexOf(b.section));
 }
 
-export const SUBAGENT_TOOL_NAMES = ["run_subagent", "run_subagents"] as const;
+export const SUBAGENT_TOOL_NAMES = ["run_subagents"] as const;
 
 /**
  * Are sub-agents available this turn?
  *
  * Replaces the old `subagentsEnabled` preference: the tool picker is now the
  * only switch, so "the feature is on" and "the tool is sent" cannot disagree.
- * Keyed on the BATCH tool because that is what the orchestration prompt tells
- * the model to call and what `forceSpawnStep0` pins; keeping `run_subagent`
- * alone is a narrower choice the user is free to make.
  */
 export function subagentsAvailable(disabled: ReadonlySet<string>): boolean {
   return !disabled.has("run_subagents");

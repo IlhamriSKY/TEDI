@@ -1,15 +1,16 @@
 import { buildEditTools } from "./edit";
 import { buildFetchTools } from "./fetch";
 import { buildFsTools } from "./fs";
-import { buildNotesTools } from "./notes";
-import { buildScheduleTools } from "./schedule";
 import { buildSearchTools } from "./search";
 import { buildShellTools } from "./shell";
 import { buildSubagentTools } from "./subagent";
+import { buildTediTools, tediPickerRows } from "./tedi";
 import { buildTodoTools } from "./todo";
 import { buildMcpToolsAsync } from "./mcp";
 import { buildExtensionTools } from "./extensions";
 import { describeTools, type ToolDescriptor } from "./catalog";
+import type { ToolSet } from "ai";
+import { TEDI_TOOL } from "@mcp/tools.mjs";
 
 import type { ToolContext } from "./context";
 
@@ -32,8 +33,6 @@ function buildToolsRaw(ctx: ToolContext) {
     ...buildShellTools(ctx),
     ...buildSubagentTools(ctx),
     ...buildTodoTools(ctx),
-    ...buildNotesTools(),
-    ...buildScheduleTools(),
   } as const;
 }
 
@@ -57,13 +56,20 @@ export async function listAvailableTools(ctx: ToolContext): Promise<ToolDescript
   const extension = buildExtensionTools(ctx, extensionOf);
   const mcp = await buildMcpToolsAsync(ctx);
   const builtin = buildTools(ctx);
-  const all = { ...extension, ...mcp, ...builtin };
+  const all = { ...extension, ...mcp, ...withoutTheGateway(builtin), ...tediPickerRows() };
   // A built-in or MCP key wins the merge, so only the extension keys that
   // actually survived may be labelled as coming from an extension.
   for (const k of extensionOf.keys()) {
     if (k in builtin || k in mcp) extensionOf.delete(k);
   }
-  return describeTools(all, extensionOf);
+  return describeTools(all as ToolSet, extensionOf);
+}
+
+/** The picker shows each verb and each extension tool, which is what someone switches off;
+ *  the one tool that carries them is plumbing. */
+function withoutTheGateway(tools: object): object {
+  const { [TEDI_TOOL.name]: _gateway, ...rest } = tools as Record<string, unknown>;
+  return rest;
 }
 
 /**
@@ -80,7 +86,10 @@ export function listLocalTools(ctx: ToolContext): ToolDescriptor[] {
   for (const k of extensionOf.keys()) {
     if (k in builtin) extensionOf.delete(k);
   }
-  return describeTools({ ...extension, ...builtin }, extensionOf);
+  return describeTools(
+    { ...extension, ...withoutTheGateway(builtin), ...tediPickerRows() } as ToolSet,
+    extensionOf,
+  );
 }
 
 export function buildTools(ctx: ToolContext): ChatTools {
@@ -89,13 +98,13 @@ export function buildTools(ctx: ToolContext): ChatTools {
     built = buildToolsRaw(ctx);
     toolsCache.set(ctx, built);
   }
-  // Rebuild the sub-agent tools each turn so their descriptions (the current
-  // sub-agent types, baked into the description string) stay fresh without an
-  // app restart. Cheap: a few zod schemas vs the ~12 kept cached above. The
+  // Rebuild the sub-agent tools and `tedi` each turn so their descriptions (the
+  // sub-agent types, the live extensions) stay fresh without an app restart. Cheap: a few zod schemas vs the ~12 kept cached above. The
   // rest of the toolset stays memoized.
   const fresh = {
     ...built,
     ...buildSubagentTools(ctx),
+    ...buildTediTools(ctx),
   } as Record<string, unknown>;
   // Sub-agent tools are no longer gated here: the tool picker switches them off
   // like any other tool, and `applyToolFilter` drops them before they are sent.

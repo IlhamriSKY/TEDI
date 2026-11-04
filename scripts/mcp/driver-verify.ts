@@ -35,6 +35,7 @@
 import { readFile } from "node:fs/promises";
 
 import { Cdp, Driver, parseChord } from "./driver.mjs";
+import { HANDLERS } from "./handlers.mjs";
 import { TOOLS } from "./server.mjs";
 
 let failed = 0;
@@ -141,7 +142,7 @@ await d.openFile("C:/tmp/a.ts");
 await d.editorSave(3);
 // No terminals in the fake, so this takes the "nothing to wait on" exit rather
 // than looping for a minute.
-await d.waitTerminal({ timeout: 1 });
+await d.waitTerminal({ timeout: 1 }).catch(() => {});
 // No terminals in the fake, so this exits down the "nothing to write to" path
 // rather than looping - which is the branch worth proving anyway.
 await d.sh("echo hi").catch(() => {});
@@ -294,6 +295,8 @@ console.log(`  ok: ${Object.keys(TOOLS).length} tools, all with a handler and a 
 // but a handler calling a method that no longer exists throws a TypeError here
 // instead of in someone's session.
 const args: Record<string, Record<string, unknown>[]> = {
+  lsp: [{ op: "hover", path: "a.ts", line: 1, symbol: "a" }],
+  skill: [{}, { name: "a" }],
   run_command: [{ id: "pane.splitRight" }, { id: "sql.open", extensionId: "tedi.sql-explorer" }],
   // A 1ms timeout: the handler must reach `waitTerminal`, not sit in it.
   wait_for_terminal: [{ timeout: 1 }],
@@ -376,13 +379,73 @@ const args: Record<string, Record<string, unknown>[]> = {
   ],
   read: [{ source: "terminal" }, { source: "editors" }, { source: "dom", selector: "button" }],
 };
+/** Stands in for the socket. Same answers `fakeCdp` gives a driver, for the same reasons. */
+const answerOf = (name: string): unknown => {
+  if (
+    /^(setSetting|extControl|runExtensionCommand|focusPaneVerified|openFile|editorSave)$/.test(name)
+  )
+    return true;
+  if (
+    /^(paneOpen|paneClose|paneGroup|paneRotate|paneConsolidate|paneRename|panePin|panePlace|panelOpen|sshForward|agentSession|workspaceCreate|workspaceSwitch|workspaceRename|workspaceRemove|workspaceView)$/.test(
+      name,
+    )
+  ) {
+    return {
+      ok: true,
+      tabId: 1,
+      leafId: 2,
+      orientation: "row",
+      changed: true,
+      moved: 2,
+      wsId: "w",
+    };
+  }
+  if (name === "termList" || name === "termProbe" || name === "termTails") {
+    return [
+      {
+        leafId: 1,
+        tabId: 1,
+        atPrompt: true,
+        running: false,
+        alt: false,
+        hash: 1,
+        hit: true,
+        text: "",
+      },
+      {
+        leafId: 2,
+        tabId: 1,
+        atPrompt: true,
+        running: false,
+        alt: false,
+        hash: 1,
+        hit: true,
+        text: "",
+      },
+    ];
+  }
+  // What `Runtime.evaluate` answers: enough for the input verbs to find their target.
+  if (name === "devtools") return { result: { value: { x: 0, y: 0, width: 10, height: 10 } } };
+  if (name === "focusedLeaf") return 1;
+  if (name === "termBusy") return false;
+  if (name === "termRun" || name === "termInject" || name === "aiSend" || name === "aiSwitch")
+    return true;
+  if (name === "sshConnect") return 5;
+  if (/^(editors|panes|extensions|listCommands|workspaces|statusItems)$/.test(name)) return [];
+  return {};
+};
+const fakeTransport = {
+  call: async (name: string) => answerOf(name),
+  logs: async () => [],
+  devtools: async () => d,
+};
 for (const [name, t] of Object.entries(tools)) {
   // `screenshot` writes a file and needs real image bytes back; the others are
-  // pure calls into `Driver`.
+  // pure calls.
   if (name === "screenshot") continue;
   for (const a of args[name] ?? [{}]) {
     try {
-      await (t.run as (d: unknown, a: unknown) => unknown)(d, a);
+      await (t.run as (d: unknown, a: unknown) => unknown)(fakeTransport, a);
     } catch (err) {
       const msg = (err as Error).message;
       // A handler is allowed to reject on the fake's empty world ("no terminal
@@ -393,7 +456,35 @@ for (const [name, t] of Object.entries(tools)) {
     }
   }
 }
-console.log("  ok: every handler, and every mode of one, reaches its Driver method");
+console.log("  ok: every handler, and every mode of one, reaches its capability");
+
+// Every name a handler calls has to be one the app registers. A typo here is a tool
+// that fails only in someone's session, with "No capability", on the path that matters.
+console.log("\n[capabilities] every capability a handler calls is registered in the app");
+{
+  const { readdirSync, statSync } = await import("node:fs");
+  const walk = (dir: string): string[] =>
+    readdirSync(dir).flatMap((f) => {
+      const p = `${dir}/${f}`;
+      return statSync(p).isDirectory() ? walk(p) : /\.tsx?$/.test(f) ? [p] : [];
+    });
+  // Text of every file that registers any, which is enough to catch a misspelt name.
+  let registering = "";
+  for (const file of walk("src")) {
+    const src = await readFile(file, "utf8");
+    if (src.includes("registerBridge(")) registering += src;
+  }
+  const handlersSrc = await readFile("scripts/mcp/handlers.mjs", "utf8");
+  const called = new Set([...handlersSrc.matchAll(/call\(\s*"(\w+)"/g)].map((m) => m[1]));
+  const missing = [...called].filter(
+    (name) => !new RegExp(`\\b${name}\\s*[:,(}]`).test(registering),
+  );
+  if (called.size < 30)
+    fail(`only ${called.size} capabilities found in handlers.mjs; the reader broke`);
+  else if (missing.length)
+    fail(`handlers call capabilities nothing registers: ${missing.join(", ")}`);
+  else console.log(`  ok: all ${called.size} are registered`);
+}
 
 // ---------------------------------------------------------------------------
 // 4. The two polling loops, driven against a scripted terminal.
@@ -446,9 +537,10 @@ function fnv1a(text: string): number {
 
 function scriptedTerminal(
   script: TermState[],
-  { leafId = 3, empty = false, viewportRows = 30 } = {},
+  { leafId = 3, empty = false, viewportRows = 30, busy = false, alt = false, agent = "" } = {},
 ) {
   const calls = { terminals: 0, writes: [] as string[], smallReads: 0, asked: [] as number[] };
+  let holdUntilWrite = false;
 
   /** `getBuffer(rows)` as xterm really behaves it. */
   const buffer = (text: string, rows: number): string => {
@@ -462,64 +554,67 @@ function scriptedTerminal(
 
   const rowsNow = (): Array<TermState & { leafId: number }> => {
     if (empty) return [];
+    // `sh` looks at the pane before it writes, and the timeline starts at that write.
+    if (holdUntilWrite && !calls.writes.length) return [{ leafId, ...script[0] }];
     const at = Math.min(calls.terminals, script.length - 1);
     calls.terminals++;
     return [{ leafId, ...script[at] }];
   };
 
-  const cdp = {
-    send(method: string, params: { expression?: string }) {
-      if (method !== "Runtime.evaluate") return Promise.resolve({});
-      const e = params.expression ?? "";
-      if (e.includes("__tedi?.termWrite")) {
-        calls.writes.push(e);
-        return Promise.resolve({ result: { value: { v: true } } });
-      }
-      if (e.includes("__tedi?.termProbe")) {
-        const args = /\bf\((.*?)\)/.exec(e)?.[1] ?? "null";
-        const [needle, wantHashRaw] = args.split(", ");
-        const want = needle === "null" ? null : (JSON.parse(needle) as string);
-        const wantHash = wantHashRaw !== "false";
-        return Promise.resolve({
-          result: {
-            value: {
-              v: rowsNow().map((r) => {
-                // Mirrors the capability: no buffer is built at all unless a hash
-                // or a needle actually needs one.
-                const text = want || wantHash ? buffer(r.text, TERMINAL_BUFFER_ROWS) : "";
-                return {
-                  leafId: r.leafId,
-                  atPrompt: r.atPrompt,
-                  running: r.running,
-                  hash: wantHash ? fnv1a(text) : 0,
-                  hit: want ? text.includes(want) : false,
-                };
-              }),
-            },
-          },
+  const call = async (name: string, ...args: unknown[]): Promise<unknown> => {
+    switch (name) {
+      case "termProbe": {
+        const [needle, wantHash = true] = args as [string | null, boolean?];
+        return rowsNow().map((r) => {
+          // Mirrors the capability: no buffer is built at all unless a hash or a
+          // needle actually needs one.
+          const text = needle || wantHash ? buffer(r.text, TERMINAL_BUFFER_ROWS) : "";
+          return {
+            leafId: r.leafId,
+            atPrompt: r.atPrompt,
+            running: r.running,
+            alt,
+            hash: wantHash ? fnv1a(text) : 0,
+            hit: needle ? text.includes(needle) : false,
+          };
         });
       }
-      if (e.includes("__tedi?.termTails")) {
-        const lines = Number(/\bf\((\d+)\)/.exec(e)?.[1] ?? 200);
-        return Promise.resolve({
-          result: {
-            value: {
-              v: rowsNow().map((r) => ({
-                leafId: r.leafId,
-                atPrompt: r.atPrompt,
-                running: r.running,
-                text: tailLines(buffer(r.text, TERMINAL_BUFFER_ROWS), lines),
-              })),
-            },
-          },
-        });
-      }
-      if (e.includes("__tedi?.focusedLeaf"))
-        return Promise.resolve({ result: { value: { v: leafId } } });
-      return Promise.resolve({ result: { value: {} } });
-    },
+      case "termTails":
+        return rowsNow().map((r) => ({
+          leafId: r.leafId,
+          atPrompt: r.atPrompt,
+          running: r.running,
+          text: tailLines(buffer(r.text, TERMINAL_BUFFER_ROWS), args[0] as number),
+        }));
+      case "termList":
+        return empty ? [] : [{ leafId, tabId: 1 }];
+      case "focusedLeaf":
+        return leafId;
+      case "termBusy":
+        return busy;
+      case "termAltScreen":
+        return alt;
+      case "panes":
+        return [{ leafId, agent }];
+      case "termRun":
+      case "termInject":
+        calls.writes.push(args[1] as string);
+        return true;
+      default:
+        throw new Error(`the script does not answer ${name}`);
+    }
   };
-  return { calls, d: new Driver(cdp, { url: "index.html" }) };
+  const run = (tool: string, a: Record<string, unknown>) =>
+    (HANDLERS as Record<string, (c: typeof call, a: unknown) => Promise<any>>)[tool](call, a);
+  return {
+    calls,
+    sh: (a: Record<string, unknown>) => {
+      holdUntilWrite = true;
+      return run("sh", a);
+    },
+    wait: (a: Record<string, unknown>) => run("wait_for_terminal", a),
+    read: (a: Record<string, unknown>) => run("read", { source: "terminal", ...a }),
+  };
 }
 
 // A timeline for one pane. The command's OUTPUT carries a token that appears
@@ -548,10 +643,10 @@ console.log("\n[sh] does not mistake the PREVIOUS prompt for the command finishi
   // A driver that polls with a small read never sees the buffer change, blocks
   // the whole timeout, and then reports "still running" for a command that
   // finished in milliseconds - which invites the caller to run it AGAIN.
-  const { calls, d } = scriptedTerminal([PROMPT, PROMPT, ECHOED, ECHOED, FINISHED], {
+  const { calls, sh } = scriptedTerminal([PROMPT, PROMPT, ECHOED, ECHOED, FINISHED], {
     viewportRows: 30,
   });
-  const out = await d.sh("build", { settle: 20, timeout: 4000 });
+  const out = await sh({ command: "build", timeout: 4000 });
   if (out.timedOut) fail("sh timed out on a command that finished");
   else if (!out.text.includes(OUTPUT_TOKEN)) {
     fail(`sh returned before the output existed: ${JSON.stringify(out.text)}`);
@@ -560,9 +655,8 @@ console.log("\n[sh] does not mistake the PREVIOUS prompt for the command finishi
   if (calls.smallReads) {
     fail(`sh made ${calls.smallReads} read(s) narrower than the viewport - those return ""`);
   } else console.log("  ok: every text read was wide enough to survive the blank rows");
-  if (!calls.writes.length) fail("sh never wrote to the PTY");
-  else if (!calls.writes[0].includes("\\r")) fail("sh wrote without a carriage return");
-  else console.log("  ok: one PTY write, carriage return included");
+  if (calls.writes.length !== 1) fail(`sh wrote ${calls.writes.length} times, want 1`);
+  else console.log("  ok: one write");
 }
 
 console.log("\n[reads] a small `lines` trims the ANSWER, and never narrows what xterm is asked");
@@ -573,8 +667,8 @@ console.log("\n[reads] a small `lines` trims the ANSWER, and never narrows what 
   // blanks - so a narrow read returns "", which a change-detector reads as
   // "nothing happened". Every read now asks for BUFFER_ROWS and trims in the
   // page, so `lines: 2` is finally an honest thing to pass.
-  const { calls, d } = scriptedTerminal([FINISHED], { viewportRows: 30 });
-  const rows = (await d.terminals(2)) as { text: string }[];
+  const { calls, read } = scriptedTerminal([FINISHED], { viewportRows: 30 });
+  const answer = await read({ lines: 2 });
   if (calls.asked.some((n) => n < 30)) {
     fail(`a read asked xterm for ${Math.min(...calls.asked)} rows - those come back ""`);
   } else console.log(`  ok: asked xterm for ${calls.asked.join("/")} rows while returning 2 lines`);
@@ -582,7 +676,7 @@ console.log("\n[reads] a small `lines` trims the ANSWER, and never narrows what 
   // that catches the `\\n` written with one backslash: the split then happens on
   // a literal two-character sequence, the "tail" is the whole buffer, and every
   // includes()-style assertion in this file still passes.
-  const lines = rows[0].text.split("\n");
+  const lines = (answer.text as string).split("\n");
   if (lines.length !== 2) {
     fail(`injected tail returned ${lines.length} lines, want 2 - is the \\n in it a REAL newline?`);
   } else console.log("  ok: the injected tail split on a real newline");
@@ -591,8 +685,8 @@ console.log("\n[reads] a small `lines` trims the ANSWER, and never narrows what 
 console.log("\n[sh] reports a command that never returns instead of hanging or lying");
 {
   // A TUI: output appears, the prompt never comes back.
-  const { d } = scriptedTerminal([PROMPT, ECHOED]);
-  const out = await d.sh("vim", { settle: 20, timeout: 300 });
+  const { sh } = scriptedTerminal([PROMPT, ECHOED]);
+  const out = await sh({ command: "vim", timeout: 300 });
   if (!out.timedOut) fail("sh claimed a still-running command had finished");
   else if (!out.text.includes("build")) fail("sh dropped the buffer on timeout");
   else console.log("  ok: timedOut true, buffer still returned");
@@ -602,9 +696,8 @@ console.log("\n[sh] refuses a leaf that is not a terminal");
 {
   // Also the privacy path: a private pane is absent from `terminals()`, so an
   // explicit leafId for one lands here and says nothing about its existence.
-  const { d } = scriptedTerminal([PROMPT]);
-  await d
-    .sh("echo hi", { leafId: 99, settle: 20 })
+  const { sh } = scriptedTerminal([PROMPT]);
+  await sh({ command: "echo hi", leafId: 99 })
     .then(() => fail("sh wrote into a leaf that is not a terminal"))
     .catch((err: Error) => {
       if (!/not a terminal/i.test(err.message)) fail(`wrong error: ${err.message}`);
@@ -619,46 +712,101 @@ console.log("\n[sh] does not guess a pane when focus is elsewhere and several ar
   // command in a background pane in another tab - possibly an SSH session on
   // another host - and reports success. One open terminal is unambiguous and
   // still works; more than one is a question only the caller can answer.
-  const multi = {
-    send(method: string, params: { expression?: string }) {
-      if (method !== "Runtime.evaluate") return Promise.resolve({});
-      const e = params.expression ?? "";
-      if (e.includes("__tedi?.termWrite"))
-        return Promise.resolve({ result: { value: { v: true } } });
-      if (e.includes("__tedi?.termProbe")) {
-        return Promise.resolve({
-          result: {
-            value: {
-              v: [4, 9].map((leafId) => ({
-                leafId,
-                atPrompt: PROMPT.atPrompt,
-                running: PROMPT.running,
-                hash: 1,
-                hit: false,
-              })),
-            },
-          },
-        });
-      }
-      // Focus is in an EDITOR leaf, which is a real leaf id and not a terminal.
-      if (e.includes("__tedi?.focusedLeaf"))
-        return Promise.resolve({ result: { value: { v: 7 } } });
-      return Promise.resolve({ result: { value: {} } });
-    },
+  const writes: unknown[] = [];
+  const multi = async (name: string, ...args: unknown[]): Promise<unknown> => {
+    if (name === "termProbe") {
+      return [4, 9].map((leafId) => ({
+        leafId,
+        atPrompt: true,
+        running: false,
+        hash: 1,
+        hit: false,
+      }));
+    }
+    // Focus is in an EDITOR leaf, which is a real leaf id and not a terminal.
+    if (name === "focusedLeaf") return 7;
+    writes.push(args);
+    return true;
   };
-  await new Driver(multi, { url: "index.html" })
-    .sh("rm -rf build", { settle: 20, timeout: 500 })
-    .then((r) => fail(`sh silently picked leaf ${r.leafId} with focus in an editor`))
-    .catch((err: Error) => {
-      if (!/name one/i.test(err.message)) fail(`wrong error: ${err.message}`);
+  await (HANDLERS as any).sh(multi, { command: "rm -rf build" }).then(
+    (r: { leafId: number }) => fail(`sh silently picked leaf ${r.leafId} with focus in an editor`),
+    (err: Error) => {
+      if (!/pass leafId/i.test(err.message)) fail(`wrong error: ${err.message}`);
+      else if (writes.length) fail("sh wrote before it knew which pane");
       else console.log("  ok: refused and listed the candidates instead of guessing");
-    });
+    },
+  );
 
   // ...but a single terminal is not a guess, so it still just works.
   const one = scriptedTerminal([PROMPT, PROMPT, ECHOED, FINISHED], { leafId: 4 });
-  const r = await one.d.sh("build", { settle: 20, timeout: 3000 });
+  const r = await one.sh({ command: "build", timeout: 3000 });
   if (r.leafId !== 4) fail(`single-terminal fallback picked ${r.leafId}`);
   else console.log("  ok: with one terminal open it runs there without being told");
+}
+
+// `sh` from outside used to skip this, while the tool's own description promised it.
+console.log("\n[sh] a busy pane is refused, unless it is reading its own input");
+{
+  const running = { atPrompt: false, running: true, text: "PS D:\\repo> build" };
+  const build = scriptedTerminal([running]);
+  await build.sh({ command: "echo hi" }).then(
+    () => fail("sh typed into a running command"),
+    (err: Error) => {
+      if (!/is busy/.test(err.message)) fail(`wrong error: ${err.message}`);
+      else if (build.calls.writes.length) fail("sh wrote before refusing");
+      else console.log("  ok: a build on the normal screen refuses, and nothing is written");
+    },
+  );
+  const tui = scriptedTerminal([running], { alt: true });
+  const typed = await tui.sh({ command: "hello" });
+  if (!typed.intoTui || tui.calls.writes.length !== 1) fail("sh did not type into a TUI");
+  else console.log("  ok: a full-screen program takes the write, and the reply says so");
+  // An AI CLI can draw on the normal screen, where it looks exactly like a build.
+  const cli = scriptedTerminal([running], { agent: "claude" });
+  const told = await cli.sh({ command: "hello" });
+  if (!told.intoTui || cli.calls.writes.length !== 1) fail("sh did not type into an AI CLI");
+  else console.log("  ok: so does an AI CLI on the normal screen");
+  // An idle AI CLI reads as not running, and there is still no prompt coming from it.
+  const idleCli = scriptedTerminal([{ atPrompt: false, running: false, text: "> " }], {
+    agent: "claude",
+  });
+  const quick = await idleCli.sh({ command: "hello", timeout: 20000 });
+  if (!quick.intoTui || quick.timedOut) fail("sh waited for a prompt from an idle AI CLI");
+  else console.log("  ok: an idle AI CLI takes the write without waiting for a prompt");
+
+  // pwsh never sends OSC 133 C for a PTY write, so a running command reads as not running. A
+  // live run typed `echo` into a `ping` this way, right after a fix that trusted `running`.
+  const pinging = { atPrompt: false, running: false, text: "PS D:\\repo> ping x\nReply from x" };
+  const quietBusy = scriptedTerminal([pinging]);
+  await quietBusy.sh({ command: "echo hi" }).then(
+    () => fail("sh typed into a command pwsh reports as not running"),
+    (err: Error) => {
+      if (!/is busy/.test(err.message) || quietBusy.calls.writes.length) fail(err.message);
+      else console.log("  ok: a command with no running flag still refuses, by its last line");
+    },
+  );
+  const halfTyped = scriptedTerminal([{ atPrompt: false, running: false, text: "PS D:\\repo> x" }]);
+  await halfTyped.sh({ command: "echo hi" }).then(
+    () => fail("sh merged with a half-typed line"),
+    () => console.log("  ok: so does a half-typed line"),
+  );
+
+  // Going quiet is not finishing: `Start-Sleep 5` prints nothing, with no running flag either.
+  const sleeping = { atPrompt: false, running: false, text: "PS D:\\repo> Start-Sleep 5; build" };
+  const silent = scriptedTerminal([PROMPT, ...Array(30).fill(sleeping), FINISHED]);
+  const slept = await silent.sh({ command: "Start-Sleep 5; build", timeout: 20000 });
+  if (!slept.text.includes(OUTPUT_TOKEN)) fail(`sh returned during the silence: ${slept.text}`);
+  else console.log("  ok: a silent command is waited for, not called finished");
+
+  // Git Bash, starship, a bare `$ `: nothing recognises the prompt, and nothing is running.
+  const bare = { atPrompt: false, running: false, text: "$ " };
+  const done = { atPrompt: false, running: false, text: `$ build\n${"artifact-bare"}\n$ ` };
+  const custom = scriptedTerminal([bare, bare, done]);
+  const ran = await custom.sh({ command: "build", timeout: 10000 });
+  if (custom.calls.writes.length !== 1) fail("sh refused an idle shell with a custom prompt");
+  else if (ran.timedOut) fail("sh sat out the timeout on a command that finished");
+  else if (!ran.text.includes("artifact-bare")) fail(`sh lost the output: ${ran.text}`);
+  else console.log("  ok: an idle custom prompt runs the command and comes back when output stops");
 }
 
 console.log("\n[waitTerminal] both conditions, and the empty case");
@@ -667,9 +815,9 @@ console.log("\n[waitTerminal] both conditions, and the empty case");
   // paint something the PS1 heuristic reads as a prompt WHILE the command is
   // still running. `atPrompt` alone would call that done mid-command.
   const BUSY_BUT_PROMPTY = { atPrompt: true, running: true, text: "PS D:\\repo> build" };
-  const { calls, d } = scriptedTerminal([ECHOED, BUSY_BUT_PROMPTY, BUSY_BUT_PROMPTY, FINISHED]);
-  const r = await d.waitTerminal({ settle: 20, timeout: 4000 });
-  if (!r.done || r.reason !== "prompt returned") fail(`prompt wait: ${JSON.stringify(r)}`);
+  const { calls, wait } = scriptedTerminal([ECHOED, BUSY_BUT_PROMPTY, BUSY_BUT_PROMPTY, FINISHED]);
+  const r = await wait({ timeout: 4000 });
+  if (!r.done || r.reason !== "back at the prompt") fail(`prompt wait: ${JSON.stringify(r)}`);
   else if (!r.tail.includes(OUTPUT_TOKEN)) {
     fail(`returned while the command was still running: ${JSON.stringify(r.tail)}`);
   } else
@@ -702,9 +850,9 @@ console.log("\n[waitTerminal] both conditions, and the empty case");
     running: true,
     text: "vite v8\nplugins loaded\nwatching\nListening on 5173\nready in 300ms",
   };
-  const { d } = scriptedTerminal([ECHOED, ECHOED, noisy]);
-  const r = await d.waitTerminal({ text: "Listening on", settle: 20, timeout: 4000, lines: 2 });
-  if (!r.done || r.reason !== "text appeared") fail(`text wait: ${JSON.stringify(r)}`);
+  const { wait } = scriptedTerminal([ECHOED, ECHOED, noisy]);
+  const r = await wait({ text: "Listening on", timeout: 4000, lines: 2 });
+  if (!r.done || !/appeared/.test(r.reason)) fail(`text wait: ${JSON.stringify(r)}`);
   else if (!r.tail.includes("ready in 300ms")) fail(`tail lost the end: ${JSON.stringify(r.tail)}`);
   else if (r.tail.split("\n").length !== 2) {
     fail(`tail was not trimmed to 2 lines: ${JSON.stringify(r.tail)}`);
@@ -714,17 +862,22 @@ console.log("\n[waitTerminal] both conditions, and the empty case");
   // A pane that will never answer must not burn the whole timeout: waiting on an
   // editor, or on a pane that has closed, is a mistake worth surfacing fast.
   const started = Date.now();
-  const { d } = scriptedTerminal([PROMPT], { empty: true });
-  const r = await d.waitTerminal({ settle: 20, timeout: 30000 });
-  if (r.done) fail("waitTerminal claimed done with no terminals");
-  else if (Date.now() - started > 5000) fail("waitTerminal sat on the full timeout with no panes");
-  else console.log(`  ok: no panes -> "${r.reason}", returned immediately`);
+  const { wait } = scriptedTerminal([PROMPT], { empty: true });
+  await wait({ timeout: 30000 }).then(
+    (r: { done: boolean }) => {
+      if (r.done) fail("the wait claimed done with no terminals");
+    },
+    (err: Error) => {
+      if (Date.now() - started > 5000) fail("the wait sat on the full timeout with no panes");
+      else console.log(`  ok: no panes -> "${err.message}", returned immediately`);
+    },
+  );
 }
 
 console.log("\n[waitTerminal] a timeout is reported, never thrown");
 {
-  const { d } = scriptedTerminal([ECHOED]);
-  const r = await d.waitTerminal({ settle: 20, timeout: 250 });
+  const { wait } = scriptedTerminal([ECHOED]);
+  const r = await wait({ timeout: 250 });
   if (r.done) fail("waitTerminal claimed a busy pane was done");
   else if (r.reason !== "timeout") fail(`reason was ${r.reason}`);
   else console.log("  ok: timeout reported with the tail, not thrown");
@@ -860,17 +1013,11 @@ console.log("\n[privacy] a private SSH open does not answer with its leafId");
 /**
  * `WebSocket.send()` on a CLOSING or CLOSED socket is a SILENT NO-OP - only
  * CONNECTING throws. So a request sent after TEDI quits used to register a
- * pending resolver that nothing ever settled: the first tool call after the app
- * closed hung forever, with no error, and because `server.mjs` caches the
- * connection for the whole session, so did every call after it.
+ * pending resolver that nothing ever settled: the first call after the app
+ * closed hung forever, with no error. Only `pnpm mcp sweep` holds such a socket now.
  *
  * Measured before the guard existed: `eval()` on a closed socket never settled
  * (killed at 4s). After: it rejects in 0ms.
- *
- * The message text is a CONTRACT with `server.mjs`, whose `dropIfDisconnected`
- * regex is the only thing that drops the dead connection so the next call can
- * rebuild it. A reworded error would silently disable the reconnect, so the
- * regex is pulled from that file and run against the real message here.
  */
 console.log("\n[transport] a closed socket rejects instead of parking forever");
 {
@@ -888,24 +1035,6 @@ console.log("\n[transport] a closed socket rejects instead of parking forever");
     (err: Error) => err.message,
   );
   if (message) console.log(`  ok: rejected with ${JSON.stringify(message)}`);
-
-  const mcpSrc = await readFile("scripts/mcp/server.mjs", "utf8");
-  // Tolerant of where prettier puts the line breaks: once the pattern grew, the
-  // condition wrapped onto its own line and an anchor that assumed `if (/…/i.test`
-  // on ONE line failed for a purely cosmetic reason.
-  const literal = /dropIfDisconnected[\s\S]*?if \(\s*(\/[^\n]+?\/i)[\s\S]{0,40}?\.test/.exec(
-    mcpSrc,
-  )?.[1];
-  if (!literal) fail("cannot find dropIfDisconnected's regex in server.mjs");
-  else {
-    // eslint-disable-next-line no-eval -- a regex literal read from our own source
-    const re = eval(literal) as RegExp;
-    if (!re.test(message)) {
-      fail(
-        `server.mjs would NOT drop the dead connection: ${literal} does not match ${JSON.stringify(message)}`,
-      );
-    } else console.log(`  ok: ${literal} matches it, so the next call reconnects`);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -924,29 +1053,20 @@ console.log("\n[transport] a closed socket rejects instead of parking forever");
  */
 console.log("\n[extension tools] an AI tool's result is returned, a command's is not");
 {
-  const reply = (value: unknown) => ({
-    send: (method: string, params: { expression?: string }) =>
-      method === "Runtime.evaluate" && params.expression?.includes("runExtensionCommand")
-        ? // Every `#tedi` answer is wrapped as `{ v }` so a legitimate null can be
-          // told apart from a missing capability. See `Driver#tedi`.
-          Promise.resolve({ result: { value: { v: value } } })
-        : Promise.resolve({ result: { value: { v: {} } } }),
-  });
   const call = (value: unknown) =>
     (
-      TOOLS as unknown as Record<string, { run: (d: unknown, a: unknown) => Promise<string> }>
-    ).run_command.run(new Driver(reply(value), { url: "index.html" }), {
-      id: "api_client_send",
-      extensionId: "tedi.api-client",
-      args: { method: "GET" },
-    });
+      TOOLS as unknown as Record<string, { run: (t: unknown, a: unknown) => Promise<unknown> }>
+    ).run_command.run(
+      { call: async () => value },
+      { id: "api_client_send", extensionId: "tedi.api-client", args: { method: "GET" } },
+    );
 
   const body = { status: 200, body: '{"ok":true}' };
   const got = await call({ kind: "aiTool", result: body });
-  if (!got.includes('"status": 200')) fail(`AI tool result was dropped: ${got}`);
+  if ((got as typeof body).status !== 200) fail(`AI tool result was dropped: ${String(got)}`);
   else console.log("  ok: the tool's own answer comes back, not a 'ran ...' string");
 
-  const ran = await call({ kind: "command" });
+  const ran = (await call({ kind: "command" })) as string;
   if (!ran.startsWith("ran ")) fail(`a command should report that it ran, got: ${ran}`);
   else console.log("  ok: a command still reports that it ran");
 
@@ -993,58 +1113,15 @@ const dupes = packed.filter((n, i) => packed.indexOf(n) !== i);
 if (dupes.length) fail(`a tool is in two packs, so one switch cannot turn it off: ${dupes}`);
 else console.log("  ok: no tool is in two packs");
 
-// The in-process server (ai/lib/tediMcpServer.ts) serves the SAME surface to
-// TEDI's own agent, gated by the SAME resolved `mcpDisabledTools` names. So its
-// tools must be a SUBSET of the stdio ones: a name that is not in a pack matches
-// no switch, which would leave that tool permanently on for the built-in agent
-// while the dialog claims it is off - a bypass of the very switch, from inside.
-const tediMcpSrc = await readFile("src/modules/ai/lib/tediMcpServer.ts", "utf8");
-// The handler table's top-level keys. Both servers now take every description
-// and schema from `scripts/mcp/tools.mjs`, so this is the only thing left
-// that can be wrong on this side: a handler for a name the table does not have.
-// (`tediMcpServer.ts` also throws at load for that; this catches it in CI.)
-const handlersBlock = tediMcpSrc.slice(
-  tediMcpSrc.indexOf("const HANDLERS: Record<string, Handler> = {"),
-);
-const TEDI_MCP_TOOL_NAMES = [...handlersBlock.matchAll(/^ {2}([a-z_]+): async \(/gm)].map(
-  (m) => m[1],
-);
-if (!TEDI_MCP_TOOL_NAMES.length) fail("no handlers found in tediMcpServer.ts");
-
-// THE ARCHITECTURE RULE, checked directly: descriptions and schemas are declared
-// in ONE place. This replaces a check that compared two hand-kept name lists -
-// which only ever caught a rename, and never caught the thing that actually went
-// wrong (the two `ssh` schemas drifting apart under the same name).
-// Matches a DECLARED value, not a forwarded one: `description: "..."` or
-// `inputSchema: {` / `inputSchema: z.` is a second definition, while
-// `description: TOOL_DEFS[name].description` is the shared table being served.
-let declaredOwn = 0;
-for (const [re, what] of [
-  [/description:\s*["'`]/, "a literal tool description"],
-  [/inputSchema:\s*[{z]/, "an input schema of its own"],
-] as const) {
-  if (re.test(tediMcpSrc)) {
-    declaredOwn++;
-    fail(
-      `tediMcpServer.ts declares ${what} - descriptions and schemas must come from scripts/mcp/tools.mjs, or the two transports drift apart again`,
-    );
-  }
-}
-if (!declaredOwn) {
-  console.log("  ok: the in-process server declares no descriptions or schemas of its own");
-}
-const ungated = TEDI_MCP_TOOL_NAMES.filter((n) => !packed.includes(n));
-if (ungated.length) {
-  fail(`the built-in agent's MCP tools are in no pack, so a switch cannot reach them: ${ungated}`);
+// TEDI's own agent reaches the SAME surface through one tool, gated by the SAME resolved
+// `mcpDisabledTools` names. What it may not do is declare a schema of its own: that is how the two
+// sides drifted apart under one name before.
+const tediToolSrc = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
+if (/inputSchema:\s*[{z]/.test(tediToolSrc)) {
+  fail("tools/tedi.ts declares a schema of its own - it has to come from scripts/mcp/tools.mjs");
 } else {
-  console.log(
-    `  ok: all ${TEDI_MCP_TOOL_NAMES.length} built-in-agent tools are gated by the same packs`,
-  );
+  console.log("  ok: TEDI's own agent declares no schema of its own");
 }
-const notReal = TEDI_MCP_TOOL_NAMES.filter((n) => !toolNames.includes(n));
-if (notReal.length) {
-  fail(`the built-in agent offers tools the stdio server does not - two surfaces: ${notReal}`);
-} else console.log("  ok: the built-in agent's tool names match the stdio server's");
 
 // `state`/`inspect` must stay reachable: they are how an agent finds anything,
 // including the fact that the rest was switched off.
@@ -1076,199 +1153,24 @@ if (!/ensureExtIndex\(\)/.test(callBody)) {
   console.log("  ok: a tool call builds the extension index itself, without waiting for a list");
 
 // ---------------------------------------------------------------------------
-// 6c. The bridged-method map must stay true.
-// ---------------------------------------------------------------------------
 //
-// `transport.mjs` routes a call to the local socket when `BRIDGED` names it, and
-// to CDP otherwise. Two ways that can rot, both silent:
-//
-//   * a name that is no longer a `Driver` method - the CDP fallback would throw
-//     "no such method" only on a machine where the bridge is down, i.e. rarely
-//     and confusingly;
-//   * a method listed here that is NOT a pure `this.#tedi(...)` call - it would
-//     read the DOM or dispatch input, which the socket cannot do, so the bridge
-//     would answer with something quietly wrong instead of nothing.
-//
-// The second is the one worth catching: it is the difference between a tool that
-// fails and a tool that lies.
-console.log("\n[bridge] every bridged method is a real, in-realm-only Driver method");
+// ONE PROFILE DECIDES WHICH TEDI. With the bridge down this transport used to fall back to a
+// DevTools port, which has no authentication: an end-to-end run aimed at a dev profile sent
+// `keys` and `screenshot` into the installed release, because 9222 is what that happened to
+// be listening on. A server ships with its app, so nothing needs the fallback.
+console.log("\n[transport] a tool never reaches for a DevTools port");
 {
-  const { BRIDGED } = await import("./transport.mjs");
-  const driverSrc = await readFile("scripts/mcp/driver.mjs", "utf8");
-  const proto = Object.getOwnPropertyNames(Driver.prototype);
-  for (const [method, capability] of Object.entries(BRIDGED as Record<string, string>)) {
-    if (!proto.includes(method)) {
-      fail(`BRIDGED names "${method}", which is not a Driver method`);
-      continue;
-    }
-    // The body between this method and the next: a bridged one is a single
-    // `return this.#tedi("<capability>", ...)`.
-    const at = driverSrc.indexOf(`\n  ${method}(`);
-    if (at < 0) continue; // defined with a different signature style; skip
-    // WHITESPACE-INSENSITIVE, and that is not fussiness. Prettier wraps a call
-    // with enough arguments across lines, which turns `#tedi("browserAct"` into
-    // `#tedi(\n  "browserAct",` - so a literal match reported a correctly
-    // bridged method as broken, and the only "fix" that satisfied it was to
-    // keep the source on one line until the next format run undid it. Match the
-    // call, not its layout.
-    const body = driverSrc.slice(at, driverSrc.indexOf("\n  }", at)).replace(/\s+/g, "");
-    if (!body.includes("#tedi(")) {
-      fail(
-        `BRIDGED routes "${method}" to the socket, but it does not go through #tedi() - it reads the DOM or dispatches input, which the socket cannot do`,
-      );
-    } else if (!body.includes(`#tedi("${capability}"`)) {
-      fail(
-        `BRIDGED maps "${method}" to capability "${capability}", but the Driver calls a different one`,
-      );
-    }
-  }
-  if (!failed) {
-    console.log(
-      `  ok: all ${Object.keys(BRIDGED as object).length} bridged methods are pure in-realm calls`,
-    );
-  }
-
-  // The other direction. The checks above ask "is everything in the map real";
-  // this one asks "is everything real in the map". A pure `#tedi` method that
-  // nobody adds to BRIDGED falls through to CDP, which is WINDOWS-ONLY - so the
-  // tool does not exist on macOS or Linux while passing every test run on
-  // Windows.
-  const inRealmOnly = [...driverSrc.matchAll(/\n {2}(?:async )?([a-zA-Z][\w]*)\(/g)]
-    .map((m) => m[1])
-    .filter((name) => {
-      if (name in (BRIDGED as Record<string, string>)) return false;
-      const at = driverSrc.indexOf(`\n  ${name}(`);
-      if (at < 0) return false;
-      // Whitespace-stripped for the same reason as above: prettier's wrapping
-      // must not change the answer.
-      const body = driverSrc.slice(at, driverSrc.indexOf("\n  }", at)).replace(/\s+/g, "");
-      // A method whose ENTIRE body is one `#tedi` call needs no DOM, no input
-      // and no compositor, so there is no reason for it to be on CDP.
-      return body.includes("returnthis.#tedi(") && body.split("#tedi(").length === 2;
-    });
-  if (inRealmOnly.length) {
-    fail(
-      `these Driver methods are pure #tedi calls but are NOT in BRIDGED, so they fall back to CDP and do not work off Windows: ${inRealmOnly.join(", ")}`,
-    );
-  } else {
-    console.log("  ok: every pure in-realm method is routed through the socket");
-  }
-}
-
-// ---------------------------------------------------------------------------
-// A COMPOSITE method runs on a driver with NO DevTools connection at all, so it
-// must never reach `this.eval`, `this.cdp` or `this.invoke`. `bridgeOnlyDriver`
-// builds `new Driver(null, null)`, so the day one of them grows a CDP line it
-// throws "Cannot read properties of null" - and only on macOS and Linux, where
-// nobody developing on Windows would ever see it. `driver.mjs` claims this file
-// checks that; until now it did not.
-// ---------------------------------------------------------------------------
-console.log("\n[composite] sh / waitTerminal stay pure enough to run without CDP");
-{
-  const { COMPOSITE } = await import("./driver.mjs");
-  const { BRIDGED } = await import("./transport.mjs");
-  const src = await readFile("scripts/mcp/driver.mjs", "utf8");
-  const proto = Object.getOwnPropertyNames(Driver.prototype);
-  const bridged = BRIDGED as Record<string, string>;
-  for (const method of COMPOSITE as string[]) {
-    if (!proto.includes(method)) {
-      fail(`COMPOSITE names "${method}", which is not a Driver method`);
-      continue;
-    }
-    if (method in bridged) {
-      fail(`"${method}" is in BOTH COMPOSITE and BRIDGED - it is one or the other`);
-    }
-    const at = src.indexOf(`\n  async ${method}(`);
-    if (at < 0) {
-      fail(`could not locate ${method} in driver.mjs to check it`);
-      continue;
-    }
-    const body = src.slice(at, src.indexOf("\n  }", at));
-    for (const banned of ["this.eval(", "this.cdp", "this.invoke("]) {
-      if (body.includes(banned)) {
-        fail(`COMPOSITE "${method}" reaches ${banned} - it cannot run on a bridge-only driver`);
-      }
-    }
-  }
-  console.log(`  ok: ${(COMPOSITE as string[]).length} composite methods use only bridged calls`);
-}
-
-// ---------------------------------------------------------------------------
-//
-// ONE PROFILE HAS TO DECIDE BOTH HALVES OF "which TEDI am I driving".
-// `TEDI_BUNDLE_ID` picks the settings file (pack switches) and the bridge
-// socket; the CDP port was a bare `env.TEDI_DEBUG_PORT || 9222` beside it. With
-// the id set and the port not - which is every hand-written config, and every
-// dev run - this server read ONE app's switches and dispatched REAL KEYSTROKES
-// into ANOTHER app's window. An end-to-end run did exactly that: aimed at a dev
-// profile, it sent `keys` and `screenshot` into the installed release.
-console.log("\n[cdp port] the port comes from the profile the bundle id names");
-{
-  const { resolveCdpPort } = (await import("./server.mjs")) as unknown as {
-    resolveCdpPort: (env: unknown, stored: number | null) => number | null;
-  };
-  const cases: [string, unknown, number | null, number | null][] = [
-    ["an explicit env var always wins", "9500", 9223, 9500],
-    ["...even when the profile says off", "9500", 0, 9500],
-    ["no env var: the profile's own port", undefined, 9223, 9223],
-    ["a profile with the channel off resolves to nothing", undefined, 0, null],
-    ["a profile that never stored one has no port, not the usual one", undefined, null, null],
-    ["an empty env var is not a port", "", 9223, 9223],
-    ["a non-numeric env var is not a port", "yes", 9223, 9223],
-  ];
-  for (const [label, env, stored, want] of cases) {
-    const got = resolveCdpPort(env, stored);
-    if (got === want) console.log(`  ok: ${label} (${String(got)})`);
-    else fail(`${label}: got ${String(got)}, want ${String(want)}`);
-  }
-  // The one that was the bug: a named profile with its own port must NEVER
-  // resolve to the default, because the default is whatever OTHER TEDI is up.
-  if (resolveCdpPort(undefined, 9223) === 9222) {
-    fail("a dev profile still resolves to 9222 - it would drive the installed release");
-  }
-}
-
-// ---------------------------------------------------------------------------
-//
-// The transport is a Proxy with a catch-all `get`, and `server.mjs` reaches it
-// through `await tedi()`. `await` decides whether something is a promise by
-// reading `.then` and checking it is callable - so a proxy that answers every
-// property WITH A FUNCTION is adopted as a thenable, and the language calls
-// `then(resolve, reject)` and waits. Nothing ever resolved it: every tool call
-// hung, and the throw inside that orphaned call killed the server process, which
-// the client reported as "Connection closed".
-//
-// It shipped, because nothing here reaches `tedi()` without an app and the live
-// sweep drives `Driver` directly. This does it with no TEDI running at all: the
-// checks are about what the LANGUAGE asks the proxy, not about what it answers.
-console.log("\n[transport] the proxy must not pass for a promise");
-{
+  const code = (await readFile("scripts/mcp/transport.mjs", "utf8")).replace(
+    /\/\*[\s\S]*?\*\/|\/\/.*/g,
+    "",
+  );
+  if (/\bconnect\(|TEDI_DEBUG_PORT|\bport\b/.test(code)) {
+    fail("transport.mjs reaches for a port, so a tool can drive the wrong window");
+  } else console.log("  ok: the socket is the only way in");
   const { makeTransport } = await import("./transport.mjs");
-  const t = makeTransport({ port: 1 }) as Record<string, unknown>;
-
-  if (t.then === undefined) console.log("  ok: `then` is undefined, so it is not thenable");
-  else fail("the transport proxy answers `then`, so `await` will treat it as a promise and hang");
-
-  if (t[Symbol.iterator as unknown as string] === undefined) {
-    console.log("  ok: well-known symbols are undefined too");
-  } else {
-    fail("the proxy answers well-known symbols - inspect/stringify/iteration would throw");
-  }
-
-  // The actual failure, end to end, with no app: this used to never settle.
-  const settled = await Promise.race([
-    Promise.resolve(t).then(
-      () => "resolved",
-      () => "rejected",
-    ),
-    new Promise((r) => setTimeout(() => r("HUNG"), 1500)),
-  ]);
-  if (settled === "resolved") console.log("  ok: `await tedi()` settles with no TEDI running");
-  else fail(`\`await\` on the transport ${settled === "HUNG" ? "never settled" : "rejected"}`);
-
-  // And it is still a working driver afterwards.
-  if (typeof t.state === "function") console.log("  ok: real methods still resolve to functions");
-  else fail("guarding `then` broke ordinary method lookup");
+  const t = makeTransport() as { call: (n: string) => Promise<unknown>; then?: unknown };
+  if (t.then !== undefined) fail("the transport passes for a promise, so await would adopt it");
+  else console.log("  ok: it is not thenable");
 }
 
 // ---------------------------------------------------------------------------
@@ -1276,57 +1178,37 @@ console.log("\n[transport] the proxy must not pass for a promise");
 // ---------------------------------------------------------------------------
 
 /**
- * Settings and extension control are reachable two ways: an outside AI CLI comes
- * in through `window.__tedi` over the DevTools socket, and TEDI's own agent calls
- * the same functions over an in-process MCP server, `ai/lib/tediMcpServer.ts`.
- *
- * The built-in agent deliberately does NOT go through the MCP server. It would
- * have to spawn node and connect back over CDP to the page it is already running
- * in; it would stop working whenever the automation port is off, which is the
- * default; and a page target accepts exactly ONE DevTools client, so it would be
- * competing for the socket with the user's real Claude Code session.
- *
- * What must not be duplicated, then, is the DEFINITION - and the way that rots
- * is quietly: someone inlines the logic back into one of the two registrations,
- * the behaviours drift, and the only symptom is the built-in agent and an
- * outside CLI disagreeing about what a setting does. So both call sites are
- * checked to REFERENCE the shared function rather than re-implement it.
+ * The behaviours were written twice and drifted: `sh` refused a busy pane in-process and typed
+ * into it from outside. So TEDI's own agent runs the same handlers, and this checks it does
+ * not grow its own again.
  */
-console.log("\n[one definition] both transports call the same functions, not two copies");
-const shared: [string, string, string[]][] = [
-  [
-    "src/modules/settings/preferences.ts",
-    "settings",
-    ["export function readSettings", "export async function writeSetting"],
-  ],
-  [
-    "src/modules/extensions/store.ts",
-    "extensions",
-    ["export function listExtensions", "export async function controlExtension"],
-  ],
-];
-const agentTools = await readFile("src/modules/ai/lib/tediMcpServer.ts", "utf8");
-for (const [file, what, exports] of shared) {
-  const src = await readFile(file, "utf8");
-  for (const decl of exports) {
-    const fn = decl.split(" ").pop() as string;
-    if (!src.includes(decl)) fail(`${file} no longer exports ${fn}`);
-    // The `window.__tedi` half must POINT at it. An inline arrow function there
-    // is exactly the regression this check exists for.
-    else if (!new RegExp(`__tedi[\\s\\S]*\\b${fn}\\b`).test(src)) {
-      fail(`${file}: window.__tedi does not reference ${fn} - has it been re-implemented inline?`);
-    } else if (!agentTools.includes(fn)) {
-      fail(`ai/lib/tediMcpServer.ts does not use ${fn} - the built-in agent has forked from MCP`);
-    } else console.log(`  ok: ${what}.${fn} has one implementation, used by both`);
+console.log("\n[one implementation] TEDI's own agent runs the shared handlers");
+const agentTools = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
+if (!agentTools.includes('from "@mcp/handlers.mjs"')) {
+  fail("tools/tedi.ts does not import the shared handlers");
+} else console.log("  ok: it imports them");
+for (const name of ["termRun", "termProbe", "paneOpen", "workspaceCreate", "sshConnect"]) {
+  if (agentTools.includes(`"${name}"`)) {
+    fail(`tools/tedi.ts calls "${name}" itself - a second implementation is growing back`);
   }
 }
+for (const [file, fn] of [
+  ["src/modules/settings/preferences.ts", "writeSetting"],
+  ["src/modules/extensions/store.ts", "controlExtension"],
+] as const) {
+  const src = await readFile(file, "utf8");
+  if (!new RegExp(`registerBridge\\([\\s\\S]*\\b${fn}\\b`).test(src)) {
+    fail(`${file}: the capability does not reference ${fn}`);
+  }
+}
+console.log("  ok: and the capabilities they call point at the app's own functions");
 // And the built-in agent must not reach TEDI through the STDIO server: that
 // would be a subprocess and a socket round trip into its own realm, gated on a
 // port that is off by default. Test the CODE, not the file text - the header
 // comment explains that decision and names the very things this forbids.
 const agentCode = agentTools.replace(/\/\*[\s\S]*?\*\/|\/\/.*/g, "");
-if (/mcp\/server|TEDI_DEBUG_PORT|__tedi\b/.test(agentCode)) {
-  fail("tediMcpServer.ts reaches for the stdio/automation channel instead of calling in-realm");
+if (/mcp\/server\.|TEDI_DEBUG_PORT|__tedi\b/.test(agentCode)) {
+  fail("tools/tedi.ts reaches for the stdio/automation channel instead of calling in-realm");
 } else console.log("  ok: the built-in agent calls in-realm, never through the DevTools socket");
 
 // ---------------------------------------------------------------------------

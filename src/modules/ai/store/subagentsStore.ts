@@ -2,6 +2,7 @@ import { create } from "zustand";
 import { LazyStore } from "@tauri-apps/plugin-store";
 import { listen, emit, type UnlistenFn } from "@tauri-apps/api/event";
 import { SUBAGENTS, type SubagentDef, READ_ONLY_TOOLS } from "../agents/registry";
+import { fileAgents } from "../lib/fileDefinitions";
 import type { ProviderId } from "../config";
 
 const STORE_PATH = "tedi-subagents.json";
@@ -115,6 +116,7 @@ export const useSubagentsStore = create<SubagentsState>((set, get) => ({
 
 /** Resolve all sub-agent definitions: built-in + enabled custom. */
 export function getAllSubagentDefs(): Record<string, SubagentDef> {
+  const fromFiles = Object.fromEntries(fileAgents().map((a) => [a.id, a]));
   const state = useSubagentsStore.getState();
   const builtIn: Record<string, SubagentDef> = { ...SUBAGENTS };
   const customEntries = state.customSubagents
@@ -131,5 +133,6 @@ export function getAllSubagentDefs(): Record<string, SubagentDef> {
         modelProvider: a.modelProvider || undefined,
       } as SubagentDef,
     ]);
-  return { ...builtIn, ...Object.fromEntries(customEntries) };
+  // A file never shadows a built-in or a custom agent: the name a user knows keeps its meaning.
+  return { ...fromFiles, ...builtIn, ...Object.fromEntries(customEntries) };
 }

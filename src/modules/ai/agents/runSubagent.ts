@@ -25,6 +25,7 @@ import {
   type PromptId,
 } from "../lib/prompts";
 import { getPromptOverrides } from "../store/promptsStore";
+import { withHooks } from "../lib/hooks";
 import { scrubErrorPath, type ToolContext } from "../tools/context";
 import { buildFsTools } from "../tools/fs";
 import { buildSearchTools } from "../tools/search";
@@ -133,6 +134,8 @@ export async function runSubagent({
     if (planMode && !READ_ONLY_TOOLS.includes(t)) continue;
     if (t in available && !off.has(t)) filtered[t] = available[t];
   }
+  // A worker is the agent too: a blocked command must not get through by being delegated.
+  const hooked = withHooks(filtered as ToolSet, toolContext.getCwd);
 
   // User overrides: system prompt, model, and (opt-in) temperature per sub-agent.
   const overrides = getPromptOverrides();
@@ -227,7 +230,7 @@ export async function runSubagent({
       const stream = streamText({
         model,
         messages,
-        tools: filtered as never,
+        tools: hooked as never,
         // No low step cap (powerful sub-agents): natural finish plus the main
         // agent's anti-loop guards terminate; the count is just a runaway backstop.
         stopWhen: [

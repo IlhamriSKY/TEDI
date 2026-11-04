@@ -9,7 +9,15 @@ import {
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
 import { WorkspacesPanel } from "@/modules/workspaces";
-import { Suspense, useEffect, useMemo, useRef, type ReactNode, type RefObject } from "react";
+import {
+  Suspense,
+  type ComponentProps,
+  useEffect,
+  useMemo,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { type TabsApi } from "../hooks/tabsApi";
 import { canDockRight, dockRight } from "../lib/sectionDock";
@@ -43,6 +51,7 @@ type Props = {
    *  sidebar drops its pane (mirrors `sourceControlInRightPanel`). */
   sshInRightPanel: boolean;
   onSwitchWorkspace: (workspaceId: string) => void;
+  onAddToWorkspace: ComponentProps<typeof WorkspacesPanel>["onAddToWorkspace"];
   onCreateWorkspace: () => void;
   onCloseWorkspace: (workspaceId: string) => void;
   tabCounts: Record<string, number>;
@@ -128,6 +137,7 @@ export function AppSidebar({
   sourceControlInRightPanel,
   sshInRightPanel,
   onSwitchWorkspace,
+  onAddToWorkspace,
   onCreateWorkspace,
   onCloseWorkspace,
   tabCounts,
@@ -248,6 +258,7 @@ export function AppSidebar({
         return (
           <WorkspacesPanel
             onSwitch={onSwitchWorkspace}
+            onAddToWorkspace={onAddToWorkspace}
             onCreate={onCreateWorkspace}
             onClose={onCloseWorkspace}
             tabCounts={tabCounts}

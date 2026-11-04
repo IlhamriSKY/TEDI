@@ -3,7 +3,7 @@ import { lastAssistantMessageIsCompleteWithApprovalResponses } from "ai";
 import { createContext, use, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { tryGetModel } from "../config";
 import { useWhisperRecording } from "../hooks/useWhisperRecording";
-import type { TediUserMetadata } from "./messageBody";
+import { selectionLabel, type TediUserMetadata } from "./messageBody";
 import { expandSnippetTokens, type Snippet } from "../lib/snippets";
 import { tryRunSlashCommand, type SlashCommandMeta } from "./slashCommands";
 import { toast } from "@/components/ui/toast";
@@ -34,7 +34,7 @@ export type FileAttachment = {
   text?: string;
   size: number;
   /** For kind === "selection": source surface. */
-  source?: "terminal" | "editor";
+  source?: "terminal" | "editor" | "web";
 };
 
 type MessagePart =
@@ -291,9 +291,13 @@ export function AiComposerProvider({ children }: ProviderProps) {
         if (existing.has(sel.id)) continue;
         next.push({
           id: sel.id,
-          name: sel.source === "editor" ? "Editor selection" : "Terminal selection",
+          name: sel.name ?? selectionLabel(sel.source),
           kind: "selection",
-          mediaType: "text/plain",
+          // Describes `url`, which is sent as a file part. The text goes in the block.
+          mediaType: sel.imageUrl
+            ? sel.imageUrl.slice("data:".length, sel.imageUrl.indexOf(";"))
+            : "text/plain",
+          url: sel.imageUrl,
           text: sel.text,
           size: sel.text.length,
           source: sel.source,
@@ -504,7 +508,9 @@ export function AiComposerProvider({ children }: ProviderProps) {
     );
     const selectionBlocks = files.flatMap((f) =>
       f.kind === "selection"
-        ? [`<selection source="${f.source ?? "terminal"}">\n${f.text ?? ""}\n</selection>`]
+        ? [
+            `<selection source="${f.source ?? "terminal"}"${f.source === "web" ? ` name="${f.name}"` : ""}>\n${f.text ?? ""}\n</selection>`,
+          ]
         : [],
     );
     const { body: bodyAfterTokens, blocks: snippetBlocks } = expandSnippetTokens(
@@ -536,7 +542,7 @@ export function AiComposerProvider({ children }: ProviderProps) {
     if (composed) parts.push({ type: "text", text: composed });
 
     for (const f of files) {
-      if (f.kind === "image" && f.url) {
+      if ((f.kind === "image" || f.kind === "selection") && f.url) {
         parts.push({
           type: "file",
           mediaType: f.mediaType,

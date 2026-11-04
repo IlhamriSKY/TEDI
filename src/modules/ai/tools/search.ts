@@ -3,7 +3,7 @@ import { z } from "zod";
 import { native } from "../lib/native";
 import { checkReadable } from "../lib/security";
 import { isReadOutsideScope, resolvePath, scrubErrorPath, type ToolContext } from "./context";
-import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
+import { flexArrayOpt, flexBoolOpt, flexIntOpt } from "./coerce";
 
 export function resolveRoot(
   rawRoot: string | undefined,

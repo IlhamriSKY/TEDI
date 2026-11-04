@@ -17,15 +17,40 @@
  * profile unless `TEDI_BUNDLE_ID` says otherwise. `targets` and `sweep` are dev
  * verbs that drive a window over the DevTools port (`pnpm mcp sweep --port 9333`).
  *
+ * TWO READERS. On a terminal an answer is for a person: a table or plain text
+ * (`render.mjs`). Piped, or with `--json`, it is one compact JSON value, for a program or an AI
+ * agent. Stdout holds the answer and stderr says why there is none.
+ *
  * Exit status: 0 answered, 1 the tool or TEDI refused, 2 the command line was wrong.
  */
 
-import { mkdtempSync, realpathSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  realpathSync,
+  renameSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { homedir, tmpdir } from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { callTool, closeDriver, listTools, pick } from "./server.mjs";
-import { ALIASES, CLI_EXAMPLES, cliGuide, resolveVerb, TOOL_DEFS, TOOL_NAMES } from "./tools.mjs";
+import { humanize, pretty, table } from "./render.mjs";
+import { callTool, closeTransport, currentSurface, listTools, serveStdio } from "./server.mjs";
+import { connectBridge } from "./socket.mjs";
+import { readsAsInstalled, TARGETS, withEntry, withoutEntry } from "./targets.mjs";
+import {
+  ALIASES,
+  CLI_EXAMPLES,
+  cliGuide,
+  cliVerbs,
+  resolveVerb,
+  TOOL_DEFS,
+  TOOL_NAMES,
+} from "./tools.mjs";
 
 /**
  * What bare words fill, by the first word, because one slot list per tool put them
@@ -45,8 +70,7 @@ const POSITIONAL = {
   read: (w) => (w === "dom" ? ["source", "selector"] : ["source", "leafId"]),
   notes: (w) => (/^add_/.test(w) ? ["action", "text"] : ["action", "id", "text"]),
   schedule: (w) => (w === "cancel" ? ["action", "id"] : ["action", "command"]),
-  inspect: (w) =>
-    w === "sessions" ? ["what", "filter"] : w === "logs" ? ["what", "level"] : ["what"],
+  inspect: (w) => (w === "logs" ? ["what", "level"] : ["what", "filter"]),
   focus_pane: () => ["leafId"],
 };
 
@@ -103,7 +127,7 @@ class UsageError extends Error {}
 export function parseArgs(
   argv,
   schema,
-  { positional, fixed = {}, cwd = process.cwd(), localPaths = true } = {},
+  { positional, fixed = {}, cwd = process.cwd(), localPaths = true, onOutput } = {},
 ) {
   const props = schema?.properties ?? {};
   // A tool with no declared properties takes anything: an extension's schema may
@@ -124,6 +148,11 @@ export function parseArgs(
     if (a === "--" || (takesRest && words.length >= slots.length)) {
       words.push(...argv.slice(a === "--" ? i + 1 : i));
       break;
+    }
+    // After the check above, so `tedi sh ls --json` still runs `ls --json`.
+    if (a === "--json" || a === "--human") {
+      onOutput?.(a.slice(2));
+      continue;
     }
     if (!a.startsWith("--")) {
       words.push(a);
@@ -218,23 +247,39 @@ function verbHelp(found, def) {
   const usage = ["[flags]", ...slots.map((s) => `<${s}>`)].join(" ");
   const examples = CLI_EXAMPLES[found.verb] ?? CLI_EXAMPLES[found.tool];
   const shown = examples ? `\n\nExamples:\n${examples.map((e) => `  ${e}`).join("\n")}` : "";
-  return `tedi ${found.verb.replaceAll("_", "-")} ${usage}\n\n${found.about ?? def.description}\n\n${lines.join("\n")}${shown}\n`;
+  return `tedi ${found.verb.replaceAll("_", "-")} ${usage}\n\n${found.about ?? def.description}\n\n${lines.join("\n")}${shown}\n\nAdd --json for one JSON value (the default when piped), --human for a table.\n`;
 }
 
-/** Text as it is; an image block goes to a temp PNG, since a shell cannot show one. */
-function render(out, select) {
-  if (typeof out === "object" && Array.isArray(out?.content)) {
-    return out.content
-      .map((block) => {
-        if (block.type !== "image") return block.text ?? "";
-        const file = path.join(mkdtempSync(path.join(tmpdir(), "tedi-")), "image.png");
-        writeFileSync(file, Buffer.from(block.data, "base64"));
-        return file;
-      })
-      .join("\n");
-  }
-  return select ? pick(out, select) : String(out);
+/** Who is reading. An explicit flag, then `TEDI_OUTPUT`, then whether stdout is a terminal. */
+export function outputMode(flag, env, isTty) {
+  if (flag) return flag;
+  if (env === "json" || env === "human") return env;
+  return isTty ? "human" : "json";
 }
+
+/** An image block goes to a temp PNG, since a shell cannot show one. */
+function withImagesSaved(out) {
+  if (!Array.isArray(out?.content)) return out;
+  const text = out.content.filter((b) => b.type !== "image").map((b) => b.text ?? "");
+  const images = out.content
+    .filter((b) => b.type === "image")
+    .map((b) => {
+      const file = path.join(mkdtempSync(path.join(tmpdir(), "tedi-")), "image.png");
+      writeFileSync(file, Buffer.from(b.data, "base64"));
+      return file;
+    });
+  return { text: text.join("\n"), images };
+}
+
+/** One JSON value on stdout, whatever the tool answered. */
+export const asJson = (value) =>
+  JSON.stringify(typeof value === "string" ? { message: value } : (value ?? null));
+
+const humanOptions = () => ({
+  color: Boolean(process.stdout.isTTY) && !process.env.NO_COLOR,
+  width: process.stdout.isTTY ? process.stdout.columns : 0,
+  home: homedir().replaceAll("\\", "/"),
+});
 
 /** Which verb was probably meant: the one a model or a tired hand can act on. */
 export function unknownVerb(verb) {
@@ -275,10 +320,179 @@ async function devVerb(verb, argv) {
 }
 
 /** The answer came back, but what was waited for had not finished. Status 1, so
- *  `tedi wait 5 && deploy` stops; the words are `wait_for_terminal`'s and `sh`'s. */
-export const unfinished = (out) =>
-  typeof out === "string" &&
-  (/^leaf \d+: NOT done /.test(out) || /still running after the timeout\]$/.test(out));
+ *  `tedi wait 5 && deploy` stops. */
+export const unfinished = (tool, out) =>
+  (tool === "sh" && out?.timedOut === true) ||
+  (tool === "wait_for_terminal" && out?.done === false);
+
+// --- `tedi mcp`: connect an agent. Needs no running TEDI, because it only edits config files. ---
+
+const MCP_USAGE = `tedi mcp                       run the MCP server on stdio, for an agent to start
+tedi mcp status                which agents are connected, and whether TEDI answers
+tedi mcp install [agent...]    connect them, every one found here unless named (--project: this folder)
+tedi mcp uninstall [agent...]  disconnect them
+tedi mcp config [agent]        print the config instead of writing it
+
+Agents: ${TARGETS.map((t) => t.id).join(", ")}`;
+
+const BUNDLE = () => process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi";
+const SERVER_FILE = () =>
+  fileURLToPath(new URL("./server.mjs", import.meta.url)).replaceAll("\\", "/");
+const agentIsHere = (t) => t.probes.some((p) => existsSync(path.join(homedir(), p)));
+const configFile = (t, project) =>
+  project ? t.projectFile && path.join(process.cwd(), t.projectFile) : path.join(homedir(), t.file);
+
+/** "" only when the file is not there: anything else must not read as an empty config, or
+ *  the writer replaces `.claude.json` and its whole project history with one entry. */
+function readConfig(file) {
+  try {
+    return readFileSync(file, "utf8");
+  } catch (e) {
+    if (e.code === "ENOENT") return "";
+    throw new Error(`${file} cannot be read (${e.code}); leaving it alone.`);
+  }
+}
+
+/** Through a rename, so a crash mid-write cannot leave half of someone's config. Onto the real
+ *  file with its own mode: a dotfile manager's symlink stays a link, a 0600 config stays 0600. */
+function writeConfig(file, text) {
+  mkdirSync(path.dirname(file), { recursive: true });
+  const real = existsSync(file) ? realpathSync(file) : file;
+  const mode = existsSync(real) ? statSync(real).mode & 0o777 : 0o600;
+  const tmp = `${real}.tedi-${process.pid}`;
+  try {
+    writeFileSync(tmp, text, { mode });
+    renameSync(tmp, real);
+  } catch (e) {
+    rmSync(tmp, { force: true });
+    throw e;
+  }
+}
+
+function pickAgents(names, fallback) {
+  if (!names.length) return fallback;
+  return names.map((name) => {
+    const t = TARGETS.find((x) => x.id === name);
+    if (!t)
+      throw new UsageError(`No agent "${name}". Have: ${TARGETS.map((x) => x.id).join(", ")}`);
+    return t;
+  });
+}
+
+async function mcpStatus(project) {
+  const agents = TARGETS.map((t) => {
+    const file = configFile(t, project);
+    const present = agentIsHere(t) && Boolean(file);
+    let installed = false;
+    try {
+      installed = present && readsAsInstalled(t, readConfig(file), SERVER_FILE(), BUNDLE());
+    } catch {
+      // One unreadable config degrades its own row, not the whole report.
+    }
+    return { id: t.id, name: t.name, present, installed, config: present ? file : null };
+  });
+  let running = true;
+  try {
+    (await connectBridge({ timeoutMs: 2000 })).close();
+  } catch {
+    running = false;
+  }
+  const surface = currentSurface();
+  return {
+    running,
+    profile: BUNDLE(),
+    node: process.version,
+    server: SERVER_FILE(),
+    switchedOff: [...surface.disabled, ...surface.disabledExtensions],
+    agents,
+  };
+}
+
+function mcpStatusText(st, o) {
+  const shortened = (file) => (file ?? "").replaceAll("\\", "/").replace(o.home, "~");
+  return [
+    pretty(
+      {
+        TEDI: `${st.running ? "running" : "not running"} (${st.profile})`,
+        Node: st.node,
+        Server: shortened(st.server),
+        Off: st.switchedOff.length ? st.switchedOff.join(", ") : "nothing",
+      },
+      o,
+    ),
+    "",
+    table(
+      st.agents,
+      [
+        ["AGENT", (a) => a.id],
+        ["STATE", (a) => (a.installed ? "connected" : a.present ? "not connected" : "not found")],
+        ["CONFIG", (a) => shortened(a.config)],
+      ],
+      o,
+    ),
+  ].join("\n");
+}
+
+async function mcpCommand(argv, flag) {
+  const project = argv.includes("--project");
+  for (const f of ["json", "human"]) if (argv.includes(`--${f}`)) flag = f;
+  const [sub = "serve", ...names] = argv.filter((a) => !a.startsWith("--"));
+  const mode = outputMode(flag, process.env.TEDI_OUTPUT, process.stdout.isTTY);
+
+  if (argv.includes("--help") || sub === "help") return finish(0, MCP_USAGE);
+  if (sub === "serve") return serveStdio();
+
+  if (sub === "status") {
+    const st = await mcpStatus(project);
+    return finish(0, mode === "json" ? asJson(st) : mcpStatusText(st, humanOptions()));
+  }
+
+  if (sub === "config") {
+    if (!names.length) {
+      return finish(
+        0,
+        `Any MCP client: a stdio server with command "tedi" and args ["mcp"].\n\n${MCP_USAGE}`,
+      );
+    }
+    const [target] = pickAgents(names, []);
+    process.stderr.write(
+      `# in ${configFile(target, project) ?? path.join(homedir(), target.file)}\n`,
+    );
+    return finish(0, withEntry(target, "", SERVER_FILE(), BUNDLE()));
+  }
+
+  if (sub === "install" || sub === "uninstall") {
+    const rows = [];
+    for (const t of pickAgents(names, TARGETS.filter(agentIsHere))) {
+      const file = configFile(t, project);
+      if (!file) {
+        rows.push({ id: t.id, done: false, why: `${t.name} has no per-project config` });
+      } else if (!agentIsHere(t)) {
+        rows.push({ id: t.id, done: false, why: `${t.name} is not installed here` });
+      } else {
+        // One config that will not parse must not cost the others, or hide what was written.
+        try {
+          const text = readConfig(file);
+          if (sub === "install") writeConfig(file, withEntry(t, text, SERVER_FILE(), BUNDLE()));
+          else if (text.trim()) writeConfig(file, withoutEntry(t, text));
+          rows.push({ id: t.id, done: true, config: file });
+        } catch (e) {
+          rows.push({ id: t.id, done: false, failed: true, why: `${file}: ${e.message}` });
+        }
+      }
+    }
+    const status = rows.some((r) => r.failed) ? 1 : 0;
+    if (mode === "json") return finish(status, asJson(rows), process.stdout);
+    const lines = rows.map((r) =>
+      r.done ? `${r.id}: ${sub}ed, ${r.config}` : `${r.id}: ${r.why}`,
+    );
+    if (!lines.length) return finish(0, "No supported AI agent was found on this machine.");
+    if (sub === "install") lines.push("", "Restart the agent to pick it up (Hermes: /reload-mcp).");
+    return finish(status, lines.join("\n"), process.stdout);
+  }
+
+  throw new UsageError(`No "tedi mcp ${sub}".\n\n${MCP_USAGE}`);
+}
 
 /** Print and leave. Through the write callback because a piped stdout on Windows
  *  is asynchronous, and exiting first cuts the tail of a long answer. */
@@ -287,24 +501,35 @@ function finish(code, text, stream = code === 0 ? process.stdout : process.stder
 }
 
 async function main(argv) {
+  // Before the verb too, and Rust lets that through: `tedi --json panes`.
+  let flag = null;
+  while (argv[0] === "--json" || argv[0] === "--human") flag = argv.shift().slice(2);
+
   const [verb, ...rest] = argv;
   if (verb === "targets" || verb === "sweep") return finish(await devVerb(verb, rest), "");
+  if (verb === "mcp") return mcpCommand(rest, flag);
 
-  // A terminal inherits this from whatever launched TEDI, and to the transport it
-  // reads as a deliberate override. So a command aimed at a profile that was not
-  // running fell through to that port and drove ANOTHER TEDI: real keystrokes into
-  // a live session, reported as success. Which window a verb reaches is decided by
-  // the profile alone.
-  delete process.env.TEDI_DEBUG_PORT;
-
+  // Docs read the same whoever asks: a list of verbs is more use to a model as the guide, and
+  // JSON only when it says so.
   if (!verb || verb === "help" || verb === "tools") {
+    const asData = flag === "json" || rest.includes("--json");
     const tools = await listTools();
-    const wanted = verb === "help" ? rest[0] : undefined;
-    if (!wanted) return finish(0, cliGuide(tools));
+    const wanted = verb === "help" ? rest.find((a) => !a.startsWith("--")) : undefined;
+    if (!wanted) return finish(0, asData ? asJson(cliVerbs(tools)) : cliGuide(tools));
     const found = resolveVerb(wanted);
     const def = found && tools.find((t) => t.name === found.tool);
     if (!def) return finish(2, unknownVerb(wanted));
-    return finish(0, verbHelp(found, def));
+    return finish(
+      0,
+      asData
+        ? asJson({
+            ...def,
+            verb: found.verb,
+            fixedArgs: found.args,
+            examples: CLI_EXAMPLES[found.verb],
+          })
+        : verbHelp(found, def),
+    );
   }
 
   const found = resolveVerb(verb);
@@ -338,23 +563,38 @@ async function main(argv) {
   let wait = 0;
   let argv2 = rest;
   if (found.verb === "logs") {
-    const at = rest.indexOf("--for");
-    wait = (at === -1 ? 3 : Number(rest[at + 1]) || 3) * 1000;
-    argv2 = rest.filter((_, i) => at === -1 || (i !== at && i !== at + 1));
+    const at = rest.findIndex((a) => a === "--for" || a.startsWith("--for="));
+    const raw = at === -1 ? "3" : rest[at].startsWith("--for=") ? rest[at].slice(6) : rest[at + 1];
+    const seconds = Number(raw);
+    if (raw === undefined || raw === "" || !(seconds >= 0)) {
+      throw new UsageError(`--for wants seconds, got "${raw ?? ""}".`);
+    }
+    wait = seconds * 1000;
+    const width = at !== -1 && rest[at] === "--for" ? 2 : 1;
+    argv2 = rest.filter((_, i) => at === -1 || i < at || i >= at + width);
   }
 
   const args = parseArgs(argv2, schema, {
     positional: positionalFor(found, argv2),
     fixed: found.args,
     localPaths: Boolean(TOOL_DEFS[found.tool]),
+    onOutput: (f) => {
+      flag = f;
+    },
   });
-  if (wait) {
+  const mode = outputMode(flag, process.env.TEDI_OUTPUT, process.stdout.isTTY);
+  // The table has no room for it, and each tail is a walk over that pane's whole buffer.
+  if (mode === "human" && found.verb === "panes" && args.tail === undefined) args.tail = 0;
+
+  if (found.verb === "logs") {
     await callTool(found.tool, args);
     await new Promise((r) => setTimeout(r, wait));
   }
-  const out = await callTool(found.tool, args);
-  await closeDriver();
-  return finish(unfinished(out) ? 1 : 0, render(out, found.select), process.stdout);
+  const out = withImagesSaved(await callTool(found.tool, args));
+  closeTransport();
+  const value = found.select ? (out?.[found.select] ?? null) : out;
+  const text = mode === "json" ? asJson(value) : humanize(found, args, value, humanOptions());
+  return finish(unfinished(found.tool, value) ? 1 : 0, text, process.stdout);
 }
 
 // Real paths on both sides: node runs the main module from its real path, so behind

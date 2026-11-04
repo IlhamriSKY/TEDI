@@ -17,6 +17,7 @@
  */
 
 import net from "node:net";
+import { homedir } from "node:os";
 import path from "node:path";
 import { readFileSync } from "node:fs";
 
@@ -30,18 +31,21 @@ import { readFileSync } from "node:fs";
  * `tedi-settings.json` - the handshake is written into that same directory.
  */
 export function tediDataFiles(name) {
-  const home = process.env.APPDATA || process.env.XDG_CONFIG_HOME || process.env.HOME || "";
+  // From the OS, not only the environment: a client may start this with most of it stripped.
+  // Hermes passes PATH, HOME, USER and a few others, and on Windows that leaves no APPDATA and
+  // no HOME, so every call said "TEDI is not running" with TEDI open.
+  const home = process.env.HOME || homedir();
   const id = process.env.TEDI_BUNDLE_ID || "id.ilhamrisky.tedi";
   const roots = [
     process.env.APPDATA,
     process.env.XDG_CONFIG_HOME,
     process.env.XDG_DATA_HOME,
+    process.platform === "win32" && path.join(homedir(), "AppData", "Roaming"),
     // Where `dirs::data_dir()` puts it on macOS. Without this every client said
     // "TEDI is not running" on a Mac with TEDI open, and read no pack switches.
-    process.env.HOME && path.join(process.env.HOME, "Library", "Application Support"),
-    process.env.HOME && path.join(process.env.HOME, ".config"),
-    process.env.HOME && path.join(process.env.HOME, ".local", "share"),
-    home,
+    path.join(home, "Library", "Application Support"),
+    path.join(home, ".config"),
+    path.join(home, ".local", "share"),
   ].filter(Boolean);
   return [...new Set(roots)].map((r) => path.join(r, id, name));
 }

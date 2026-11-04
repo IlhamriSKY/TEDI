@@ -1,3 +1,4 @@
+import { rejectsImages } from "./imageFallback";
 /**
  * Structured error codes for AI agent failures, detailed enough for a friendly
  * UI message and a traceable log. Payloads carry a `TediErrorCode` plus an
@@ -227,12 +228,7 @@ export function humanizeChatErrorMessage(raw: string): string {
   if (msg.includes("not supported when using codex with a chatgpt account")) {
     return `${raw} Pick another ChatGPT model in the model picker - the Codex and Sol models need a Plus or Pro plan, Terra and Luna work on any.`;
   }
-  if (
-    msg.includes("image input") ||
-    (msg.includes("no endpoints") && msg.includes("image")) ||
-    msg.includes("does not support image") ||
-    /\bvision\b/.test(msg)
-  ) {
+  if (rejectsImages(raw)) {
     return "This model can't read images on the current provider. Switch to a vision-capable model (e.g. Gemini, Claude, or GPT) or remove the image attachment, then resend.";
   }
   return raw;

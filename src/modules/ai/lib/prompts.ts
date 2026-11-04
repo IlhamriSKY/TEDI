@@ -16,7 +16,6 @@ import type { ProviderId } from "../config";
 /** Stable ids for every editable prompt. Used as override-map keys. */
 export type PromptId =
   | "core"
-  | "core-lite"
   | "chat"
   | "plan-mode"
   | "orchestration"
@@ -75,16 +74,9 @@ export const PROMPT_META: readonly PromptMeta[] = [
   {
     id: "core",
     label: "Core system prompt",
-    description: "The main agent's instructions. Used for capable models.",
+    description: "The main agent's instructions.",
     group: "Main agent",
     capabilities: { temperature: true },
-  },
-  {
-    id: "core-lite",
-    label: "Core system prompt (compact)",
-    description: "Trimmed variant sent to fast/cheap models to save tokens.",
-    group: "Main agent",
-    capabilities: {},
   },
   {
     id: "chat",
@@ -112,7 +104,7 @@ export const PROMPT_META: readonly PromptMeta[] = [
   {
     id: "subagent:comet",
     label: "Comet sub-agent",
-    description: "Read-only codebase search specialist spawned via run_subagent.",
+    description: "Read-only codebase search specialist spawned via run_subagents.",
     group: "Sub-agents",
     capabilities: { model: true, temperature: true },
   },
@@ -205,8 +197,13 @@ const KEY_OVERRIDES = "promptOverrides";
 const store = new LazyStore(STORE_PATH, { defaults: {}, autoSave: 200 });
 
 export async function loadPromptOverrides(): Promise<PromptOverrides> {
-  const v = await store.get<PromptOverrides>(KEY_OVERRIDES);
-  return v ?? {};
+  const v = await store.get<PromptOverrides & { "core-lite"?: PromptOverride }>(KEY_OVERRIDES);
+  // There used to be a compact variant. Text someone wrote for it still applies, unless they
+  // wrote one for the main prompt too.
+  const { "core-lite": lite, ...rest } = v ?? {};
+  return lite?.prompt && !rest.core?.prompt
+    ? { ...rest, core: { ...rest.core, prompt: lite.prompt } }
+    : rest;
 }
 
 export async function savePromptOverrides(overrides: PromptOverrides): Promise<void> {

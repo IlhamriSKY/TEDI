@@ -15,6 +15,7 @@ import {
   getUserMessageBody,
   type ExtractedFile,
   type ExtractedSelection,
+  selectionLabel,
 } from "../lib/messageBody";
 import { openAICompatibleInstanceLabel, PROVIDERS } from "../config";
 import { formatElapsed, useElapsedSince } from "../lib/elapsed";
@@ -35,7 +36,7 @@ import type { ChatStatus, DynamicToolUIPart, ToolUIPart, UIMessage, UIMessagePar
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useStickToBottomContext } from "use-stick-to-bottom";
 import { AiToolApproval } from "./AiToolApproval";
-import { ChevronRight, ChevronUp, Code, Terminal } from "lucide-react";
+import { ChevronRight, ChevronUp, Code, Globe, Terminal } from "lucide-react";
 
 function CommandSnippet({ name }: { name: string }) {
   const meta = SLASH_COMMANDS[name];
@@ -58,6 +59,58 @@ function CommandSnippet({ name }: { name: string }) {
   );
 }
 
+/** A part of a web page the user pointed at: its picture, what it is, where it is. */
+function WebMentionCard({
+  sel,
+  imageUrl,
+  onEnlarge,
+}: {
+  sel: ExtractedSelection;
+  imageUrl?: string;
+  onEnlarge: (url: string) => void;
+}) {
+  let host = "";
+  try {
+    host = new URL(sel.pageUrl ?? "").hostname;
+  } catch {
+    // A block recalled from before pages carried an address.
+  }
+  const name = sel.name ?? selectionLabel(sel.source);
+  const thumbnail = "bg-muted flex h-9 w-14 shrink-0 items-center justify-center overflow-hidden";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <div className="border-border/60 bg-card flex max-w-64 min-w-0 items-center gap-2 border p-1 pr-2.5">
+          {imageUrl ? (
+            <button
+              type="button"
+              onClick={() => onEnlarge(imageUrl)}
+              aria-label={`Enlarge ${name}`}
+              className={cn(thumbnail, "cursor-zoom-in")}
+            >
+              <img src={imageUrl} alt="" className="size-full object-contain" />
+            </button>
+          ) : (
+            <span className={cn(thumbnail, "text-muted-foreground")}>
+              <Globe size={14} strokeWidth={1.75} />
+            </span>
+          )}
+          <span className="flex min-w-0 flex-col gap-0.5 leading-tight">
+            <span className="truncate text-[11px] font-medium">{name}</span>
+            <span className="text-muted-foreground truncate text-[10px]">{host || "Web page"}</span>
+          </span>
+        </div>
+      </TooltipTrigger>
+      <TooltipContent side="top">
+        <span className="flex flex-col gap-0.5">
+          {sel.pageTitle ? <span className="font-medium break-words">{sel.pageTitle}</span> : null}
+          {sel.pageUrl ? <span className="break-all opacity-70">{sel.pageUrl}</span> : null}
+        </span>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 function UserAttachmentChips({
   files,
   selections,
@@ -68,6 +121,19 @@ function UserAttachmentChips({
   snippets: string[];
 }) {
   const [lightboxUrl, setLightboxUrl] = useState<string | null>(null);
+  // A mention's picture goes in its card, so it is not drawn a second time below.
+  const pictures = new Map<ExtractedSelection, ExtractedFile>();
+  const carded = new Set<ExtractedFile>();
+  for (const sel of selections) {
+    if (sel.source !== "web" || !sel.name) continue;
+    const picture = files.find(
+      (f) =>
+        !carded.has(f) && f.name === sel.name && f.url && f.mediaType?.startsWith("image/"),
+    );
+    if (!picture) continue;
+    pictures.set(sel, picture);
+    carded.add(picture);
+  }
   return (
     <div className="flex flex-wrap items-center gap-1">
       {snippets.map((handle, i) => (
@@ -81,27 +147,37 @@ function UserAttachmentChips({
           <TooltipContent side="top">{`Snippet >${handle}`}</TooltipContent>
         </Tooltip>
       ))}
-      {selections.map((sel, i) => (
-        <Tooltip key={`sel-${i}`}>
-          <TooltipTrigger asChild>
-            <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
-              {sel.source === "editor" ? (
-                <Code size={11} strokeWidth={2} className="text-muted-foreground" />
-              ) : (
-                <Terminal size={11} strokeWidth={2} className="text-muted-foreground" />
-              )}
-              <span>
-                {sel.source === "editor" ? "Editor selection" : "Terminal selection"}
-                {sel.lines > 0 ? (
-                  <span className="text-muted-foreground ml-1">· {sel.lines}L</span>
-                ) : null}
+      {selections.map((sel, i) =>
+        sel.source === "web" ? (
+          <WebMentionCard
+            key={`sel-${i}`}
+            sel={sel}
+            imageUrl={pictures.get(sel)?.url}
+            onEnlarge={setLightboxUrl}
+          />
+        ) : (
+          <Tooltip key={`sel-${i}`}>
+            <TooltipTrigger asChild>
+              <span className="border-border/60 bg-card flex items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]">
+                {sel.source === "editor" ? (
+                  <Code size={11} strokeWidth={2} className="text-muted-foreground" />
+                ) : (
+                  <Terminal size={11} strokeWidth={2} className="text-muted-foreground" />
+                )}
+                <span>
+                  {selectionLabel(sel.source)}
+                  {sel.lines > 0 ? (
+                    <span className="text-muted-foreground ml-1">· {sel.lines}L</span>
+                  ) : null}
+                </span>
               </span>
-            </span>
-          </TooltipTrigger>
-          <TooltipContent side="top">{`${sel.source} selection`}</TooltipContent>
-        </Tooltip>
-      ))}
+            </TooltipTrigger>
+            <TooltipContent side="top">{selectionLabel(sel.source)}</TooltipContent>
+          </Tooltip>
+        ),
+      )}
       {files.map((f, i) => {
+        if (carded.has(f)) return null;
         const isImage = Boolean(f.url) && (f.mediaType?.startsWith("image/") ?? false);
         // Images render the picture itself; click to enlarge.
         if (isImage) {

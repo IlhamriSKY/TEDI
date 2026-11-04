@@ -1,10 +1,7 @@
 /**
  * The model-facing KEY for a tool, derived from its declared name.
  *
- * A leaf on purpose. These three functions used to live in `tools/mcp.ts`, which
- * imports `lib/tediMcpServer` - so the server could not ask what key an
- * extension tool is filed under without closing an import cycle, and the only
- * other option was a second copy of the rules. A second copy is exactly how the
+ * A leaf on purpose, so nothing has to keep a second copy of the rules. That is exactly how the
  * key an extension tool is REGISTERED under drifts from the key the picker
  * SWITCHES OFF, which would make the switch a no-op nobody could see.
  *

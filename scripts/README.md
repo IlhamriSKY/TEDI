@@ -58,29 +58,35 @@ worth keeping:
 | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `tools.mjs`     | **The tool table**: name → pack, description, JSON Schema. The one definition, imported by both servers. Zero imports, because it ships as a bundle resource with no `node_modules` beside it. |
 | `tools.d.mts`   | Types for the above, since it must stay plain JS.                                                                                                                                              |
-| `server.mjs`    | The stdio MCP server an outside CLI spawns. Advertises ONE gateway tool that points at `tedi <verb>`; holds the handlers `cli.mjs` also runs.                                                  |
-| `transport.mjs` | Decides, per call, whether it goes over the local socket or CDP. `BRIDGED` is the map; everything else falls through to the driver.                                                            |
-| `socket.mjs`    | Client for the local-socket bridge: reads the handshake file, presents the token, calls capabilities by name.                                                                                  |
-| `driver.mjs`    | Drives a running TEDI window over the WebView2 DevTools Protocol. Class `Driver`. Still the only way to send trusted input or capture the window.                                              |
-| `cli.mjs`       | `tedi <verb>`: one tool, then exit, through the same `callTool` the server uses. No standing token cost. Also `pnpm mcp <verb>`, plus the dev verbs `targets` and `sweep`.                     |
+| `handlers.mjs`  | **What each tool does.** One implementation over named capabilities, run by `tedi <verb>`, the stdio server and TEDI's own agent. Imports only `input.mjs`, so the app bundles it. |
+| `input.mjs`     | Real keys, typing and mouse over one DevTools `send`. No Node API, because TEDI's own agent runs it too. |
+| `render.mjs`    | What a person sees from `tedi <verb>`: tables and plain text in place of JSON. Pure, so `cli-verify` reads the output with no app. |
+| `targets.mjs`   | Which AI agents can be pointed at TEDI and how to edit each config file (JSON, TOML, YAML). Text in, text out, shared by the Install MCP dialog and `tedi mcp install`. |
+| `server.mjs`    | The stdio MCP server an outside agent spawns. Advertises ONE gateway tool that points at `tedi <verb>`; holds `callTool` and the handlers that need Node or DevTools. |
+| `transport.mjs` | How a Node process reaches TEDI: the authenticated local socket, and DevTools through it. No fallback to the debug port. |
+| `socket.mjs`    | Client for the local-socket bridge: reads the handshake file, presents the token, calls capabilities by name. |
+| `driver.mjs`    | Drives a window over the DevTools Protocol. Class `Driver`, used through the bridge for trusted input and window capture, and over a port by `sweep`. |
+| `cli.mjs`       | `tedi <verb>`: one tool, then exit, through the same `callTool` the server uses. Tables on a terminal, JSON when piped. `tedi mcp` connects an agent. Also `pnpm mcp <verb>`, plus the dev verbs `targets` and `sweep`. |
 | `sweep.mjs`     | Live smoke test against a running TEDI. Needs the app open.                                                                                                                                    |
 
-### Two ways in
+### One way in
 
-`server.mjs` prefers the **local socket** (a named pipe on Windows, a unix socket
-elsewhere) served by `src-tauri/src/modules/mcp_bridge.rs`. It works on every
-platform, takes many clients at once, is authenticated with a per-run token, and
-needs no restart to become usable.
+Everything goes through the **local socket** (a named pipe on Windows, a unix socket
+elsewhere) served by `src-tauri/src/modules/mcp_bridge.rs`. It works on every platform,
+takes many clients at once, is authenticated with a per-run token, and needs no restart.
 
-**CDP** is pulled up lazily, only for calls that genuinely need it: real keyboard
-and mouse input, window capture, and DOM reads. A session that never touches
-`keys`, `type_text`, `click`, `drag`, `screenshot`, `eval_js`, `state` or
-`read source:"dom"` opens no DevTools connection at all.
+**DevTools** comes through the same socket, only for calls that genuinely need it: real
+keyboard and mouse input, window capture and `eval_js`. TEDI answers them in-process
+(`mcp_devtools.rs`), so no tool opens a debug port. Only `pnpm mcp targets` and `sweep`
+drive a port, explicitly.
 
-`transport.mjs` documents, per method, why anything bridgeable-looking is not
-bridged — `focusPane` verifies through the DOM, `cmd` throws where the capability
-returns false, `terminals` reduces in-page to keep `sh`'s poll loop cheap.
+### Two readers
 
-The app's own in-process MCP server is not here — it is
-`src/modules/ai/lib/tediMcpServer.ts`, and it imports `tools.mjs` through the
-`@mcp/` alias so both transports serve the identical contract.
+On a terminal `tedi <verb>` prints for a person. Piped, or with `--json`, it prints one
+compact JSON value for a program or an AI agent. `--human` and `TEDI_OUTPUT=json|human`
+force either. Stdout holds the answer, stderr says why there is none, and the exit status
+is 0 answered, 1 refused or unfinished, 2 a bad command line.
+
+TEDI's own agent is not here: it is one tool, `src/modules/ai/tools/tedi.ts`. It imports `tools.mjs` and
+`handlers.mjs` through the `@mcp/` alias, and adds only that agent's own policy: the shell guard,
+the tool picker, and which verbs need a card.

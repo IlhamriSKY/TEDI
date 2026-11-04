@@ -25,7 +25,6 @@ export type ToolContext = {
    *  other terminal tool takes a leafId. Null when the app cannot make the tab.
    *  Saved connections have no command id, so this is the only in-realm route to
    *  one. Keys and passphrases stay in the keyring; nothing here can read them. */
-  openSshTab: (connectionId: string, name: string, isPrivate?: boolean) => number | null;
   /** Open a new terminal tab. Optional cwd overrides the inherited cwd. */
   openTerminal: (cwd?: string | null) => boolean;
   /** Advanced terminal-open: tab vs split, target tab, split direction. */

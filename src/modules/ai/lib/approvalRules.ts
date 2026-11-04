@@ -20,6 +20,7 @@
  */
 import type { ApprovalRule } from "@/modules/settings/store";
 import { checkShellCommand, egressHost } from "./security";
+import { gatewayArgs, resolveVerb, verbArgs } from "@mcp/tools.mjs";
 
 export type { ApprovalRule };
 
@@ -136,12 +137,36 @@ function str(v: unknown): string {
   return typeof v === "string" ? v : "";
 }
 
+/**
+ * Verbs a card never makes permanent. Real input can press the Allow button on the next card, and
+ * `lsp` can run the build scripts of whichever repository it is asked about, while a rule holds in
+ * every project.
+ */
+const ALWAYS_ASK = new Set(["keys", "type_text", "click", "drag", "lsp"]);
+
+/**
+ * What a rule for the `tedi` tool names: one verb, and for `sh` one command prefix under the same
+ * rules as the hidden shell. A rule for the bare tool would wave through the whole app, a settings
+ * write and a deleted workspace included, on the strength of one card for a pane rename.
+ */
+function tediMatch(input: Record<string, unknown> | undefined): string | null {
+  const found = resolveVerb(str(input?.verb));
+  if (!found || ALWAYS_ASK.has(found.tool)) return null;
+  if (found.tool !== "sh") return found.tool;
+  const prefix = commandPrefix(str(verbArgs(found, gatewayArgs(input?.args)).command));
+  return prefix && `sh ${prefix}`;
+}
+
 /** The rule a card would create for this call, or null when none may exist. */
 export function suggestRule(
   toolName: string,
   input: Record<string, unknown> | undefined,
 ): ApprovalRule | null {
   if (NEVER_ALWAYS.has(toolName)) return null;
+  if (toolName === "tedi") {
+    const match = tediMatch(input);
+    return match ? { tool: toolName, match } : null;
+  }
   if (SHELL_TOOLS.has(toolName)) {
     const prefix = commandPrefix(str(input?.command));
     return prefix ? { tool: toolName, match: prefix } : null;
@@ -154,12 +179,28 @@ export function suggestRule(
   return { tool: toolName };
 }
 
+/** The unattended safety pass a shell line has to clear, whichever shell it is for. */
+function shLineAllowed(input: Record<string, unknown> | undefined): boolean {
+  const found = resolveVerb(str(input?.verb));
+  const cmd = found ? str(verbArgs(found, gatewayArgs(input?.args)).command).trim() : "";
+  return Boolean(cmd) && !SHELL_META.test(cmd) && checkShellCommand(cmd, { unattended: true }).ok;
+}
+
 /** Whether `rule` approves this call. */
 export function ruleAllows(
   rule: ApprovalRule,
   toolName: string,
   input: Record<string, unknown> | undefined,
 ): boolean {
+  if (toolName === "tedi") {
+    // A rule made when each verb was its own tool still means what it said.
+    const found = resolveVerb(str(input?.verb));
+    if (found && ALWAYS_ASK.has(found.tool)) return false;
+    if (found && rule.tool === `mcp__tedi__${found.tool}`) return rule.match === undefined;
+    if (rule.tool !== toolName || !rule.match) return false;
+    if (rule.match === tediMatch(input)) return found?.tool !== "sh" || shLineAllowed(input);
+    return false;
+  }
   if (rule.tool !== toolName) return false;
   if (NEVER_ALWAYS.has(toolName)) return false;
   if (SHELL_TOOLS.has(toolName)) {

@@ -40,9 +40,8 @@ function check(name: string, ok: boolean, detail?: unknown): void {
 
 console.log("[grouping] real built-in tool names land in the right group");
 
-// NO Terminal group. Panes and terminals are served by TEDI's own in-process
-// MCP server, so they group under `MCP: tedi` (checked below) and
-// `builtinGroup` never sees them.
+// NO Terminal group. TEDI's own verbs carry an `mcp__tedi__` picker key, so they group under
+// `MCP: tedi` (checked below) and `builtinGroup` never sees them.
 const EXPECTED: Record<string, string[]> = {
   Shell: ["bash_run", "bash_background", "bash_logs", "bash_kill", "bash_list"],
   Files: [
@@ -56,9 +55,8 @@ const EXPECTED: Record<string, string[]> = {
   Edit: ["edit", "multi_edit", "write_file", "replace_in_files"],
   Search: ["grep", "glob"],
   Web: ["fetch"],
-  "Sub-agents": ["run_subagent", "run_subagents"],
+  "Sub-agents": ["run_subagents"],
   Tasks: ["todo_write"],
-  Schedule: ["schedule_command", "cancel_schedule", "list_schedules"],
 };
 
 for (const [group, names] of Object.entries(EXPECTED)) {
@@ -86,9 +84,16 @@ check(
 check("a built-in name is not an MCP tool", mcpGroup("read_file") === null);
 check("a malformed mcp key still groups", mcpGroup("mcp__weird") === "(unnamed)");
 
-// TEDI's own control surface is an in-process MCP server (ai/lib/tediMcpServer.ts),
-// so it groups like any other server rather than as a bespoke "TEDI" category.
-// Re-adding a `tedi_*` built-in would split it across two groups again.
+// One switch per verb, though only one tool is sent (`ai/tools/tedi.ts`), and under the key those
+// verbs have always had, so a tool someone switched off stays off.
+const tediSrc = readFileSync("src/modules/ai/tools/tedi.ts", "utf8");
+check("the picker keys are the old tool keys", tediSrc.includes("`mcp__tedi__${toolName}`"));
+check(
+  "the gateway itself is not a row",
+  readFileSync("src/modules/ai/tools/tools.ts", "utf8").includes(
+    "withoutTheGateway(builtin), ...tediPickerRows()",
+  ),
+);
 check("tedi control tools group as an MCP server", mcpGroup("mcp__tedi__inspect") === "tedi");
 check(
   "no built-in claims a TEDI group",
@@ -207,13 +212,12 @@ check(
 // guaranteed failure. Both must move together, off the same source of truth.
 console.log("\n[sub-agents] the picker is the only switch, and it moves both halves");
 const SPAWN: ToolSet = {
-  run_subagent: { description: "" } as never,
   run_subagents: { description: "" } as never,
   grep: { description: "" } as never,
 };
 check(
-  "both spawn tools are named in one shared list",
-  [...SUBAGENT_TOOL_NAMES].sort().join(",") === "run_subagent,run_subagents",
+  "one spawn tool, named in one shared list",
+  [...SUBAGENT_TOOL_NAMES].join(",") === "run_subagents",
   SUBAGENT_TOOL_NAMES,
 );
 check("nothing off -> sub-agents available", subagentsAvailable(new Set()));
@@ -224,16 +228,16 @@ check(
 const spawnOff = applyToolFilter(SPAWN, new Set(SUBAGENT_TOOL_NAMES));
 check(
   "and the tools really leave the request, not just the UI",
-  spawnOff !== undefined && !("run_subagent" in spawnOff) && !("run_subagents" in spawnOff),
+  spawnOff !== undefined && !("run_subagents" in spawnOff),
   spawnOff,
 );
 check("while unrelated tools survive", spawnOff !== undefined && "grep" in spawnOff);
 check(
-  "disabling only the single-spawn tool keeps delegation on",
+  "an old off-list naming the removed single-spawn tool keeps delegation on",
   subagentsAvailable(new Set(["run_subagent"])),
 );
 check(
-  "both spawn tools group under Sub-agents in the picker",
+  "the spawn tool groups under Sub-agents in the picker",
   SUBAGENT_TOOL_NAMES.every((n) => builtinGroup(n) === "Sub-agents"),
 );
 
@@ -243,13 +247,13 @@ check(
 console.log("\n[migration] a legacy `subagentsEnabled: false` becomes an off-list");
 const migrated = withSubagentsDisabled([]);
 check(
-  "an empty off-list gains both spawn tools",
-  migrated.join(",") === "run_subagent,run_subagents",
+  "an empty off-list gains the spawn tool",
+  migrated.join(",") === "run_subagents",
   migrated,
 );
 check(
   "existing choices are kept, not replaced",
-  withSubagentsDisabled(["fetch"]).join(",") === "fetch,run_subagent,run_subagents",
+  withSubagentsDisabled(["fetch"]).join(",") === "fetch,run_subagents",
 );
 check(
   "idempotent: running it twice adds nothing",

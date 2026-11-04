@@ -18,7 +18,7 @@ import {
   type ToolContext,
 } from "./context";
 import { resolveRoot } from "./search";
-import { PANE_ID_MAX, flexArrayOpt, flexBoolOpt, flexIntOpt } from "./schedule";
+import { PANE_ID_MAX, flexArrayOpt, flexBoolOpt, flexIntOpt } from "./coerce";
 
 const AI_READ_CAP = 200 * 1024;
 /**

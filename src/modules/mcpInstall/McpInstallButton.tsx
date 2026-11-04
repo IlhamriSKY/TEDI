@@ -40,15 +40,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import {
-  DEFAULT_PORT,
-  detect,
-  install,
-  serverPath,
-  uninstall,
-  type Scope,
-  type TargetStatus,
-} from "./install";
+import { DEFAULT_PORT, detect, install, uninstall, type Scope, type TargetStatus } from "./install";
 
 /** True when THIS session was started with the automation channel open. Set by
  *  the Rust init script; see `src-tauri/src/modules/automation.rs`. */
@@ -78,7 +70,6 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
   const [scope, setScope] = useState<Scope>("global");
   const [rows, setRows] = useState<TargetStatus[] | null>(null);
   const [port, setPort] = useState(0);
-  const [server, setServer] = useState("");
   const [busy, setBusy] = useState<string | null>(null);
 
   /** The folder a project-scoped config is written into: the focused terminal's
@@ -93,15 +84,13 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
   const [exts, setExts] = useState<{ id: string; name: string; summary: string }[]>([]);
 
   const refresh = useCallback(async () => {
-    const [cli, storedPort, path, surfaceCfg] = await Promise.all([
+    const [cli, storedPort, surfaceCfg] = await Promise.all([
       detect(scope, root),
       getAutomationPort(),
-      serverPath(),
       getMcpSurface(),
     ]);
     setRows(cli);
     setPort(storedPort);
-    setServer(path);
     setOffExts(surfaceCfg.disabledExtensions);
     // Stored as tool names; mapped back to pack ids so the switches reflect it.
     const off = new Set(surfaceCfg.disabledTools);
@@ -376,7 +365,7 @@ export function McpInstallButton({ projectRoot }: { projectRoot: string | null }
                   {rows?.length === 0 && (
                     <p className="text-muted-foreground py-4 text-sm">
                       No supported AI CLI found. Point any MCP client at{" "}
-                      <code className="text-foreground">node {server}</code>.
+                      <code className="text-foreground">tedi mcp</code>.
                     </p>
                   )}
                 </>

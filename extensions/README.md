@@ -596,6 +596,11 @@ type ExtensionContext = {
     setSubagentsEnabled(enabled: boolean): Promise<void>; // ai:configure
     sendPrompt(text: string): Promise<boolean>; // ai:prompt
     stop(): void;
+    attachContext(item: { name: string; text: string; imageDataUrl?: string; searchTerms?: string[] }): void; // ai:context
+    registerMentionSource(source: {
+      items(): { id: string; label: string; detail?: string }[];
+      pick(id: string): void | Promise<void>;
+    }): Disposer; // ai:context
   };
 
   invoke<T = unknown>(
@@ -673,6 +678,7 @@ type ExtensionContext = {
       icon?: string;
       reuseKey?: string;
     }): number | null;
+    closeExtensionPane(opts: { panelId: string; reuseKey?: string }): boolean;
     setExtensionTabState(opts: {
       panelId: string;
       reuseKey?: string;
@@ -888,6 +894,14 @@ steer an agent that can modify files.
   gates every tool the turn calls.
 - `stop(): void`: ungated. Stopping is de-escalating and the user can always do
   it from the UI.
+- `ctx.app.watchFiles(root, onChange): Disposer`: _requires `invoke:fs_watch`._ Which files changed under a folder. It shares the host's one watcher per folder, which a raw `fs_watch` would replace.
+- `attachContext(item): void`: _requires `ai:context`._ Puts a chip in the
+  composer with an optional PNG, JPEG or WebP data URL. Nothing is sent: the user
+  sees the chip and decides. The text is marked as data for the model, and any
+  `searchTerms` are looked up in the open project, so the likely files lead the text.
+- `registerMentionSource(source): Disposer`: _requires `ai:context`._ Adds
+  entries to the composer's `@` picker. `items()` is read each time the picker
+  opens, so keep it cheap; `pick(id)` usually ends in `attachContext`.
 
 **There is deliberately no `setApprovalMode`.** `approvalMode` is the user's
 safety posture, and unlike every other write here it **persists across
@@ -1210,6 +1224,8 @@ list.
   same as `openExtensionTab`, but mounts the panel as a native split-pane leaf
   (same frame as a terminal/editor/browser, splittable and joinable) instead of
   a standalone tab.
+- `closeExtensionPane({ panelId, reuseKey? })`: closes your own pane leaf. `false`
+  when there is no such pane, or it is the last tab left.
 - `setExtensionTabState({ panelId, reuseKey?, state })`: tints the tab title to
   a lifecycle tone matched on `(panelId, reuseKey)`; `null` clears. Tones mirror
   the SSH palette: `connecting`/`reconnecting` pulse yellow, `connected` green,
@@ -1390,6 +1406,7 @@ checks the extension's declared `permissions[]` (recorded at install as
 | `settings:read`     | low     | `ctx.settings.get`, `ctx.settings.onChange` (own `ext:<id>:*` keys only).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
 | `ai:configure`      | high    | `ctx.ai.setModel`, `ctx.ai.setSubagentsEnabled`. Retargets the agent and spends the user's API credit. There is no `setApprovalMode` at any tier.                                                                                                                                                                                                                                                                                                                                                                                                                       |
 | `ai:prompt`         | high    | `ctx.ai.sendPrompt`. Submits agent turns as if the user typed them.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
+| `ai:context`        | high    | `ctx.ai.attachContext`, `ctx.ai.registerMentionSource`. Puts text and pictures in the composer for the user to review. Sends nothing.        |
 | `settings:write`    | medium  | `ctx.settings.set`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
 | `secrets:read`      | high    | `ctx.secrets.get` (service `tedi-ext:<id>`).                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
 | `secrets:write`     | high    | `ctx.secrets.set`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |

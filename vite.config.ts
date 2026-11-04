@@ -134,9 +134,9 @@ export default defineConfig(async () => ({
         }
       : undefined,
     watch: {
-      // `scripts/**` is outside the app's module graph, and a write there while
-      // `scripts/mcp` is driving the window must not reload it mid-task.
-      ignored: ["**/src-tauri/**", "**/scripts/**"],
+      // Not `scripts/mcp`: the app bundle imports it through the `@mcp` alias, and ignored, a
+      // change there kept serving the old module until this server restarted.
+      ignored: ["**/src-tauri/**", "**/scripts/!(mcp)/**", "**/scripts/*.*"],
     },
   },
 }));

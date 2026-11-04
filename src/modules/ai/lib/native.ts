@@ -93,11 +93,17 @@ export const native = {
       glob: params.glob ?? null,
       caseInsensitive: params.caseInsensitive ?? null,
     }),
-  runCommand: (command: string, cwd?: string | null, timeoutSecs?: number) =>
+  runCommand: (
+    command: string,
+    cwd?: string | null,
+    timeoutSecs?: number,
+    env?: Record<string, string>,
+  ) =>
     invoke<CommandOutput>("shell_run_command", {
       command,
       cwd: cwd ?? null,
       timeoutSecs: timeoutSecs ?? null,
+      env: env ?? null,
     }),
 
   shellSessionOpen: (cwd?: string | null) =>

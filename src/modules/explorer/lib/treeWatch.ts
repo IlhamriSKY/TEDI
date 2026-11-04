@@ -6,6 +6,9 @@ export type FsChange = {
   dirs: string[];
   /** Too much moved to name: re-read every loaded directory. */
   rescan: boolean;
+  /** The files behind this batch, for a listener that cares which. Capped, and empty
+   *  on a rescan. */
+  files?: string[];
 };
 
 /** Hear about changes under `root`. One host watcher per root, shared by the

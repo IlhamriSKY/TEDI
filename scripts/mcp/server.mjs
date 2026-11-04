@@ -1,35 +1,22 @@
 #!/usr/bin/env node
 /**
- * MCP server: how Claude Code talks to a running TEDI.
+ * The stdio MCP server, and the one `callTool` the `tedi` command runs too.
  *
- * Same `Driver` the CLI drives, exposed as MCP tools over stdio, which buys
- * three things the CLI cannot:
+ * WHAT AN OUTSIDE AGENT IS OFFERED: one tool, `GATEWAY_TOOL`, pointing at `tedi <verb>`. The
+ * full table cost ~5k tokens on every request of every connected session, whether it touched
+ * TEDI or not, and a command costs nothing until it runs.
  *
- *   1. ONE connection for a whole session. Every `pnpm mcp <verb>` pays a
- *      fresh `/json/list`, a WebSocket attach, `Page.enable`, `Runtime.enable`
- *      and a two-frame settle before it does any work - and a page target
- *      accepts exactly one DevTools client, so each attach/detach cycle is also
- *      a chance to wedge it. Held open, that cost is paid once.
- *   2. Typed arguments. No shell quoting, which on PowerShell is where a
- *      `sh "git log --format=%H"` goes to die.
- *   3. A tool list instead of a README. The schema IS the documentation, so an
- *      agent discovers the surface rather than being told about it.
- *
- * Registered by the plug button in TEDI's header, which writes the entry (and
- * removes it) for every AI CLI on this machine plus the open folder's
- * `.mcp.json`. That file is gitignored on purpose: it names an absolute path
- * into THIS machine's install, and a tracked copy is one the switch cannot see,
- * so it kept loading after the switch was turned off. TEDI must have been
- * started with
- * `TEDI_DEBUG_PORT` set; if it was not, the tools say so and say how to fix it,
- * because this process starts fine either way (it must - Claude Code launches it
- * at session start, long before anyone has opened TEDI).
+ * Registered by the plug button in TEDI's header or `tedi mcp install`, which write the entry
+ * for every AI agent on this machine. By hand, any client can run `tedi mcp`, which needs no
+ * path and no environment. This process starts fine with TEDI closed, and must: a client
+ * launches it at session start, long before anyone has opened the app.
  */
 
 import path from "node:path";
 import { existsSync, mkdtempSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { fileURLToPath } from "node:url";
+import { HANDLERS, narrowed } from "./handlers.mjs";
 import { makeTransport } from "./transport.mjs";
 import { tediDataFiles } from "./socket.mjs";
 import {
@@ -38,534 +25,65 @@ import {
   cliGuide,
   resolveVerb,
   validateArgs,
+  verbArgs,
   extToolMedia,
 } from "./tools.mjs";
 
 /**
- * True only when this file is the process entry point. `scripts/mcp/driver-verify.ts`
- * IMPORTS `TOOLS` to check every schema and every injected expression without a
- * running TEDI, and an import that hijacked the console and started reading stdin
- * would hang that check forever.
+ * How tools reach TEDI. One connection, made on the first call that needs it, so a session that
+ * never drives anything costs the app nothing. See `transport.mjs`.
  */
-const isMain = process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url);
+let transport = null;
+const tedi = () => (transport ??= makeTransport());
 
-// STDOUT IS THE PROTOCOL. `Driver` and `sweep` both print progress, and one
-// stray line corrupts the JSON-RPC stream in a way that reads as the server
-// crashing. Send every console channel to stderr, which Claude Code shows as
-// server logs.
-if (isMain) console.log = console.info = console.warn = console.debug = console.error;
+/** An MCP answer is text, and a pretty-printed one bills every indent to the model. */
+const MAX_RESULT_CHARS = 20000;
 
-/**
- * Which DevTools port to drive - i.e. WHICH TEDI the CDP-only tools reach.
- *
- * ONE PROFILE DECIDES BOTH HALVES. The socket half and the pack switches are
- * resolved from `TEDI_BUNDLE_ID`; the CDP half used to be a bare
- * `env.TEDI_DEBUG_PORT || 9222`, so with the id set and the port not, this
- * server read ONE app's switches and dispatched real keystrokes into ANOTHER
- * app's window. Not hypothetical: an end-to-end run against a dev profile sent
- * `keys` and `screenshot` straight into the installed release, because 9222 is
- * what the release happened to be listening on. The bundle id was introduced to
- * stop exactly this and only closed the settings half of it.
- *
- * So: the env var still wins (the Install button writes both together, and a
- * developer's explicit override must not be second-guessed), then the
- * `automationChannelPort` the NAMED profile actually stores, and nothing after that.
- * `null` means that profile has no channel, which `makeTransport` reports as
- * such. A default of 9222 outlived its reason: no tool needs the port now, and
- * with the bridge down it answered "TEDI is not running" by driving whichever
- * other TEDI held 9222, over a port with no authentication.
- */
-
-/**
- * The rule on its own, so `driver-verify` can check it without an app or a
- * settings file. `env` is the raw `TEDI_DEBUG_PORT`, `stored` the named
- * profile's `automationChannelPort` (null when the file has no such key).
- */
-export function resolveCdpPort(env, stored) {
-  const fromEnv = Number(env);
-  if (fromEnv) return fromEnv;
-  // 0 is what the UI writes for "off"; absent means this profile has never been
-  // wired up. Both are "no channel here", not "try the usual port".
-  return stored || null;
+export function asText(out) {
+  const text = typeof out === "string" ? out : (JSON.stringify(out) ?? "null");
+  return text.length > MAX_RESULT_CHARS
+    ? `${text.slice(0, MAX_RESULT_CHARS)}
+... truncated at ${MAX_RESULT_CHARS} characters. Ask for something narrower.`
+    : text;
 }
 
-const cdpPort = () => resolveCdpPort(process.env.TEDI_DEBUG_PORT, currentSurface().port);
-
 /**
- * How tools reach TEDI. One object, two transports underneath.
+ * The handlers that need Node or the DevTools Protocol. Everything else is one implementation,
+ * shared with TEDI's own agent, in `handlers.mjs`.
  *
- * Prefers the authenticated local socket and pulls up the DevTools connection
- * only for the calls that genuinely need it - real input, window capture, DOM
- * reads. See `transport.mjs`; each connection is made at most once, on demand.
- *
- * A driving session that never touches those tools therefore opens NO DevTools
- * connection, which is what makes this work on macOS and Linux at all: the debug
- * port is Windows-only.
+ * TWO RULES FOR WHAT GOES IN A TOOL DESCRIPTION (`tools.mjs`), and they pull against each other.
+ * A trap that produces a SILENT WRONG ANSWER belongs there: nothing else will say so. A trap that
+ * raises a LOUD ERROR belongs in the error, which costs nothing until it fires and arrives
+ * exactly when it is useful, because TEDI's own agent pays for every description on every step.
  */
-let driver = null;
+const NODE_HANDLERS = {
+  inspect: async (t, a) =>
+    a.what === "logs"
+      ? narrowed(await t.logs(a.level ?? null), a.filter)
+      : HANDLERS.inspect(t.call, a),
 
-function tedi() {
-  driver ??= makeTransport({ port: cdpPort() });
-  return Promise.resolve(driver);
-}
+  open_file: (t, a) => HANDLERS.open_file(t.call, { ...a, path: path.resolve(a.path) }),
 
-/** A dead connection must not poison every later call, so drop the cache and let
- *  the next tool reconnect. Closing TEDI mid-session is ordinary, not
- *  exceptional - and the bridge token rotates on every launch, so a restart has
- *  to be picked up rather than remembered as broken. */
-function dropIfDisconnected(message) {
-  if (
-    /socket closed|Cannot open|Timed out attaching|No DevTools endpoint|bridge|not running/i.test(
-      message,
-    )
-  ) {
-    void driver?.close?.();
-    driver = null;
-  }
-}
+  lsp: (t, a) => HANDLERS.lsp(t.call, { ...a, path: path.resolve(a.path) }),
 
-const json = (v) => JSON.stringify(v, null, 2);
+  skill: (t, a) => HANDLERS.skill(t.call, { ...a, root: process.cwd() }),
 
-/**
- * The handlers. One per name in `TOOL_DEFS` (`./tools.mjs`), which owns every
- * description and schema so the in-process server serves the identical contract.
- *
- * TWO RULES FOR WHAT GOES IN A DESCRIPTION, and they pull against each other:
- *
- *   1. The description IS the documentation. An agent picks from this list and
- *      never reads the source, so a trap that produces a SILENT WRONG ANSWER
- *      belongs there - that terminals have no DOM text, that CodeMirror
- *      virtualises, that a `sh` write bypasses the AI-CLI detector. Each of
- *      those returns something plausible and false, and no error would say so.
- *
- *   2. That list is loaded into EVERY request of every AI CLI that connects, for
- *      the whole session, whether it drives TEDI or not. Prose there is a tax on
- *      every turn. So a trap that raises a LOUD ERROR does not belong in the
- *      schema - it belongs in the error, which costs nothing until it fires and
- *      arrives exactly when it is useful. `click` naming the toast that covered
- *      the button, `sh` listing the terminals when the leaf was wrong,
- *      `extension` naming the installed ids: those are messages, not schema.
- */
-const HANDLERS = {
-  state: async (d, a) => json(await d.state({ tail: a.tail ?? 3, buttons: a.buttons === true })),
-
-  inspect: async (d, a) => {
-    switch (a.what) {
-      case "commands":
-        return (await d.commands()).join("\n");
-      case "extensions":
-        return json(await d.extensions());
-      case "settings":
-        return json(await d.settings());
-      case "workspaces":
-        return json(await d.workspaces());
-      case "status":
-        return json(await d.statusItems());
-      case "sessions":
-        return json(await d.agentSessions(a.filter ?? null));
-      case "logs": {
-        // Awaited because the transport proxy is uniformly async (see
-        // `transport.mjs`); `logs` itself is a synchronous read of the CDP
-        // console ring buffer held in this process.
-        const list = await d.logs(a.level ?? null);
-        return list.length
-          ? list.map((l) => `${l.level}: ${l.text}`).join("\n")
-          : "(nothing logged since this session connected)";
-      }
-      default:
-        throw new Error(
-          `Unknown "what": ${a.what}. Have: commands, extensions, settings, workspaces, logs, status, sessions.`,
-        );
-    }
-  },
-
-  read: async (d, a) => {
-    const cap = a.maxChars ?? 20000;
-    switch (a.source) {
-      case "terminal": {
-        const list = await d.terminals(a.lines ?? 200);
-        if (!list.length) return "(no terminal panes open)";
-        const want = a.leafId ?? (await d.focusedLeaf());
-        // The fallback is for the case where NOTHING was named and focus is not
-        // in a terminal. A leafId the caller actually passed and that does not
-        // exist must not quietly return a different pane's scrollback: that
-        // answers a question about pane A with pane B's output, labelled as
-        // success, which is the one failure no error message ever follows. Same
-        // rule `sh` and `wait_for_terminal` apply.
-        const one =
-          list.find((t) => t.leafId === want) ?? (a.leafId === undefined ? list.at(-1) : null);
-        if (!one) {
-          throw new Error(
-            `Leaf ${a.leafId} is not a terminal. Terminals: ${list.map((t) => t.leafId).join(", ")}`,
-          );
-        }
-        return `[leaf ${one.leafId} atPrompt=${one.atPrompt} running=${one.running}]\n${one.text}`;
-      }
-      case "editors": {
-        const list = await d.editors(cap);
-        if (!list.length) return "(no editor panes open)";
-        return list
-          .map(
-            (e) => `--- leaf ${e.leafId}: ${e.path}${e.truncated ? " (truncated)" : ""}\n${e.text}`,
-          )
-          .join("\n\n");
-      }
-      case "dom": {
-        if (!a.selector) throw new Error('read source:"dom" needs a `selector`.');
-        const text = await d.text(a.selector, { nth: a.nth ?? 0 });
-        if (text === null) return "(no match)";
-        // Capped, because an unbounded selector read is how a tool result
-        // eats an agent's context: `.cm-content` on a big file, or a status
-        // bar that happens to wrap the whole workspace.
-        return text.length > cap ? `${text.slice(0, cap)}\n\n[truncated at ${cap} chars]` : text;
-      }
-      default:
-        throw new Error(`Unknown source: ${a.source}. Have: terminal, editors, dom.`);
-    }
-  },
-
-  run_command: async (d, a) => {
-    if (a.extensionId) {
-      const out = await d.extCommand(a.extensionId, a.id, a.args);
-      if (!out) {
-        throw new Error(
-          `Nothing answers to "${a.id}" in ${a.extensionId}. Its extension may be disabled, ` +
-            `or the id was declared but never given a handler. ` +
-            `\`inspect extensions\` lists the commands and AI tools it really has.`,
-        );
-      }
-      // An AI tool's answer IS the point of calling it; a command has none.
-      return out.kind === "aiTool" ? json(out.result) : `ran ${a.extensionId}:${a.id}`;
-    }
-    await d.cmd(a.id);
-    return `ran ${a.id}`;
-  },
-
-  set_setting: async (d, a) => {
-    const r = await d.setSetting(a.key, a.value);
-    if (r !== true) throw new Error(String(r));
-    return `${a.key} = ${JSON.stringify(a.value)}`;
-  },
-
-  extension: async (d, a) => {
-    const r = await d.extControl(a.action, a.id);
-    if (r !== true) throw new Error(String(r));
-    // Not `${a.action}d` - that produced "reloadd" and "uninstalld".
-    return `${a.action}: ${a.id}`;
-  },
-
-  wait_for_terminal: async (d, a) => {
-    const r = await d.waitTerminal({
-      leafId: a.leafId ?? null,
-      text: a.text ?? null,
-      timeout: a.timeout ?? 60000,
-    });
-    return `leaf ${r.leafId}: ${r.done ? "done" : "NOT done"} (${r.reason})\n${r.tail}`;
-  },
-
-  sh: async (d, a) => {
-    if (a.capture === true) {
-      // Its own SSH channel: exact bytes, nothing rendered, and it does not
-      // touch the pane - so a busy one is no reason to refuse. Reading the
-      // scrollback instead loses the head of any long output, silently.
-      const leaf = a.leafId ?? (await d.focusedLeaf());
-      return String(await d.sshExec(leaf, String(a.command)));
-    }
-    if (a.submit === false) {
-      // Types and stops. A raw PTY write with no trailing CR, so an embedded
-      // newline would run the following lines with nobody asking.
-      const text = String(a.command).replace(/[\r\n]+$/, "");
-      if (/[\r\n]/.test(text)) {
-        throw new Error(
-          "Typing without running cannot contain a newline - it would auto-run the following lines. Drop `submit: false` to execute it.",
-        );
-      }
-      const leaf = a.leafId ?? (await d.focusedLeaf());
-      if (!(await d.termWrite(leaf, text))) throw new Error(`Leaf ${leaf} is not a terminal.`);
-      return `typed into leaf ${leaf} without running it`;
-    }
-    const out = await d.sh(a.command, {
-      leafId: a.leafId ?? null,
-      timeout: a.timeout ?? 20000,
-      lines: a.lines ?? 60,
-    });
-    return out.timedOut
-      ? `${out.text}\n\n[leaf ${out.leafId}: still running after the timeout]`
-      : `${out.text}\n\n[leaf ${out.leafId}]`;
-  },
-
-  open_file: async (d, a) => {
-    await d.openFile(path.resolve(a.path));
-    return `opened ${a.path}`;
-  },
-
-  save_editor: async (d, a) => {
-    const leaf = a.leafId ?? (await d.focusedLeaf());
-    if (!(await d.editorSave(leaf))) throw new Error(`Leaf ${leaf} is not an editor`);
-    return `saved leaf ${leaf}`;
-  },
-
-  keys: async (d, a) => {
-    await d.keys(...a.chords);
-    return `pressed ${a.chords.join(" ")}`;
-  },
-
-  type_text: async (d, a) => {
-    await d.type(a.text, { delay: a.delay ?? 10 });
-    return `typed ${a.text.length} chars`;
-  },
-
-  click: async (d, a) => {
-    await d.click(a.selector, { nth: a.nth ?? 0 });
-    return `clicked ${a.selector}`;
-  },
-
-  focus_pane: async (d, a) => `focused leaf ${a.leafId}: ${await d.focusPane(a.leafId)}`,
-
-  drag: async (d, a) => {
-    await d.drag(a.selector, a.dx, a.dy, { nth: a.nth ?? 0 });
-    return `dragged ${a.selector} by ${a.dx},${a.dy}`;
-  },
-
-  screenshot: async (d, a) => {
+  screenshot: async (t, a) => {
     const file = a.path
       ? path.resolve(a.path)
       : path.join(mkdtempSync(path.join(tmpdir(), "tedi-shot-")), "tedi.png");
-    await d.shot(file);
+    await (await t.devtools()).shot(file);
     return file;
   },
 
-  ai: async (d, a) => {
-    switch (a.action) {
-      case "status":
-        return json(await d.ai());
-      case "read":
-        return json(await d.aiMessages(a.sessionId ?? null, a.maxChars ?? 8000));
-      case "send": {
-        if (!a.text) throw new Error("send needs `text`.");
-        const r = await d.aiSend(a.text);
-        if (r !== true) throw new Error(String(r));
-        return `queued for the built-in agent: ${a.text.slice(0, 80)}`;
-      }
-      case "new":
-        return `started chat ${await d.aiNew()}`;
-      case "switch": {
-        if (!a.sessionId) throw new Error("switch needs `sessionId` (from `ai status`).");
-        const r = await d.aiSwitch(a.sessionId);
-        if (r !== true) throw new Error(String(r));
-        return `switched to chat ${a.sessionId}`;
-      }
-      case "stop":
-        await d.aiStop();
-        return "stopped the built-in agent";
-      default:
-        throw new Error(
-          `Unknown action: ${a.action}. Have: status, read, send, new, switch, stop.`,
-        );
-    }
-  },
-
-  workspace: async (d, a) => {
-    if (a.action === "create") {
-      const r = await d.workspaceCreate(a.name ?? "");
-      if (!r?.ok) throw new Error(String(r?.error ?? "could not create the workspace"));
-      return `created workspace ${r.wsId} and switched to it`;
-    }
-    if (!a.id)
-      throw new Error(`workspace "${a.action}" needs \`id\` (from \`inspect workspaces\`).`);
-    if (a.action === "switch") {
-      const r = await d.workspaceSwitch(a.id);
-      if (!r?.ok) throw new Error(String(r?.error ?? "could not switch"));
-      return `switched to workspace ${a.id}`;
-    }
-    if (a.action === "rename") {
-      if (!a.name) throw new Error('workspace "rename" needs `name`.');
-      const r = await d.workspaceRename(a.id, a.name);
-      if (!r?.ok) throw new Error(String(r?.error ?? "could not rename"));
-      return `renamed workspace ${a.id} to ${a.name}`;
-    }
-    if (a.action === "remove") {
-      const r = await d.workspaceRemove(a.id);
-      if (!r?.ok) throw new Error(String(r?.error ?? "could not remove"));
-      return `removed workspace ${a.id}`;
-    }
-    if (a.action === "view") {
-      if (!a.view) throw new Error('workspace "view" needs `view`.');
-      const r = await d.workspaceView(a.id, a.view);
-      if (!r?.ok) throw new Error(String(r?.error ?? "could not change the view"));
-      return `workspace ${a.id} now shows ${a.view}`;
-    }
-    throw new Error(`Unknown action: ${a.action}. Have: switch, create, rename, remove, view.`);
-  },
-
-  sftp: async (d, a) => {
-    const r = await d.sftp(a.leafId, a);
-    return typeof r === "string" ? r : json(r);
-  },
-
-  session: async (d, a) => {
-    const r = await d.agentSession(a);
-    if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-    return json(r);
-  },
-
-  ssh: async (d, a) => {
-    if (a.action === "list") return json(await d.sshConnections());
-    if (a.action === "forward") {
-      if (a.leafId === undefined || !a.remoteHost || !a.remotePort) {
-        throw new Error("forward needs `leafId`, `remoteHost` and `remotePort`.");
-      }
-      const r = await d.sshForward(a.leafId, a.localPort ?? 0, a.remoteHost, a.remotePort);
-      if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-      return json(r);
-    }
-    if (a.action !== "connect")
-      throw new Error(`Unknown action: ${a.action}. Have: list, connect, forward.`);
-    if (!a.id) throw new Error("connect needs `id` (from `ssh list`).");
-    // Opening the tab is not the job - working in it is. Without the leafId the
-    // caller has a live session it cannot address. The opener answers with it
-    // now; this used to snapshot `termList`, open, then poll it twenty times at
-    // 100ms for a leaf that was new - two seconds on the slow path, and a "did
-    // not appear in time" on a session that was in fact open.
-    const r = await d.sshConnect(a.id, a.private === true);
-    // A number is the new pane's leafId; `true` is a private open, whose id the
-    // app withholds by design; anything else is the failure sentence.
-    if (typeof r !== "number" && r !== true) throw new Error(String(r));
-    if (a.private === true) {
-      return `opened SSH connection ${a.id} as a private pane (no tool can see or address it)`;
-    }
-    return `opened SSH connection ${a.id} as leaf ${r} - run commands on it with sh({ command, leafId: ${r} })`;
-  },
-
-  schedule: async (d, a) => {
-    if (a.action === "list") return json(await d.schedules());
-    if (a.action === "cancel") {
-      if (!a.id) throw new Error("cancel needs `id` (from `schedule list`).");
-      const r = await d.scheduleCancel(a.id);
-      // A refusal comes back as a sentence, not a throw, so it reaches the model
-      // as the reason rather than as a stack.
-      if (typeof r === "string") throw new Error(r);
-      return json(r);
-    }
-    if (a.action !== "create")
-      throw new Error(`Unknown action: ${a.action}. Have: list, create, cancel.`);
-    const r = await d.scheduleCreate({
-      command: a.command,
-      delay: a.delay,
-      at: a.at,
-      leafId: a.leafId,
-      submit: a.submit,
-      label: a.label,
-    });
-    if (typeof r === "string") throw new Error(r);
-    return json(r);
-  },
-
-  // The bridge formats the answer, so both transports say the same thing and
-  // this side has nothing to keep in step.
-  worktree: async (d, a) => d.worktree(a),
-
-  // Same shape: the bridge returns text, this just carries it.
-  notes: async (d, a) => d.notes(a),
-
-  pane: async (d, a) => {
-    switch (a.action) {
-      case "open": {
-        const count = Math.min(Math.max(Number(a.count ?? 1), 1), 6);
-        const out = [];
-        let tabId = a.tabId ?? null;
-        for (let i = 0; i < count; i++) {
-          // count>1 keeps the rest in the tab the first one landed in, so a
-          // batch is one group rather than N loose tabs.
-          const r = await d.paneOpen({
-            cwd: a.cwd ?? null,
-            mode: a.split === true || i > 0 ? "split" : "tab",
-            splitDir: a.dir ?? "row",
-            targetTabId: tabId,
-          });
-          if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-          tabId = r.tabId;
-          out.push(r);
-          // Let the tab commit: the next open reads committed state, and against a
-          // stale pane count the updater refuses a split this has already answered for.
-          if (i < count - 1) await new Promise((r) => setTimeout(r, 60));
-        }
-        return json(out);
-      }
-      case "close": {
-        if (a.all === true) {
-          const terms = await d.termList();
-          let closed = 0;
-          // Last to first: closing a leaf renumbers nothing, but the app refuses
-          // the final tab, so the survivor should be the first one.
-          for (const t of terms.slice(1).reverse()) {
-            const r = await d.paneClose(t.leafId);
-            if (r?.ok === true) closed++;
-          }
-          return `closed ${closed} of ${terms.length} terminals`;
-        }
-        if (a.leafId === undefined) throw new Error("close needs `leafId`, or `all`.");
-        const r = await d.paneClose(a.leafId);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return `closed leaf ${a.leafId}${r.closedTab ? " (and its tab)" : ""}`;
-      }
-      case "group": {
-        if (!Array.isArray(a.leafIds) || a.leafIds.length < 2) {
-          throw new Error("group needs `leafIds` with two or more panes (see `state`).");
-        }
-        const r = await d.paneGroup(a.leafIds, a.tabId);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return json(r);
-      }
-      case "rotate": {
-        if (a.leafId === undefined) throw new Error("rotate needs `leafId`.");
-        const r = await d.paneRotate(a.leafId, a.dir);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return `leaf ${a.leafId} is now ${r.orientation}${r.changed ? "" : " (already)"}`;
-      }
-      case "consolidate": {
-        const terms = await d.termList();
-        if (terms.length < 2) throw new Error("Fewer than two terminals are open.");
-        const r = await d.paneConsolidate(a.tabId ?? terms[0].tabId);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return json(r);
-      }
-      case "rename": {
-        if (a.leafId === undefined) throw new Error("rename needs `leafId`.");
-        const r = await d.paneRename(a.leafId, a.name ?? "");
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return a.name ? `leaf ${a.leafId} is now "${a.name}"` : `leaf ${a.leafId} name reset`;
-      }
-      case "pin": {
-        if (a.leafId === undefined) throw new Error("pin needs `leafId`.");
-        const r = await d.panePin(a.leafId, a.pinned !== false);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return `${a.pinned === false ? "unpinned" : "pinned"} the tab of leaf ${a.leafId}`;
-      }
-      case "place": {
-        if (a.leafId === undefined) throw new Error("place needs `leafId`.");
-        const rect = Object.fromEntries(
-          ["x", "y", "w", "h"].filter((k) => typeof a[k] === "number").map((k) => [k, a[k]]),
-        );
-        const r = await d.panePlace(a.leafId, rect);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return `leaf ${a.leafId} placed`;
-      }
-      case "panel": {
-        if (!a.extensionId) throw new Error("panel needs `extensionId`.");
-        const r = await d.panelOpen(a.extensionId, a.panelId ?? null);
-        if (!r || r.ok !== true) throw new Error(String(r?.error ?? r));
-        return json(r);
-      }
-      default:
-        throw new Error(
-          `Unknown action: ${a.action}. Have: open, close, group, rotate, consolidate, rename, pin, place, panel.`,
-        );
-    }
-  },
-
-  eval_js: async (d, a) => json(await d.eval(a.expression)),
+  eval_js: async (t, a) => (await t.devtools()).eval(a.expression),
 };
+
+function runnerFor(name) {
+  if (NODE_HANDLERS[name]) return NODE_HANDLERS[name];
+  const shared = HANDLERS[name];
+  return shared && ((t, a) => shared(t.call, a));
+}
 
 /**
  * What the rest of this file (and `driver-verify`) reads: the shared
@@ -575,18 +93,20 @@ const HANDLERS = {
  * carry a description that drifted from the one the other server serves.
  */
 export const TOOLS = Object.fromEntries(
-  TOOL_NAMES.map((name) => [name, { ...TOOL_DEFS[name], run: HANDLERS[name] }]),
+  TOOL_NAMES.map((name) => [name, { ...TOOL_DEFS[name], run: runnerFor(name) }]),
 );
 
 // A def with no handler would advertise a tool that throws on use; a handler
 // with no def would be an unadvertised tool with no schema. Both are build
 // errors, not runtime surprises.
 {
-  const noHandler = TOOL_NAMES.filter((n) => typeof HANDLERS[n] !== "function");
-  const noDef = Object.keys(HANDLERS).filter((n) => !TOOL_DEFS[n]);
+  const noHandler = TOOL_NAMES.filter((n) => typeof TOOLS[n].run !== "function");
+  const noDef = [...Object.keys(HANDLERS), ...Object.keys(NODE_HANDLERS)].filter(
+    (n) => !TOOL_DEFS[n],
+  );
   if (noHandler.length || noDef.length) {
     throw new Error(
-      "tools.mjs and mcp.mjs disagree - no handler: [" + noHandler + "], no def: [" + noDef + "]",
+      "tools.mjs and handlers disagree - no handler: [" + noHandler + "], no def: [" + noDef + "]",
     );
   }
 }
@@ -602,7 +122,7 @@ export const TOOLS = Object.fromEntries(
 // owns the pack -> tools mapping and writes the resolved flat list. A second
 // copy here would drift the first time a tool was renamed.
 
-/** `{ disabled, disabledExtensions, port }`, or the permissive default when the file is
+/** `{ disabled, disabledExtensions }`, or the permissive default when the file is
  *  absent or unreadable. Never throws: a surface setting must not be able to
  *  stop the server from starting. */
 function readSurface() {
@@ -614,15 +134,12 @@ function readSurface() {
         disabledExtensions: new Set(
           Array.isArray(j.mcpDisabledExtensions) ? j.mcpDisabledExtensions : [],
         ),
-        // Read HERE because this is already the file that says which app we are
-        // configured for - see `cdpPort` for why that matters.
-        port: typeof j.automationChannelPort === "number" ? j.automationChannelPort : null,
       };
     } catch {
       // Missing file, unreadable, or not JSON: try the next candidate.
     }
   }
-  return { disabled: new Set(), disabledExtensions: new Set(), port: null };
+  return { disabled: new Set(), disabledExtensions: new Set() };
 }
 
 /**
@@ -638,7 +155,7 @@ function readSurface() {
  */
 let _surface = null;
 let _surfaceAt = 0;
-function currentSurface() {
+export function currentSurface() {
   const now = Date.now();
   if (!_surface || now - _surfaceAt > 1000) {
     _surface = readSurface();
@@ -670,7 +187,7 @@ async function extensionTools() {
   let installed = null;
   let live = true;
   try {
-    installed = await (await tedi()).extensions();
+    installed = await tedi().call("extensions");
     if (cache) writeFileSync(cache, JSON.stringify(installed));
   } catch {
     live = false;
@@ -809,9 +326,9 @@ export const GATEWAY_TOOL = {
   name: "tedi",
   description:
     "Drive the running TEDI window: panes, terminals, editors, workspaces, settings, extensions, " +
-    "SSH and its built-in agent. With a shell, run `tedi <verb>` instead: `tedi tools` lists the " +
-    "verbs, `tedi help <verb>` shows the arguments. Without one, call this: `verb` is a tool name, " +
-    '`args` its arguments; verb "tools" lists them, and "help" with args.verb shows a schema.',
+    "SSH and its built-in agent. With a shell, run `tedi <verb> --json` instead: `tedi tools` lists " +
+    "the verbs, `tedi help <verb>` shows the arguments. Without one, call this: `verb` is a tool " +
+    'name, `args` its arguments; verb "tools" lists them, and "help" with args.verb shows a schema.',
   inputSchema: {
     type: "object",
     properties: { verb: { type: "string" }, args: { type: "object" } },
@@ -820,12 +337,10 @@ export const GATEWAY_TOOL = {
 };
 
 const INSTRUCTIONS =
-  "Control the running TEDI window with the `tedi` command from your shell. `tedi panes` shows " +
-  "what is open, `tedi tools` lists every verb, `tedi help <verb>` shows its arguments. If `tedi` " +
-  "is not on PATH, use the `tedi` tool here the same way.";
-
-/** One key of a JSON answer, for a shortcut like `panes`. */
-export const pick = (out, key) => json(JSON.parse(out)[key] ?? null);
+  "Control the running TEDI window with the `tedi` command from your shell. `tedi panes --json` " +
+  "shows what is open, `tedi tools` lists every verb, `tedi help <verb>` shows its arguments. " +
+  "Piped or with --json an answer is one JSON value; on a terminal it is a table. If `tedi` is " +
+  "not on PATH, use the `tedi` tool here the same way.";
 
 /**
  * The gateway's own verbs, then anything the `tedi` command takes, shortcuts
@@ -839,17 +354,17 @@ export async function callGateway(a) {
     const found = resolveVerb(a?.args?.verb ?? "");
     const tool = found && (await listTools()).find((t) => t.name === found.tool);
     if (!tool) throw new Error(`Unknown verb "${a?.args?.verb ?? ""}". verb "tools" lists them.`);
-    return json({ ...tool, fixedArgs: found.args });
+    return { ...tool, fixedArgs: found.args };
   }
   const found = resolveVerb(verb);
   if (!found) throw new Error(`Unknown verb "${verb}". verb "tools" lists them.`);
-  const out = await callTool(found.tool, { ...found.args, ...a?.args });
-  return found.select ? pick(out, found.select) : out;
+  const out = await callTool(found.tool, verbArgs(found, a?.args));
+  return found.select ? (out?.[found.select] ?? null) : out;
 }
 
-/** Hand the connections back. For `cli.mjs`, whose process ends after one call. */
-export async function closeDriver() {
-  await driver?.close().catch(() => {});
+/** Hand the connection back. For `cli.mjs`, whose process ends after one call. */
+export function closeTransport() {
+  transport?.close();
 }
 
 export async function callTool(name, args) {
@@ -866,8 +381,6 @@ export async function callTool(name, args) {
   // off. That is the exact bypass the switch exists to prevent, against the
   // exact client it exists to constrain.
   //
-  // The in-process twin (`ai/lib/tediMcpServer.ts`) never had this bug because
-  // it never REGISTERS a disabled tool, so there is no handler to reach.
   if (surface.disabled.has(name)) {
     throw new Error(
       `"${name}" is switched off for this MCP server. Turn its pack back on in TEDI: header, Install MCP.`,
@@ -879,15 +392,19 @@ export async function callTool(name, args) {
   const isExt = String(name).startsWith("ext_");
   const routed = isExt ? (await ensureExtIndex()).routes.get(name) : undefined;
   if (routed) {
-    const d = await tedi();
-    const out = await d.extCommand(routed.extensionId, routed.tool, args ?? {});
+    const out = await tedi().call(
+      "runExtensionCommand",
+      routed.extensionId,
+      routed.tool,
+      args ?? {},
+    );
     if (!out) throw new Error(`${routed.extensionId} no longer answers to "${routed.tool}".`);
     if (out.kind !== "aiTool") return `ran ${routed.tool}`;
     // An image comes back as a real MCP image block rather than base64 buried in
     // a JSON string, which is the difference between a client rendering it and a
     // model being handed characters it cannot decode.
     const media = extToolMedia(out.result);
-    if (!media) return json(out.result);
+    if (!media) return out.result;
     return {
       content: [
         ...(media.text ? [{ type: "text", text: media.text }] : []),
@@ -900,22 +417,21 @@ export async function callTool(name, args) {
       `"${name}" is not available: its extension is disabled, switched off in Install MCP, or not installed.`,
     );
   }
-  const tool = TOOLS[name];
+  const tool = Object.hasOwn(TOOLS, name) ? TOOLS[name] : null;
   if (!tool) {
     // Only the ENABLED names: the old message printed `Object.keys(TOOLS)`,
     // handing the caller the full list including everything just switched off.
     const have = TOOL_NAMES.filter((n) => !surface.disabled.has(n));
     throw new Error(`Unknown tool "${name}". Have: ${have.join(", ")}`);
   }
-  // Shared with the in-process server (`tools.mjs`), so a malformed call is
+  // Shared with TEDI's own agent (`tools.mjs`), so a malformed call is
   // refused identically on both transports. This used to be per-handler
   // `if (!a.id) throw` lines that covered some tools and not others, while the
-  // in-process twin got Zod validation for free - the same bad call produced a
+  // in-app agent got Zod validation for free - the same bad call produced a
   // different outcome depending on which server the agent happened to reach.
   const bad = validateArgs(name, args);
   if (bad) throw new Error(bad);
-  const d = await tedi();
-  return await tool.run(d, args ?? {});
+  return await tool.run(tedi(), args ?? {});
 }
 
 // --- JSON-RPC over stdio ----------------------------------------------------
@@ -1077,12 +593,11 @@ async function handle(msg) {
         result =
           out && typeof out === "object" && Array.isArray(out.content)
             ? out
-            : { content: [{ type: "text", text: String(out) }] };
+            : { content: [{ type: "text", text: asText(out) }] };
       } catch (err) {
         // `isError`, not a JSON-RPC error: a tool failing is something the agent
         // should read and act on (start TEDI, dismiss the toast, pick a real
         // leaf id), not a transport fault that hides the message.
-        dropIfDisconnected(err.message);
         result = { content: [{ type: "text", text: `ERROR: ${err.message}` }], isError: true };
       }
       return reply(modern ? { resultType: "complete", ...result } : result);
@@ -1096,7 +611,12 @@ async function handle(msg) {
   }
 }
 
-if (isMain) {
+/** Speak MCP on stdin and stdout until the client hangs up. */
+export function serveStdio() {
+  // STDOUT IS THE PROTOCOL, and one stray line corrupts the JSON-RPC stream in a way that reads
+  // as the server crashing. Every console channel goes to stderr, which clients show as logs.
+  console.log = console.info = console.warn = console.debug = console.error;
+
   /** Calls still running. Drained on shutdown so a client that closes stdin the
    *  moment it sends its last request still gets that request's answer. */
   const inflight = new Set();
@@ -1153,10 +673,16 @@ if (isMain) {
   // connect with no error at all.
   const shutdown = async () => {
     await Promise.allSettled([...inflight]);
-    await driver?.close().catch(() => {});
+    closeTransport();
     process.exit(0);
   };
   process.stdin.on("end", shutdown);
   process.on("SIGINT", shutdown);
   process.on("SIGTERM", shutdown);
+}
+
+// Real paths on both sides: node runs the main module from its real path. An import
+// (`cli.mjs`, the verify scripts) must not start reading stdin.
+if (process.argv[1] && realpathSync(process.argv[1]) === fileURLToPath(import.meta.url)) {
+  serveStdio();
 }
