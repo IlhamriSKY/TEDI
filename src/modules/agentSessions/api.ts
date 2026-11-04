@@ -10,6 +10,7 @@ import { basename, toForwardSlash } from "@/lib/path";
 import { callBridge, registerBridge } from "@/modules/automation/bridge";
 import {
   toolDisplayName,
+  type AiCliKind,
   type AiCliState,
   type AiCliStatus,
 } from "@/modules/terminal/lib/aiCliStatus";
@@ -212,9 +213,14 @@ export type RunningSession = {
 
 /**
  * Claude's own registry, each process traced to its pane: a pane's shell pid
- * among the process's parents. `dir` is the folder to watch for the next change.
+ * among the process's parents. `dir` is the folder to watch for the next change,
+ * `alivePtys` the daemon sessions whose shell is still up.
  */
-export async function listRunningSessions(): Promise<{ dir: string; running: RunningSession[] }> {
+export async function listRunningSessions(): Promise<{
+  dir: string;
+  running: RunningSession[];
+  alivePtys: string[];
+}> {
   const [{ dir, running }, shells] = await Promise.all([
     invoke<{
       dir: string;
@@ -230,6 +236,7 @@ export async function listRunningSessions(): Promise<{ dir: string; running: Run
   const paneOf = new Map(shells.filter((s) => s.alive && s.pid).map((s) => [s.pid, s.id]));
   return {
     dir,
+    alivePtys: shells.filter((s) => s.alive).map((s) => s.id),
     running: running.map(({ id, status, statusUpdatedAt, ancestors }) => ({
       id,
       status,
@@ -243,6 +250,22 @@ export async function listRunningSessions(): Promise<{ dir: string; running: Run
 export function registryStatus(r: RunningSession): NonNullable<AiCliStatus> {
   const state = r.status === "busy" ? "working" : r.status === "waiting" ? "blocking" : "idle";
   return { tool: "claude", state, since: r.since };
+}
+
+/**
+ * A pane in a workspace not opened since launch has no detector yet, so all it has
+ * is the CLI saved with it, and only while its shell is still alive. Claude is left
+ * to its registry, which knows exactly.
+ * shortcut: a CLI quit while its workspace is cold reads as idle until the workspace
+ * is opened; ask the daemon for the shell's children if that matters.
+ */
+export function coldStatus(
+  tool: AiCliKind | undefined,
+  ptyId: string | null,
+  alivePtys: string[],
+): NonNullable<AiCliStatus> | null {
+  if (!tool || tool === "claude" || !ptyId || !alivePtys.includes(ptyId)) return null;
+  return { tool, state: "idle", since: 0 };
 }
 
 /** A local terminal pane, with what the pane detector says runs in it. */
@@ -302,7 +325,8 @@ export function openSessions(
 /** A pane the Agents list can show, in any workspace. */
 export type AgentPane = SessionPane & {
   tabId: number;
-  workspaceId: string;
+  /** Null for a process running outside any pane here, with nothing to go to. */
+  workspaceId: string | null;
   /** Its workspace was not opened this session, so the leaf id is throwaway and
    *  going there can only switch workspace. */
   cold: boolean;
@@ -321,7 +345,8 @@ export type AgentRow = {
  * One row per pane with an AI CLI in it. Led by the pane, not the session: any of
  * the CLIs the detector knows belongs here, and a fresh session with no
  * transcript yet still has a pane to jump to. The detector, which drives the
- * pane's own badge, wins over the registry.
+ * pane's own badge, wins over the registry. A Claude process in no pane gets a row
+ * too, so the list holds every agent running on this machine, in whatever folder.
  */
 export function agentRows(
   panes: AgentPane[],
@@ -339,6 +364,27 @@ export function agentRows(
     const status = pane.status ?? (reg ? registryStatus(reg) : null);
     if (status) out.push({ pane, session: (key && listed.get(key)) || null, status });
   }
+  running.forEach((r, i) => {
+    const key = `claude:${r.id}`;
+    if (open.has(key)) return;
+    const session = listed.get(key) ?? null;
+    out.push({
+      pane: {
+        // Clear of a live leaf's id and of a cold pane's small negative ones.
+        leafId: Number.MIN_SAFE_INTEGER + i,
+        tabId: -1,
+        workspaceId: null,
+        cold: true,
+        ptyId: null,
+        cwd: session?.cwd ?? null,
+        status: null,
+        customTitle: null,
+        host: null,
+      },
+      session,
+      status: registryStatus(r),
+    });
+  });
   return out;
 }
 
@@ -391,12 +437,20 @@ export function agentSections(
   const stateOf = (r: AgentRow) =>
     r.pane.leafId === heldDone && r.status.state === "idle" ? "done" : r.status.state;
   const sections: AgentSection[] = workspaces
-    ? workspaces.map((w) => ({
-        id: `workspace:${w.id}`,
-        label: w.name,
-        state: null,
-        rows: rest.filter((r) => r.pane.workspaceId === w.id),
-      }))
+    ? [
+        ...workspaces.map((w) => ({
+          id: `workspace:${w.id}`,
+          label: w.name,
+          state: null,
+          rows: rest.filter((r) => r.pane.workspaceId === w.id),
+        })),
+        {
+          id: "elsewhere",
+          label: RUNNING_SECTION,
+          state: null,
+          rows: rest.filter((r) => r.pane.workspaceId === null),
+        },
+      ]
     : AGENT_SECTIONS.map(({ state, label }) => ({
         id: state,
         label,
@@ -429,43 +483,32 @@ export const PINNED_SECTION = "Pinned";
 export const RUNNING_SECTION = "Running elsewhere";
 
 /**
- * The History list: every session a pane is not already running, since those are
- * Agents rows. Pins first, then what runs outside any pane here, then by day,
- * each newest first. `folderKey` narrows it to one project.
+ * The History list: every session nothing is running, since those are Agents rows.
+ * Pins first, then by day, each newest first. `folderKey` narrows it to one project.
  */
 export function historySections(
   list: AgentSession[],
   opts: {
     filter: string;
     folderKey: string | null;
-    /** Sessions a pane is running, by `sessionKey`. */
+    /** Sessions something is running, by `sessionKey`. */
     openKeys: Set<string>;
-    /** Sessions a process holds, by `sessionKey`. */
-    runningKeys: Set<string>;
     pinnedKeys: Set<string>;
     now: number;
   },
 ): { label: string; cards: { s: AgentSession; folder: string }[] }[] {
-  const { filter, folderKey, openKeys, runningKeys, pinnedKeys, now } = opts;
+  const { filter, folderKey, openKeys, pinnedKeys, now } = opts;
   const cards = groupSessions(list, filter)
     .filter((g) => folderKey === null || inFolder(g.key, folderKey))
     .flatMap((g) =>
       g.sessions
         .filter((s) => !openKeys.has(sessionKey(s)))
-        .map((s) => {
-          const key = sessionKey(s);
-          return {
-            s,
-            folder: g.label,
-            rank: pinnedKeys.has(key) ? 0 : runningKeys.has(key) ? 1 : 2,
-          };
-        }),
+        .map((s) => ({ s, folder: g.label, pinned: pinnedKeys.has(sessionKey(s)) })),
     )
-    .sort((a, b) => a.rank - b.rank || b.s.modifiedMs - a.s.modifiedMs);
+    .sort((a, b) => Number(b.pinned) - Number(a.pinned) || b.s.modifiedMs - a.s.modifiedMs);
   const out: ReturnType<typeof historySections> = [];
-  for (const { rank, ...c } of cards) {
-    const label =
-      rank === 0 ? PINNED_SECTION : rank === 1 ? RUNNING_SECTION : dayBucket(c.s.modifiedMs, now);
+  for (const { pinned, ...c } of cards) {
+    const label = pinned ? PINNED_SECTION : dayBucket(c.s.modifiedMs, now);
     if (out.at(-1)?.label !== label) out.push({ label, cards: [] });
     out.at(-1)!.cards.push(c);
   }

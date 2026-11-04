@@ -75,6 +75,7 @@ import {
   agentTitle,
   ago,
   canResume,
+  coldStatus,
   deleteSession,
   folderKeyOf,
   historySections,
@@ -83,12 +84,10 @@ import {
   listSessions,
   mostUrgent,
   openSessions,
-  registryStatus,
   PINNED_SECTION,
   renameSession,
   resumeCommand,
   resumeHint,
-  RUNNING_SECTION,
   SESSION_AGENTS,
   sessionKey,
   type AgentPane,
@@ -141,6 +140,7 @@ function allPanes(
   cache: LiveTabsCache | undefined,
   statuses: ReturnType<typeof useAiCliStatuses.getState>["statuses"],
   hosts: Map<string, SshConnection>,
+  alivePtys: string[],
 ): AgentPane[] {
   // Same throwaway NEGATIVE ids as the panel's cold rows: they must never match a
   // live leaf.
@@ -158,16 +158,17 @@ function allPanes(
         if (l.leafKind !== "terminal") continue;
         // A remote pane's path is on another machine, so it matches no local session.
         const remote = !!l.sshConnectionId;
+        const ptyId = remote ? null : (l.ptyId ?? l.savedPtyId ?? null);
         out.push({
           leafId: l.id,
           tabId: t.id,
           workspaceId: w.id,
           cold,
-          ptyId: remote ? null : (l.ptyId ?? l.savedPtyId ?? null),
+          ptyId,
           cwd: remote ? null : (l.cwd ?? null),
           customTitle: l.customTitle ?? null,
           host: l.sshConnectionId ? (hosts.get(l.sshConnectionId)?.name ?? null) : null,
-          status: statuses[l.id] ?? null,
+          status: statuses[l.id] ?? (cold ? coldStatus(l.activeTool, ptyId, alivePtys) : null),
         });
       }
     }
@@ -265,7 +266,8 @@ function BlockHeader({
   return (
     // A band, so Agents and History read as their own lists and not as more rows of
     // the one above. Their group headings stay plain text one level below it.
-    <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-0.5 border-y pr-1.5 pl-1">
+    // pr-4 keeps its chevron in one column with those of the rows and groups around it.
+    <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-0.5 border-y pr-4 pl-1.5">
       <IconTooltip label={hint} side="bottom" delayDuration={500} contentClassName="max-w-xs">
         <button
           type="button"
@@ -273,16 +275,24 @@ function BlockHeader({
           aria-expanded={open}
           className="text-foreground/85 hover:text-foreground focus-visible:text-foreground flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-[11px] font-semibold outline-none"
         >
-          <ChevronRight
-            size={11}
-            strokeWidth={2}
-            className={cn("shrink-0 transition-transform", open && "rotate-90")}
-          />
           <span className="truncate">{label}</span>
           <span className="font-normal tabular-nums opacity-70">{count}</span>
         </button>
       </IconTooltip>
       {children}
+      {/* Its own button, since the actions above sit between it and the label. */}
+      <button
+        type="button"
+        onClick={onToggle}
+        aria-label={`${open ? "Collapse" : "Expand"} ${label}`}
+        className="text-foreground/60 hover:text-foreground focus-visible:text-foreground flex size-4 shrink-0 items-center justify-center outline-none"
+      >
+        <ChevronRight
+          size={11}
+          strokeWidth={2.25}
+          className={cn("transition-transform", open && "rotate-90")}
+        />
+      </button>
     </div>
   );
 }
@@ -313,15 +323,10 @@ function SectionHeading({
         onClick={onToggle}
         aria-expanded={open}
         className={cn(
-          "hover:text-foreground focus-visible:text-foreground flex h-6 w-full items-center gap-1 px-1 text-[11px] font-normal outline-none",
+          "hover:text-foreground focus-visible:text-foreground flex h-6 w-full items-center gap-1 px-1.5 text-[11px] font-normal outline-none",
           className,
         )}
       >
-        <ChevronRight
-          size={10}
-          strokeWidth={2}
-          className={cn("shrink-0 transition-transform", open && "rotate-90")}
-        />
         <span className="min-w-0 flex-1 truncate text-left">{label}</span>
         {trailing}
         <span
@@ -331,6 +336,13 @@ function SectionHeading({
           )}
         >
           {count}
+        </span>
+        <span className="flex size-4 shrink-0 items-center justify-center opacity-60">
+          <ChevronRight
+            size={11}
+            strokeWidth={2.25}
+            className={cn("transition-transform", open && "rotate-90")}
+          />
         </span>
       </button>
       {action}
@@ -415,7 +427,7 @@ function AgentsBlock({
     <div className="flex max-h-[40%] shrink-0 flex-col">
       <BlockHeader
         label="Agents"
-        hint="AI CLIs running in your terminals right now, most urgent first. Click one to go to its pane."
+        hint="Every AI CLI running right now, in any folder, most urgent first. Click one to go to its pane."
         count={shown.length}
         open={open}
         onToggle={() => setOpen((agentsOpenCache = !open))}
@@ -496,6 +508,7 @@ function AgentsBlock({
                         const pinned = key !== null && pinnedKeys.includes(key);
                         const workspace = workspaces.find((w) => w.id === r.pane.workspaceId);
                         const since = r.status.since > 0 ? ago(r.status.since, now) : null;
+                        const outside = r.pane.workspaceId === null;
                         const row = (
                           <li key={r.pane.leafId} className="group/row relative">
                             <IconTooltip
@@ -523,9 +536,11 @@ function AgentsBlock({
                                     </span>
                                   ) : null}
                                   <span className="opacity-70">
-                                    {isActive
-                                      ? "This is the focused pane"
-                                      : "Click to go to its pane"}
+                                    {outside
+                                      ? "Running outside any pane here"
+                                      : isActive
+                                        ? "This is the focused pane"
+                                        : "Click to go to its pane"}
                                   </span>
                                 </span>
                               }
@@ -540,6 +555,7 @@ function AgentsBlock({
                                   }
                                 }}
                                 aria-current={isActive ? "true" : undefined}
+                                aria-disabled={outside || undefined}
                                 className={cn(
                                   "flex w-full flex-col gap-0.5 px-1.5 py-1 text-left outline-none",
                                   isActive
@@ -580,7 +596,7 @@ function AgentsBlock({
                           <ContextMenu key={r.pane.leafId}>
                             <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
                             <ContextMenuContent>
-                              <ContextMenuItem onSelect={() => onGo(r.pane)}>
+                              <ContextMenuItem disabled={outside} onSelect={() => onGo(r.pane)}>
                                 Go to pane
                               </ContextMenuItem>
                               <ContextMenuItem onSelect={() => togglePin(sessionKey(s))}>
@@ -635,7 +651,7 @@ const HistoryBlock = memo(function HistoryBlock({
   filter,
   folderKey,
   openKeys,
-  running,
+  registryLoaded,
   renaming,
   onRename,
   onStartRename,
@@ -650,7 +666,8 @@ const HistoryBlock = memo(function HistoryBlock({
   /** The focused terminal's folder, for "only this folder". */
   folderKey: string | null;
   openKeys: Set<string>;
-  running: RunningSession[] | null;
+  /** Once it has answered, whatever runs is in `openKeys` and not listed here. */
+  registryLoaded: boolean;
   renaming: string | null;
   onRename: (s: AgentSession, title: string) => void;
   onStartRename: (key: string) => void;
@@ -667,10 +684,6 @@ const HistoryBlock = memo(function HistoryBlock({
 
   const pinnedKeys = usePreferencesStore((s) => s.pinnedAgentSessions);
 
-  const runningByKey = useMemo(
-    () => new Map((running ?? []).map((r) => [`claude:${r.id}`, r])),
-    [running],
-  );
   const scope = onlyFolder ? folderKey : null;
   const sections = useMemo(
     () =>
@@ -678,11 +691,10 @@ const HistoryBlock = memo(function HistoryBlock({
         filter,
         folderKey: scope,
         openKeys,
-        runningKeys: new Set(runningByKey.keys()),
         pinnedKeys: new Set(pinnedKeys),
         now: Date.now(),
       }),
-    [sessions, filter, scope, openKeys, runningByKey, pinnedKeys],
+    [sessions, filter, scope, openKeys, pinnedKeys],
   );
   const count = sections.reduce((n, sec) => n + sec.cards.length, 0);
 
@@ -695,7 +707,7 @@ const HistoryBlock = memo(function HistoryBlock({
     <div className={cn("flex min-h-0 flex-col", open && "min-h-16 flex-1")}>
       <BlockHeader
         label={scope ? `History · ${basename(scope) || scope}` : "History"}
-        hint="Saved Claude Code and Codex sessions no pane is running. Click one to resume it."
+        hint="Saved Claude Code and Codex sessions nothing is running. Click one to resume it."
         count={count}
         open={open}
         onToggle={() => setOpen((historyOpenCache = !open))}
@@ -772,7 +784,7 @@ const HistoryBlock = memo(function HistoryBlock({
               // Pins were kept on purpose and a running session cannot go, so only
               // a day heading can clear what it lists.
               const clearable =
-                sec.label === PINNED_SECTION || sec.label === RUNNING_SECTION
+                sec.label === PINNED_SECTION
                   ? []
                   : sec.cards.map((c) => c.s).filter((s) => !s.live);
               return (
@@ -797,7 +809,7 @@ const HistoryBlock = memo(function HistoryBlock({
                             size="icon-sm"
                             className={cn(
                               DESTRUCTIVE_ACTION,
-                              "pointer-events-none absolute top-0.5 right-0 size-5 rounded opacity-0 group-hover/heading:pointer-events-auto group-hover/heading:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
+                              "pointer-events-none absolute top-0.5 right-6 size-5 rounded opacity-0 group-hover/heading:pointer-events-auto group-hover/heading:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
                             )}
                           >
                             <Trash2 size={11} strokeWidth={1.75} />
@@ -814,9 +826,7 @@ const HistoryBlock = memo(function HistoryBlock({
                       : sec.cards.slice(0, shown[sec.label] ?? SECTION_PAGE)
                     ).map(({ s, folder }) => {
                       const key = sessionKey(s);
-                      const reg = runningByKey.get(key);
-                      const status = reg ? registryStatus(reg) : null;
-                      const live = running ? reg !== undefined : s.live;
+                      const live = !registryLoaded && s.live;
                       // A second process on one transcript would corrupt it.
                       const resumable = canResume(s) && !live;
                       const pinned = pinnedKeys.includes(key);
@@ -844,9 +854,7 @@ const HistoryBlock = memo(function HistoryBlock({
                                 label={
                                   <span className="flex flex-col gap-0.5">
                                     <span className="font-medium break-words">{s.title}</span>
-                                    <span className="opacity-70">
-                                      {status ? aiCliLabel(status) : agentLabel(s.agent)}
-                                    </span>
+                                    <span className="opacity-70">{agentLabel(s.agent)}</span>
                                     {s.cwd ? (
                                       <span className="break-all opacity-70">{s.cwd}</span>
                                     ) : null}
@@ -885,10 +893,7 @@ const HistoryBlock = memo(function HistoryBlock({
                                     <CliAgentIcon
                                       agentId={s.agent}
                                       size={13}
-                                      className={cn(
-                                        "shrink-0",
-                                        status && aiCliStateColorClass(status.state),
-                                      )}
+                                      className="shrink-0"
                                     />
                                     <span
                                       className={cn(
@@ -906,15 +911,10 @@ const HistoryBlock = memo(function HistoryBlock({
                                         className="text-muted-foreground shrink-0"
                                       />
                                     ) : null}
-                                    {status ? <StatusGlyph state={status.state} /> : null}
                                   </span>
                                   <span className="text-muted-foreground flex w-full items-center gap-2 pl-[21px] text-[10px] tabular-nums">
                                     <PlaceLine place={folder} branch={s.branch} />
-                                    <span className="shrink-0">
-                                      {status
-                                        ? ago(s.modifiedMs, now)
-                                        : `${ago(s.modifiedMs, now)} ago`}
-                                    </span>
+                                    <span className="shrink-0">{ago(s.modifiedMs, now)} ago</span>
                                   </span>
                                 </button>
                               </IconTooltip>
@@ -992,6 +992,7 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
   const [sessions, setSessions] = useState<AgentSession[] | null>(cached);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [running, setRunning] = useState<RunningSession[] | null>(null);
+  const [alivePtys, setAlivePtys] = useState<string[]>([]);
   const [renaming, setRenaming] = useState<string | null>(null);
   const [deleting, setDeleting] = useState<AgentSession | null>(null);
   const [deletingMany, setDeletingMany] = useState<{
@@ -1028,10 +1029,12 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
   const loadRunning = useCallback(async () => {
     const live = await listRunningSessions().catch(() => null);
     // Unchanged is the common answer, and it must not re-render the lists.
-    if (live)
+    if (live) {
       setRunning((prev) =>
         JSON.stringify(prev) === JSON.stringify(live.running) ? prev : live.running,
       );
+      setAlivePtys((prev) => (prev.join() === live.alivePtys.join() ? prev : live.alivePtys));
+    }
     return live;
   }, []);
   const loadLive = useCallback(async () => {
@@ -1082,8 +1085,9 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
         cachedTabsByWorkspace?.current,
         statuses,
         sshHosts,
+        alivePtys,
       ),
-    [workspaces, activeWorkspace, liveTabs, cachedTabsByWorkspace, statuses, sshHosts],
+    [workspaces, activeWorkspace, liveTabs, cachedTabsByWorkspace, statuses, sshHosts, alivePtys],
   );
 
   // A pane starting or quitting a CLI changes which sessions are newest, and Codex
@@ -1118,9 +1122,11 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
     [panes, openMap, sessions, running],
   );
 
-  // History only cares which sessions are open, not what state they are in, so it
+  // History only cares which sessions are running, not what state they are in, so it
   // must not re-render for every state change.
-  const openSig = [...openMap.keys()].sort().join("\n");
+  const openSig = [...openMap.keys(), ...(running ?? []).map((r) => `claude:${r.id}`)]
+    .sort()
+    .join("\n");
   const openKeys = useMemo(() => new Set(openSig.split("\n")), [openSig]);
 
   // Kept while focus sits on an editor or a remote pane, so "only this folder"
@@ -1132,6 +1138,7 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
   }, [activeCwd]);
 
   const go = (pane: AgentPane) => {
+    if (pane.workspaceId === null) return;
     if (pane.workspaceId !== activeWorkspace) onSwitch(pane.workspaceId);
     if (!pane.cold) onFocusLeaf?.(pane.tabId, pane.leafId);
   };
@@ -1222,7 +1229,7 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
         filter={filter}
         folderKey={folderKey}
         openKeys={openKeys}
-        running={running}
+        registryLoaded={running !== null}
         renaming={renaming}
         onRename={rename}
         onStartRename={setRenaming}

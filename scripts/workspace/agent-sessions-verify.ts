@@ -13,6 +13,7 @@ import {
   agentTitle,
   ago,
   canResume,
+  coldStatus,
   dayBucket,
   folderKeyOf,
   groupSessions,
@@ -116,7 +117,6 @@ const base = {
   filter: "",
   folderKey: null as string | null,
   openKeys: new Set<string>(),
-  runningKeys: new Set<string>(),
   pinnedKeys: new Set<string>(),
   now: noon,
 };
@@ -129,20 +129,13 @@ ok(
   ids(historySections(every, { ...base, openKeys: new Set([sessionKey(paned)]) })) ===
     "here,sub,away,live",
 );
-{
-  const secs = historySections(every, { ...base, runningKeys: new Set([sessionKey(liveAway)]) });
-  ok(
-    "what runs outside any pane leads, under its own heading",
-    secs[0].label === RUNNING_SECTION && ids(secs.slice(0, 1)) === "live",
-  );
-  ok(
-    "every card names its folder",
-    secs
-      .flatMap((sec) => sec.cards)
-      .map((c) => c.folder)
-      .join(",") === "other,app,api,other,third",
-  );
-}
+ok(
+  "every card names its folder",
+  historySections(every, base)
+    .flatMap((sec) => sec.cards)
+    .map((c) => c.folder)
+    .join(",") === "app,api,other,other,third",
+);
 ok(
   "one project's filter takes its subfolders, not a similarly named sibling",
   ids(
@@ -222,20 +215,38 @@ console.log("\n[openSessions] which pane runs which session");
   const rows = agentRows(panes, open, listed, running);
   ok(
     "a row carries the session its pane runs",
-    rows.map((r) => r.session?.id).join() === "three,two",
+    rows.map((r) => r.session?.id).join() === "three,two,one",
   );
   ok(
     "a pane's detector beats the registry",
-    rows.map((r) => r.status.state).join() === "working,idle",
+    rows
+      .slice(0, 2)
+      .map((r) => r.status.state)
+      .join() === "working,idle",
   );
   const undetected = agentRows([pane(2, "p2", null)], open, listed, [reg("two", "busy", "p2", 7)]);
+  ok(
+    "a pane in a workspace not opened yet shows the CLI saved with it",
+    coldStatus("codex", "p1", ["p1"])?.tool === "codex",
+  );
+  ok("not once its shell has gone", coldStatus("codex", "p1", []) === null);
+  ok("Claude is left to its registry", coldStatus("claude", "p1", ["p1"]) === null);
   ok(
     "a linked pane the detector missed takes the registry's state and time",
     undetected[0]?.status.state === "working" && undetected[0].status.since === 7,
   );
   ok(
     "a plain shell is no agent",
-    agentRows([pane(9, "p9", null)], new Map(), listed, running).length === 0,
+    agentRows([pane(9, "p9", null)], new Map(), listed, []).length === 0,
+  );
+  const outside = rows.find((x) => x.pane.workspaceId === null);
+  ok(
+    "a process in no pane is a row too, from its own folder, with nowhere to go",
+    rows.length === 3 && outside?.session?.id === "one" && outside.status.state === "working",
+  );
+  ok(
+    "and its id cannot be a cold pane's or a live leaf's",
+    (outside?.pane.leafId ?? 0) < -1_000_000,
   );
   const aider = agentRows([pane(5, null, cli("aider", "working"))], new Map(), [], []);
   ok("any CLI the detector knows gets a row, with no session", aider[0]?.session === null);
@@ -308,6 +319,11 @@ console.log("\n[openSessions] which pane runs which session");
   ok(
     "by workspace, in their order, skipping one with no agent",
     grouped.map((s) => s.label).join() === "One,Two" && grouped[0].state === null,
+  );
+  ok(
+    "by workspace, a process in no pane is not dropped",
+    agentSections(rows, { ...opts, workspaces: [{ id: "w", name: "One" }] }).at(-1)?.label ===
+      RUNNING_SECTION,
   );
   ok(
     "a folded group reports its most urgent row",
