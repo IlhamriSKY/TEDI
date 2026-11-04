@@ -4,7 +4,7 @@ import { cn } from "@/lib/utils";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { setColumnPlacement } from "@/modules/settings/preferences";
+import { setColumnPlacement, usePreferencesStore } from "@/modules/settings/preferences";
 import { revealColumn } from "@/lib/sectionDrag";
 import { useScmRightPanelStore } from "../scmRightPanelStore";
 import type { GitBranch as GitBranchRef, GitStatus } from "../types";
@@ -76,6 +76,7 @@ export function PanelHeader({
   compact,
   onToggleCompact,
 }: PanelHeaderProps) {
+  const inRightColumn = usePreferencesStore((s) => s.sourceControlInRightPanel);
   // No change count here: each section header already carries its own, and the
   // one that mattered sat right of the branch name where it read as part of it.
   const switchable =
@@ -190,11 +191,11 @@ export function PanelHeader({
           </Button>
         </IconTooltip>
       ) : null}
-      {/* Left-sidebar instance: move Source Control to the right panel. `!onClose`
-          is what says "left": the right column passes one and the sidebar does
-          not. Gating on `dragHandle` alone put BOTH move buttons on the
-          right-column copy, which now has a grip too. */}
-      {dragHandle && !historyOnly && !onClose ? (
+      {/* Left-sidebar instance: move Source Control to the right panel. Gating on
+          `dragHandle` alone put BOTH move buttons on the right-column copy, which
+          has a grip too, and both columns pass `onClose` now, so the placement
+          itself says which side this is. */}
+      {dragHandle && !historyOnly && !inRightColumn ? (
         <IconTooltip label="Move to right panel" side="bottom">
           <Button
             variant="ghost"
@@ -212,7 +213,7 @@ export function PanelHeader({
         </IconTooltip>
       ) : null}
       {/* Right-panel instance: dock Source Control back into the left sidebar. */}
-      {onClose ? (
+      {onClose && inRightColumn ? (
         <IconTooltip label="Move to left sidebar" side="bottom">
           <Button
             variant="ghost"

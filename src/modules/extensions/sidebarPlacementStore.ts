@@ -11,11 +11,17 @@
  * section's last open/closed intent in the slot, so a docked section restores
  * that state on the next launch instead of always auto-reopening — see
  * `useDockedSectionAutoOpen`.
+ *
+ * `leftClosed` is the left column's twin: a section closed with the X on its
+ * header. It lives here because a key can be any section, built-in or not, and it
+ * is persisted for the same reason, so a closed section stays closed.
  */
 import { create } from "zustand";
+import { revealColumn } from "@/lib/sectionDrag";
 
 const LS_KEY = "tedi:sidebar:placement";
 const LS_OPEN_KEY = "tedi:sidebar:right-open";
+const LS_LEFT_CLOSED_KEY = "tedi:sidebar:left-closed";
 
 /** Sentinel `panelId` used in `useRightPanelStore` to host a sidebar section
  *  (rather than a manifest right-panel) in the shared right slot. */
@@ -104,6 +110,8 @@ type State = {
    *  `sidebarSectionKey`. Absent = treat as open on first dock; `false` keeps
    *  the section closed across launches instead of auto-reopening. */
   rightOpen: Record<string, boolean>;
+  /** Sections closed in the left column, keyed like AppSidebar's sections. Absent = open. */
+  leftClosed: Record<string, boolean>;
 };
 
 type Actions = {
@@ -112,6 +120,8 @@ type Actions = {
   /** Record the docked section's live open/closed state so the next launch
    *  restores it. Driven by `useDockedSectionAutoOpen`. */
   setRightOpen: (key: string, open: boolean) => void;
+  closeLeft: (key: string) => void;
+  openLeft: (key: string) => void;
 };
 
 function load(): Record<string, Placement> {
@@ -138,9 +148,10 @@ function persist(placement: Record<string, Placement>): void {
   }
 }
 
-function loadRightOpen(): Record<string, boolean> {
+/** A persisted `key -> boolean` map. Corrupt or unavailable reads as empty. */
+function loadFlags(lsKey: string): Record<string, boolean> {
   try {
-    const raw: unknown = JSON.parse(localStorage.getItem(LS_OPEN_KEY) ?? "null");
+    const raw: unknown = JSON.parse(localStorage.getItem(lsKey) ?? "null");
     if (raw && typeof raw === "object") {
       const out: Record<string, boolean> = {};
       for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
@@ -149,14 +160,14 @@ function loadRightOpen(): Record<string, boolean> {
       return out;
     }
   } catch {
-    // Corrupt value: treat every docked section as default-open.
+    // Corrupt value: every section goes back to its default.
   }
   return {};
 }
 
-function persistRightOpen(rightOpen: Record<string, boolean>): void {
+function persistFlags(lsKey: string, flags: Record<string, boolean>): void {
   try {
-    localStorage.setItem(LS_OPEN_KEY, JSON.stringify(rightOpen));
+    localStorage.setItem(lsKey, JSON.stringify(flags));
   } catch {
     // localStorage may be unavailable; non-critical.
   }
@@ -164,24 +175,44 @@ function persistRightOpen(rightOpen: Record<string, boolean>): void {
 
 export const useSidebarPlacementStore = create<State & Actions>((set, get) => ({
   placement: load(),
-  rightOpen: loadRightOpen(),
+  rightOpen: loadFlags(LS_OPEN_KEY),
+  leftClosed: loadFlags(LS_LEFT_CLOSED_KEY),
   moveRight: (key) => {
     const next = { ...get().placement, [key]: "right" as Placement };
     persist(next);
     // Docking opens the section in the slot, so its restored intent starts open.
     const nextOpen = { ...get().rightOpen, [key]: true };
-    persistRightOpen(nextOpen);
+    persistFlags(LS_OPEN_KEY, nextOpen);
     set({ placement: next, rightOpen: nextOpen });
   },
   moveLeft: (key) => {
     const next = { ...get().placement, [key]: "left" as Placement };
     persist(next);
     set({ placement: next });
+    // Moved here on purpose, so it has to be seen: a stale close would make it vanish.
+    get().openLeft(key);
   },
   setRightOpen: (key, open) => {
     if (get().rightOpen[key] === open) return;
     const next = { ...get().rightOpen, [key]: open };
-    persistRightOpen(next);
+    persistFlags(LS_OPEN_KEY, next);
     set({ rightOpen: next });
   },
+  closeLeft: (key) => {
+    const next = { ...get().leftClosed, [key]: true };
+    persistFlags(LS_LEFT_CLOSED_KEY, next);
+    set({ leftClosed: next });
+  },
+  openLeft: (key) => {
+    if (!get().leftClosed[key]) return;
+    const { [key]: _open, ...next } = get().leftClosed;
+    persistFlags(LS_LEFT_CLOSED_KEY, next);
+    set({ leftClosed: next });
+  },
 }));
+
+/** Bring back a section closed in the left column, opening the column if it is shut. */
+export function reopenLeft(key: string): void {
+  revealColumn("left");
+  useSidebarPlacementStore.getState().openLeft(key);
+}

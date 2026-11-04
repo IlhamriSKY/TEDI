@@ -202,6 +202,7 @@ export function ExtensionSidebarSection({
   dragHandle,
   collapsed,
   surface = "sidebar",
+  onClose,
 }: {
   extensionId: string;
   section: SidebarSection;
@@ -212,6 +213,8 @@ export function ExtensionSidebarSection({
   /** Where this instance is mounted. `"right"` (the shared right slot) swaps the
    *  "move to right" header control for "move back to left" + a close button. */
   surface?: "sidebar" | "right";
+  /** Close it in the left column. The right slot closes its own, below. */
+  onClose?: () => void;
 }) {
   const headerActions = section.headerActions ?? [];
   const items = section.items ?? [];
@@ -226,12 +229,13 @@ export function ExtensionSidebarSection({
     useSidebarPlacementStore.getState().moveLeft(placementKey);
     useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id));
   };
-  const closeRight = () =>
-    useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id));
+  const close =
+    surface === "right"
+      ? () => useRightPanelStore.getState().close(extensionId, sectionPanelId(section.id))
+      : onClose;
   // The header always renders its control cluster when the section is movable
-  // (so the move toggle shows even with no header actions) or when hosted right.
-  const showControlCluster =
-    headerActions.length > 0 || surface === "right" || !!section.movableToRight;
+  // (so the move toggle shows even with no header actions) or can be closed.
+  const showControlCluster = headerActions.length > 0 || !!close || !!section.movableToRight;
   const [query, setQuery] = useState("");
   const q = query.trim().toLowerCase();
   const shown = section.searchable && q ? filterSidebarItems(items, q) : items;
@@ -456,30 +460,30 @@ export function ExtensionSidebarSection({
               </IconTooltip>
             ) : null}
             {surface === "right" ? (
-              <>
-                <IconTooltip label="Move to left sidebar" side="bottom">
-                  <Button
-                    onClick={moveLeft}
-                    aria-label="Move to left sidebar"
-                    variant="ghost"
-                    size="icon"
-                    className="text-muted-foreground hover:text-foreground size-6"
-                  >
-                    <PanelLeft size={13} strokeWidth={2} />
-                  </Button>
-                </IconTooltip>
-                <IconTooltip label="Close panel" side="bottom">
-                  <Button
-                    onClick={closeRight}
-                    aria-label="Close panel"
-                    variant="ghost"
-                    size="icon"
-                    className={cn(DESTRUCTIVE_ACTION, "size-6")}
-                  >
-                    <X size={13} strokeWidth={2} />
-                  </Button>
-                </IconTooltip>
-              </>
+              <IconTooltip label="Move to left sidebar" side="bottom">
+                <Button
+                  onClick={moveLeft}
+                  aria-label="Move to left sidebar"
+                  variant="ghost"
+                  size="icon"
+                  className="text-muted-foreground hover:text-foreground size-6"
+                >
+                  <PanelLeft size={13} strokeWidth={2} />
+                </Button>
+              </IconTooltip>
+            ) : null}
+            {close ? (
+              <IconTooltip label="Close panel" side="bottom">
+                <Button
+                  onClick={close}
+                  aria-label="Close panel"
+                  variant="ghost"
+                  size="icon"
+                  className={cn(DESTRUCTIVE_ACTION, "size-6")}
+                >
+                  <X size={13} strokeWidth={2} />
+                </Button>
+              </IconTooltip>
             ) : null}
           </>
         )}

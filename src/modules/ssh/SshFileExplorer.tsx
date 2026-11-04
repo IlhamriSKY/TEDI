@@ -94,6 +94,7 @@ export function SshFileExplorer({
   onClose,
 }: Props) {
   const showHiddenFiles = usePreferencesStore((s) => s.showHiddenFiles);
+  const inRightColumn = usePreferencesStore((s) => s.sshInRightPanel);
   // Re-render once the lazy-loaded catppuccin icon set arrives.
   useExplorerIconsReady();
   const [homePath, setHomePath] = useState<string | null>(null);
@@ -377,10 +378,10 @@ export function SshFileExplorer({
 
         {/* Left-sidebar instance: move the Remote explorer to the right panel.
             Shown on the sidebar instance independent of session state, like
-            SCM's move button. `!onClose` is what says "left": the right column
-            passes one and the sidebar does not. Gating on `dragHandle` alone put
-            BOTH move buttons on the right-column copy, which now has a grip. */}
-        {dragHandle && !onClose ? (
+            SCM's move button. Gating on `dragHandle` alone put BOTH move buttons on
+            the right-column copy, which has a grip too, and both columns pass
+            `onClose` now, so the placement itself says which side this is. */}
+        {dragHandle && !inRightColumn ? (
           <IconTooltip label="Move to right panel" side="bottom">
             <Button
               variant="ghost"
@@ -398,7 +399,7 @@ export function SshFileExplorer({
           </IconTooltip>
         ) : null}
         {/* Right-panel instance: dock the Remote explorer back into the left sidebar. */}
-        {onClose ? (
+        {onClose && inRightColumn ? (
           <IconTooltip label="Move to left sidebar" side="bottom">
             <Button
               variant="ghost"

@@ -13,6 +13,7 @@ import {
 import { SortableContext, horizontalListSortingStrategy, useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
+import { reopenLeft, useSidebarPlacementStore } from "@/modules/extensions/sidebarPlacementStore";
 import { useScmRightPanelStore } from "@/modules/scm/scmRightPanelStore";
 import { useSshRightPanelStore } from "@/modules/ssh/sshRightPanelStore";
 import type { SshRouteHop } from "@/modules/ssh/status";
@@ -406,14 +407,18 @@ const BAR =
  * right-panel SCM layout (and SCM is enabled); it stays in place whether open or
  * closed (clicking toggles, the open state shows as active) so the status-bar
  * row never reflows. Icon-only chrome matches `AiOpenButton` and the extension
- * panel toggles so the right cluster reads as a single row of glyphs.
+ * panel toggles so the right cluster reads as a single row of glyphs. Also shown
+ * while it is closed in the left column, as the way back.
  */
 function ScmRightOpenButton() {
   const showSourceControl = usePreferencesStore((s) => s.showSourceControl);
   const sourceControlInRightPanel = usePreferencesStore((s) => s.sourceControlInRightPanel);
-  const open = useScmRightPanelStore((s) => s.open);
-  const toggle = useScmRightPanelStore((s) => s.toggle);
-  if (!showSourceControl || !sourceControlInRightPanel) return null;
+  const openRight = useScmRightPanelStore((s) => s.open);
+  const toggleRight = useScmRightPanelStore((s) => s.toggle);
+  const closedLeft = useSidebarPlacementStore((s) => !!s.leftClosed.scm);
+  if (!showSourceControl || (!sourceControlInRightPanel && !closedLeft)) return null;
+  const open = sourceControlInRightPanel && openRight;
+  const toggle = sourceControlInRightPanel ? toggleRight : () => reopenLeft("scm");
   return (
     <IconTooltip label={`${open ? "Close" : "Open"} Source Control`} side="top">
       <button
@@ -436,13 +441,17 @@ function ScmRightOpenButton() {
  * SSH (Remote) status-bar toggle. Mirrors `ScmRightOpenButton`: shown whenever
  * the user has docked the Remote explorer to the right AND a session is live
  * (the left sidebar hides SSH the same way when no leaf is connected). Clicking
- * toggles the right-slot panel; the open state shows as active.
+ * toggles the right-slot panel; the open state shows as active. Also shown while
+ * it is closed in the left column, as the way back.
  */
 function SshRightOpenButton({ hasAnySshLeaf }: { hasAnySshLeaf: boolean }) {
   const sshInRightPanel = usePreferencesStore((s) => s.sshInRightPanel);
-  const open = useSshRightPanelStore((s) => s.open);
-  const toggle = useSshRightPanelStore((s) => s.toggle);
-  if (!sshInRightPanel || !hasAnySshLeaf) return null;
+  const openRight = useSshRightPanelStore((s) => s.open);
+  const toggleRight = useSshRightPanelStore((s) => s.toggle);
+  const closedLeft = useSidebarPlacementStore((s) => !!s.leftClosed.ssh);
+  if (!hasAnySshLeaf || (!sshInRightPanel && !closedLeft)) return null;
+  const open = sshInRightPanel && openRight;
+  const toggle = sshInRightPanel ? toggleRight : () => reopenLeft("ssh");
   return (
     <IconTooltip label={`${open ? "Close" : "Open"} Remote`} side="top">
       <button
