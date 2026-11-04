@@ -77,14 +77,14 @@ if (!helper) {
 // Every executing call site must consume the vetted result, never `command`
 // straight from the model, once it has one in hand.
 console.log("\n[call sites] the vetted string is what gets executed");
-// `lib/tediMcpServer.ts` is on this list because it OWNS the terminal now: the
-// `sh` MCP tool replaced `run_in_terminal`, and the bridge it writes through is
-// deliberately dumb, so this handler is the only thing standing between the
-// model's command and the user's shell.
+// `tools/tedi.ts` is on this list because it OWNS the terminal for this agent: the handler it
+// runs and the bridge under that are deliberately dumb, so this is the only thing standing between
+// the model's command and the user's shell. `scheduler/lib/bridge.ts` is where a schedule is
+// vetted, for every caller, because it runs later with nobody watching.
 for (const f of [
   `${TOOLS_DIR}/shell.ts`,
-  `${TOOLS_DIR}/schedule.ts`,
-  "src/modules/ai/lib/tediMcpServer.ts",
+  "src/modules/scheduler/lib/bridge.ts",
+  `${TOOLS_DIR}/tedi.ts`,
 ]) {
   const src = await readFile(f, "utf8");
   // `\b(?<!function )` would be neater, but the declaration in shell.ts is the

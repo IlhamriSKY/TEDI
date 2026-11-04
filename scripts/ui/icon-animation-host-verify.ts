@@ -11,7 +11,7 @@
  * `className={cn(..., "animate-ai-breathe")}` on an icon LOOKS wrong, which is
  * why this is source-text.
  */
-import { readFileSync } from "node:fs";
+import { readdirSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
@@ -52,10 +52,24 @@ for (const p of [
 const CSS = "src/styles/globals.css";
 check(
   `${CSS}: hidden tabs stop the decorative loops`,
-  /\.invisible :is\(\.animate-ai-breathe, \.ai-breathe-settle, \.animate-pulse\)\s*\{\s*animation: none;/.test(
+  /\.invisible :is\(\.animate-ai-breathe, \.ai-breathe-settle, \.animate-pulse\),\s*\.invisible \.tedi-spinner::before\s*\{\s*animation: none;/.test(
     read(CSS),
   ),
 );
+
+check(
+  `${CSS}: the spinner's ring stands still and only the light inside it turns`,
+  /\.tedi-spinner \{[^}]*mask:[^}]*\}/.test(read(CSS)) &&
+    !/\.tedi-spinner \{[^}]*animation:/.test(read(CSS)) &&
+    /\.tedi-spinner::before \{[^}]*animation: tedi-spinner/.test(read(CSS)),
+);
+
+// One loading glyph, and it is the HTML one: a second `animate-spin` icon is both a
+// different look and a rotation the compositor cannot run.
+const spinners = readdirSync(join(root, "src"), { recursive: true, encoding: "utf8" })
+  .filter((f) => /\.tsx?$/.test(f))
+  .filter((f) => /animate-spin|<LoaderCircle/.test(read(join("src", f))));
+check(`nothing under src draws its own spinner: ${spinners.join(", ")}`, spinners.length === 0);
 
 console.log(
   failed === 0

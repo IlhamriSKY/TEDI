@@ -135,12 +135,6 @@ export function buildLiveContext(deps: LiveContextDeps) {
     // Saved SSH connections are the one main feature with no command id, so
     // this is the only in-realm route to one. Same call the header's SSH menu
     // makes, so an agent-opened session is indistinguishable from a clicked one.
-    openSshTab: (connectionId: string, name: string, isPrivate = false): number | null =>
-      liveContextRef.current.newSshTab(
-        connectionId,
-        name,
-        isPrivate ? { private: true } : undefined,
-      ).leafId,
     openTerminal: (cwd?: string | null) => {
       const { explorerRoot, newTab, inheritedCwdForNewTab } = liveContextRef.current;
       const target = cwd ?? explorerRoot ?? inheritedCwdForNewTab();

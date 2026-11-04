@@ -11,7 +11,7 @@ import {
   throwIfAborted,
   type ToolContext,
 } from "./context";
-import { PANE_ID_MAX, flexIntOpt, flexIntReq } from "./schedule";
+import { PANE_ID_MAX, flexIntOpt, flexIntReq } from "./coerce";
 
 /**
  * Run registered extension transformers over a command before it hits the

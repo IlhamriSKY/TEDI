@@ -10,10 +10,28 @@ export type ExtractedFile = {
   /** MIME type when known (e.g. "image/png"), used to detect previewable images. */
   mediaType?: string;
 };
+export type SelectionSource = "terminal" | "editor" | "web";
+
+export function selectionLabel(source: SelectionSource): string {
+  if (source === "editor") return "Editor selection";
+  return source === "web" ? "Web page selection" : "Terminal selection";
+}
+
+function selectionSource(raw: string): SelectionSource {
+  return raw === "editor" || raw === "web" ? raw : "terminal";
+}
+
 export type ExtractedSelection = {
-  source: "terminal" | "editor";
+  source: SelectionSource;
   lines: number;
+  /** What was pointed at on a web page (`h1#title`), and the page it is on. */
+  name?: string;
+  pageTitle?: string;
+  pageUrl?: string;
 };
+
+/** The composer writes this line first, so a later one in the page's text is ignored. */
+const PAGE_LINE = /^Page: (.*?)\s*<([^>\n]*)>$/m;
 
 /** Metadata stamped onto outgoing user messages so the chat view can render
  *  the send-time model and provider. Client-side only; not sent to the LLM. */
@@ -60,8 +78,9 @@ export type RecalledFile = {
   content: string;
 };
 export type RecalledSelection = {
-  source: "terminal" | "editor";
+  source: SelectionSource;
   text: string;
+  name?: string;
 };
 export type RecalledMessage = {
   body: string;
@@ -92,12 +111,18 @@ export function extractUserMessage(raw: string): ExtractedMessage {
     },
   );
   body = body.replace(
-    /<selection\s+source="([^"]+)">([\s\S]*?)<\/selection>/g,
-    (_m, source, content: string) => {
+    /<selection\s+source="([^"]+)"(?:\s+name="([^"]*)")?>([\s\S]*?)<\/selection>/g,
+    (_m, source, name: string | undefined, content: string) => {
       const trimmed = content.replace(/^\n+/, "").replace(/\n+$/, "");
       const lines = trimmed ? trimmed.split("\n").length : 0;
-      const src = source === "editor" ? "editor" : "terminal";
-      selections.push({ source: src, lines });
+      const page = source === "web" ? PAGE_LINE.exec(trimmed) : null;
+      selections.push({
+        source: selectionSource(source),
+        lines,
+        name,
+        pageTitle: page?.[1],
+        pageUrl: page?.[2],
+      });
       return "";
     },
   );
@@ -162,10 +187,11 @@ export function recallUserMessage(message: UIMessage): RecalledMessage {
     },
   );
   body = body.replace(
-    /<selection\s+source="([^"]+)">([\s\S]*?)<\/selection>/g,
-    (_m, source: string, content: string) => {
+    /<selection\s+source="([^"]+)"(?:\s+name="([^"]*)")?>([\s\S]*?)<\/selection>/g,
+    (_m, source: string, name: string | undefined, content: string) => {
       selections.push({
-        source: source === "editor" ? "editor" : "terminal",
+        source: selectionSource(source),
+        name,
         text: content.replace(/^\n+/, "").replace(/\n+$/, ""),
       });
       return "";

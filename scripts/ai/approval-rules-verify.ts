@@ -96,6 +96,54 @@ check(
   true,
 );
 
+console.log("\n[tedi] a rule names a verb, never the whole app");
+{
+  const verb = (v: string, args?: object) => ({ verb: v, args });
+  check("a pane rename offers that verb", suggestRule("tedi", verb("rename", { leafId: 1 })), {
+    tool: "tedi",
+    match: "pane",
+  });
+  check("sh offers a command prefix", suggestRule("tedi", verb("sh", { command: "git status" })), {
+    tool: "tedi",
+    match: "sh git status",
+  });
+  check(
+    "a chained sh offers nothing",
+    suggestRule("tedi", verb("sh", { command: "ls; rm x" })),
+    null,
+  );
+  check(
+    "a bare tool rule allows nothing",
+    ruleAllows({ tool: "tedi" }, "tedi", verb("panes")),
+    false,
+  );
+  const pane = { tool: "tedi", match: "pane" };
+  check("the rule allows its verb", ruleAllows(pane, "tedi", verb("close", { leafId: 1 })), true);
+  check("and not another", ruleAllows(pane, "tedi", verb("set", { key: "a", value: "b" })), false);
+  const git = { tool: "tedi", match: "sh git status" };
+  check(
+    "sh allows its prefix",
+    ruleAllows(git, "tedi", verb("sh", { command: "git status -s" })),
+    true,
+  );
+  check(
+    "not a chain on it",
+    ruleAllows(git, "tedi", verb("sh", { command: "git status; rm x" })),
+    false,
+  );
+  check("not another command", ruleAllows(git, "tedi", verb("sh", { command: "git push" })), false);
+  check(
+    "a rule from when each verb was a tool still holds",
+    ruleAllows({ tool: "mcp__tedi__sh" }, "tedi", verb("sh", { command: "ls" })),
+    true,
+  );
+  check(
+    "and only for that verb",
+    ruleAllows({ tool: "mcp__tedi__sh" }, "tedi", verb("set", { key: "a", value: "b" })),
+    false,
+  );
+}
+
 if (failed > 0) {
   console.error(`\n${failed} check(s) failed`);
   process.exit(1);

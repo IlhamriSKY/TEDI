@@ -99,6 +99,7 @@ const SCAN_SCRIPT: &str = r#"(() => {
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
 static ENGINE: OnceLock<Engine> = OnceLock::new();
+const ENGINE_CACHE: &str = "engine.dat";
 static LOADING: Once = Once::new();
 static RULES: RwLock<Option<SiteRules>> = RwLock::new(None);
 
@@ -161,6 +162,8 @@ pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) {
                 return;
             };
             let dir = dir.join("browser").join("filters");
+            let cache = dir.join(ENGINE_CACHE);
+            let list_paths: Vec<_> = LISTS.iter().map(|(name, _)| dir.join(name)).collect();
             let mut lists = Vec::with_capacity(LISTS.len());
             for (name, url) in LISTS {
                 if let Some(text) = list_text(&dir, name, url).await {
@@ -170,12 +173,35 @@ pub fn set_enabled(app: &tauri::AppHandle, enabled: bool) {
             if lists.is_empty() {
                 return;
             }
-            let built = tauri::async_runtime::spawn_blocking(move || build_engine(lists)).await;
+            let built = tauri::async_runtime::spawn_blocking(move || {
+                cached_engine(&cache, &list_paths).unwrap_or_else(|| {
+                    let engine = build_engine(lists);
+                    let _ = std::fs::write(&cache, engine.serialize());
+                    engine
+                })
+            })
+            .await;
             if let Ok(engine) = built {
                 let _ = ENGINE.set(engine);
             }
         });
     });
+}
+
+/// The parsed engine, if it is newer than every list it came from. Parsing EasyList
+/// is most of a second of a core on each launch, and a corrupt or older file is
+/// refused by `deserialize` and simply parsed again.
+fn cached_engine(cache: &std::path::Path, lists: &[std::path::PathBuf]) -> Option<Engine> {
+    let built = std::fs::metadata(cache).ok()?.modified().ok()?;
+    for list in lists {
+        if std::fs::metadata(list).ok()?.modified().ok()? > built {
+            return None;
+        }
+    }
+    let bytes = std::fs::read(cache).ok()?;
+    let mut engine = Engine::default();
+    engine.deserialize(&bytes).ok()?;
+    Some(engine)
 }
 
 fn build_engine(lists: Vec<String>) -> Engine {
@@ -482,6 +508,30 @@ mod tests {
             "[Adblock Plus 2.0]\n||ads.example.net^\n/banner/ads.js\n@@||ads.example.net/ok.js\n"
                 .to_string(),
         ])
+    }
+
+    #[test]
+    fn a_cached_engine_blocks_what_the_parsed_one_did() {
+        let dir = std::env::temp_dir().join(format!("tedi-engine-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let (cache, list) = (dir.join(ENGINE_CACHE), dir.join("list.txt"));
+        std::fs::write(&list, "x").unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&cache, engine().serialize()).unwrap();
+        let cached = cached_engine(&cache, std::slice::from_ref(&list)).expect("a fresh cache");
+        assert!(blocks(
+            &cached,
+            "https://ads.example.net/x.js",
+            "https://site.test/"
+        ));
+        // A list refreshed since then means the cache is stale.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        std::fs::write(&list, "y").unwrap();
+        assert!(cached_engine(&cache, &[list]).is_none());
+        // And garbage is parsed again rather than trusted.
+        std::fs::write(&cache, "not an engine").unwrap();
+        assert!(cached_engine(&cache, &[]).is_none());
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     fn blocks(e: &Engine, url: &str, top: &str) -> bool {

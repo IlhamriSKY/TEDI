@@ -52,6 +52,19 @@ export function openExtensionPane(opts: OpenExtensionTabOpts): number | null {
   return paneOpener(opts);
 }
 
+/** Close the pane leaf `openExtensionPane` opened. False when there is none. */
+export type CloseExtensionPaneOpts = { extensionId: string; panelId: string; reuseKey?: string };
+
+let paneCloser: ((opts: CloseExtensionPaneOpts) => boolean) | null = null;
+
+export function setCloseExtensionPane(fn: typeof paneCloser): void {
+  paneCloser = fn;
+}
+
+export function closeExtensionPane(opts: CloseExtensionPaneOpts): boolean {
+  return paneCloser?.(opts) ?? false;
+}
+
 /**
  * Open a REAL terminal tab, in a directory the extension names.
  *

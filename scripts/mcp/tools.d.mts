@@ -44,11 +44,25 @@ export const ALIASES: Record<
   string,
   { tool: string; args?: object; positional?: string[]; select?: string; about: string }
 >;
-export function resolveVerb(verb: string): { tool: string; verb: string; args?: object } | null;
+export type ResolvedVerb = {
+  tool: string;
+  verb: string;
+  args?: object;
+  select?: string;
+  about?: string;
+};
+export function resolveVerb(verb: string): ResolvedVerb | null;
+export const TEDI_TOOL: { name: string; description: string; inputSchema: object };
+export function gatewayArgs(args: unknown): Record<string, unknown>;
+export function verbArgs(found: ResolvedVerb, args: unknown): Record<string, unknown>;
+export function verbNeedsApproval(verb: unknown, args: unknown): boolean;
 
 export const CLI_GROUPS: [string, string[]][];
 export const CLI_EXAMPLES: Record<string, string[]>;
 export function cliGuide(tools: { name: string; description: string }[]): string;
+export function cliVerbs(
+  tools: { name: string; description: string }[],
+): { verb: string; about: string; group: string }[];
 
 export type ToolDef = {
   /** Which pack switch governs this tool. See `src/modules/mcpInstall/packs.ts`. */
@@ -65,7 +79,7 @@ export type ToolDef = {
    * the honest annotation for them is "not read-only" and every call would then
    * raise a card, including reading a page the agent just opened.
    *
-   * This is client policy about TEDI's own in-process server, which is why it is
+   * This is client policy about TEDI's own agent (`verbNeedsApproval`), which is why it is
    * only ever read for `config.builtin` (`tools/mcp.ts`). A third-party server
    * cannot set it: the field never crosses the protocol, it is looked up in this
    * table by name.

@@ -3,7 +3,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
+import { DESTRUCTIVE_ACTION, HEADER_TOGGLE_ACTIVE, HEADER_TOGGLE_IDLE } from "@/lib/toolbarButton";
 import { AgentSessionsPanel } from "@/modules/agentSessions/AgentSessionsPanel";
 import { type Tab } from "@/modules/tabs";
 import { buildEntries, entryMatches } from "@/modules/tabs/lib/entries";
@@ -30,15 +30,23 @@ import {
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
 import { memo, useCallback, useMemo, useState, type ReactNode, type RefObject } from "react";
 import { countSavedTabEntries, restoreTabs } from "./serialize";
-import { SortableWorkspaceRow, WorkspaceAvatar, type EntryRow } from "./WorkspaceRow";
+import {
+  SortableWorkspaceRow,
+  WorkspaceAvatar,
+  type EntryRow,
+  type LeafRef,
+  type WorkspaceAddition,
+} from "./WorkspaceRow";
 import { useWorkspacesStore, type SavedPaneNode, type SavedTab, type Workspace } from "./store";
-import { LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, X } from "lucide-react";
+import { LayoutDashboard, PanelLeft, PanelRight, Pin, Plus, Search, X } from "lucide-react";
 
 type Props = {
   /** Pick a workspace. Caller must snapshot current tabs and rehydrate the new one. */
   onSwitch: (workspaceId: string) => void;
   /** Plus button. Caller seeds a new tab strip. */
   onCreate: () => void;
+  /** Open something new inside a workspace, going to it first if need be. */
+  onAddToWorkspace: (workspaceId: string, what: WorkspaceAddition, leaf?: LeafRef) => void;
   /** Close a workspace. Caller discards its live tabs and rehydrates the neighbor. */
   onClose: (workspaceId: string) => void;
   /**
@@ -158,6 +166,7 @@ function WorkspacesPanelInner({
   onSwitch,
   onCreate,
   onClose,
+  onAddToWorkspace,
   tabCounts,
   liveTabs,
   cachedTabsByWorkspace,
@@ -189,9 +198,15 @@ function WorkspacesPanelInner({
   const [dragId, setDragId] = useState<string | null>(null);
   // Which workspace rows are expanded to reveal their tabs (session-only).
   const [expanded, setExpanded] = useState<Set<string>>(() => new Set());
-  // One box for all three lists: workspaces and their tabs, agents, history.
+  // One box for all three lists: workspaces and their tabs, agents, history. It stays
+  // shut until asked for, like the one in Files, and closing it ends the search.
+  const [searching, setSearching] = useState(false);
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
+  const closeSearch = () => {
+    setSearching(false);
+    setSearch("");
+  };
 
   /**
    * Worktrees per PROJECT FOLDER, loaded when a workspace row is expanded rather
@@ -310,6 +325,18 @@ function WorkspacesPanelInner({
         <LayoutDashboard size={13} strokeWidth={2} className="text-muted-foreground shrink-0" />
         <span className="text-foreground/80 flex-1 truncate text-xs font-medium">Workspaces</span>
         <span className="tedi-header-divider" aria-hidden />
+        <IconTooltip label="Search workspaces, agents and history" side="bottom">
+          <Button
+            onClick={() => (searching ? closeSearch() : setSearching(true))}
+            aria-label="Search workspaces, agents and history"
+            aria-pressed={searching}
+            variant="ghost"
+            size="icon"
+            className={cn(searching ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE, "size-6")}
+          >
+            <Search size={13} strokeWidth={2} />
+          </Button>
+        </IconTooltip>
         <IconTooltip label="New workspace" side="bottom">
           <Button
             onClick={onCreate}
@@ -361,13 +388,14 @@ function WorkspacesPanelInner({
           </IconTooltip>
         ) : null}
       </div>
-      <PanelSearchInput
-        value={search}
-        onChange={setSearch}
-        onClose={() => setSearch("")}
-        placeholder="Search workspaces, agents, history"
-        autoFocus={false}
-      />
+      {searching ? (
+        <PanelSearchInput
+          value={search}
+          onChange={setSearch}
+          onClose={closeSearch}
+          placeholder="Search workspaces, agents, history"
+        />
+      ) : null}
       {/* Capped by a wrapper, not on the ScrollArea: its viewport inherits a
           max-height, and a percentage would resolve a second time against it. */}
       <div className="flex max-h-[40%] min-h-0 flex-col">
@@ -410,6 +438,7 @@ function WorkspacesPanelInner({
                       sortable={editingId !== w.id && renamingLeafId === null && !query}
                       onSwitch={onSwitch}
                       onClose={onClose}
+                      onAdd={onAddToWorkspace}
                       onStartEdit={startEdit}
                       onSetPinned={setPinned}
                       onDraftChange={setDraft}

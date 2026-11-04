@@ -1,4 +1,5 @@
 import {
+  setCloseExtensionPane,
   setOpenExtensionTab,
   setOpenExtensionPane,
   setSetExtensionTabState,
@@ -8,7 +9,8 @@ import {
   type SetExtensionTabStateOpts,
 } from "@/modules/extensions/tabsBridge";
 import type { Tab } from "@/modules/tabs";
-import { useEffect, type RefObject } from "react";
+import { leaves } from "@/modules/terminal";
+import { useEffect, useRef, type RefObject } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 import { isPanelOpen, setPanelOpen } from "@/app/lib/panelSize";
 
@@ -16,6 +18,7 @@ type Params = {
   openExtensionTab: (opts: OpenExtensionTabOpts) => number | null;
   openExtensionPane: (opts: OpenExtensionTabOpts) => number | null;
   setExtensionTabState: (opts: SetExtensionTabStateOpts) => void;
+  closePaneByLeaf: (leafId: number) => void;
   sidebarRef: RefObject<PanelImperativeHandle | null>;
   sidebarHiderRef: RefObject<{ extensionId: string; prior: boolean } | null>;
   /** Twin of `sidebarRef` for the right column. It only became collapsible in
@@ -55,6 +58,7 @@ export function useExtensionSidebarBridges({
   openExtensionTab,
   openExtensionPane,
   setExtensionTabState,
+  closePaneByLeaf,
   sidebarRef,
   sidebarHiderRef,
   rightSlotRef,
@@ -75,6 +79,31 @@ export function useExtensionSidebarBridges({
     setOpenExtensionPane((opts) => openExtensionPane(opts));
     return () => setOpenExtensionPane(null);
   }, [openExtensionPane]);
+
+  // Wire `ctx.tabs.closeExtensionPane(...)`. Read through a ref, because the tab
+  // list changes on every render and this only runs when asked.
+  const tabsRef = useRef(tabs);
+  tabsRef.current = tabs;
+  useEffect(() => {
+    setCloseExtensionPane(({ extensionId, panelId, reuseKey }) => {
+      for (const t of tabsRef.current) {
+        if (t.kind !== "pane") continue;
+        const leaf = leaves(t.paneTree).find(
+          (l) =>
+            l.leafKind === "extension-panel" &&
+            l.extensionId === extensionId &&
+            l.panelId === panelId &&
+            (l.reuseKey ?? undefined) === (reuseKey ?? undefined),
+        );
+        if (leaf) {
+          closePaneByLeaf(leaf.id);
+          return true;
+        }
+      }
+      return false;
+    });
+    return () => setCloseExtensionPane(null);
+  }, [closePaneByLeaf]);
 
   // `ctx.tabs.openTerminal` is wired in `useTabActions`, beside the worktree
   // opener whose wait-for-the-prompt it shares.

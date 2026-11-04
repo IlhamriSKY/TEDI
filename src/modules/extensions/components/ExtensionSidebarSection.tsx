@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 import { cn } from "@/lib/utils";
 import { revealColumn } from "@/lib/sectionDrag";
 import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
@@ -33,15 +34,7 @@ import {
   sidebarSectionKey,
   useSidebarPlacementStore,
 } from "../sidebarPlacementStore";
-import {
-  ChevronRight,
-  LayoutDashboard,
-  LoaderCircle,
-  PanelLeft,
-  PanelRight,
-  Search,
-  X,
-} from "lucide-react";
+import { ChevronRight, LayoutDashboard, PanelLeft, PanelRight, Search, X } from "lucide-react";
 
 /**
  * Client-side tree filter for a `searchable` section. A node is kept when its
@@ -353,12 +346,9 @@ export function ExtensionSidebarSection({
             // Animated spinner while the node loads its children. On rows that
             // also have hover actions it fades out on hover so it never sits
             // under the edit/delete buttons.
-            <LoaderCircle
-              size={12}
-              strokeWidth={2}
-              aria-label="Loading"
+            <Spinner
               className={cn(
-                "text-muted-foreground shrink-0 animate-spin",
+                "text-muted-foreground size-3",
                 hasActions && "transition-opacity group-hover:opacity-0",
               )}
             />

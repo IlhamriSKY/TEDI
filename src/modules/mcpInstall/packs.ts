@@ -1,17 +1,8 @@
 /**
  * Which parts of the MCP surface may run.
  *
- * An outside AI CLI is no longer ADVERTISED these: it sees one gateway tool and
- * reaches the rest by `tedi <verb>` (`GATEWAY_TOOL` in `server.mjs`). So for it these
- * switches decide what may run, not what it pays for. The bill below is now TEDI's
- * own agent, whose in-process server still lists everything it may call.
- *
- * The whole point is the token bill. A connected CLI loads the tool list into
- * EVERY request for the whole session, whether it drives TEDI or not, so the
- * surface is a standing cost and not a one-off. Measured: the core twenty are
- * ~2.5k tokens, and API Client's eleven AI tools would be ~1625 more - one
- * extension adding 66% on top of everything else. That is only acceptable if it
- * is opt-in, which is what this file exists to make possible.
+ * No agent is advertised these one by one: an outside CLI sees one gateway tool, and TEDI's own
+ * agent one `tedi` tool. So these switches decide what may run, not what anyone pays for.
  *
  * MEMBERSHIP IS NOT DECLARED HERE ANY MORE. Each tool names its own pack in
  * `scripts/mcp/tools.mjs`, the shared table both servers serve, and the

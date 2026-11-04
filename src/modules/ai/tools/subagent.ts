@@ -15,7 +15,7 @@ import {
   SUBAGENT_SUMMARY_KB_MAX,
 } from "@/modules/settings/store";
 import { clampForModel, scrubErrorPath, type ToolContext } from "./context";
-import { coerceInt, flexArrayOpt, flexIntOpt } from "./schedule";
+import { coerceInt, flexArrayOpt, flexIntOpt } from "./coerce";
 
 /**
  * One readable sentence for a failed sub-agent, with local paths masked.
@@ -124,114 +124,31 @@ function buildTypeDescriptions(): string {
   return desc;
 }
 
-/** Build the run_subagent / run_subagents tool definitions. */
+/** Build `run_subagents`. One tool: a single spawn is a batch of one, and a second tool cost ~700 tokens a step. */
 export function buildSubagentTools(ctx: ToolContext) {
   const typeDescriptions = buildTypeDescriptions();
 
   return {
-    run_subagent: tool({
-      description: `Spawn ONE isolated subagent (own tools, fresh history). Read-only explorers/advisors keep your context clean for a search / review / audit; the worker (odyssey) autonomously implements a scoped change (edits files, runs commands, checkpointed; spawning one raises a single approval card, and nothing it does inside raises another). Returns one text summary.\n\nTypes:\n${typeDescriptions}\n\nFor several INDEPENDENT scopes at once, use run_subagents (parallel) instead of repeating this.\n\nCall this yourself, proactively, the moment a task fits - do not ask the user for permission and do not explore inline first.`,
-      inputSchema: z.object({
-        type: z
-          .string()
-          .describe(
-            "The sub-agent id to run. Common synonyms like 'explore', 'review', or 'implement' map to the closest agent.",
-          ),
-        prompt: z
-          .string()
-          .describe(
-            "Self-contained instruction. The subagent has no memory of prior conversation - include all relevant context.",
-          ),
-        description: z.string().optional().describe("Short label shown on the spawn card."),
-        summary_kb: flexIntOpt({ min: 0, max: CLAMPED_FIELD_MAX }).describe(
-          "Optional summary size (KB) fed back. Default sensible; capped at a built-in max.",
-        ),
-      }),
-      // A worker spawn is the only approval the user will ever see for
-      // everything that worker then writes and runs. See `spawnNeedsApproval`.
-      needsApproval: (input: { type?: unknown }) => spawnNeedsApproval(input.type),
-      execute: async ({
-        type,
-        prompt,
-        description,
-        summary_kb,
-      }: {
-        type: string;
-        prompt: string;
-        description?: string;
-        summary_kb?: number;
-      }) => {
-        const cfg = subagentConfig();
-        const apiKeys = ctx.getApiKeys();
-        const selectedModelId = ctx.getSelectedModelId();
-        const sessionId = ctx.getSessionId();
-        const runStore = useSubagentRunStore.getState();
-        const runId = sessionId ? runStore.start(sessionId, { type, label: description }) : null;
-        try {
-          const r = await runSubagent({
-            type,
-            prompt,
-            keys: apiKeys,
-            modelId: selectedModelId,
-            provider: ctx.getSelectedProvider?.(),
-            toolContext: ctx,
-            lmstudioBaseURL: cfg.lmstudioBaseURL,
-            openaiCompatibleBaseURL: cfg.openaiCompatibleBaseURL,
-            abortSignal: ctx.abortSignal,
-            onStep: (label, n) => {
-              if (sessionId && runId)
-                runStore.step(sessionId, runId, { currentStep: label, stepCount: n });
-            },
-          });
-          const summary = clampForModel(
-            r.summary,
-            summaryCapFor(summary_kb, cfg.defaultSummaryKb, cfg.maxSummaryKb),
-          );
-          if (sessionId && runId)
-            runStore.finish(sessionId, runId, {
-              stepCount: r.stepCount,
-              durationMs: r.durationMs,
-              summary,
-            });
-          return {
-            type,
-            description,
-            summary,
-            stepCount: r.stepCount,
-            durationMs: r.durationMs,
-          };
-        } catch (e) {
-          const msg = describeSubagentFailure(e, ctx);
-          if (sessionId && runId) runStore.fail(sessionId, runId, msg);
-          return { error: msg, type };
-        }
-      },
-    }),
-
     run_subagents: tool({
-      description: `Spawn MULTIPLE isolated subagents in one call; get all summaries back together. Read-only explorers/advisors plus the autonomous worker (odyssey, which edits files + runs commands, checkpointed; a batch containing any worker raises one approval card for the batch). Two combinable patterns:\n- PARALLEL fan-out: independent tasks run at once (far faster than repeating run_subagent). For worker tasks, give each a disjoint set of files so edits cannot collide.\n- scatter -> gather: a task's \`depends_on\` lists other tasks it waits for, receiving their summaries as context. e.g. tasks 0,1,2 explore three modules; task 3 (depends_on [0,1,2]) synthesizes or implements from them.\nIndependent tasks run in parallel (bounded by max_concurrency); a task is SKIPPED if any dependency fails; cycles/self-refs are rejected. Each task has its own tools, fresh history, and no other memory, so every prompt must be self-contained (dependency summaries are injected for you). Types: same as run_subagent.\n\nYou pick the numbers (task count, max_concurrency, summary_kb), each bounded by a built-in cap; tasks beyond the cap are dropped (reported, not silent). Returns { count, maxConcurrency, failedOrSkipped?, dropped?, note?, results: [{ index, type, summary | error | skipped+reason, stepCount, durationMs }] } in input order. Read \`note\` before trusting the results: it reports tasks dropped past the cap and any \`depends_on\` edge that was ignored because its target does not exist (those tasks ran without that context).\n\nWhen the user says to study, explore, review, or audit the codebase (or anything spanning more than one file), THIS is your first tool call - proactively, without asking. Do not grep or read files one by one for that work.`,
+      description: `Spawn isolated subagents, one or many, and get their summaries back. Each has its own tools and fresh history, so every prompt must stand alone.\n\nTypes:\n${typeDescriptions}\n\nWorkers edit files and run commands with no further cards, so any worker in a batch raises one approval card; give parallel workers disjoint files. Tasks run in parallel up to max_concurrency. \`depends_on\` waits for other tasks and injects their summaries; a task is skipped if a dependency fails. Read \`note\`: it reports tasks past the cap and ignored edges.\n\nReturns { count, results: [{ index, type, summary | error | skipped, stepCount, durationMs }] } in input order.`,
       inputSchema: z.object({
         tasks: flexArrayOpt(
           z.object({
             type: z
               .string()
-              .describe(
-                "The sub-agent id to run. Common synonyms like 'explore', 'review', or 'implement' map to the closest agent.",
-              ),
-            prompt: z
-              .string()
-              .describe("Self-contained instruction; the subagent has no memory of this chat."),
-            description: z.string().optional().describe("Short label on this task's spawn card."),
+              .describe("Sub-agent id; explore, review or implement map to the closest."),
+            prompt: z.string().describe("Self-contained instruction."),
+            description: z.string().optional().describe("Short card label."),
             depends_on: flexArrayOpt(z.preprocess(coerceInt, z.number().int())).describe(
-              "Optional 0-based indices of OTHER tasks this one depends on (any order). Waits for them and receives their summaries as context (scatter -> gather). Cycles / self-references are rejected.",
+              "0-based indices of tasks to wait for.",
             ),
           }),
         ).describe("Subagent tasks to run."),
         max_concurrency: flexIntOpt({ min: 1, max: CLAMPED_FIELD_MAX }).describe(
-          "Max subagents in flight at once. Default sensible; higher values clamped to a built-in max.",
+          "Max in flight; clamped.",
         ),
         summary_kb: flexIntOpt({ min: 0, max: CLAMPED_FIELD_MAX }).describe(
-          "Optional per-subagent summary size (KB) fed back to you. Default sensible; capped at a built-in max. Lower for cheap/short results.",
+          "Summary size per subagent, KB; clamped.",
         ),
       }),
       // One card for the batch, raised when ANY task in it is a worker. Asking

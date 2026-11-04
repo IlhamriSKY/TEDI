@@ -65,7 +65,7 @@ pub const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 use modules::{
     automation, backup, browser, chatgpt_auth, claude_sessions, cli, cli_ext, cli_theme,
-    cli_update, clipboard, codex_sessions, extensions, format, fs, git, mcp, mcp_bridge, net,
+    cli_update, clipboard, codex_sessions, extensions, format, fs, git, lsp, mcp, mcp_bridge, net,
     preview, procs, pty, pty_daemon, secrets, shell, snapshot, ssh,
 };
 use tauri::{Emitter, Manager, WebviewUrl, WebviewWindowBuilder};
@@ -896,6 +896,11 @@ pub fn run() {
             browser::browser_find,
             browser::browser_focus,
             browser::browser_devtools,
+            browser::browser_action,
+            browser::browser_look,
+            browser::browser_downloads,
+            browser::browser_download_action,
+            browser::browser_download_reveal,
             browser::browser_blocker,
             browser::browser_blocked_count,
             #[cfg(target_os = "windows")]
@@ -923,6 +928,8 @@ pub fn run() {
             mcp::mcp_kill,
             mcp::mcp_oauth_callback,
             mcp_bridge::mcp_bridge_reply,
+            modules::mcp_devtools::automation_devtools,
+            lsp::lsp_query,
             ssh::ssh_open,
             ssh::ssh_write,
             ssh::ssh_resize,
@@ -1030,6 +1037,7 @@ pub fn run() {
             // that TEDI is not running.
             if matches!(_event, tauri::RunEvent::Exit) {
                 mcp_bridge::cleanup();
+                lsp::cleanup();
             }
         });
 }

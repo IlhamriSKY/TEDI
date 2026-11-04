@@ -40,10 +40,7 @@ fn main() {
 
     // `tedi new-tab`, `tedi state`, ...: straight to the bridge client, with no
     // TEDIApp.exe in between. First, so `tedi pane --help` is the verb's help.
-    if rest
-        .first()
-        .is_some_and(|a| tedi_lib::modules::cli::is_bridge_verb(a))
-    {
+    if tedi_lib::modules::cli::is_bridge_call(rest) {
         tedi_lib::modules::cli::run_bridge_verb(rest);
     }
 

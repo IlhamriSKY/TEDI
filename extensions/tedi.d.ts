@@ -857,7 +857,9 @@ export type KnownPermission =
   /** Retarget the agent's model / provider and toggle sub-agents. */
   | "ai:configure"
   /** Submit a prompt as if the user typed it. */
-  | "ai:prompt";
+  | "ai:prompt"
+  /** Attach context to the composer and add entries to its `@` picker. */
+  | "ai:context";
 
 /**
  * Commands `ctx.invoke` refuses outright, even under `invoke:*`.
@@ -916,6 +918,9 @@ export type ExtensionContext = {
   /** Read-only app state, plus a few chrome toggles. */
   app: {
     getContext(): AppContextSnapshot;
+    /** Hear which files changed under a folder. Shares the host's one watcher per
+     *  folder, which a raw `fs_watch` would replace. Requires `invoke:fs_watch`. */
+    watchFiles(root: string, onChange: (files: string[]) => void): Disposer;
     /** Auto-disposed on deactivate; the returned disposer is for early
      *  unsubscribe. */
     onContextChange(cb: (ctx: AppContextSnapshot) => void): Disposer;
@@ -980,6 +985,22 @@ export type ExtensionContext = {
     /** Stop the active run. Ungated: de-escalating, and the user can always
      *  do it from the UI. */
     stop(): void;
+    /** Put a chip in the composer, with an optional picture. Nothing is sent: the
+     *  user sees it and decides. Requires `ai:context`. */
+    attachContext(item: {
+      name: string;
+      text: string;
+      imageDataUrl?: string;
+      /** Searched for in the open project; the likely files lead the chip's text. */
+      searchTerms?: string[];
+    }): void;
+    /** Add entries to the composer's `@` picker. `items` is read each time the
+     *  picker opens; `pick` usually ends in `attachContext`. Requires
+     *  `ai:context`. */
+    registerMentionSource(source: {
+      items(): { id: string; label: string; detail?: string }[];
+      pick(id: string): void | Promise<void>;
+    }): Disposer;
   };
 
   /**
@@ -1107,6 +1128,9 @@ export type ExtensionContext = {
     /** Same, but as a native split-pane leaf - the same frame as a terminal
      *  or editor, splittable and joinable. */
     openExtensionPane(opts: OpenExtensionTabOptions): number | null;
+    /** Close your own pane leaf, matched on `(panelId, reuseKey)`. False when there
+     *  is no such pane, or it is the last tab left. */
+    closeExtensionPane(opts: { panelId: string; reuseKey?: string }): boolean;
     /**
      * Open a REAL terminal tab, working directory `cwd`.
      *

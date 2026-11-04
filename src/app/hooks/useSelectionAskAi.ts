@@ -1,5 +1,11 @@
 import { type EditorPaneHandle } from "@/modules/editor";
 import { useChatStore } from "@/modules/ai";
+import {
+  ATTACH_PAGE_CONTEXT_EVENT,
+  withLikelySources,
+  type PageContext,
+} from "@/modules/ai/lib/mentionSources";
+import { native } from "@/modules/ai/lib/native";
 import { openSettingsWindow } from "@/modules/settings/openSettingsWindow";
 import { activeChatIsPaned, activeLeaf, type Tab } from "@/modules/tabs";
 import {
@@ -143,6 +149,23 @@ export function useSelectionAskAi({
     window.addEventListener(ASK_ABOUT_COMMAND_EVENT, onAsk);
     return () => window.removeEventListener(ASK_ABOUT_COMMAND_EVENT, onAsk);
   }, [hasComposer, tabs, attachSelection, focusInput]);
+
+  // A part of a web page, pointed at from a browser pane (`ctx.ai.attachContext`).
+  useEffect(() => {
+    const onAttach = (e: Event) => {
+      const { name, text, imageDataUrl, searchTerms, root } = (e as CustomEvent<PageContext>)
+        .detail;
+      if (!hasComposer) {
+        void openSettingsWindow("models");
+        return;
+      }
+      void withLikelySources(text, searchTerms, root, (pattern, where, maxResults) =>
+        native.grep({ pattern, root: where, maxResults }).then((r) => r.hits),
+      ).then((full) => attachSelection(full, "web", { name, imageUrl: imageDataUrl }));
+    };
+    window.addEventListener(ATTACH_PAGE_CONTEXT_EVENT, onAttach);
+    return () => window.removeEventListener(ATTACH_PAGE_CONTEXT_EVENT, onAttach);
+  }, [hasComposer, attachSelection]);
 
   const [askPopup, setAskPopup] = useState<{ x: number; y: number } | null>(null);
 

@@ -17,12 +17,11 @@ import { readFileSync } from "node:fs";
 import { z } from "zod";
 import type { ToolSet } from "ai";
 import { builtinGroup } from "../../src/modules/ai/tools/catalog";
-import { TOOL_DEFS } from "../mcp/tools.mjs";
+import { TEDI_TOOL } from "../mcp/tools.mjs";
 import {
   buildCorePrompt,
   ORCHESTRATION_PROMPT_BODY,
   SYSTEM_PROMPT,
-  SYSTEM_PROMPT_LITE,
 } from "../../src/modules/ai/config";
 
 let failed = 0;
@@ -64,14 +63,13 @@ const ctx = new Proxy(
 // the bundler. Eight of the nine builders is every tool whose cost this check
 // governs; the sub-agent pair is measured by `subagent-*` checks instead, and
 // the totals below say so.
-const [fsT, editT, fetchT, searchT, shellT, todoT, scheduleT] = await Promise.all([
+const [fsT, editT, fetchT, searchT, shellT, todoT] = await Promise.all([
   import("../../src/modules/ai/tools/fs"),
   import("../../src/modules/ai/tools/edit"),
   import("../../src/modules/ai/tools/fetch"),
   import("../../src/modules/ai/tools/search"),
   import("../../src/modules/ai/tools/shell"),
   import("../../src/modules/ai/tools/todo"),
-  import("../../src/modules/ai/tools/schedule"),
 ]);
 const tools = {
   ...fsT.buildFsTools(ctx),
@@ -80,7 +78,6 @@ const tools = {
   ...searchT.buildSearchTools(ctx),
   ...shellT.buildShellTools(ctx),
   ...todoT.buildTodoTools(ctx),
-  ...scheduleT.buildScheduleTools(),
 } as unknown as ToolSet;
 const names = Object.keys(tools);
 
@@ -119,7 +116,7 @@ const rows = names.map((n) => {
 const totalChars = rows.reduce((a, r) => a + r.total, 0);
 
 console.log("[report] built-in tool surface, as serialized to the provider");
-console.log(`  tools: ${rows.length} (sub-agent and notes tools excluded - see above)`);
+console.log(`  tools: ${rows.length} (sub-agent tools excluded - see above)`);
 console.log(`  description chars: ${rows.reduce((a, r) => a + r.desc, 0)}`);
 console.log(`  JSON Schema chars: ${rows.reduce((a, r) => a + r.schema, 0)}`);
 console.log(`  TOTAL: ${totalChars} chars ~ ${tok(totalChars)} tokens, every step of every turn`);
@@ -133,12 +130,9 @@ for (const [g, c] of [...byGroup].sort((a, b) => b[1] - a[1])) {
   );
 }
 
-const full = buildCorePrompt("full", () => true);
+const full = buildCorePrompt(() => true);
 console.log("[report] system prompt");
-console.log(`  core full: ${SYSTEM_PROMPT.length} chars ~ ${tok(SYSTEM_PROMPT.length)} tokens`);
-console.log(
-  `  core lite: ${SYSTEM_PROMPT_LITE.length} chars ~ ${tok(SYSTEM_PROMPT_LITE.length)} tokens`,
-);
+console.log(`  core: ${SYSTEM_PROMPT.length} chars ~ ${tok(SYSTEM_PROMPT.length)} tokens`);
 console.log(
   `  + orchestration: ${full.length + ORCHESTRATION_PROMPT_BODY.length} chars ~ ${tok(full.length + ORCHESTRATION_PROMPT_BODY.length)} tokens`,
 );
@@ -147,44 +141,33 @@ console.log(
 // Invariants.
 // ---------------------------------------------------------------------------
 // ---------------------------------------------------------------------------
-// The OTHER half of the bill: TEDI's own MCP server.
+// The OTHER half of the bill: the one tool every app verb goes through.
 //
-// Panes, terminals and app control are served by the in-process MCP
-// server, so they are absent from the built-in payload above and would go
-// unmeasured. Their definitions come from `scripts/mcp/tools.mjs`, a data-only
-// table with zero imports, so the cost can be read straight out of it.
+// It was 14 MCP tools, 3 schedule, 2 notes and one per extension: ~5k tokens on every step, in
+// sessions that never touched a pane. These caps are what keep it from growing back: a verb's
+// details belong in its `help`, which costs nothing until it is asked for.
 // ---------------------------------------------------------------------------
-//
-// The list is READ OUT OF the server's own `HANDLERS` block, not hand-kept
-// beside it. Hand-kept is what it was, and it drifted: `open_file`, `workspace`
-// and `worktree` gained handlers and this report went on billing eleven tools,
-// so ~700 tokens a step went unmeasured and those three names never met the
-// shared-table check below - in the one script whose job is to notice that.
-// Source text rather than an import because `tediMcpServer.ts` reaches React
-// and the Tauri window at module load.
-const serverSrc = readFileSync(
-  new URL("../../src/modules/ai/lib/tediMcpServer.ts", import.meta.url),
-  "utf8",
+const tediChars =
+  TEDI_TOOL.name.length +
+  TEDI_TOOL.description.length +
+  JSON.stringify(TEDI_TOOL.inputSchema).length;
+console.log("[report] the tedi tool");
+console.log(
+  `  TOTAL: ${tediChars} chars ~ ${tok(tediChars)} tokens, on top of the built-ins above`,
 );
-const handlerBlock = serverSrc.slice(serverSrc.indexOf("const HANDLERS"));
-const IN_PROCESS = [
-  ...handlerBlock.slice(0, handlerBlock.indexOf("\n};")).matchAll(/^ {2}([a-z_]+):/gm),
-].map((m) => m[1]);
-check("the in-process handler list was read from tediMcpServer.ts", IN_PROCESS.length > 5, {
-  found: IN_PROCESS.length,
+console.log(
+  `  built-ins + tedi: ${totalChars + tediChars} chars ~ ${tok(totalChars + tediChars)} tokens`,
+);
+check("the tedi tool stays under 330 tokens", tok(tediChars) <= 330, { tokens: tok(tediChars) });
+check("the core prompt stays under 400 tokens", tok(SYSTEM_PROMPT.length) <= 400, {
+  tokens: tok(SYSTEM_PROMPT.length),
 });
-let mcpChars = 0;
-for (const n of IN_PROCESS) {
-  const def = TOOL_DEFS[n];
-  check(`${n} is in the shared tool table`, def !== undefined);
-  if (def) mcpChars += n.length + def.description.length + JSON.stringify(def.schema).length;
-}
-console.log("[report] TEDI's own MCP surface, as served in-process");
-console.log(
-  `  tools: ${IN_PROCESS.length}\n  TOTAL: ${mcpChars} chars ~ ${tok(mcpChars)} tokens, on top of the built-ins above`,
-);
-console.log(
-  `  built-ins + MCP: ${totalChars + mcpChars} chars ~ ${tok(totalChars + mcpChars)} tokens`,
+check("orchestration stays under 250 tokens", tok(ORCHESTRATION_PROMPT_BODY.length) <= 250, {
+  tokens: tok(ORCHESTRATION_PROMPT_BODY.length),
+});
+check(
+  "no second app tool grew back",
+  names.every((n) => !/^(schedule|notes)_|_schedules?$/.test(n)),
 );
 
 console.log("[coverage] every built-in builder is measured or named as an exclusion");
@@ -192,12 +175,10 @@ console.log("[coverage] every built-in builder is measured or named as an exclus
 // model is sent every step cost nothing as far as this report was concerned.
 // The builder list is the honest boundary: adding one to `tools.ts` now either
 // gets measured or has to be declared unmeasurable, on purpose, right here.
-const MEASURED_BUILDERS = new Set(["Fs", "Edit", "Fetch", "Search", "Shell", "Todo", "Schedule"]);
-// Sub-agents: measured by the `subagent-*` checks instead (and the builder
-// reaches xterm). Notes: `@/modules/notes` calls `getCurrentWebviewWindow()` at
-// module load, so importing it here needs a DOM that this script has no reason
-// to fake for ~500 chars.
-const EXCLUDED_BUILDERS = new Set(["Subagent", "Notes"]);
+const MEASURED_BUILDERS = new Set(["Fs", "Edit", "Fetch", "Search", "Shell", "Todo"]);
+// Sub-agents: measured by the `subagent-*` checks instead (and the builder reaches xterm).
+// `tedi`: measured above, from its definition; the builder reaches the stores.
+const EXCLUDED_BUILDERS = new Set(["Subagent", "Tedi"]);
 const composed = new Set(
   [
     ...readFileSync(
@@ -214,7 +195,7 @@ check("no builder in tools.ts goes unbilled", unaccounted.length === 0, unaccoun
 console.log("[one surface] no capability is offered twice");
 // THE regression this whole consolidation exists to prevent. A built-in named
 // after a pane, a terminal or a browser means someone re-added a second way to
-// do what the MCP server already does - which is where this started: `sh` and
+// do what `tedi` already does - which is where this started: `sh` and
 // `run_in_terminal` doing the same thing, billed twice on every request.
 const duplicated = names.filter((n) => /terminal|browser|pane/.test(n));
 check("no built-in tool drives a terminal, browser or pane", duplicated.length === 0, duplicated);

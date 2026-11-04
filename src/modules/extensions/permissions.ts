@@ -58,6 +58,7 @@ export const KNOWN_PERMISSIONS = [
   "terminal:path",
   "ai:configure",
   "ai:prompt",
+  "ai:context",
 ] as const;
 
 export type KnownPermission = (typeof KNOWN_PERMISSIONS)[number];
@@ -87,6 +88,8 @@ export const PERMISSION_DESCRIPTIONS: Record<KnownPermission, string> = {
   "shell:transform": "Rewrite every shell command the AI agent runs before it executes.",
   "ai:configure": "Retarget the AI agent's model/provider and toggle sub-agents.",
   "ai:prompt": "Submit a prompt to the AI agent as if the user typed it.",
+  "ai:context":
+    "Attach context to the AI composer for you to review, and add entries to its @ picker.",
 };
 
 export class PermissionDeniedError extends Error {

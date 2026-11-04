@@ -3,7 +3,7 @@ import { fileIconUrl } from "@/modules/explorer/lib/iconResolver";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { FileAttachment } from "../lib/composer";
 import type { Snippet } from "../lib/snippets";
-import { Code, Hash, Terminal, X, type LucideIcon } from "lucide-react";
+import { Code, Globe, Hash, Terminal, X, type LucideIcon } from "lucide-react";
 
 export function ChipsRow({
   files,
@@ -80,7 +80,7 @@ export function ChipsRow({
           </Tooltip>
         ))}
         {files.map((f) => {
-          const isImage = f.kind === "image" && Boolean(f.url);
+          const isImage = f.kind !== "text" && Boolean(f.url);
           return (
             <Tooltip key={f.id}>
               <TooltipTrigger asChild>
@@ -93,7 +93,22 @@ export function ChipsRow({
                   className="group border-border/60 bg-card flex max-w-full min-w-0 items-center gap-1 rounded-md border px-1.5 py-0.5 text-[11px]"
                 >
                   {f.kind === "selection" ? (
-                    f.source === "editor" ? (
+                    f.source === "web" ? (
+                      f.url ? (
+                        <img
+                          src={f.url}
+                          alt=""
+                          aria-hidden
+                          className="bg-muted -my-0.5 -ml-1 h-5 w-7 shrink-0 object-contain"
+                        />
+                      ) : (
+                        <Globe
+                          size={11}
+                          strokeWidth={2}
+                          className="text-muted-foreground shrink-0"
+                        />
+                      )
+                    ) : f.source === "editor" ? (
                       <Code size={11} strokeWidth={2} className="text-muted-foreground shrink-0" />
                     ) : (
                       <Terminal
@@ -112,7 +127,7 @@ export function ChipsRow({
                   )}
                   <span className="max-w-35 truncate">
                     {f.name}
-                    {f.kind === "selection" && f.text ? (
+                    {f.kind === "selection" && f.source !== "web" && f.text ? (
                       <span className="text-muted-foreground ml-1">· {selLineCount(f.text)}L</span>
                     ) : null}
                   </span>

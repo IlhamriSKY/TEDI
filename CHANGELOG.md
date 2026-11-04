@@ -4,6 +4,76 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [Unreleased]
+
+### Added
+
+- **The agent can ask a language server**: go to definition, references, hover, a file's symbols and
+  its errors, for TypeScript, Rust, Python, Go, C/C++ and PHP, with `tedi lsp` from a shell too. A
+  server starts on first use, must be on PATH, stops after five minutes idle, and asks every time
+  because it can run a project's build scripts. See [lsp.rs](src-tauri/src/modules/lsp.rs).
+- **Hooks**: your own shell commands before a tool, after a tool and when a turn ends, set in
+  Settings > Agents. Before a tool, exit 2 blocks it, and so does a hook that times out; after one, a failure is shown to the agent. A
+  repository cannot define one. See [hooks.ts](src/modules/ai/lib/hooks.ts).
+- **Skills and sub-agents from files**: `.tedi/skills/<name>/SKILL.md` and `.tedi/agents/<name>.md`, in
+  the project or in `~/.tedi`; a project's `.claude/skills` and `.claude/agents` work as they are. A
+  repository's agent is read-only whatever its file asks for. See
+  [fileDefinitions.ts](src/modules/ai/lib/fileDefinitions.ts).
+- **The agent can press keys, type, click, drag and see the window** without Node installed. Each
+  press asks, and none can be made Always allow, because a press could approve the next card.
+- **`tedi <verb>` prints for whoever is reading.** On a terminal you get a table or plain text;
+  piped, or with `--json`, one compact JSON value for a program or an AI agent. `--human` and
+  `TEDI_OUTPUT=json|human` force either. See [render.mjs](scripts/mcp/render.mjs).
+- **`tedi mcp` connects an agent from a shell**: `tedi mcp status` shows which are connected,
+  `tedi mcp install` connects them, `tedi mcp config <agent>` prints the config. Any MCP client can
+  simply run `tedi mcp`, with no path and no environment to set.
+- **Hermes Agent is a supported target**, in Install MCP and `tedi mcp install`. Its
+  `config.yaml` is edited in place, so your comments stay. See
+  [targets.mjs](scripts/mcp/targets.mjs).
+- **A word narrows any list**: `tedi settings font`, `tedi extensions sql`, `tedi commands pane`.
+- **`tedi tools --json` and `tedi help <verb> --json`** give the same reference as data.
+
+### Changed
+
+- **One tool spawns sub-agents, for one or many**, and their descriptions got shorter, which takes
+  about 900 more tokens off every step of a turn that has sub-agents on.
+- **The built-in agent costs about a third of what it did on every step.** What is sent besides the
+  conversation went from about 10,000 input tokens to about 3,600: panes, terminals, settings, SSH,
+  notes, schedules and every extension's tools are now reached through one `tedi` tool, which looks up
+  a verb's arguments when it needs them. See [tedi.ts](src/modules/ai/tools/tedi.ts).
+- **The system prompt lost what the tools already say**, from about 1,100 tokens to 350, and sub-agent
+  guidance from about 950 to 210. There is one prompt for every model now; text you wrote for the compact
+  variant still applies. See [config.ts](src/modules/ai/config.ts).
+- **Stop ends a waiting terminal call at once**, and a call that will be refused no longer asks for
+  approval first. Listing saved SSH connections no longer asks at all.
+- **"Always allow" on a TEDI action names that action**, and for a terminal command its prefix, instead
+  of the whole tool. Rules you already have keep working.
+- **`tedi`, the MCP server and TEDI's own agent run one implementation of every tool**, instead of
+  two that had drifted apart. See [handlers.mjs](scripts/mcp/handlers.mjs).
+- **Answers cost an agent far fewer tokens**: JSON is compact, `settings` leaves out long values
+  until you name one (9.6 KB to 2.3 KB), `extensions` leaves out tool schemas until you filter
+  (13 KB to 2.4 KB), and a pane's preview drops a TUI's padding.
+
+### Fixed
+
+- **`tedi sh` typed into a pane running a command**, though its own description said that was
+  refused. It refuses now, and still types into an AI CLI or a full-screen program.
+- **`tedi term` and `tedi wait` with nothing named answered from whichever pane opened last.** With
+  several terminals open and focus elsewhere they now ask which one you mean.
+- **Hermes on Windows was told "TEDI is not running" with TEDI open**, because it hides `APPDATA`
+  from an MCP server. TEDI now asks the OS where the user's data folder is.
+- **`tedi state --tail 0` returned every pane's whole buffer**, 33 KB of it.
+- **A misspelt argument was ignored, and the call did something else and reported success**:
+  `pane {action:"open", folder:"x"}` opened a terminal somewhere else. It is refused now, naming the
+  real ones. So is a string where a list belongs: `keys {chords:"Enter"}` pressed E, n, t, e, r.
+
+### Security
+
+- **No tool falls back to the DevTools port any more.** It has no authentication, and with the
+  bridge down it could send real keystrokes into another TEDI that held the port.
+- **The local bridge bounds a client that has not shown its token**: 5 seconds and 1 KB, where a
+  silent connection used to park a task forever and an endless line could grow a buffer.
+
 ## [0.4.79] - 03-11-2026
 
 ### Changed

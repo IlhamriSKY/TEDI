@@ -69,6 +69,12 @@ const CALL_EVENT: &str = "tedi://bridge-call";
 /// is exactly what the CDP path did (it had no timeout at all).
 const CALL_TIMEOUT: Duration = Duration::from_secs(120);
 
+/// What a client may do before it has shown the token. Anyone who can reach the socket gets
+/// this far, so a silent connection must not park a task forever and an endless line must not
+/// grow a buffer without limit.
+const HANDSHAKE_TIMEOUT: Duration = Duration::from_secs(5);
+const HANDSHAKE_MAX_BYTES: u64 = 1024;
+
 /// A request from a connected client.
 #[derive(Deserialize)]
 struct BridgeRequest {
@@ -267,27 +273,39 @@ pub fn start(app: AppHandle) {
     });
 }
 
+/// The token in the first frame, or nothing: silence, a line too long, or not the handshake.
+async fn read_presented_token<R>(reader: &mut R) -> Option<String>
+where
+    R: tokio::io::AsyncBufRead + Unpin,
+{
+    use tokio::io::AsyncBufReadExt;
+    let mut first = String::new();
+    tokio::time::timeout(HANDSHAKE_TIMEOUT, reader.read_line(&mut first))
+        .await
+        .ok()?
+        .ok()?;
+    serde_json::from_str::<serde_json::Value>(&first)
+        .ok()?
+        .get("token")?
+        .as_str()
+        .map(str::to_owned)
+}
+
 /// One client connection: authenticate, then serve newline-delimited JSON.
 async fn serve(
     app: AppHandle,
     stream: interprocess::local_socket::tokio::Stream,
 ) -> std::io::Result<()> {
     use interprocess::local_socket::traits::tokio::Stream as _;
-    use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+    use tokio::io::{AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader};
 
     let (rx, mut tx) = stream.split();
-    let mut lines = BufReader::new(rx).lines();
+    let mut reader = BufReader::new(rx.take(HANDSHAKE_MAX_BYTES));
 
     // First frame is the handshake. Anything else - including a well-formed
     // request - is refused, so a client that never read the token cannot get a
     // single capability call in before being disconnected.
-    let Some(first) = lines.next_line().await? else {
-        return Ok(());
-    };
-    let presented = serde_json::from_str::<serde_json::Value>(&first)
-        .ok()
-        .and_then(|v| v.get("token").and_then(|t| t.as_str()).map(str::to_owned))
-        .unwrap_or_default();
+    let presented = read_presented_token(&mut reader).await.unwrap_or_default();
     // Constant-time-ish: compare full length, not a short-circuit prefix. The
     // token is a v4 UUID over a local socket, so this is belt-and-braces.
     let ok = presented.len() == token().len()
@@ -303,6 +321,9 @@ async fn serve(
         return Ok(());
     }
     tx.write_all(b"{\"ok\":true}\n").await?;
+    // Past the door now, and a real request carries a whole query result.
+    reader.get_mut().set_limit(u64::MAX);
+    let mut lines = reader.lines();
 
     // Releases this connection's share of the DevTools console capture on EVERY
     // way out of this function, including the `?` on a write to a client that
@@ -507,6 +528,30 @@ mod tests {
         assert!(switched_off("runExtensionCommand", &args("tedi.browser"), &off).is_none());
         assert!(switched_off("runExtensionCommand", &[], &off).is_none());
         assert!(is_gated("panelOpen") && is_gated("aiSend") && !is_gated("state"));
+    }
+
+    #[tokio::test]
+    async fn the_handshake_reads_a_token_and_bounds_everything_else() {
+        use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
+
+        async fn read(input: Vec<u8>) -> Option<String> {
+            let (mut client, server) = tokio::io::duplex(8192);
+            client.write_all(&input).await.unwrap();
+            drop(client);
+            read_presented_token(&mut BufReader::new(server.take(HANDSHAKE_MAX_BYTES))).await
+        }
+        assert_eq!(
+            read(b"{\"token\":\"abc\"}\n".to_vec()).await.as_deref(),
+            Some("abc")
+        );
+        assert_eq!(
+            read(b"{\"id\":1,\"name\":\"state\"}\n".to_vec()).await,
+            None
+        );
+        assert_eq!(read(b"not json\n".to_vec()).await, None);
+        assert_eq!(read(Vec::new()).await, None);
+        // No newline, and more than the door allows: refused rather than buffered.
+        assert_eq!(read(vec![b'x'; 4096]).await, None);
     }
 
     #[test]

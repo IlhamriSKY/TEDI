@@ -1,16 +1,11 @@
 /**
- * One-click registration of TEDI's own MCP server into whichever AI CLIs the
+ * One-click registration of TEDI's own MCP server into whichever AI agents the
  * user has, so any of them can drive the editor they are running inside.
  *
  * The server itself is `scripts/mcp/server.mjs`, shipped as a bundle resource
- * (see `tauri.conf.json`). All this module does is write the entry that points a
- * CLI at it - and read it back, because "is it installed" has to be answered
- * from the same files, not from a flag of our own that can drift.
- *
- * THREE CONFIG SHAPES, not six. `mcpServers` is the de-facto standard and covers
- * Claude Code, Cursor, Gemini CLI and a project-level `.mcp.json`; Codex is TOML;
- * opencode has its own JSON. Anything else the user can copy by hand from the
- * dialog.
+ * (see `tauri.conf.json`). This module does the reading and writing through Tauri;
+ * what goes in each file is `scripts/mcp/targets.mjs`, shared with `tedi mcp install`.
+ * "Is it installed" is answered from the same files, not from a flag that can drift.
  *
  * NOTHING IS CREATED FOR A CLI THE USER DOES NOT HAVE. Every target names a path
  * that must already exist before it is even offered, so this never scatters
@@ -19,15 +14,21 @@
 import { invoke } from "@tauri-apps/api/core";
 import { homeDir, resourceDir } from "@tauri-apps/api/path";
 import { getIdentifier } from "@tauri-apps/api/app";
+import {
+  entryFor,
+  readsAsInstalled,
+  TARGETS,
+  withEntry,
+  withoutEntry,
+  type Target,
+} from "@mcp/targets.mjs";
 
-/** Key the entry is written under, in every format. */
-export const SERVER_NAME = "tedi";
+export { TARGETS };
+export type { Target };
 
 /** Default port. Nothing else on the machine claims it, and it is what the
  *  driver's own docs have always used. */
 export const DEFAULT_PORT = 9222;
-
-type Format = "mcpServers" | "codexToml" | "opencode";
 
 /**
  * Where an entry is written.
@@ -35,88 +36,10 @@ type Format = "mcpServers" | "codexToml" | "opencode";
  * `global` is the user-wide config in the home directory - the CLI loads it in
  * every session. `project` is the CLI's OWN project-scoped file inside the open
  * folder, which the CLI reads only while its working directory is that folder,
- * and which can be committed so a repo carries its own MCP wiring. Every CLI here
- * has both, at a documented standard path; see `TARGETS`.
+ * and which can be committed so a repo carries its own MCP wiring. Each is at a
+ * documented standard path, and an agent with none is simply not offered there; see `TARGETS`.
  */
 export type Scope = "global" | "project";
-
-export type Target = {
-  id: string;
-  name: string;
-  /** Global config file, relative to home. */
-  file: string;
-  /**
-   * Project-scoped config file, relative to the OPEN FOLDER. Each is the tool's
-   * own documented per-project location, verified against current docs rather
-   * than guessed:
-   *  - Claude Code `.mcp.json`, Cursor `.cursor/mcp.json`, Gemini
-   *    `.gemini/settings.json` (same `mcpServers` shape as their user config);
-   *  - Codex `.codex/config.toml` (merged over the global TOML; the project must
-   *    be trusted for Codex to read it);
-   *  - opencode `opencode.json` at the root (overrides the global JSON);
-   *  - Copilot CLI `.copilot/mcp-config.json` (merged over the global one).
-   */
-  projectFile: string;
-  /** Paths (relative to home) that prove the CLI is installed. Any one will do. */
-  probes: string[];
-  format: Format;
-};
-
-/**
- * Only CLIs whose config location is documented and stable. A guessed path is
- * worse than an absent one: it writes a file the tool never reads, and the
- * indicator then claims an integration that does not work.
- */
-export const TARGETS: Target[] = [
-  {
-    id: "claude",
-    name: "Claude Code",
-    file: ".claude.json",
-    projectFile: ".mcp.json",
-    probes: [".claude.json", ".claude"],
-    format: "mcpServers",
-  },
-  {
-    id: "codex",
-    name: "Codex CLI",
-    file: ".codex/config.toml",
-    projectFile: ".codex/config.toml",
-    probes: [".codex"],
-    format: "codexToml",
-  },
-  {
-    id: "gemini",
-    name: "Gemini CLI",
-    file: ".gemini/settings.json",
-    projectFile: ".gemini/settings.json",
-    probes: [".gemini"],
-    format: "mcpServers",
-  },
-  {
-    id: "opencode",
-    name: "opencode",
-    file: ".config/opencode/opencode.json",
-    projectFile: "opencode.json",
-    probes: [".config/opencode"],
-    format: "opencode",
-  },
-  {
-    id: "copilot",
-    name: "GitHub Copilot CLI",
-    file: ".copilot/mcp-config.json",
-    projectFile: ".copilot/mcp-config.json",
-    probes: [".copilot"],
-    format: "mcpServers",
-  },
-  {
-    id: "cursor",
-    name: "Cursor",
-    file: ".cursor/mcp.json",
-    projectFile: ".cursor/mcp.json",
-    probes: [".cursor"],
-    format: "mcpServers",
-  },
-];
 
 const slash = (p: string): string => p.replace(/\\/g, "/").replace(/\/+$/, "");
 
@@ -193,156 +116,6 @@ async function writeFile(path: string, content: string): Promise<void> {
   await invoke("fs_write_file", { path, content });
 }
 
-/** The entry, in the shape each host expects. */
-function entryFor(format: Format, server: string, bundle: string): unknown {
-  const env = { TEDI_BUNDLE_ID: bundle };
-  if (format === "opencode") {
-    return { type: "local", command: ["node", server], enabled: true, environment: env };
-  }
-  // `type: "stdio"` because that is exactly what Claude Code writes for itself -
-  // checked against a real `~/.claude.json`, not inferred. Newer schemas use the
-  // field to tell stdio from http/sse, and matching the host's own output is
-  // cheaper than finding out which of them treat it as required.
-  return { type: "stdio", command: "node", args: [server], env };
-}
-
-/** Where the entry lives inside each host's config object. */
-const ROOT_KEY: Record<Exclude<Format, "codexToml">, string> = {
-  mcpServers: "mcpServers",
-  opencode: "mcp",
-};
-
-// --- TOML ------------------------------------------------------------------
-// Codex is the only TOML host here, and a parser for one table is not worth a
-// dependency. A table runs to the next `[header]` or end of file, so replacing
-// or removing exactly our own block is a bounded edit that leaves every other
-// setting - including comments - byte-identical.
-
-const CODEX_TABLE = `[mcp_servers.${SERVER_NAME}]`;
-
-/**
- * Everything belonging to our server: the `[mcp_servers.tedi]` header, its body,
- * AND its nested sub-tables. `$1` preserves the newline that preceded it, so
- * removing the block does not weld the line above onto the line below.
- *
- * Two boundaries, both learned from a real `~/.codex/config.toml` rather than
- * from the spec:
- *
- *  1. A table does NOT end at the next `[` - it ends at the next `[` that STARTS
- *     A LINE. Our own body contains `args = ["...path..."]`, so an "up to the
- *     next bracket" rule cut the block off after `command = "node"` and orphaned
- *     the args and env lines onto whatever table preceded them.
- *  2. **A server owns nested tables too.** A real config had
- *     `[mcp_servers.chrome-devtools.tools.take_snapshot]` and eight siblings -
- *     Codex's per-tool settings. Stopping at the first line-initial `[` would
- *     leave every `[mcp_servers.tedi.tools.*]` behind on uninstall, re-parented
- *     to the preceding server. So a header that is ours-plus-a-dot continues the
- *     block; any other header ends it.
- */
-function codexBlockRe(): RegExp {
-  const own = `\\[mcp_servers\\.${SERVER_NAME}`;
-  return new RegExp(
-    // our header line …
-    `(^|\\n)[ \\t]*${own}\\][^\\n]*\\n?` +
-      // … then, repeatedly: one of our own NESTED headers, or any non-header line.
-      `(?:(?:[ \\t]*${own}\\.[^\\n]*|(?![ \\t]*\\[)[^\\n]*)\\n?)*`,
-    "g",
-  );
-}
-
-function codexBlock(server: string, bundle: string): string {
-  // TOML basic strings take the same escapes as JSON, so a Windows path is
-  // safe through JSON.stringify rather than a hand-rolled quoter.
-  return `${CODEX_TABLE}\ncommand = "node"\nargs = [${JSON.stringify(server)}]\nenv = { TEDI_BUNDLE_ID = "${bundle}" }\n`;
-}
-
-// --- read / write ----------------------------------------------------------
-
-/**
- * EVERY BAG IN THIS FILE THAT CAN HOLD OUR ENTRY, in the order they are written.
- *
- * One file, more than one scope. `~/.claude.json` carries the user-wide
- * `mcpServers` at the top level AND a `projects["<dir>"].mcpServers` per folder -
- * and the per-folder one is where `claude mcp add` puts a server by DEFAULT
- * ("local" scope). Reading only the top level meant the switch could sit at OFF
- * while Claude Code loaded TEDI on every session from the project bag, and
- * turning it off then removed nothing: exactly the drift this module exists to
- * avoid. The other hosts have no `projects` key, so they get the top bag alone.
- */
-function bags(json: Record<string, unknown>, key: string): Record<string, unknown>[] {
-  const out: Record<string, unknown>[] = [];
-  const top = json[key];
-  if (top && typeof top === "object") out.push(top as Record<string, unknown>);
-  if (key !== "mcpServers") return out;
-  const projects = json.projects;
-  if (projects && typeof projects === "object") {
-    for (const p of Object.values(projects as Record<string, unknown>)) {
-      const b = (p as Record<string, unknown> | null)?.[key];
-      if (b && typeof b === "object") out.push(b as Record<string, unknown>);
-    }
-  }
-  return out;
-}
-
-/** Is our entry already in this file, and does it point at THIS install? */
-function readsAsInstalled(target: Target, text: string, server: string, bundle: string): boolean {
-  if (!text.trim()) return false;
-  if (target.format === "codexToml") {
-    const block = codexBlockRe().exec(text)?.[0];
-    return Boolean(block?.includes(server) && block.includes(bundle));
-  }
-  try {
-    const json = JSON.parse(text) as Record<string, unknown>;
-    // Stale entries (an older install path) count as NOT installed, so the
-    // button offers to fix them instead of showing a green light on a config
-    // that points at a directory the updater replaced.
-    // An entry written before the id was stamped, or by the OTHER build, reads
-    // as not-installed: it would drive this TEDI while reading another's
-    // switches, which is the exact failure this check exists to surface.
-    return bags(json, ROOT_KEY[target.format]).some((bag) => {
-      const entry = bag[SERVER_NAME];
-      const text2 = entry ? JSON.stringify(entry) : "";
-      return Boolean(entry && text2.includes(server) && text2.includes(bundle));
-    });
-  } catch {
-    return false;
-  }
-}
-
-function withEntry(target: Target, text: string, server: string, bundle: string): string {
-  if (target.format === "codexToml") {
-    const stripped = text.replace(codexBlockRe(), "$1").replace(/\n{3,}/g, "\n\n");
-    const sep = stripped.trim() ? `${stripped.trimEnd()}\n\n` : "";
-    return `${sep}${codexBlock(server, bundle)}`;
-  }
-  // Preserves every other key, which is the whole risk here: these files hold
-  // the user's other MCP servers and, for Claude Code, its entire project
-  // history. Parse-modify-serialize, never overwrite.
-  const json = (text.trim() ? JSON.parse(text) : {}) as Record<string, unknown>;
-  const key = ROOT_KEY[target.format];
-  // Clear the per-folder copies first, so installing leaves EXACTLY ONE tedi
-  // entry - the top-level one written below. A leftover project-scoped entry
-  // outranks it in Claude Code and would keep pointing at whatever path it was
-  // added with, quietly ignoring the install that just claimed to have fixed it.
-  for (const bag of bags(json, key)) delete bag[SERVER_NAME];
-  const top = (json[key] ?? {}) as Record<string, unknown>;
-  top[SERVER_NAME] = entryFor(target.format, server, bundle);
-  json[key] = top;
-  return `${JSON.stringify(json, null, 2)}\n`;
-}
-
-function withoutEntry(target: Target, text: string): string {
-  if (!text.trim()) return text;
-  if (target.format === "codexToml") {
-    return text.replace(codexBlockRe(), "$1").replace(/\n{3,}/g, "\n\n");
-  }
-  const json = JSON.parse(text) as Record<string, unknown>;
-  // Out of every scope in the file, not just the top one: "off" has to mean the
-  // CLI cannot load us from this config at all.
-  for (const bag of bags(json, ROOT_KEY[target.format])) delete bag[SERVER_NAME];
-  return `${JSON.stringify(json, null, 2)}\n`;
-}
-
 // --- public API ------------------------------------------------------------
 
 export type TargetStatus = Target & {
@@ -375,7 +148,8 @@ async function resolve(
     Boolean,
   );
   if (scope === "project") {
-    if (!root) return { path: "", present: false };
+    // Not every agent has one: Hermes reads a single global file.
+    if (!root || !target.projectFile) return { path: "", present: false };
     return { path: `${slash(root)}/${target.projectFile}`, present: cliPresent };
   }
   return { path: `${h}/${target.file}`, present: cliPresent };
@@ -414,7 +188,7 @@ export async function detect(scope: Scope, root: string | null): Promise<TargetS
 /** Add (or repair) our entry in one target's config for `scope`. */
 export async function install(target: Target, scope: Scope, root: string | null): Promise<void> {
   const { path, present } = await resolve(target, scope, root);
-  if (!path) throw new Error("Open a folder first to install a project-scoped config.");
+  if (!path) throw new Error(`No project-scoped config here for ${target.name}.`);
   if (!present) throw new Error(`${target.name} is not installed on this machine.`);
   const server = await serverPath();
   await writeFile(path, withEntry(target, await readOrEmpty(path), server, await bundleId()));

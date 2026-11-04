@@ -50,6 +50,31 @@ export function sameApprovalRule(a: ApprovalRule, b: ApprovalRule): boolean {
 }
 
 /** Drop anything that is not a well-formed rule (a hand-edited settings file). */
+/** A shell command around the agent's tools. See `ai/lib/hooks.ts`. */
+export type AiHook = {
+  event: "PreToolUse" | "PostToolUse" | "Stop";
+  /** Tool names joined by `|`, or `tedi:<verb>`. Any tool when absent. */
+  tool?: string;
+  command: string;
+};
+
+const sameAiHook = (a: AiHook, b: AiHook) =>
+  a.event === b.event && a.tool === b.tool && a.command === b.command;
+
+function normalizeAiHooks(raw: unknown): AiHook[] {
+  if (!Array.isArray(raw)) return [];
+  const out: AiHook[] = [];
+  for (const h of raw) {
+    const { event, tool, command } = (h ?? {}) as Record<string, unknown>;
+    if (event !== "PreToolUse" && event !== "PostToolUse" && event !== "Stop") continue;
+    if (typeof command !== "string" || !command.trim()) continue;
+    const hook: AiHook =
+      typeof tool === "string" && tool ? { event, tool, command } : { event, command };
+    if (!out.some((o) => sameAiHook(o, hook))) out.push(hook);
+  }
+  return out;
+}
+
 function normalizeApprovalRules(raw: unknown): ApprovalRule[] {
   if (!Array.isArray(raw)) return [];
   const out: ApprovalRule[] = [];
@@ -316,6 +341,7 @@ export type Preferences = {
   approvalMode: ApprovalMode;
   /** "Always allow" rules made from approval cards. Honoured in Ask and Semi. */
   approvalRules: ApprovalRule[];
+  aiHooks: AiHook[];
   /** Last model picked via the chat dropdown. Restored on boot. Null until first pick. */
   lastModelId: DynamicModelId | null;
   /** Provider for `lastModelId` at pick time. Persisted for cold-boot restore. */
@@ -495,6 +521,7 @@ const KEY_PINNED_AGENT_SESSIONS = "pinnedAgentSessions";
 const KEY_MODEL_REASONING = "modelReasoning";
 const KEY_APPROVAL_MODE = "approvalMode";
 const KEY_APPROVAL_RULES = "approvalRules";
+const KEY_AI_HOOKS = "aiHooks";
 const KEY_LAST_MODEL = "lastModelId";
 const KEY_LAST_PROVIDER = "lastProviderId";
 const KEY_CONTENT_ZOOM = "contentZoom";
@@ -649,6 +676,7 @@ export const DEFAULT_PREFERENCES: Preferences = {
   modelReasoning: {} as Record<string, string>,
   approvalMode: "ask",
   approvalRules: [],
+  aiHooks: [],
   lastModelId: null,
   lastProviderId: null,
   contentZoom: CONTENT_ZOOM_DEFAULT,
@@ -797,6 +825,7 @@ export async function loadPreferences(): Promise<Preferences> {
       get<Record<string, string>>(KEY_MODEL_REASONING) ?? DEFAULT_PREFERENCES.modelReasoning,
     approvalMode: get<ApprovalMode>(KEY_APPROVAL_MODE) ?? DEFAULT_PREFERENCES.approvalMode,
     approvalRules: normalizeApprovalRules(get<unknown>(KEY_APPROVAL_RULES)),
+    aiHooks: normalizeAiHooks(get<unknown>(KEY_AI_HOOKS)),
     lastModelId: get<DynamicModelId | null>(KEY_LAST_MODEL) ?? DEFAULT_PREFERENCES.lastModelId,
     lastProviderId: get<string | null>(KEY_LAST_PROVIDER) ?? DEFAULT_PREFERENCES.lastProviderId,
     contentZoom: clampZoom(get<number>(KEY_CONTENT_ZOOM) ?? DEFAULT_PREFERENCES.contentZoom),
@@ -1230,6 +1259,20 @@ export async function removeApprovalRule(rule: ApprovalRule): Promise<void> {
   );
 }
 
+export async function addAiHook(hook: AiHook): Promise<void> {
+  const current = normalizeAiHooks(await store.get<unknown>(KEY_AI_HOOKS));
+  if (current.some((h) => sameAiHook(h, hook))) return;
+  await writePref(KEY_AI_HOOKS, [...current, hook]);
+}
+
+export async function removeAiHook(hook: AiHook): Promise<void> {
+  const current = normalizeAiHooks(await store.get<unknown>(KEY_AI_HOOKS));
+  await writePref(
+    KEY_AI_HOOKS,
+    current.filter((h) => !sameAiHook(h, hook)),
+  );
+}
+
 export async function setApprovalMode(value: ApprovalMode): Promise<void> {
   await writePref(KEY_APPROVAL_MODE, value);
 }
@@ -1485,6 +1528,7 @@ const ALLOWED_VALUES: Partial<Record<PrefKey, readonly string[]>> = {
 const AGENT_DENIED_PREFS = new Set<PrefKey>([
   "approvalMode",
   "approvalRules",
+  "aiHooks",
   "disabledTools",
   "lmstudioBaseURL",
   "openaiCompatibleBaseURL",
@@ -1667,6 +1711,7 @@ export async function onPreferencesChange(
     modelReasoning: KEY_MODEL_REASONING,
     approvalMode: KEY_APPROVAL_MODE,
     approvalRules: KEY_APPROVAL_RULES,
+    aiHooks: KEY_AI_HOOKS,
     lastModelId: KEY_LAST_MODEL,
     lastProviderId: KEY_LAST_PROVIDER,
     contentZoom: KEY_CONTENT_ZOOM,

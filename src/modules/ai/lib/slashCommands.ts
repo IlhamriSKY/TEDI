@@ -272,31 +272,16 @@ function showListModal<T>(
  * Modal listing the MCP servers, live state first.
  *
  * TWO SOURCES, and it needs both. The config file says what the user asked for;
- * the live client table says what the agent actually has. They disagree in two
- * ways that matter here:
- *
- *   - TEDI's OWN server (`tedi`) is in no config at all - it is synthesized per
- *     turn by `buildMcpToolsAsync` - so config alone never mentions the one
- *     server that is always present.
- *   - A configured server that failed to spawn still reads `enabled: true`, so
- *     config alone cannot tell a dead server from a working one.
+ * the live client table says what the agent actually has: a configured server
+ * that failed to spawn still reads `enabled: true`, so config alone cannot tell a
+ * dead server from a working one.
  */
 function showMcpList(): void {
   void Promise.all([getMcpServers(), getMcpServersEnabled()]).then(([servers, serversOn]) => {
     const live = connectedMcpServers();
-    // The built-in is listed UNCONDITIONALLY, not just when a client happens to
-    // be up. It is synthesized fresh each turn and torn down when idle, so
-    // deriving its presence from the live table alone would hide it on exactly
-    // the occasion someone types `/mcp` to check whether it is there - before
-    // the session's first turn.
     const rows = [
-      {
-        name: TEDI_MCP_SERVER_NAME,
-        enabled: true,
-        cmd: "built in - panes, terminals, browser, settings, SSH",
-      },
       ...[...live.keys()]
-        .filter((n) => n !== TEDI_MCP_SERVER_NAME && !servers.some((s) => s.name === n))
+        .filter((n) => !servers.some((s) => s.name === n))
         .sort()
         .map((name) => ({ name, enabled: true, cmd: "connected" })),
       ...servers
@@ -314,7 +299,7 @@ function showMcpList(): void {
       rows,
       serversOn
         ? `${live.size} connected, ${rows.length} listed. Manage in Settings → Agents → MCP Servers.`
-        : `MCP servers are OFF: only the built-in one runs. Turn them on in Settings → Agents → MCP Servers.`,
+        : `MCP servers are OFF. Turn them on in Settings → Agents → MCP Servers.`,
       "None configured. Add one in Settings → Agents → MCP Servers.",
       (r) => {
         const tools = live.get(r.name);
@@ -635,7 +620,7 @@ export function tryRunSlashCommand(input: string): SlashOutcome {
       }
       return {
         kind: "send-prompt",
-        prompt: `Schedule a terminal command: ${tail}\n\nUse the schedule_command tool. Parse the time from the input (e.g., "in 5 minutes", "at 3pm", "tomorrow at 9am") and the command to run. If no terminal is specified, use the active terminal.`,
+        prompt: `Schedule a terminal command: ${tail}\n\nUse the tedi tool with verb schedule, action create. Parse the time from the input (e.g., "in 5 minutes", "at 3pm", "tomorrow at 9am") and the command to run. If no terminal is specified, use the active terminal.`,
       };
     }
     default: {

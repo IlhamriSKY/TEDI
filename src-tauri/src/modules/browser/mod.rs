@@ -33,6 +33,8 @@ pub(crate) mod cdp;
 #[cfg(target_os = "windows")]
 mod blocker;
 #[cfg(target_os = "windows")]
+mod downloads;
+#[cfg(target_os = "windows")]
 pub mod extensions;
 #[cfg_attr(not(target_os = "windows"), path = "unsupported.rs")]
 mod native;
@@ -106,6 +108,20 @@ pub struct BrowserPane {
     pub url: String,
 }
 
+/// One download, as the toolbar draws it.
+#[derive(Serialize, Clone, Debug)]
+#[cfg_attr(not(target_os = "windows"), allow(dead_code))]
+pub struct Download {
+    id: u64,
+    name: String,
+    path: String,
+    url: String,
+    received: i64,
+    total: i64,
+    /// `running`, `paused`, `done`, `failed` or `cancelled`.
+    state: &'static str,
+}
+
 /// What a pane tells its toolbar, as it happens. See [`browser_watch`].
 #[derive(Serialize, Clone, Debug)]
 #[serde(tag = "kind", rename_all = "camelCase")]
@@ -122,7 +138,17 @@ pub enum PaneEvent {
     /// The page's icon as a `data:` url, empty when it has none.
     Icon { data: String },
     /// A user-initiated `target="_blank"`, `window.open` or "open in new window".
-    NewWindow { url: String },
+    /// `adopt` is what a new pane passes back to become that window, so the page
+    /// that opened it keeps its `window.opener`.
+    NewWindow { url: String, adopt: u64 },
+    /// Whether the page is making sound, and whether it was muted.
+    Audio { playing: bool, muted: bool },
+    /// The page asked for fullscreen, or left it.
+    Fullscreen { on: bool },
+    /// The page closed its own window, which only a window it opened can do.
+    Closed,
+    /// A download moved. `started` is its first report, which is when to show it.
+    Download { download: Download, started: bool },
     /// A chord pressed while the page had focus, for the toolbar to act on.
     Key { action: String },
     /// Find-on-page counts. `active` is one-based, 0 for none.
@@ -225,6 +251,7 @@ fn guard_url(url: &str, dev: Option<&url::Url>) -> Option<String> {
 /// flashes at its old size. The frontend calls this from a placement loop, so it is
 /// also the hot path: an unchanged frame never gets here.
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub async fn browser_place(
     app: tauri::AppHandle,
     window: tauri::Window,
@@ -233,9 +260,54 @@ pub async fn browser_place(
     bounds: BrowserRect,
     holes: Vec<BrowserRect>,
     visible: bool,
+    adopt: Option<u64>,
 ) -> Result<(), String> {
     check_id(&pane_id)?;
-    native::place(app, window, pane_id, url, bounds, holes, visible).await
+    native::place(app, window, pane_id, url, bounds, holes, visible, adopt).await
+}
+
+/// One thing a pane does on request: `print`, `saveAs`, `mute`, `unmute` or `hide`.
+#[tauri::command]
+pub async fn browser_action(
+    app: tauri::AppHandle,
+    pane_id: String,
+    action: String,
+) -> Result<(), String> {
+    check_id(&pane_id)?;
+    native::action(app, pane_id, action).await
+}
+
+/// Every download this run knows about.
+#[tauri::command]
+pub async fn browser_downloads(app: tauri::AppHandle) -> Result<Vec<Download>, String> {
+    native::downloads(app).await
+}
+
+/// `pause`, `resume` or `cancel` a download.
+#[tauri::command]
+pub async fn browser_download_action(
+    app: tauri::AppHandle,
+    id: u64,
+    action: String,
+) -> Result<(), String> {
+    native::download_action(app, id, action).await
+}
+
+/// Show a finished download in the file manager.
+#[tauri::command]
+pub async fn browser_download_reveal(path: String) -> Result<(), String> {
+    native::reveal_download(path).await
+}
+
+/// What the app looks like, so a page follows its light or dark mode and a pane
+/// shows the app's background rather than white before a page has painted.
+#[tauri::command]
+pub async fn browser_look(
+    app: tauri::AppHandle,
+    dark: bool,
+    background: [u8; 3],
+) -> Result<(), String> {
+    native::look(app, dark, background).await
 }
 
 /// Close a pane's webview. Silent when there is none: a pane can be torn down
@@ -293,9 +365,10 @@ pub async fn browser_cdp(
     pane_id: String,
     method: String,
     params: Option<String>,
+    session: Option<String>,
 ) -> Result<String, String> {
     check_id(&pane_id)?;
-    native::cdp(app, pane_id, method, params.unwrap_or_default()).await
+    native::cdp(app, pane_id, method, params.unwrap_or_default(), session).await
 }
 
 /// Subscribe to a pane's [`PaneEvent`]s. The channel is how the toolbar stays

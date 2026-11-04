@@ -18,7 +18,14 @@ import { type Tab } from "@/modules/tabs";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
 import { expandIfShut } from "@/app/lib/panelSize";
-import { Suspense, useEffect, useRef, type ReactNode, type RefObject } from "react";
+import {
+  Suspense,
+  type ComponentProps,
+  useEffect,
+  useRef,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { type TabsApi } from "../hooks/tabsApi";
 import { canDockLeft, dockLeft as dockSectionLeft } from "../lib/sectionDock";
 import { aiStackSection } from "./aiSection";
@@ -62,6 +69,7 @@ type Props = {
   /** Workspaces-section props, for a right-docked Workspaces section. */
   workspacesSection: {
     onSwitch: (id: string) => void;
+    onAddToWorkspace: ComponentProps<typeof WorkspacesPanel>["onAddToWorkspace"];
     onCreate: () => void;
     onCloseWorkspace: (id: string) => void;
     tabCounts: Record<string, number>;
@@ -223,6 +231,7 @@ export function AppRightSlot({
           <div className="border-border/60 bg-background tedi-glass-panel flex h-full min-h-0 flex-col overflow-hidden rounded-md border">
             <WorkspacesPanel
               onSwitch={workspacesSection.onSwitch}
+              onAddToWorkspace={workspacesSection.onAddToWorkspace}
               onCreate={workspacesSection.onCreate}
               onClose={workspacesSection.onCloseWorkspace}
               tabCounts={workspacesSection.tabCounts}

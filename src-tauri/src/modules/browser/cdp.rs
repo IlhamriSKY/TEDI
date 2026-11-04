@@ -82,7 +82,22 @@ pub(super) fn send(
     params: &str,
     slot: std::sync::Arc<Reply>,
 ) {
+    send_in(core, None, method, params, slot);
+}
+
+/// The same, inside a session `Target.attachToTarget` opened: how a call reaches an
+/// extension's service worker, which has no webview of its own to call.
+#[cfg(target_os = "windows")]
+pub(super) fn send_in(
+    core: &webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2,
+    session: Option<&str>,
+    method: &str,
+    params: &str,
+    slot: std::sync::Arc<Reply>,
+) {
     use webview2_com::CallDevToolsProtocolMethodCompletedHandler;
+    use webview2_com::Microsoft::Web::WebView2::Win32::ICoreWebView2_11;
+    use windows::core::Interface;
     use windows::core::{HSTRING, PCWSTR};
 
     // An EMPTY params string is not valid JSON and WebView2 rejects the whole
@@ -109,9 +124,23 @@ pub(super) fn send(
     let p = HSTRING::from(params);
     // Reported from HERE, and it used to be dropped: the caller then read "the
     // browser pane went away" for a method WebView2 simply refused.
-    if let Err(e) =
-        unsafe { core.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &done) }
-    {
+    let sent = match session {
+        None => unsafe {
+            core.CallDevToolsProtocolMethod(PCWSTR(m.as_ptr()), PCWSTR(p.as_ptr()), &done)
+        },
+        Some(session) => core.cast::<ICoreWebView2_11>().and_then(|core11| {
+            let s = HSTRING::from(session);
+            unsafe {
+                core11.CallDevToolsProtocolMethodForSession(
+                    PCWSTR(s.as_ptr()),
+                    PCWSTR(m.as_ptr()),
+                    PCWSTR(p.as_ptr()),
+                    &done,
+                )
+            }
+        }),
+    };
+    if let Err(e) = sent {
         answer(&slot, Err(format!("CDP call failed: {e}")));
     }
 }

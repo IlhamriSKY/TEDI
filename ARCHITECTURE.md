@@ -146,7 +146,7 @@ lives in 23 self-contained modules.
 | `notes/`          | The user's own notes and todos panel; one action handler shared by the agent and the MCP `notes` tool.                                       |
 | `snapshot/`       | Screenshot preview card with a native drag-out.                                                                                              |
 | `automation/`     | The capability bridge: one registry of everything an outside driver can call in-realm.                                                       |
-| `mcpInstall/`     | The Install MCP button: registers the stdio server with the installed AI CLIs, global or per-project. That server advertises one tool pointing at `tedi <verb>`.                                        |
+| `mcpInstall/`     | The Install MCP button: registers the stdio server with the installed AI agents, global or per-project (`tedi mcp install` does the same from a shell). That server advertises one tool pointing at `tedi <verb>`. |
 | `updater/`        | In-app updater UI on top of `tauri-plugin-updater`.                                                                                          |
 | `extensions/`     | The extension host: install UI, permission-gated `ctx` API, contribution registries.                                                         |
 
@@ -191,11 +191,16 @@ explicit "add a key" error. The layering:
   that the user accepts or rejects per hunk before any write. Extension- and
   MCP-contributed tools merge in ahead of the built-ins, so neither can shadow one.
 - **`agents/`**: ten named sub-agents with their own tool subset, invoked via
-  `run_subagent` (one) or `run_subagents` (a bounded-concurrency DAG scheduler with
-  `depends_on` and cascade-skip). Most are read-only; the three worker agents also
+  `run_subagents` (a bounded-concurrency DAG scheduler with `depends_on` and
+  cascade-skip; a single spawn is a batch of one). More can come from files
+  (`lib/fileDefinitions.ts`): a repository's are read-only, only `~/.tedi/agents` may
+  name write tools. Most are read-only; the three worker agents also
   mutate, auto-approving because their `generateText` loop has no approver, and are
   bounded instead by the deny-list, out-of-scope refusal, and checkpointing.
-  Recursion is structurally impossible: sub-agents never receive `run_subagent`.
+  Recursion is structurally impossible: sub-agents never receive `run_subagents`.
+- **`lib/hooks.ts`**: the user's shell commands around every tool, workers included. Only from
+  Settings (`AGENT_DENIED_PREFS`), never from a file, because a hook runs with no card. The call
+  reaches the command as environment variables, so a model's input is never shell text.
 - **`store/`, `hooks/`, `components/`**: state, React glue, UI.
 
 The agent loop stops on three conditions, not one: a 50-step cap
@@ -313,6 +318,7 @@ method checks its declared permission before acting. The surface:
 | `ctx.ai.getState` / `.onStateChange` / `.stop`                              | none                                                                             |
 | `ctx.ai.setModel` / `.setSubagentsEnabled`                                  | `ai:configure`                                                                   |
 | `ctx.ai.sendPrompt`                                                         | `ai:prompt`                                                                      |
+| `ctx.ai.attachContext`, `ctx.ai.registerMentionSource`                      | `ai:context`                                                                     |
 
 Namespacing is uniform per extension id: settings `ext:<id>:<key>`, events
 `ext://<id>/<name>`, storage `tedi-ext-<id>.json`, keychain `tedi-ext:<id>`.

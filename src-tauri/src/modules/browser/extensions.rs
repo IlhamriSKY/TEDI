@@ -1170,8 +1170,10 @@ fn open_popup(
     close_popup();
     let shared: Option<Rc<Shared>> = pane_shared(pane_id);
     let base = format!("chrome-extension://{id}/");
+    let environment = super::native::environment(&profile)?;
     let mut context = WebContext::new(Some(profile));
     let view = WebViewBuilder::new_with_web_context(&mut context)
+        .with_environment(environment)
         .with_browser_extensions_enabled(true)
         .with_initialization_script(target_script(window_id))
         .with_initialization_script(SIZE_SCRIPT)
@@ -1236,7 +1238,8 @@ fn open_popup(
         if !uri.is_null() {
             let url = take_pwstr(uri);
             if let Some(shared) = shared.as_ref() {
-                shared.send(PaneEvent::NewWindow { url });
+                // A link in a popup opens a plain pane: nothing there waits for an answer.
+                shared.send(PaneEvent::NewWindow { url, adopt: 0 });
             }
         }
         Ok(())

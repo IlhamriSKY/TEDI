@@ -7,12 +7,10 @@
  * input buffer, appended to whatever the user was already typing - two prompts
  * silently merged into one line. Nothing errors; the line is just wrong.
  *
- * Every write to a terminal now goes through the one `sh` handler on TEDI's
- * in-process MCP server, so the guard has one home and this checks it there.
- *
- * STRUCTURAL, not functional, and not by preference: `tediMcpServer.ts` reaches
- * the extension store, which reaches xterm, which cannot load outside a browser.
- * `shell-transform-verify.ts` is structural for the same reason.
+ * Every write to a terminal goes through the one `sh` handler (`scripts/mcp/handlers.mjs`),
+ * shared by `tedi sh`, the MCP gateway and TEDI's own agent, so the guard has one home and this
+ * checks it there. `driver-verify` runs the handler against a scripted terminal; this pins
+ * the order of its branches.
  */
 import { readFile } from "node:fs/promises";
 
@@ -26,17 +24,17 @@ function check(label: string, ok: boolean, detail?: unknown): void {
   failed++;
 }
 
-const SRC = "src/modules/ai/lib/tediMcpServer.ts";
+const SRC = "scripts/mcp/handlers.mjs";
 const src = await readFile(SRC, "utf8");
 
 // The `sh` handler only: a guard somewhere else in the file proves nothing.
-const start = src.indexOf("  sh: async");
-const handler = start === -1 ? "" : src.slice(start, src.indexOf("\n  wait_for_terminal:", start));
+const start = src.indexOf("async function sh(call, a)");
+const handler = start === -1 ? "" : src.slice(start, src.indexOf("\nasync function pane(", start));
 
 console.log("[sh] the busy guard is in the handler, before anything is written");
 check("the sh handler was found", handler.length > 0);
 
-const busyAt = handler.indexOf('bridge<boolean>("termBusy"');
+const busyAt = handler.indexOf("probed.running");
 const runAt = handler.indexOf('"termRun"');
 const injectAt = handler.indexOf('"termInject"');
 
@@ -59,7 +57,7 @@ console.log("\n[sh alt-screen] a full-screen program is the half a write may lan
 // reading it, and a write is the only way to reach one - refusing both left no
 // tool in this server able to type into an AI CLI, and the agent's workaround
 // was a third terminal, `Set-Clipboard` and `terminal.paste`.
-const altAt = handler.indexOf('bridge<boolean>("termAltScreen"');
+const altAt = handler.indexOf("readsInput(call, leaf)");
 const refusalAt = handler.indexOf("is busy (");
 check("it asks whether a full-screen program owns the pane", altAt !== -1);
 // Ordering IS the test again: asked AFTER the refusal, the answer changes nothing.
@@ -69,11 +67,11 @@ check("it asks before refusing", altAt !== -1 && refusalAt !== -1 && altAt < ref
 });
 check(
   "the refusal is conditional on it NOT being a TUI",
-  /if \(!intoTui\) \{\s*\n\s*return fail\(/.test(handler),
+  /if \(!intoTui && [^{]*\) \{\s*\n\s*throw new Error\(/.test(handler),
 );
 // A TUI never returns to a shell prompt, so the prompt-wait loop can only run
 // out the clock - 20s of dead time on every keystroke sent to an AI CLI.
-check("the TUI path skips the prompt wait", /if \(intoTui\) \{\s*\n\s*await sleep\(/.test(handler));
+check("the TUI path skips the prompt wait", /if \(intoTui\) \{[^}]*await sleep\(/.test(handler));
 check("the reply says where the bytes went", handler.includes("intoTui: true"));
 
 console.log("\n[sh launch] a command that opens a TUI ends the wait, it does not time out");
@@ -89,7 +87,7 @@ console.log("\n[sh timeout] the prompt wait has a floor");
 // misread. The poll sleeps 150ms, so a 10ms deadline expires before the first
 // look and every launch came back `timedOut: true` having actually worked -
 // costing the caller a whole extra `read` round trip to discover that.
-check("the deadline is floored", /Math\.max\(1000, Number\(timeout\)/.test(handler));
+check("the deadline is floored", /Math\.max\(1000, Number\(a\.timeout\)/.test(handler));
 
 console.log("\n[sh capture] the off-screen run is NOT gated by the busy check");
 // Ordering again, in the opposite direction this time. `capture` opens its own
@@ -103,11 +101,14 @@ check("it runs before the busy check", captureAt !== -1 && busyAt !== -1 && capt
   captureAt,
   busyAt,
 });
-// Same guard as every other path: the denylist and the extension transformer
-// chain must vet the string before it reaches a shell, remote or not.
+// The denylist and the extension transformer chain are this agent's own policy, so they run
+// before the shared handler, and it only ever sees the vetted string.
+const agent = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
 check(
-  "the captured command is the vetted one",
-  /sshExec"[^)]*vetted\.command/.test(handler.slice(captureAt, busyAt === -1 ? undefined : busyAt)),
+  "TEDI's own agent hands the handler the vetted command",
+  /checkedShellCommand\([\s\S]*?command: vetted\.command[\s\S]*?HANDLERS\[found\.tool\]/.test(
+    agent,
+  ),
 );
 
 console.log("\n[sh submit:false] a type-only write cannot smuggle a newline");
@@ -120,10 +121,9 @@ check(
   /\/\[\\r\\n\]\/\.test\(/.test(typeOnly),
   typeOnly.slice(0, 200),
 );
-// Checked against the VETTED string, not the model's: an extension holding
-// `shell:transform` rewrites the command, and a transformer-introduced newline
-// would otherwise reach the PTY unchecked.
-check("the newline check reads the vetted command", /test\(vetted\.command\)/.test(typeOnly));
+// Checked against what it will really write, the string a transformer may have rewritten: an
+// extension that injects a newline would otherwise reach the PTY unchecked.
+check("the newline check reads the command it will write", /test\(command\)/.test(typeOnly));
 
 console.log(failed === 0 ? "\nall checks passed" : `\n${failed} FAILED`);
 process.exit(failed === 0 ? 0 : 1);

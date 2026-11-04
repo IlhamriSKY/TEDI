@@ -38,7 +38,6 @@ import {
   PLAN_MODE_PROMPT_BODY,
   PROVIDERS,
   SYSTEM_PROMPT,
-  SYSTEM_PROMPT_LITE,
   providerNeedsKey,
   tryGetModel,
   type ModelInfo,
@@ -85,7 +84,6 @@ import { ChevronDown, Pencil, RefreshCw } from "lucide-react";
  *  constants so the "reset to default" baseline can never drift from runtime. */
 const DEFAULTS: Record<PromptId, string> = {
   core: SYSTEM_PROMPT,
-  "core-lite": SYSTEM_PROMPT_LITE,
   chat: CHAT_MODE_PROMPT,
   "plan-mode": PLAN_MODE_PROMPT_BODY,
   orchestration: ORCHESTRATION_PROMPT_BODY,

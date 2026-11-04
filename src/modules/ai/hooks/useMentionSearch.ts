@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { basename, toForwardSlash } from "@/lib/path";
+import { listMentionSources } from "../lib/mentionSources";
 import { native } from "../lib/native";
 import { useChatStore, type OpenEditorFile } from "../store/chatStore";
 import type { MentionItem } from "../components/MentionPicker";
@@ -82,7 +83,15 @@ export function useMentionSearch(opts: {
         : [],
     );
 
-    setState({ items: openItems, loading: !!workspaceRoot });
+    const needle = q.toLowerCase();
+    const pageItems: MentionItem[] = listMentionSources().flatMap((s) =>
+      !needle || `${s.label} ${s.detail}`.toLowerCase().includes(needle)
+        ? [{ kind: "page", ...s }]
+        : [],
+    );
+    const firstItems = [...pageItems, ...openItems];
+
+    setState({ items: firstItems, loading: !!workspaceRoot });
 
     if (!workspaceRoot) return;
 
@@ -126,12 +135,12 @@ export function useMentionSearch(opts: {
 
         if (cancelled || reqRef.current !== reqId) return;
         setState({
-          items: [...openItems, ...fileItems, ...folderItems],
+          items: [...firstItems, ...fileItems, ...folderItems],
           loading: false,
         });
       } catch {
         if (cancelled || reqRef.current !== reqId) return;
-        setState({ items: openItems, loading: false });
+        setState({ items: firstItems, loading: false });
       }
     }, SEARCH_DEBOUNCE_MS);
 

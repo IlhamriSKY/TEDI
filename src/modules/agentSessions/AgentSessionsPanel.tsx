@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { IconSwap } from "@/components/IconMorph";
@@ -33,7 +34,11 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setPinnedAgentSessions } from "@/modules/settings/store";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
-import { aiCliLabel, type AiCliState } from "@/modules/terminal/lib/aiCliStatus";
+import {
+  aiCliLabel,
+  aiCliStateColorClass,
+  type AiCliState,
+} from "@/modules/terminal/lib/aiCliStatus";
 import { useSshHosts, type SshConnection } from "@/modules/ssh/connections";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
 import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
@@ -49,10 +54,7 @@ import {
   FolderSearch,
   GitBranch,
   Layers,
-  LoaderCircle,
-  Pencil,
   Pin,
-  PinOff,
   RefreshCw,
   Trash2,
 } from "lucide-react";
@@ -175,35 +177,35 @@ function allPanes(
 
 /**
  * Round, as svgs: globals.css squares every element's border-radius, and a square
- * ring reads as a checkbox. Each row says its state in words too.
+ * ring reads as a checkbox. A row shows its state as this and the colour of its
+ * agent's icon, with no word on screen; the word is for a screen reader and the
+ * tooltip.
  */
 function StatusGlyph({ state }: { state: AiCliState }) {
-  const box = "flex w-3.5 shrink-0 justify-center";
+  const box = cn("flex w-3.5 shrink-0 justify-center", aiCliStateColorClass(state));
+  const word = STATE_WORD[state];
   switch (state) {
     case "working":
-      // Motion on an HTML wrapper, never the svg (see aiCliIconMotionClass).
       return (
-        <span aria-hidden className={cn(box, "text-icon-working")}>
-          <span className="flex animate-spin motion-reduce:animate-none">
-            <LoaderCircle size={12} strokeWidth={2.5} />
-          </span>
+        <span role="img" aria-label={word} className={box}>
+          <Spinner aria-hidden role="presentation" className="size-3" />
         </span>
       );
     case "blocking":
       return (
-        <span aria-hidden className={cn(box, "text-icon-blocked")}>
+        <span role="img" aria-label={word} className={box}>
           <CircleAlert size={13} strokeWidth={2.25} />
         </span>
       );
     case "done":
       return (
-        <span aria-hidden className={cn(box, "text-icon-done")}>
+        <span role="img" aria-label={word} className={box}>
           <Circle size={10} fill="currentColor" strokeWidth={0} />
         </span>
       );
     case "idle":
       return (
-        <span aria-hidden className={cn(box, "text-muted-foreground/70")}>
+        <span role="img" aria-label={word} className={box}>
           <Circle size={10} strokeWidth={2.5} />
         </span>
       );
@@ -261,13 +263,15 @@ function BlockHeader({
   children?: ReactNode;
 }) {
   return (
-    <div className="border-border/60 flex h-7 shrink-0 items-center gap-0.5 border-t pr-1.5 pl-1">
+    // A band, so Agents and History read as their own lists and not as more rows of
+    // the one above. Their group headings stay plain text one level below it.
+    <div className="border-border/60 bg-muted/40 flex h-7 shrink-0 items-center gap-0.5 border-y pr-1.5 pl-1">
       <IconTooltip label={hint} side="bottom" delayDuration={500} contentClassName="max-w-xs">
         <button
           type="button"
           onClick={onToggle}
           aria-expanded={open}
-          className="text-muted-foreground hover:text-foreground focus-visible:text-foreground flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-[11px] font-medium outline-none"
+          className="text-foreground/85 hover:text-foreground focus-visible:text-foreground flex h-full min-w-0 flex-1 items-center gap-1 px-1 text-[11px] font-semibold outline-none"
         >
           <ChevronRight
             size={11}
@@ -309,7 +313,7 @@ function SectionHeading({
         onClick={onToggle}
         aria-expanded={open}
         className={cn(
-          "hover:text-foreground focus-visible:text-foreground flex h-6 w-full items-center gap-1 px-1 text-[11px] font-medium outline-none",
+          "hover:text-foreground focus-visible:text-foreground flex h-6 w-full items-center gap-1 px-1 text-[11px] font-normal outline-none",
           className,
         )}
       >
@@ -547,7 +551,7 @@ function AgentsBlock({
                                   <CliAgentIcon
                                     agentId={r.status.tool}
                                     size={13}
-                                    className={cn("shrink-0", key && "group-hover/row:invisible")}
+                                    className={cn("shrink-0", aiCliStateColorClass(r.status.state))}
                                   />
                                   <span
                                     className={cn(
@@ -560,43 +564,14 @@ function AgentsBlock({
                                   >
                                     {title}
                                   </span>
-                                  {isActive ? (
-                                    <span className="shrink-0 text-[10px] font-medium">
-                                      This pane
-                                    </span>
-                                  ) : null}
                                   <StatusGlyph state={r.status.state} />
                                 </span>
                                 <span className="text-muted-foreground flex w-full items-center gap-2 pl-[21px] text-[10px] tabular-nums">
                                   <PlaceLine place={folder} branch={r.session?.branch ?? null} />
-                                  <span className="shrink-0">
-                                    <span className={SECTION_LABEL_COLOR[r.status.state]}>
-                                      {STATE_WORD[r.status.state]}
-                                    </span>
-                                    {since ? ` ${since}` : ""}
-                                  </span>
+                                  {since ? <span className="shrink-0">{since}</span> : null}
                                 </span>
                               </button>
                             </IconTooltip>
-                            {/* Over the CLI icon on hover: the one spot no row's text can
-                                run into. Beside the button, not in it. */}
-                            {key ? (
-                              <IconTooltip label={pinned ? "Unpin" : "Pin to the top"}>
-                                <button
-                                  type="button"
-                                  onClick={() => togglePin(key)}
-                                  aria-label={pinned ? "Unpin agent" : "Pin agent"}
-                                  aria-pressed={pinned}
-                                  className="text-muted-foreground hover:text-foreground focus-visible:ring-ring pointer-events-none absolute top-1 left-1 flex cursor-pointer items-center p-0.5 opacity-0 outline-none group-hover/row:pointer-events-auto group-hover/row:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100 focus-visible:ring-1"
-                                >
-                                  {pinned ? (
-                                    <PinOff size={12} strokeWidth={1.75} />
-                                  ) : (
-                                    <Pin size={12} strokeWidth={1.75} />
-                                  )}
-                                </button>
-                              </IconTooltip>
-                            ) : null}
                           </li>
                         );
                         if (!r.session) return row;
@@ -902,7 +877,7 @@ const HistoryBlock = memo(function HistoryBlock({
                                   }}
                                   aria-disabled={!resumable}
                                   className={cn(
-                                    "hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 flex w-full flex-col gap-0.5 px-1.5 py-1 text-left outline-none group-hover/row:pr-[4.25rem]",
+                                    "hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40 flex w-full flex-col gap-0.5 px-1.5 py-1 text-left outline-none",
                                     !canResume(s) && "opacity-50",
                                   )}
                                 >
@@ -910,7 +885,10 @@ const HistoryBlock = memo(function HistoryBlock({
                                     <CliAgentIcon
                                       agentId={s.agent}
                                       size={13}
-                                      className="shrink-0"
+                                      className={cn(
+                                        "shrink-0",
+                                        status && aiCliStateColorClass(status.state),
+                                      )}
                                     />
                                     <span
                                       className={cn(
@@ -933,11 +911,6 @@ const HistoryBlock = memo(function HistoryBlock({
                                   <span className="text-muted-foreground flex w-full items-center gap-2 pl-[21px] text-[10px] tabular-nums">
                                     <PlaceLine place={folder} branch={s.branch} />
                                     <span className="shrink-0">
-                                      {status ? (
-                                        <span className={SECTION_LABEL_COLOR[status.state]}>
-                                          {STATE_WORD[status.state]}{" "}
-                                        </span>
-                                      ) : null}
                                       {status
                                         ? ago(s.modifiedMs, now)
                                         : `${ago(s.modifiedMs, now)} ago`}
@@ -945,48 +918,6 @@ const HistoryBlock = memo(function HistoryBlock({
                                   </span>
                                 </button>
                               </IconTooltip>
-                              {/* Beside the row's button, not in it: buttons cannot nest. */}
-                              <span className="pointer-events-none absolute inset-y-0 right-1 flex items-center gap-0.5 opacity-0 group-hover/row:pointer-events-auto group-hover/row:opacity-100 has-focus-visible:pointer-events-auto has-focus-visible:opacity-100">
-                                <IconTooltip label={pinned ? "Unpin session" : "Pin session"}>
-                                  <Button
-                                    onClick={() => togglePin(key)}
-                                    aria-label={pinned ? "Unpin session" : "Pin session"}
-                                    aria-pressed={pinned}
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="text-muted-foreground size-5 rounded"
-                                  >
-                                    {pinned ? (
-                                      <PinOff size={11} strokeWidth={1.75} />
-                                    ) : (
-                                      <Pin size={11} strokeWidth={1.75} />
-                                    )}
-                                  </Button>
-                                </IconTooltip>
-                                <IconTooltip label="Rename">
-                                  <Button
-                                    onClick={() => onStartRename(key)}
-                                    aria-label={`Rename ${s.title}`}
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className="text-muted-foreground size-5 rounded"
-                                  >
-                                    <Pencil size={11} strokeWidth={1.75} />
-                                  </Button>
-                                </IconTooltip>
-                                <IconTooltip label={live ? "Exit the session first" : "Delete"}>
-                                  <Button
-                                    onClick={() => onDelete(s)}
-                                    disabled={live}
-                                    aria-label={`Delete ${s.title}`}
-                                    variant="ghost"
-                                    size="icon-sm"
-                                    className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
-                                  >
-                                    <Trash2 size={11} strokeWidth={1.75} />
-                                  </Button>
-                                </IconTooltip>
-                              </span>
                             </li>
                           </ContextMenuTrigger>
                           <ContextMenuContent>

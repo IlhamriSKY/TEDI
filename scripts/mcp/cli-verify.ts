@@ -11,11 +11,17 @@
  *    but that is the client checking itself. Each switchable tool's capabilities
  *    must be in `GATED_CAPABILITIES`, or a token holder walks straight past it.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
 import { readFile } from "node:fs/promises";
+import net from "node:net";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
-import { parseArgs, positionalFor, unfinished, unknownVerb } from "./cli.mjs";
-import { TOOLS } from "./server.mjs";
+import { asJson, outputMode, parseArgs, positionalFor, unfinished, unknownVerb } from "./cli.mjs";
+import { HANDLERS } from "./handlers.mjs";
+import { humanize, pretty } from "./render.mjs";
+import { tediDataFiles } from "./socket.mjs";
 import {
   ALIASES,
   CLI_EXAMPLES,
@@ -26,8 +32,9 @@ import {
   extToolMedia,
   resolveVerb,
   validateArgs,
+  verbArgs,
+  verbNeedsApproval,
 } from "./tools.mjs";
-import { BRIDGED } from "./transport.mjs";
 
 let failed = 0;
 function check(name: string, ok: boolean, detail?: unknown): void {
@@ -63,7 +70,9 @@ const listed = [
 ]
   .map((m) => m[1])
   .sort();
-const wanted = [...new Set([...TOOL_NAMES, ...Object.keys(ALIASES), "tools", "help"])].sort();
+const wanted = [
+  ...new Set([...TOOL_NAMES, ...Object.keys(ALIASES), "tools", "help", "mcp"]),
+].sort();
 check("BRIDGE_VERBS matches tools.mjs + ALIASES", same(listed, wanted), {
   missing: wanted.filter((v) => !listed.includes(v)),
   stale: listed.filter((v) => !wanted.includes(v)),
@@ -224,24 +233,28 @@ check(
     same(slotsOf("ai", ["send", "hi"]), ["action", "text"]) &&
     same(slotsOf("pane", ["open", "."]), ["action", "cwd"]) &&
     same(slotsOf("read", ["dom", "x"]), ["source", "selector"]) &&
-    same(slotsOf("inspect", ["logs", "error"]), ["what", "level"]),
+    same(slotsOf("inspect", ["logs", "error"]), ["what", "level"]) &&
+    same(slotsOf("inspect", ["settings", "font"]), ["what", "filter"]) &&
+    same(slotsOf("settings", ["font"]), ["filter"]),
 );
 check(
   "a shortcut with nothing to fill refuses a word",
   throws(
     () =>
-      parseArgs(["foo"], defs.inspect.schema, {
-        positional: slotsOf("commands", ["foo"]),
-        fixed: { what: "commands" },
+      parseArgs(["foo"], defs.read.schema, {
+        positional: slotsOf("editors", ["foo"]),
+        fixed: { source: "editors" },
       }),
     /Did not expect/,
   ),
 );
 check(
   "an unfinished wait or command is not success",
-  unfinished("leaf 3: NOT done (timeout)\ntail") &&
-    unfinished("output\n\n[leaf 3: still running after the timeout]") &&
-    !unfinished("leaf 3: done (prompt)\ntail"),
+  unfinished("wait_for_terminal", { done: false }) &&
+    unfinished("sh", { timedOut: true }) &&
+    !unfinished("wait_for_terminal", { done: true }) &&
+    !unfinished("sh", { timedOut: false }) &&
+    !unfinished("run_command", { done: false }),
 );
 check(
   "sftp's remote path stays remote, its local one resolves",
@@ -292,22 +305,20 @@ for (const capability of ["runExtensionCommand", "panelOpen"]) {
     new RegExp(`EXTENSION_CAPABILITIES[^;]*"${capability}"`).test(bridgeRs),
   );
 }
-const inProcess = await readFile("src/modules/ai/lib/tediMcpServer.ts", "utf8");
+const inProcess = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
 check(
-  "the in-process server asks the same switch for a call and a panel",
-  (inProcess.match(/await extensionOff\(extensionId\)/g) ?? []).length === 2,
+  "TEDI's own agent asks the same switch, whichever verb names the extension",
+  /a\.extensionId && surface\.disabledExtensions\.includes/.test(inProcess),
 );
 // `misc` is enforced per DevTools method in `mcp_devtools.rs`; `tedi` has no switch.
 const switchable = TOOL_NAMES.filter((n) => !["tedi", "misc"].includes(defs[n].pack));
-const bridged = BRIDGED as Record<string, string>;
-const tools = TOOLS as unknown as Record<string, { run: () => unknown }>;
+const handlers = HANDLERS as unknown as Record<string, () => unknown>;
 for (const name of switchable) {
-  const methods = [...String(tools[name].run).matchAll(/\bd\.(\w+)\(/g)].map((m) => m[1]);
-  check(`${name} reaches at least one capability`, methods.length > 0);
-  for (const method of methods) {
-    const capability = bridged[method];
+  const capabilities = [...String(handlers[name]).matchAll(/call\(\s*"(\w+)"/g)].map((m) => m[1]);
+  check(`${name} reaches at least one capability`, capabilities.length > 0);
+  for (const capability of capabilities) {
     check(
-      `${name}: ${method} -> ${capability} is gated as ${name}`,
+      `${name}: ${capability} is gated as ${name}`,
       gated.get(capability) === name,
       gated.get(capability),
     );
@@ -330,13 +341,339 @@ check("it exits non-zero", ghost.status === 1, ghost.status);
 check("it names the real reason", /not running/i.test(ghost.stderr), ghost.stderr);
 check("it answers nothing on stdout", ghost.stdout === "", ghost.stdout);
 
-// Source text, because the failure needs a real React render to show. An id set
-// inside the updater reads null whenever another update is still in flight, so
-// `tedi new-tab` then `tedi split` reported failure for a split that happened.
-console.log("\n[wording] the handlers still say what `unfinished` looks for");
-const serverSrc = await readFile("scripts/mcp/server.mjs", "utf8");
-check("wait", serverSrc.includes('"NOT done"'));
-check("sh", serverSrc.includes("still running after the timeout]"));
+console.log("\n[approval] TEDI's own agent is carded for all but a read");
+{
+  const free = (verb: string, args?: unknown) => !verbNeedsApproval(verb, args);
+  check("a read runs unattended", free("panes") && free("term", { leafId: 3 }) && free("state"));
+  check("so does the reference", free("help", { verb: "sh" }) && free("tools"));
+  check("sh asks", !free("sh", { command: "ls" }));
+  check("an action the table frees is free", free("notes", { action: "read" }));
+  check("the same tool's other action asks", !free("notes", { action: "delete_note", id: "x" }));
+  check("a call that will be refused has nothing to approve", free("pane") && free("sh", {}));
+  check(
+    "a shortcut is judged by its own action",
+    !free("close", { leafId: 3 }) && !free("new-tab"),
+  );
+  check("an extension's tool always asks", !free("ext_browser", { action: "read" }));
+  // Its fixed action wins, so an argument cannot turn `close` into something the table frees.
+  check("args cannot rewrite a shortcut's action", !free("close", { action: "rotate" }));
+  check("a stringified args is read the same", !free("notes", '{"action":"add_todo","text":"x"}'));
+  // What a real model sent, through a tool whose `args` is an untyped object.
+  const shortcut = resolveVerb("sh");
+  check(
+    "strings become the schema's types",
+    same(verbArgs(shortcut, { command: "ls", leafId: "2", capture: "true" }), {
+      command: "ls",
+      leafId: 2,
+      capture: true,
+    }),
+  );
+  check(
+    "a lone value becomes a list",
+    same(verbArgs(resolveVerb("keys"), { chords: "Enter" }), { chords: ["Enter"] }),
+  );
+  check(
+    "junk stays junk, for the validator to name",
+    verbArgs(shortcut, { command: "ls", leafId: "two" }).leafId === "two",
+  );
+  check(
+    "ssh list is a read",
+    free("ssh", { action: "list" }) && !free("ssh", { action: "connect", id: "x" }),
+  );
+  check("nor can a proto key pass as a verb", resolveVerb("__proto__") === null);
+}
+
+console.log("\n[stripped env] the handshake is found with no APPDATA and no HOME");
+// Hermes passes PATH, HOME, USER and a few others to a stdio server. On Windows that leaves
+// neither of the variables this used to look in, so every call said "TEDI is not running".
+{
+  const saved = { APPDATA: process.env.APPDATA, HOME: process.env.HOME };
+  delete process.env.APPDATA;
+  delete process.env.HOME;
+  const files = tediDataFiles("mcp-bridge.json").map((f: string) => f.replaceAll("\\", "/"));
+  Object.assign(process.env, saved);
+  const want = process.platform === "win32" ? "AppData/Roaming/" : ".config/";
+  check(
+    "it still looks where the app writes",
+    files.some((f: string) => f.includes(want)),
+    files,
+  );
+}
+
+console.log("\n[output] who is reading decides the shape");
+check("a terminal gets a table", outputMode(null, undefined, true) === "human");
+check("a pipe gets JSON", outputMode(null, undefined, false) === "json");
+check("--json beats the terminal", outputMode("json", undefined, true) === "json");
+check("--human beats the pipe", outputMode("human", undefined, false) === "human");
+check("the env var beats the guess", outputMode(null, "json", true) === "json");
+check("the flag beats the env var", outputMode("human", "json", false) === "human");
+check("a junk env var is ignored", outputMode(null, "yaml", false) === "json");
+check("JSON is compact", asJson({ a: [1] }) === '{"a":[1]}');
+check("a sentence is still JSON", JSON.parse(asJson("closed leaf 3")).message === "closed leaf 3");
+check("nothing is still JSON", asJson(undefined) === "null");
+{
+  let seen = "";
+  const a = parseArgs(["--json", "ls"], defs.sh.schema, { onOutput: (f: string) => (seen = f) });
+  check("a flag before the command is ours", seen === "json" && a.command === "ls", a);
+  seen = "";
+  const b = parseArgs(["ls", "--json"], defs.sh.schema, { onOutput: (f: string) => (seen = f) });
+  check("after the command it is the command's", seen === "" && b.command === "ls --json", b);
+  const c = parseArgs(["--human"], defs.state.schema, { onOutput: (f: string) => (seen = f) });
+  check("and it never reaches the tool", seen === "human" && same(c, {}), c);
+}
+
+console.log("\n[human] a person never gets raw JSON");
+{
+  const panesVerb = resolveVerb("panes");
+  const out = humanize(
+    panesVerb,
+    {},
+    [
+      {
+        active: true,
+        leafId: 3,
+        kind: "terminal",
+        running: true,
+        tabTitle: "api",
+        cwd: "/home/me/x",
+        agent: "claude",
+      },
+      {
+        active: false,
+        leafId: 12,
+        kind: "editor",
+        dirty: true,
+        tabTitle: "api",
+        path: "/srv/a.ts",
+      },
+      {
+        active: false,
+        leafId: 7,
+        kind: "extension-panel",
+        tabTitle: "Db",
+        title: "prod",
+        state: "connected",
+      },
+    ],
+    { home: "/home/me" },
+  );
+  const lines = out.split("\n");
+  check("a header and one row per pane", lines.length === 4 && /LEAF/.test(lines[0]), lines);
+  check("the running agent names the kind", /claude/.test(lines[1]) && /running/.test(lines[1]));
+  check("the active pane is marked", lines[1].startsWith("*") && !lines[2].startsWith("*"));
+  check("home folds to ~", lines[1].includes("~/x"));
+  check("an unsaved editor says so", /unsaved/.test(lines[2]));
+  check("a panel shows its title", /panel/.test(lines[3]) && /prod/.test(lines[3]));
+  check("no JSON leaks", !/[{}"]/.test(out), out);
+  check(
+    "a sibling of home is not home",
+    humanize(panesVerb, {}, [{ leafId: 1, kind: "terminal", cwd: "/home/me2/x" }], {
+      home: "/home/me",
+    }).includes("/home/me2/x"),
+  );
+  check(
+    "a tail someone asked for is shown",
+    humanize(panesVerb, {}, [{ leafId: 1, kind: "terminal", tail: "last line" }]).includes(
+      "last line",
+    ),
+  );
+
+  const wide = humanize(panesVerb, {}, [{ leafId: 1, kind: "terminal", cwd: "/a".repeat(90) }], {
+    width: 60,
+  });
+  check(
+    "the last column is cut to the terminal",
+    wide.split("\n").every((l: string) => l.length <= 60) && wide.includes("…"),
+    wide,
+  );
+  const painted = humanize(panesVerb, {}, [{ leafId: 1, kind: "terminal" }], { color: true });
+  const plain = humanize(panesVerb, {}, [{ leafId: 1, kind: "terminal" }], {});
+  check("colour only when asked", painted.includes("\x1b[1m") && !plain.includes("\x1b"));
+
+  const sh = resolveVerb("sh");
+  check(
+    "sh is what it printed",
+    humanize(sh, {}, { leafId: 3, command: "ls", timedOut: false, text: "a.txt" }) === "a.txt",
+  );
+  check(
+    "and says when it is still going",
+    /still running/.test(humanize(sh, {}, { leafId: 3, timedOut: true, text: "x" })),
+  );
+  check(
+    "a sentence passes through",
+    humanize(resolveVerb("close"), {}, "closed leaf 3") === "closed leaf 3",
+  );
+
+  // Every tool, against every shape it can plausibly answer: a view must not throw, and
+  // anything without one still must not print raw JSON at someone.
+  const shapes: unknown[] = [
+    [],
+    {},
+    null,
+    "text",
+    [{ id: "a", n: 1, nested: { x: 1 } }],
+    { a: 1, b: { c: 2 } },
+  ];
+  const threw: string[] = [];
+  for (const verb of [...TOOL_NAMES, ...Object.keys(ALIASES)]) {
+    const found = resolveVerb(verb);
+    for (const what of [
+      "commands",
+      "extensions",
+      "settings",
+      "workspaces",
+      "status",
+      "sessions",
+      "logs",
+    ]) {
+      for (const shape of shapes) {
+        try {
+          humanize(found, { what, action: "list", source: "terminal" }, shape);
+          humanize(found, { what, action: "status" }, shape);
+        } catch (e) {
+          threw.push(`${verb}/${what}: ${(e as Error).message}`);
+        }
+      }
+    }
+  }
+  check("no view throws on an odd answer", threw.length === 0, threw.slice(0, 5));
+  check(
+    "rows read as a table",
+    /^ID +N\n/.test(pretty([{ id: "a", n: 1 }])),
+    pretty([{ id: "a", n: 1 }]),
+  );
+  check("an object reads as key and value", /^a +1$/m.test(pretty({ a: 1, ok: true })));
+  check("ok is noise there", !/ok/.test(pretty({ a: 1, ok: true })));
+}
+
+// The real process, against a stand-in for the Rust listener: argv to stdout, end to end.
+console.log("\n[end to end] one process, a stub bridge, both readers");
+{
+  const dir = mkdtempSync(join(tmpdir(), "tedi-cli-"));
+  const bundle = "id.tedi.cli-verify";
+  const address =
+    process.platform === "win32"
+      ? `\\\\.\\pipe\\tedi-cli-verify-${process.pid}`
+      : join(dir, "b.sock");
+  mkdirSync(join(dir, bundle), { recursive: true });
+  writeFileSync(
+    join(dir, bundle, "mcp-bridge.json"),
+    JSON.stringify({ socket: address, token: "t" }),
+  );
+  const server = net.createServer((sock) => {
+    let buf = "";
+    let authed = false;
+    sock.setEncoding("utf8");
+    sock.on("error", () => {});
+    sock.on("data", (chunk: string) => {
+      buf += chunk;
+      for (let nl = buf.indexOf("\n"); nl !== -1; nl = buf.indexOf("\n")) {
+        const msg = JSON.parse(buf.slice(0, nl));
+        buf = buf.slice(nl + 1);
+        if (!authed) {
+          authed = true;
+          sock.write('{"ok":true}\n');
+          continue;
+        }
+        const reply = (body: object) => sock.write(`${JSON.stringify({ id: msg.id, ...body })}\n`);
+        if (msg.name === "state") {
+          reply({
+            ok: true,
+            result: {
+              panes: [
+                {
+                  active: true,
+                  leafId: 3,
+                  kind: "terminal",
+                  cwd: "/x",
+                  tabTitle: "t",
+                  atPrompt: true,
+                },
+              ],
+              // Proves what the human path asks for: no tail means no buffer walk.
+              asked: msg.args[0],
+            },
+          });
+        } else if (msg.name === "settings") {
+          reply({ ok: true, result: { theme: "dark", customTheme: { p: "x".repeat(400) } } });
+        } else {
+          reply({ ok: false, error: `refused ${msg.name}` });
+        }
+      }
+    });
+  });
+  await new Promise<void>((r) => server.listen(address, () => r()));
+
+  const run = (argv: string[], env: Record<string, string> = {}) =>
+    new Promise<{ code: number | null; out: string; err: string }>((resolve) => {
+      const child = spawn(process.execPath, ["scripts/mcp/cli.mjs", ...argv], {
+        env: {
+          ...process.env,
+          APPDATA: dir,
+          XDG_CONFIG_HOME: dir,
+          TEDI_BUNDLE_ID: bundle,
+          TEDI_OUTPUT: "",
+          ...env,
+        },
+      });
+      let out = "";
+      let err = "";
+      child.stdout.setEncoding("utf8").on("data", (d: string) => (out += d));
+      child.stderr.setEncoding("utf8").on("data", (d: string) => (err += d));
+      child.on("close", (code) => resolve({ code, out, err }));
+    });
+
+  const piped = await run(["panes"]);
+  check("piped, the answer is JSON", JSON.parse(piped.out)[0]?.leafId === 3, piped);
+  check("on one line", piped.out.trim().split("\n").length === 1);
+  const human = await run(["panes", "--human"]);
+  check("--human is a table", /LEAF/.test(human.out) && !human.out.includes("{"), human);
+  const leading = await run(["--human", "panes"]);
+  check("before the verb too", /LEAF/.test(leading.out), leading);
+  const envMode = await run(["panes"], { TEDI_OUTPUT: "human" });
+  check("TEDI_OUTPUT picks it", /LEAF/.test(envMode.out), envMode);
+
+  const refused = await run(["sh", "--leaf-id", "3", "ls"]);
+  check("a refusal exits 1", refused.code === 1, refused);
+  check("says why on stderr", /refused/.test(refused.err), refused.err);
+  check("and leaves stdout empty", refused.out === "", refused.out);
+  const usage = await run(["pane", "--nope", "1"]);
+  check("a bad command line exits 2", usage.code === 2, usage);
+
+  const settings = await run(["settings"]);
+  const folded = JSON.parse(settings.out);
+  check(
+    "a long setting folds until it is named",
+    folded.theme === "dark" && /filter "customTheme"/.test(folded.customTheme),
+    folded,
+  );
+  const named = JSON.parse((await run(["settings", "customTheme"])).out);
+  check("and comes back whole when it is", named.customTheme?.p?.length === 400, named);
+
+  const guide = await run(["tools"]);
+  check("the guide stays text when piped", /Start here:/.test(guide.out), guide.out.slice(0, 80));
+  const verbs = JSON.parse((await run(["tools", "--json"])).out);
+  check(
+    "and is data when asked",
+    verbs.some((v: { verb: string }) => v.verb === "new-tab"),
+  );
+  const schema = JSON.parse((await run(["help", "sh", "--json"])).out);
+  check("help too", schema.inputSchema?.required?.includes("command"), schema);
+
+  const status = JSON.parse((await run(["mcp", "status", "--json"])).out);
+  check("mcp status finds this TEDI", status.running === true && status.profile === bundle, status);
+  check(
+    "and lists every agent",
+    status.agents.length === 7 && status.agents.some((a: { id: string }) => a.id === "hermes"),
+  );
+  const cfg = await run(["mcp", "config", "hermes"]);
+  check("mcp config prints it", /^mcp_servers:/.test(cfg.out) && cfg.out.includes(bundle), cfg);
+  const logs = await run(["logs", "--for=x"]);
+  check("--for= is read, and junk refused", logs.code === 2 && /--for wants/.test(logs.err), logs);
+  const nope = await run(["mcp", "install", "nobody"]);
+  check("an unknown agent is a usage error", nope.code === 2 && /No agent/.test(nope.err), nope);
+  server.close();
+}
 
 console.log("\n[media] a tool's image never reaches the session file");
 const sessionsSrc = await readFile("src/modules/ai/lib/sessions.ts", "utf8");
@@ -361,6 +698,9 @@ const socketSrc = await readFile("scripts/mcp/socket.mjs", "utf8");
 check("Library/Application Support", socketSrc.includes('"Library", "Application Support"'));
 
 console.log("\n[split] a split's leaf id is allocated before the state update");
+// Source text, because the failure needs a real React render to show. An id set inside the
+// updater reads null whenever another update is still in flight, so `tedi new-tab` then
+// `tedi split` reported failure for a split that happened.
 const useTabs = await readFile("src/modules/tabs/lib/useTabs.ts", "utf8");
 const splitBody = useTabs.slice(useTabs.indexOf("const splitActivePane = useCallback"));
 check(

@@ -51,7 +51,7 @@ export type SubagentDef = {
   description: string;
   /** Category, for grouping. Optional so custom sub-agents need not set it. */
   category?: SubagentCategory;
-  /** Tools the subagent may call. Excludes mutating tools and `run_subagent` to block recursion. */
+  /** Tools the subagent may call. Never `run_subagents`, which blocks recursion. */
   tools: string[];
   systemPrompt: string;
   /** Optional per-agent model id. Custom sub-agents may set this; built-ins
@@ -327,7 +327,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "comet",
     label: "Comet",
     description:
-      "Read-only codebase search specialist. Locates files, traces references, finds patterns. Fire several in parallel for broad searches.",
+      "Read-only code search: files, references, patterns. Fire several for broad searches.",
     category: "exploration",
     tools: READ_ONLY_TOOLS,
     systemPrompt: COMET_PROMPT,
@@ -336,7 +336,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "nebula",
     label: "Nebula",
     description:
-      "Read-only research on third-party libraries and dependencies from their installed source, types, and docs in this workspace (no network).",
+      "Read-only research on dependencies from their installed source and docs (no network).",
     category: "exploration",
     tools: READ_ONLY_TOOLS,
     systemPrompt: NEBULA_PROMPT,
@@ -345,7 +345,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "nova",
     label: "Nova",
     description:
-      "Read-only strategic advisor for hard debugging, architecture decisions, multi-system trade-offs, security/perf concerns, and self-review.",
+      "Read-only advisor: hard debugging, architecture, security, self-review.",
     category: "advisor",
     tools: READ_ONLY_TOOLS,
     systemPrompt: NOVA_PROMPT,
@@ -354,7 +354,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "orbit",
     label: "Orbit",
     description:
-      "Read-only pre-planning consultant. Analyzes an ambiguous or complex request for hidden intent, scope, and AI-slop risks before you plan.",
+      "Read-only pre-planning: hidden intent, scope and risks of an ambiguous request.",
     category: "advisor",
     tools: READ_ONLY_TOOLS,
     systemPrompt: ORBIT_PROMPT,
@@ -363,7 +363,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "eclipse",
     label: "Eclipse",
     description:
-      "Read-only reviewer. Checks whether a plan or set of proposed changes is executable: are references valid and can each task be started?",
+      "Read-only reviewer: is this plan executable, are its references valid?",
     category: "advisor",
     tools: READ_ONLY_TOOLS,
     systemPrompt: ECLIPSE_PROMPT,
@@ -372,7 +372,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "odyssey",
     label: "Odyssey",
     description:
-      "Autonomous worker. Implements a well-scoped change end to end: edits/creates/moves/deletes files and runs commands, then verifies. Runs without approval cards, so give it a tight, self-contained task.",
+      "Worker: implements a scoped change end to end and verifies it. Give it a tight task.",
     category: "specialist",
     tools: WORKER_TOOLS,
     systemPrompt: ODYSSEY_PROMPT,
@@ -381,7 +381,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "vega",
     label: "Vega",
     description:
-      "Read-only strategic planner. Turns a vague or large request into one decision-complete plan a worker can execute with no further questions: exact files, explicit scope, and agent-verifiable checks.",
+      "Read-only planner: one decision-complete plan a worker can execute.",
     category: "advisor",
     tools: READ_ONLY_TOOLS,
     systemPrompt: VEGA_PROMPT,
@@ -390,7 +390,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "zenith",
     label: "Zenith",
     description:
-      "Autonomous executor for a multi-step plan: implements every task and verifies each (build/test/lint, manual review, and hands-on use), auto-continuing to completion. Runs without approval cards; give it a complete plan.",
+      "Worker: executes a complete multi-step plan and verifies each task.",
     category: "specialist",
     tools: WORKER_TOOLS,
     systemPrompt: ZENITH_PROMPT,
@@ -399,7 +399,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "aurora",
     label: "Aurora",
     description:
-      "Read-only visual analyst. Reads images, screenshots, diagrams, and charts (PNG/JPEG/GIF/WebP/BMP/AVIF) and extracts exactly what you ask for. Use it when the answer lives in a picture rather than in text.",
+      "Read-only visual analyst: extracts what you ask for from images and screenshots.",
     category: "utility",
     tools: READ_ONLY_TOOLS,
     systemPrompt: AURORA_PROMPT,
@@ -408,7 +408,7 @@ export const SUBAGENTS: Record<BuiltinSubagentType, SubagentDef> = {
     id: "meteor",
     label: "Meteor",
     description:
-      "Autonomous focused executor for one small, well-scoped task: implements it fast, verifies once, and stops. A lightweight leaf worker (use Odyssey for deep multi-file work). Runs without approval cards.",
+      "Worker: one small task, fast, verifies once.",
     category: "specialist",
     tools: WORKER_TOOLS,
     systemPrompt: METEOR_PROMPT,

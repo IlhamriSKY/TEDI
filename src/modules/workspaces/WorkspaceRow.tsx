@@ -8,7 +8,6 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Button } from "@/components/ui/button";
 import {
   ContextMenu,
   ContextMenuContent,
@@ -16,10 +15,14 @@ import {
   ContextMenuSeparator,
   ContextMenuTrigger,
 } from "@/components/ui/context-menu";
-import { IconTooltip } from "@/components/ui/icon-tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { DESTRUCTIVE_ACTION } from "@/lib/toolbarButton";
 import { entryLabelClass, entryMatches, type Entry } from "@/modules/tabs/lib/entries";
 import { EntryIcon } from "@/modules/tabs/components/EntryIcon";
 import { InlineInput } from "@/modules/explorer/InlineInput";
@@ -34,15 +37,18 @@ import { Fragment, useEffect, useRef, useState } from "react";
 import { type Workspace } from "./store";
 import {
   AlarmClock,
-  AlarmClockOff,
   ChevronRight,
+  Columns2,
   FolderGit2,
   GitBranch,
   GitFork,
-  Pencil,
+  Globe,
   Pin,
-  PinOff,
-  X,
+  Plus,
+  Rows2,
+  SquareTerminal,
+  StickyNote,
+  type LucideIcon,
 } from "lucide-react";
 
 /**
@@ -61,6 +67,18 @@ export type EntryRow = {
    *  are display-only, minted while rehydrating the snapshot). */
   live: boolean;
 };
+
+/** What can be opened inside a workspace, from its menu and its `New` row. */
+export type WorkspaceAddition = "terminal" | "browser" | "note" | "splitRight" | "splitDown";
+export type LeafRef = { tabId: number; leafId: number };
+
+const ADDITIONS: { what: WorkspaceAddition; label: string; icon: LucideIcon }[] = [
+  { what: "terminal", label: "New Terminal", icon: SquareTerminal },
+  { what: "browser", label: "New Browser", icon: Globe },
+  { what: "note", label: "New Note", icon: StickyNote },
+  { what: "splitRight", label: "Split Right", icon: Columns2 },
+  { what: "splitDown", label: "Split Down", icon: Rows2 },
+];
 
 // One strong colour per hue, the same in light and dark themes. Literal classes,
 // so Tailwind sees them.
@@ -194,12 +212,13 @@ type RowProps = {
   /** Open the create dialog for the project a row sits in. */
   onNewWorktree: (cwd: string) => void;
   onOpenWorktree: (worktree: Worktree, list: Worktree[]) => void;
+  onAdd: (workspaceId: string, what: WorkspaceAddition, leaf?: LeafRef) => void;
 };
 
 /**
  * One workspace row. The header line is the drag handle (like a tab), so a
  * plain click still switches and a double-click still renames thanks to the
- * sensor's activation distance. The trailing action buttons and the (optional)
+ * sensor's activation distance. Its actions are a right-click. The disclosure and the (optional)
  * tab sub-list stop pointer propagation so interacting with them never starts a
  * drag.
  */
@@ -216,6 +235,7 @@ export function SortableWorkspaceRow({
   sortable,
   onSwitch,
   onClose,
+  onAdd,
   onStartEdit,
   onSetPinned,
   onDraftChange,
@@ -368,42 +388,17 @@ export function SortableWorkspaceRow({
             onClick={onRowClick}
             onDoubleClick={onRowDoubleClick}
             className={cn(
-              "group relative flex h-7 cursor-pointer items-center gap-1 rounded px-1.5 text-xs",
+              // The list has one selected row, the focused pane's. A workspace being
+              // the current one is said by weight, or two bars stack up in the accent.
+              "relative flex h-7 cursor-pointer items-center gap-1.5 px-1.5 text-xs",
               isDragging && "opacity-30",
               isActive
-                ? "bg-accent text-accent-foreground"
-                : "text-muted-foreground hover:bg-accent/60 hover:text-accent-foreground",
+                ? "bg-foreground/[0.06] text-foreground font-medium"
+                : "text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground",
             )}
           >
-            <button
-              type="button"
-              // Stop the drag listeners; a click only toggles the tab list.
-              onPointerDown={(e) => e.stopPropagation()}
-              onClick={(e) => {
-                e.stopPropagation();
-                if (hasRows) onToggleExpanded(w.id);
-              }}
-              onDoubleClick={(e) => e.stopPropagation()}
-              aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
-              aria-expanded={isExpanded}
-              disabled={!hasRows}
-              className={cn(
-                "flex size-4 shrink-0 items-center justify-center rounded transition-colors",
-                hasRows ? "hover:bg-foreground/10" : "opacity-0",
-              )}
-            >
-              {/* One chevron that rotates, not two that swap: a ternary between two
-              icons replaces the DOM node, so it can never animate. */}
-              <ChevronRight
-                size={11}
-                strokeWidth={2.25}
-                className={cn("transition-transform", isExpanded && "rotate-90")}
-              />
-            </button>
             <WorkspaceAvatar workspace={w} />
-            {/* Always visible, unlike the hover actions: a pin nobody can see
-            without hovering does not explain why this workspace sits at the
-            top of the list. */}
+            {/* A pin nobody can see does not explain why this one sits at the top. */}
             {w.pinned && (
               <Pin
                 aria-label="Pinned"
@@ -434,11 +429,7 @@ export function SortableWorkspaceRow({
             <Tooltip>
               <TooltipTrigger asChild>
                 <span
-                  className={cn(
-                    "bg-muted/50 shrink-0 rounded px-1 text-[10px] tabular-nums transition-opacity",
-                    isActive ? "text-accent-foreground/80" : "text-muted-foreground",
-                    "group-hover:opacity-0 group-has-focus-visible:opacity-0",
-                  )}
+                  className="shrink-0 text-[10px] tabular-nums opacity-60"
                   aria-label={`${tabCount} tabs open`}
                 >
                   {tabCount}
@@ -448,58 +439,42 @@ export function SortableWorkspaceRow({
                 {`${tabCount} ${tabCount === 1 ? "tab" : "tabs"} open`}
               </TooltipContent>
             </Tooltip>
-            <span
-              onClick={(e) => e.stopPropagation()}
+            {/* After the name, so an open list starts under the avatar's own edge. */}
+            <button
+              type="button"
+              // Stop the drag listeners; a click only toggles the tab list.
+              onPointerDown={(e) => e.stopPropagation()}
+              onClick={(e) => {
+                e.stopPropagation();
+                if (hasRows) onToggleExpanded(w.id);
+              }}
               onDoubleClick={(e) => e.stopPropagation()}
-              className="pointer-events-none absolute right-1.5 flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity group-hover:pointer-events-auto group-hover:opacity-100 has-focus-visible:opacity-100"
-            >
-              <IconTooltip label={w.pinned ? "Unpin workspace" : "Pin workspace"}>
-                <Button
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => onSetPinned(w.id, !w.pinned)}
-                  aria-label={w.pinned ? "Unpin workspace" : "Pin workspace"}
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground size-5 rounded"
-                >
-                  {w.pinned ? (
-                    <PinOff size={11} strokeWidth={1.75} />
-                  ) : (
-                    <Pin size={11} strokeWidth={1.75} />
-                  )}
-                </Button>
-              </IconTooltip>
-              <IconTooltip label="Rename">
-                <Button
-                  // Stop the pointerdown from reaching the row's drag listeners.
-                  onPointerDown={(e) => e.stopPropagation()}
-                  onClick={() => onStartEdit(w.id, w.name)}
-                  aria-label="Rename workspace"
-                  variant="ghost"
-                  size="icon-sm"
-                  className="text-muted-foreground size-5 rounded"
-                >
-                  <Pencil size={11} strokeWidth={1.75} />
-                </Button>
-              </IconTooltip>
-              {canClose && (
-                <IconTooltip label="Close workspace">
-                  <Button
-                    onPointerDown={(e) => e.stopPropagation()}
-                    onClick={() => (tabCount > 0 ? setConfirmingClose(true) : onClose(w.id))}
-                    aria-label="Close workspace"
-                    variant="ghost"
-                    size="icon-sm"
-                    className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
-                  >
-                    <X size={11} strokeWidth={2} />
-                  </Button>
-                </IconTooltip>
+              aria-label={isExpanded ? "Collapse tabs" : "Expand tabs"}
+              aria-expanded={isExpanded}
+              disabled={!hasRows}
+              className={cn(
+                "flex size-4 shrink-0 items-center justify-center opacity-60 transition-colors",
+                hasRows ? "hover:bg-foreground/10 hover:opacity-100" : "invisible",
               )}
-            </span>
+            >
+              {/* One chevron that rotates, not two that swap: a ternary between two
+              icons replaces the DOM node, so it can never animate. */}
+              <ChevronRight
+                size={11}
+                strokeWidth={2.25}
+                className={cn("transition-transform", isExpanded && "rotate-90")}
+              />
+            </button>
           </div>
         </ContextMenuTrigger>
         <ContextMenuContent className="min-w-44">
+          {ADDITIONS.map(({ what, label, icon: Icon }) => (
+            <ContextMenuItem key={what} onSelect={() => onAdd(w.id, what)}>
+              <Icon size={13} strokeWidth={1.75} />
+              {label}
+            </ContextMenuItem>
+          ))}
+          <ContextMenuSeparator />
           <ContextMenuItem onSelect={() => onStartEdit(w.id, w.name)}>Rename</ContextMenuItem>
           {/* Says Workspace, not just Pin. The tab strip has its own Pin Tab
               item, and the two mean different things; naming the subject in
@@ -649,6 +624,20 @@ export function SortableWorkspaceRow({
                         }}
                         onRename={onRenameLeaf}
                         onSetRenaming={onSetRenamingLeaf}
+                        // A pane splits where it is, so this names which one: the
+                        // split would otherwise land on whichever had the focus.
+                        onSplit={
+                          r.live && r.entry.kind === "pane-leaf" && r.entry.leafKind === "terminal"
+                            ? (what) =>
+                                onAdd(
+                                  w.id,
+                                  what,
+                                  r.entry.kind === "pane-leaf"
+                                    ? { tabId: r.entry.tabId, leafId: r.entry.leafId }
+                                    : undefined,
+                                )
+                            : undefined
+                        }
                         // Live ids only exist for the active workspace. Waking is
                         // always allowed; snoozing needs another awake tab left,
                         // the same rule the tab strip applies.
@@ -688,6 +677,29 @@ export function SortableWorkspaceRow({
               </Fragment>
             );
           })}
+          {!rowQuery ? (
+            <li>
+              <DropdownMenu>
+                <DropdownMenuTrigger asChild>
+                  <button
+                    type="button"
+                    className="text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7 text-left text-[11px] transition-colors"
+                  >
+                    <Plus size={12} strokeWidth={2} className="shrink-0" />
+                    New
+                  </button>
+                </DropdownMenuTrigger>
+                <DropdownMenuContent align="start" className="min-w-44">
+                  {ADDITIONS.map(({ what, label, icon: Icon }) => (
+                    <DropdownMenuItem key={what} onSelect={() => onAdd(w.id, what)}>
+                      <Icon size={13} strokeWidth={1.75} />
+                      {label}
+                    </DropdownMenuItem>
+                  ))}
+                </DropdownMenuContent>
+              </DropdownMenu>
+            </li>
+          ) : null}
         </ul>
       )}
     </li>
@@ -706,6 +718,7 @@ function EntryRowItem({
   onOpen,
   onRename,
   onSetRenaming,
+  onSplit,
   onToggleSnooze,
   onRequestClose,
   onNewWorktree,
@@ -718,6 +731,8 @@ function EntryRowItem({
   onOpen: () => void;
   onRename?: (leafId: number, title: string | null) => void;
   onSetRenaming: (leafId: number | null) => void;
+  /** Split this pane. Absent for a row that is not a live terminal. */
+  onSplit?: (what: "splitRight" | "splitDown") => void;
   /** Snooze or wake this row's tab. Absent when the row is not live or it is
    *  the last awake tab. */
   onToggleSnooze?: () => void;
@@ -741,7 +756,7 @@ function EntryRowItem({
   // an extension tab) has nothing to write to. A cold workspace's ids are
   // display-only, so its rows are read-only too.
   const canRename = row.live && isLeaf && !!onRename;
-  const actionCount = (onToggleSnooze ? 1 : 0) + (canRename ? 1 : 0) + (onRequestClose ? 1 : 0);
+  const hasMenu = !!onSplit || canRename || !!onToggleSnooze || !!onNewWorktree || !!onRequestClose;
   const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
   const sshStatus = e.kind === "pane-leaf" ? e.sshStatus : undefined;
   const ai = e.kind === "pane-leaf" ? e.aiCliStatus : undefined;
@@ -813,11 +828,6 @@ function EntryRowItem({
       }}
       className={cn(
         "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
-        // Make room for the hover actions so they never sit on top of the label.
-        // Each size-5 button reserves 5.
-        actionCount === 1 && "group-hover/row:pr-5",
-        actionCount === 2 && "group-hover/row:pr-10",
-        actionCount === 3 && "group-hover/row:pr-15",
         isActiveLeaf
           ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
@@ -837,16 +847,8 @@ function EntryRowItem({
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
         {/* Snoozed tabs are off the strip, so this list is the only place
             they show; the clock says why this row has no chip up top. */}
-        {/* Hidden on hover, where the action cluster shows its own clock. */}
         {e.snoozed ? (
-          <AlarmClock
-            size={11}
-            strokeWidth={1.75}
-            className={cn(
-              "text-muted-foreground shrink-0",
-              actionCount > 0 && "group-hover/row:hidden",
-            )}
-          />
+          <AlarmClock size={11} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
         ) : null}
       </span>
       {/* Branch of this pane's working directory. Absent entirely outside a
@@ -866,19 +868,13 @@ function EntryRowItem({
     </button>
   );
 
-  // The action cluster is a SIBLING of the row button, not a child: nesting one
-  // button inside another is invalid HTML and the inner one would swallow the
-  // row's own click. Same hover-reveal treatment the workspace row above uses.
-  //
-  // The right-click lives on THIS row rather than on the workspace above it: a
-  // workspace can hold panes in two different projects, so only a row knows
-  // which repository a new worktree would belong to. Radix triggers compose, so
-  // the context trigger and the tooltip trigger can both own the same button.
+  // Radix triggers compose, so the context trigger and the tooltip trigger can both
+  // own the same button.
   const inner = (
     <>
       <Tooltip>
         <TooltipTrigger asChild>
-          {onNewWorktree ? <ContextMenuTrigger asChild>{rowButton}</ContextMenuTrigger> : rowButton}
+          {hasMenu ? <ContextMenuTrigger asChild>{rowButton}</ContextMenuTrigger> : rowButton}
         </TooltipTrigger>
         {/* Styled tooltip, not the native `title` attribute this list used to
             carry: that renders as an unthemed OS box on its own timing, the one
@@ -902,72 +898,55 @@ function EntryRowItem({
           </div>
         </TooltipContent>
       </Tooltip>
-      {actionCount > 0 && (
-        // `top-1` (not a centered translate): a row carrying a branch line is
-        // two lines tall, and these belong beside the NAME they act on, not
-        // floating between the two.
-        // `pointer-events-none` until the row is hovered, like the workspace row
-        // above: at opacity-0 these are invisible but still hit-testable, and an
-        // invisible close X sitting over a tab name is a click away from a
-        // close nobody asked for.
-        <span className="pointer-events-none absolute top-1 right-1 flex items-center gap-0.5 opacity-0 transition-opacity group-hover/row:pointer-events-auto group-hover/row:opacity-100">
-          {onToggleSnooze && (
-            <IconTooltip label={e.snoozed ? "Unsnooze" : "Snooze"} side="right">
-              <Button
-                onClick={onToggleSnooze}
-                aria-label={`${e.snoozed ? "Unsnooze" : "Snooze"} ${e.label}`}
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground size-5 rounded"
-              >
-                {e.snoozed ? (
-                  <AlarmClockOff size={11} strokeWidth={1.75} />
-                ) : (
-                  <AlarmClock size={11} strokeWidth={1.75} />
-                )}
-              </Button>
-            </IconTooltip>
-          )}
-          {canRename && (
-            <IconTooltip label="Rename" side="right">
-              <Button
-                onClick={() => {
-                  if (e.kind === "pane-leaf") onSetRenaming(e.leafId);
-                }}
-                aria-label={`Rename ${e.label}`}
-                variant="ghost"
-                size="icon-sm"
-                className="text-muted-foreground size-5 rounded"
-              >
-                <Pencil size={11} strokeWidth={1.75} />
-              </Button>
-            </IconTooltip>
-          )}
-          {onRequestClose && (
-            <IconTooltip label="Close tab" side="right">
-              <Button
-                onClick={onRequestClose}
-                aria-label={`Close ${e.label}`}
-                variant="ghost"
-                size="icon-sm"
-                className={cn(DESTRUCTIVE_ACTION, "size-5 rounded")}
-              >
-                <X size={11} strokeWidth={2} />
-              </Button>
-            </IconTooltip>
-          )}
-        </span>
-      )}
     </>
   );
 
   return (
-    <li className="group/row relative" data-tab-private={isPrivate ? "" : undefined}>
-      {onNewWorktree ? (
+    <li className="relative" data-tab-private={isPrivate ? "" : undefined}>
+      {hasMenu ? (
         <ContextMenu>
           {inner}
           <ContextMenuContent className="min-w-44">
-            <ContextMenuItem onSelect={onNewWorktree}>New Worktree</ContextMenuItem>
+            {onSplit ? (
+              <>
+                <ContextMenuItem onSelect={() => onSplit("splitRight")}>
+                  <Columns2 size={13} strokeWidth={1.75} />
+                  Split Right
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => onSplit("splitDown")}>
+                  <Rows2 size={13} strokeWidth={1.75} />
+                  Split Down
+                </ContextMenuItem>
+              </>
+            ) : null}
+            {onNewWorktree ? (
+              <ContextMenuItem onSelect={onNewWorktree}>New Worktree</ContextMenuItem>
+            ) : null}
+            {(onSplit || onNewWorktree) && (canRename || onToggleSnooze || onRequestClose) ? (
+              <ContextMenuSeparator />
+            ) : null}
+            {canRename ? (
+              <ContextMenuItem
+                onSelect={() => {
+                  if (e.kind === "pane-leaf") onSetRenaming(e.leafId);
+                }}
+              >
+                Rename
+              </ContextMenuItem>
+            ) : null}
+            {onToggleSnooze ? (
+              <ContextMenuItem onSelect={onToggleSnooze}>
+                {e.snoozed ? "Unsnooze" : "Snooze"}
+              </ContextMenuItem>
+            ) : null}
+            {onRequestClose ? (
+              <>
+                <ContextMenuSeparator />
+                <ContextMenuItem variant="destructive" onSelect={onRequestClose}>
+                  Close
+                </ContextMenuItem>
+              </>
+            ) : null}
           </ContextMenuContent>
         </ContextMenu>
       ) : (

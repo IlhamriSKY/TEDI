@@ -50,9 +50,8 @@ console.log("2. every turn goes through it");
   const mcp = read("src/modules/ai/tools/mcp.ts");
   assert(/getMcpServersEnabled\(\)/.test(mcp), "buildMcpToolsAsync reads the switch");
   assert(
-    /const configured = serversToConnect\(servers, serversEnabled\)/.test(mcp) &&
-      /\.\.\.configured\b/.test(mcp) &&
-      /dropUnwantedMcpClients\(configured\)/.test(mcp),
+    /const enabled = serversToConnect\(servers, serversEnabled\)/.test(mcp) &&
+      /dropUnwantedMcpClients\(enabled\)/.test(mcp),
     "and builds its server list (and the set of clients it keeps) through the gate",
   );
   assert(

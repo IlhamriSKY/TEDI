@@ -68,6 +68,7 @@ for (const p of [
   "shell:transform",
   "ai:configure",
   "ai:prompt",
+  "ai:context",
 ]) {
   check(`permissionRiskTier("${p}")`, permissionRiskTier(p), "high");
 }
@@ -92,7 +93,11 @@ for (const cmd of DENIED_IN_TS) {
 }
 // The gate must not over-reach: read-only extension commands stay callable.
 for (const cmd of ["ext_list", "ext_read_manifest", "ext_check_update"]) {
-  check(`isInvokeAllowed(["invoke:${cmd}"], "${cmd}")`, isInvokeAllowed([`invoke:${cmd}`], cmd), true);
+  check(
+    `isInvokeAllowed(["invoke:${cmd}"], "${cmd}")`,
+    isInvokeAllowed([`invoke:${cmd}`], cmd),
+    true,
+  );
 }
 
 console.log("\n[C] genuinely low-risk permissions stay low (badge must not become noise)");
@@ -102,7 +107,11 @@ for (const p of ["ui:toast", "settings:read", "events:emit", "panels:register", 
 check(`permissionRiskTier("editor:read")`, permissionRiskTier("editor:read"), "medium");
 
 console.log("\n[D] checkPermission's own contract (the tier probes rely on it)");
-check(`checkPermission(["ui:toast"], "secrets:read")`, checkPermission(["ui:toast"], "secrets:read"), false);
+check(
+  `checkPermission(["ui:toast"], "secrets:read")`,
+  checkPermission(["ui:toast"], "secrets:read"),
+  false,
+);
 check(
   `checkPermission(["invoke:git_*"], "invoke:shell_run_command")`,
   checkPermission(["invoke:git_*"], "invoke:shell_run_command"),
@@ -122,7 +131,12 @@ console.log("\n[E] the Rust CLI's copy of the hard-deny list still matches this 
 // out of the source rather than trusting a comment to keep them in step.
 {
   const rustSource = readFileSync(
-    join(dirname(fileURLToPath(import.meta.url)), "..", "..", "src-tauri/src/modules/cli_ext/validate.rs"),
+    join(
+      dirname(fileURLToPath(import.meta.url)),
+      "..",
+      "..",
+      "src-tauri/src/modules/cli_ext/validate.rs",
+    ),
     "utf8",
   );
   const block = /const HARD_DENIED: &\[&str\] = &\[([\s\S]*?)\];/.exec(rustSource)?.[1] ?? "";

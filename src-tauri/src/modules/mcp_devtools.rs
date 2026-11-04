@@ -139,6 +139,17 @@ pub async fn call(app: &AppHandle, args: &[Value]) -> Result<Value, String> {
     serde_json::from_str(&text).map_err(|e| format!("devtools: {method} answered non-JSON: {e}"))
 }
 
+/// The same channel for TEDI's own agent, which already runs in this webview and so has no socket.
+/// The same refusals too: a pack switched off is off for every agent.
+#[tauri::command]
+pub async fn automation_devtools(app: AppHandle, method: String, params: Value) -> Result<Value, String> {
+    let args = [Value::String(method), params];
+    if let Some(why) = refusal(&args) {
+        return Err(why);
+    }
+    call(&app, &args).await
+}
+
 fn misc_pack_off() -> bool {
     settings_json().is_some_and(|json| misc_pack_off_in(&json))
 }

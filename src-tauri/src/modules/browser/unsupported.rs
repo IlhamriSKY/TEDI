@@ -4,7 +4,7 @@
 //! carries no Tauri IPC on any platform). What is missing is the rest of
 //! `native.rs`, which is all WebView2 COM, and a build to test the WebKit one on.
 
-use super::{BrowserPane, BrowserRect, PaneEvent};
+use super::{BrowserPane, BrowserRect, Download, PaneEvent};
 use tauri::ipc::Channel;
 
 const NOT_ON_THIS_PLATFORM: &str = "browser panes are Windows only in this version";
@@ -18,8 +18,37 @@ pub async fn place(
     _bounds: BrowserRect,
     _holes: Vec<BrowserRect>,
     _visible: bool,
+    _adopt: Option<u64>,
 ) -> Result<(), String> {
     Err(NOT_ON_THIS_PLATFORM.to_string())
+}
+
+pub async fn action(
+    _app: tauri::AppHandle,
+    _pane_id: String,
+    _action: String,
+) -> Result<(), String> {
+    Err(NOT_ON_THIS_PLATFORM.to_string())
+}
+
+pub async fn downloads(_app: tauri::AppHandle) -> Result<Vec<Download>, String> {
+    Ok(Vec::new())
+}
+
+pub async fn download_action(
+    _app: tauri::AppHandle,
+    _id: u64,
+    _action: String,
+) -> Result<(), String> {
+    Err(NOT_ON_THIS_PLATFORM.to_string())
+}
+
+pub async fn reveal_download(_path: String) -> Result<(), String> {
+    Err(NOT_ON_THIS_PLATFORM.to_string())
+}
+
+pub async fn look(_app: tauri::AppHandle, _dark: bool, _background: [u8; 3]) -> Result<(), String> {
+    Ok(())
 }
 
 pub async fn close(_app: tauri::AppHandle, _pane_id: String) -> Result<(), String> {
@@ -47,6 +76,7 @@ pub async fn cdp(
     _pane_id: String,
     _method: String,
     _params: String,
+    _session: Option<String>,
 ) -> Result<String, String> {
     Err(NOT_ON_THIS_PLATFORM.to_string())
 }

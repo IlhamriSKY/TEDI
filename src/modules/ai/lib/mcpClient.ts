@@ -6,8 +6,7 @@ import type { Tool as McpTool, CallToolResult } from "@modelcontextprotocol/sdk/
 import { proxyOnlyFetch } from "./httpProxy";
 import { getMcpHeaders, McpOAuthProvider } from "./mcpAuth";
 import { TauriStdioTransport } from "./mcpTransport";
-import { startTediMcpServer, type TediMcpDeps } from "./tediMcpServer";
-import { TEDI_MCP_SERVER_NAME, type McpServerConfig } from "./mcpConfig";
+import type { McpServerConfig } from "./mcpConfig";
 
 /**
  * Per-call ceiling for `tools/call`, in ms.
@@ -46,7 +45,6 @@ export class McpClient {
   constructor(
     private config: McpServerConfig,
     private cwd?: string,
-    private builtinDeps?: TediMcpDeps,
     /** May an OAuth sign-in open the browser? Only from Settings, never a turn. */
     private interactive = false,
   ) {
@@ -97,26 +95,23 @@ export class McpClient {
       this.config.url && !Object.keys(headers).some((h) => h.toLowerCase() === "authorization")
         ? new McpOAuthProvider(this.config.name, this.interactive)
         : null;
-    let transport: Transport = this.config.builtin
-      ? (await startTediMcpServer(this.builtinDeps ?? { openSshTab: () => null })).clientTransport
-      : this.config.url
-        ? await this.httpTransport(headers, oauth)
-        : new TauriStdioTransport({
-            id: this.id,
-            command: this.config.command,
-            args: this.config.args,
-            env: this.config.env,
-            cwd: this.cwd,
-          });
+    let transport: Transport = this.config.url
+      ? await this.httpTransport(headers, oauth)
+      : new TauriStdioTransport({
+          id: this.id,
+          command: this.config.command,
+          args: this.config.args,
+          env: this.config.env,
+          cwd: this.cwd,
+        });
 
     // Client.connect() calls transport.start() internally (which spawns the
     // server process); stderr is drained backend-side, so nothing to wire here.
     try {
       // Bounded handshake. The SDK default is 60s, so a server that spawns but
       // never answers added a minute before the first token of EVERY turn.
-      const handshake = this.config.builtin ? undefined : { timeout: CONNECT_TIMEOUT_MS };
       try {
-        await this.client.connect(transport, handshake);
+        await this.client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
       } catch (e) {
         // The server wants a sign-in and the browser is open on it: wait for the
         // redirect, trade the code for tokens, then start over on a fresh client
@@ -126,7 +121,7 @@ export class McpClient {
         await (transport as StreamableHTTPClientTransport).finishAuth(code);
         this.client = this.newClient();
         transport = await this.httpTransport(headers, oauth);
-        await this.client.connect(transport, handshake);
+        await this.client.connect(transport, { timeout: CONNECT_TIMEOUT_MS });
       }
 
       // Fetch server info (optional) and tools.
@@ -303,9 +298,6 @@ const connectGen = new Map<string, number>();
 const IDLE_TIMEOUT_MS = 5 * 60 * 1000; // 5 minutes
 
 /** Cache key: a server reused under a different cwd must be a distinct process. */
-// The built-in server registers a DIFFERENT tool set per pack-switch state, so
-// that state belongs in the key: flipping a switch must yield a new client, not
-// a cached one still advertising the tools the user just turned off.
 const clientKey = (name: string, cwd?: string, variant?: string): string =>
   `${name}\x1f${cwd ?? ""}\x1f${variant ?? ""}`;
 
@@ -337,7 +329,7 @@ export function dropUnwantedMcpClients(wanted: McpServerConfig[]): void {
   }
   for (const [key, entry] of activeClients.entries()) {
     const [name, , variant] = key.split("\x1f");
-    if (name === TEDI_MCP_SERVER_NAME || entry.client.busy) continue;
+    if (entry.client.busy) continue;
     if (keep.get(name) === variant) continue;
     void entry.client.disconnect();
     activeClients.delete(key);
@@ -381,24 +373,9 @@ setInterval(sweepIdleClients, IDLE_TIMEOUT_MS);
  * Get or create an MCP client for a server config + cwd. Reuses an existing live
  * connection; dedups concurrent connects.
  */
-export async function getMcpClient(
-  config: McpServerConfig,
-  cwd?: string,
-  builtinDeps?: TediMcpDeps,
-): Promise<McpClient> {
+export async function getMcpClient(config: McpServerConfig, cwd?: string): Promise<McpClient> {
   sweepIdleClients();
-  const key = clientKey(
-    config.name,
-    // The in-process server spawns nothing and reads no cwd, so keying it on one
-    // only guaranteed a miss: `pinTurnCwd` moves with any workspace or terminal
-    // switch, and the next turn would discard a live server, rebuild it and
-    // re-run `tools/list` for a byte-identical answer. It was the one place MCP
-    // work repeated per turn.
-    config.builtin ? undefined : cwd,
-    config.builtin
-      ? [...(builtinDeps?.disabledTools ?? [])].sort().join(",")
-      : configFingerprint(config),
-  );
+  const key = clientKey(config.name, cwd, configFingerprint(config));
   const until = failedUntil.get(key);
   if (until && until > Date.now()) {
     throw new Error(
@@ -425,12 +402,12 @@ export async function getMcpClient(
   const myGen = (connectGen.get(key) ?? 0) + 1;
   connectGen.set(key, myGen);
   const promise = (async () => {
-    const client = new McpClient(config, cwd, builtinDeps);
+    const client = new McpClient(config, cwd);
     try {
       await client.connect();
       failedUntil.delete(key);
     } catch (e) {
-      if (!config.builtin) failedUntil.set(key, Date.now() + FAILURE_BACKOFF_MS);
+      failedUntil.set(key, Date.now() + FAILURE_BACKOFF_MS);
       throw e;
     }
     // If a refresh (edit/disable/remove) superseded this connect mid-flight,
@@ -524,7 +501,7 @@ export async function validateMcpServer(
 ): Promise<McpValidation> {
   // Interactive: Settings is where a person adds a server, so a sign-in the
   // server asks for opens the browser here and nowhere else.
-  const client = new McpClient(config, cwd, undefined, true);
+  const client = new McpClient(config, cwd, true);
   const connectPromise = client.connect();
   // If the timeout wins the race below, connect() can still reject afterwards;
   // attach a no-op catch so that late rejection is not reported as unhandled.

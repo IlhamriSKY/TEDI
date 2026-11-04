@@ -79,6 +79,7 @@ import { setTabControlBridge } from "@/modules/extensions/tabControlBridge";
 import { useWorkspacesStore } from "@/modules/workspaces";
 import type { WorkspaceView } from "@/modules/workspaces/store";
 import type { SearchAddon } from "@xterm/addon-search";
+import type { WorkspaceAddition } from "@/modules/workspaces";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { PanelImperativeHandle } from "react-resizable-panels";
 
@@ -454,6 +455,7 @@ export default function App() {
     openExtensionTab,
     openExtensionPane,
     setExtensionTabState,
+    closePaneByLeaf,
     sidebarRef,
     sidebarHiderRef,
     rightSlotRef,
@@ -1173,6 +1175,32 @@ export default function App() {
     [wsActiveId, setWorkspaceView],
   );
 
+  // A new tab lands in the ACTIVE workspace and a split on the ACTIVE pane, so this
+  // goes there first. The openers run a frame later, from the render that switch
+  // made: they read the workspace's cwd, which the ones in hand would get wrong.
+  const openers = {
+    terminal: () => void openNewTab(),
+    note: handleHeaderNewNote,
+    browser: () => void openPreviewTab(""),
+    split: splitActivePaneInActiveTab,
+    focus: focusPane,
+  };
+  const addOpeners = useRef(openers);
+  addOpeners.current = openers;
+  const addToWorkspace = useCallback(
+    (workspaceId: string, what: WorkspaceAddition, leaf?: { tabId: number; leafId: number }) => {
+      switchToWorkspace(workspaceId);
+      requestAnimationFrame(() => {
+        const open = addOpeners.current;
+        if (leaf) open.focus(leaf.tabId, leaf.leafId);
+        if (what === "splitRight") open.split("row");
+        else if (what === "splitDown") open.split("col");
+        else open[what]();
+      });
+    },
+    [switchToWorkspace],
+  );
+
   // What the canvas `+` opens. Every entry is an EXISTING tab opener, so a pane
   // added on the canvas is an ordinary pane tab: it is still there in tabs view,
   // and the canvas simply places it (`CanvasView` seeds the rectangle).
@@ -1276,6 +1304,7 @@ export default function App() {
                 sourceControlInRightPanel={sourceControlInRightPanel}
                 sshInRightPanel={sshInRightPanel}
                 onSwitchWorkspace={switchToWorkspace}
+                onAddToWorkspace={addToWorkspace}
                 onCreateWorkspace={createNewWorkspace}
                 onCloseWorkspace={closeWorkspace}
                 tabCounts={liveTabCounts}
@@ -1358,6 +1387,7 @@ export default function App() {
                 }}
                 workspacesSection={{
                   onSwitch: switchToWorkspace,
+                  onAddToWorkspace: addToWorkspace,
                   onCreate: createNewWorkspace,
                   onCloseWorkspace: closeWorkspace,
                   tabCounts: liveTabCounts,

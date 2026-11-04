@@ -38,6 +38,7 @@ pub async fn shell_run_command(
     command: String,
     cwd: Option<String>,
     timeout_secs: Option<u64>,
+    env: Option<HashMap<String, String>>,
 ) -> Result<CommandOutput, String> {
     let trimmed = command.trim().to_string();
     if trimmed.is_empty() {
@@ -64,7 +65,7 @@ pub async fn shell_run_command(
     // wrapper. The earlier hand-rolled `thread::spawn` + `rx.recv()` moved
     // work off-thread but then blocked the async future on the channel,
     // defeating the runtime.
-    tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur, None))
+    tauri::async_runtime::spawn_blocking(move || run_blocking(trimmed, cwd_path, dur, None, env))
         .await
         .map_err(|e| format!("join error: {e}"))?
 }
@@ -74,8 +75,12 @@ pub(crate) fn run_blocking(
     cwd: Option<PathBuf>,
     dur: Duration,
     cancel: Option<Arc<AtomicBool>>,
+    env: Option<HashMap<String, String>>,
 ) -> Result<CommandOutput, String> {
     let mut cmd = build_oneshot_command(&command);
+    if let Some(env) = env {
+        cmd.envs(env);
+    }
     if let Some(dir) = cwd {
         cmd.current_dir(dir);
     }

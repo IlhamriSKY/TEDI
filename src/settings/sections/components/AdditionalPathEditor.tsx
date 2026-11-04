@@ -13,7 +13,8 @@ import {
 import { invoke } from "@tauri-apps/api/core";
 import { useEffect, useState } from "react";
 import { SettingsAccordion } from "../../components/SettingsAccordion";
-import { CircleAlert, CircleCheck, CircleX, LoaderCircle, Plus, Trash2 } from "lucide-react";
+import { Spinner } from "@/components/ui/spinner";
+import { CircleAlert, CircleCheck, CircleX, Plus, Trash2 } from "lucide-react";
 
 /**
  * Editor for the terminal's "Additional PATH" list. Each row is a folder with a
@@ -252,7 +253,7 @@ function ProbeStatus({ state }: { state?: ProbeState }) {
   if (!state || (state.loading && !state.result)) {
     return (
       <span className="text-muted-foreground/70 flex items-center gap-1 text-[10px]">
-        <LoaderCircle size={11} strokeWidth={2} className="animate-spin" />
+        <Spinner className="size-[11px]" />
         Checking folder
       </span>
     );

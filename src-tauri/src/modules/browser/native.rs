@@ -20,6 +20,7 @@
 use std::cell::{Cell, RefCell};
 use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 
 use base64::Engine as _;
@@ -27,27 +28,35 @@ use tauri::ipc::Channel;
 use tauri::Manager;
 use webview2_com::Microsoft::Web::WebView2::Win32::*;
 use webview2_com::{
-    take_pwstr, AcceleratorKeyPressedEventHandler, CallDevToolsProtocolMethodCompletedHandler,
-    ContentLoadingEventHandler, DOMContentLoadedEventHandler,
+    take_pwstr, wait_with_pump, AcceleratorKeyPressedEventHandler,
+    CallDevToolsProtocolMethodCompletedHandler, ContainsFullScreenElementChangedEventHandler,
+    ContentLoadingEventHandler, CoreWebView2EnvironmentOptions,
+    CreateCoreWebView2EnvironmentCompletedHandler, DOMContentLoadedEventHandler,
     DevToolsProtocolEventReceivedEventHandler, DocumentTitleChangedEventHandler,
-    FaviconChangedEventHandler, FindActiveMatchIndexChangedEventHandler,
-    FindMatchCountChangedEventHandler, FindStartCompletedHandler, FocusChangedEventHandler,
-    GetFaviconCompletedHandler, HistoryChangedEventHandler, LaunchingExternalUriSchemeEventHandler,
+    ExecuteScriptCompletedHandler, FaviconChangedEventHandler,
+    FindActiveMatchIndexChangedEventHandler, FindMatchCountChangedEventHandler,
+    FindStartCompletedHandler, FocusChangedEventHandler, GetFaviconCompletedHandler,
+    HistoryChangedEventHandler, IsDocumentPlayingAudioChangedEventHandler,
+    IsMutedChangedEventHandler, LaunchingExternalUriSchemeEventHandler,
     NavigationCompletedEventHandler, NavigationStartingEventHandler,
-    NewWindowRequestedEventHandler, ProcessFailedEventHandler, SourceChangedEventHandler,
-    TrySuspendCompletedHandler,
+    NewWindowRequestedEventHandler, ProcessFailedEventHandler, ShowSaveAsUICompletedHandler,
+    SourceChangedEventHandler, TrySuspendCompletedHandler, WindowCloseRequestedEventHandler,
 };
-use windows::core::{Interface, BOOL, HSTRING, PWSTR};
+use windows::core::{Interface, BOOL, HSTRING, PCWSTR, PWSTR};
 use windows::Win32::Foundation::HWND;
 use windows::Win32::Graphics::Gdi::{
     CombineRgn, CreateRectRgn, DeleteObject, SetWindowRgn, RGN_DIFF,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
-    GetKeyState, VK_ADD, VK_CONTROL, VK_F12, VK_F3, VK_F5, VK_F6, VK_LEFT, VK_MENU, VK_NUMPAD0,
-    VK_OEM_MINUS, VK_OEM_PLUS, VK_RIGHT, VK_SHIFT, VK_SUBTRACT,
+    GetKeyState, VK_ADD, VK_CONTROL, VK_ESCAPE, VK_F12, VK_F3, VK_F5, VK_F6, VK_LEFT, VK_MENU,
+    VK_NUMPAD0, VK_OEM_MINUS, VK_OEM_PLUS, VK_RIGHT, VK_SHIFT, VK_SUBTRACT,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    SetWindowPos, HWND_TOP, SWP_NOACTIVATE, SWP_NOMOVE, SWP_NOSIZE,
 };
 use wry::{WebContext, WebViewBuilder, WebViewBuilderExtWindows, WebViewExtWindows};
 
+pub use super::downloads::{download_action, downloads, reveal_download};
 use super::{blocker, cdp as cdp_bridge, BrowserPane, BrowserRect, PaneEvent};
 
 /// How long a hidden pane stays warm before it is put to sleep. A page playing
@@ -59,6 +68,15 @@ const CRASH_RELOAD_WINDOW: Duration = Duration::from_secs(30);
 const LATE_SCAN_AFTER: Duration = Duration::from_millis(2500);
 /// A favicon lands on the pane header and is persisted with the workspace.
 const MAX_ICON_BYTES: usize = 64 * 1024;
+/// How long a page's `window.open` waits for its pane. Its script is held until then,
+/// and a pane that never comes (a covered window) must not hang the page for good.
+const ADOPT_WITHIN: Duration = Duration::from_secs(10);
+/// A page's browser process runs on a browser's settings, not the app's. The app's
+/// flags keep its timers running and let it autoplay, and on a page those mean a hidden
+/// site never slows down and an ad can start talking. wry's default also turns
+/// SmartScreen off, which an app's own UI can afford and a browser cannot.
+const PANE_BROWSER_ARGS: &str = "--disable-features=msWebOOUI,msPdfOOUI";
+const APP_BROWSER_ARGS_ENV: &str = "WEBVIEW2_ADDITIONAL_BROWSER_ARGUMENTS";
 
 /// What the event handlers need, and nothing that keeps the webview alive.
 pub(super) struct Shared {
@@ -72,6 +90,8 @@ pub(super) struct Shared {
     /// The hide rules this document already has.
     applied: Rc<RefCell<HashSet<String>>>,
     last_crash_reload: Cell<Option<Instant>>,
+    /// In the page's fullscreen, where Escape is the only way back.
+    fullscreen: Cell<bool>,
 }
 
 impl Shared {
@@ -124,8 +144,95 @@ struct Pane {
     _context: WebContext,
 }
 
+/// A `window.open` waiting for the pane that will become its window. Completing the
+/// deferral is what lets the page's script carry on, so it happens however this ends.
+struct Adoption {
+    args: ICoreWebView2NewWindowRequestedEventArgs,
+    deferral: ICoreWebView2Deferral,
+}
+
+impl Drop for Adoption {
+    fn drop(&mut self) {
+        let _ = unsafe { self.deferral.Complete() };
+    }
+}
+
+static NEXT_ADOPTION: AtomicU64 = AtomicU64::new(1);
+
 thread_local! {
     static PANES: RefCell<HashMap<String, Rc<Pane>>> = RefCell::default();
+    /// One environment for every pane and popup, so a window can be adopted across
+    /// panes. Dropped with the last pane, or its browser process would stay resident.
+    static ENVIRONMENT: RefCell<Option<ICoreWebView2Environment>> = RefCell::default();
+    static ADOPTIONS: RefCell<HashMap<u64, Adoption>> = RefCell::default();
+    /// Dark or not, and the app's background.
+    static LOOK: Cell<Option<(bool, [u8; 3])>> = const { Cell::new(None) };
+}
+
+/// The pages' environment, created once.
+///
+/// THE APP'S FLAGS ARE AWAY ONLY FOR THE CREATE CALL. The loader prefers the variable
+/// to any option, and it is process-wide on purpose (`automation.rs`). It goes back
+/// before the wait below pumps messages, so a Settings window opened during that pump
+/// still gets the app's flags, without which it would come up blank.
+pub(super) fn environment(profile: &std::path::Path) -> Result<ICoreWebView2Environment, String> {
+    if let Some(environment) = ENVIRONMENT.with_borrow(Clone::clone) {
+        return Ok(environment);
+    }
+    std::fs::create_dir_all(profile).map_err(|e| e.to_string())?;
+    let options = CoreWebView2EnvironmentOptions::default();
+    let (tx, rx) = std::sync::mpsc::channel();
+    let handler = CreateCoreWebView2EnvironmentCompletedHandler::create(Box::new(
+        move |result, environment| {
+            let _ = tx.send(result.map(|()| environment));
+            Ok(())
+        },
+    ));
+    let started = unsafe {
+        options.set_additional_browser_arguments(PANE_BROWSER_ARGS.to_string());
+        options.set_are_browser_extensions_enabled(true);
+        options.set_scroll_bar_style(COREWEBVIEW2_SCROLLBAR_STYLE_FLUENT_OVERLAY);
+        let app_args = std::env::var_os(APP_BROWSER_ARGS_ENV);
+        std::env::remove_var(APP_BROWSER_ARGS_ENV);
+        let started = CreateCoreWebView2EnvironmentWithOptions(
+            PCWSTR::null(),
+            &HSTRING::from(profile.as_os_str()),
+            &ICoreWebView2EnvironmentOptions::from(options),
+            &handler,
+        );
+        if let Some(app_args) = app_args {
+            std::env::set_var(APP_BROWSER_ARGS_ENV, app_args);
+        }
+        started
+    };
+    started.map_err(|e| format!("could not start the browser engine: {e}"))?;
+    let environment = wait_with_pump(rx)
+        .map_err(|e| format!("could not start the browser engine: {e:?}"))?
+        .map_err(|e| format!("could not start the browser engine: {e}"))?
+        .ok_or("could not start the browser engine")?;
+    ENVIRONMENT.set(Some(environment.clone()));
+    Ok(environment)
+}
+
+/// Hold a `window.open` until a pane claims it, or until `ADOPT_WITHIN`.
+fn hold_for_adoption(
+    app: &tauri::AppHandle,
+    args: ICoreWebView2NewWindowRequestedEventArgs,
+    deferral: ICoreWebView2Deferral,
+) -> u64 {
+    let token = NEXT_ADOPTION.fetch_add(1, Ordering::Relaxed);
+    ADOPTIONS.with_borrow_mut(|held| held.insert(token, Adoption { args, deferral }));
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        tokio::time::sleep(ADOPT_WITHIN).await;
+        let handle = app.clone();
+        let _ = on_main(&handle, move || {
+            let expired = ADOPTIONS.with_borrow_mut(|held| held.remove(&token));
+            drop(expired);
+        })
+        .await;
+    });
+    token
 }
 
 /// Serialises CREATES, across threads and across the message pump `build_as_child`
@@ -178,7 +285,7 @@ async fn with_pane<T: Send + 'static>(
     .await?
 }
 
-fn read_string(read: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>) -> String {
+pub(super) fn read_string(read: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>) -> String {
     let mut value = PWSTR::null();
     if read(&mut value).is_err() || value.is_null() {
         return String::new();
@@ -188,6 +295,7 @@ fn read_string(read: impl FnOnce(*mut PWSTR) -> windows::core::Result<()>) -> St
 
 // --- placing ---------------------------------------------------------------
 
+#[allow(clippy::too_many_arguments)]
 pub async fn place(
     app: tauri::AppHandle,
     window: tauri::Window,
@@ -196,6 +304,7 @@ pub async fn place(
     bounds: BrowserRect,
     holes: Vec<BrowserRect>,
     visible: bool,
+    adopt: Option<u64>,
 ) -> Result<(), String> {
     let id = pane_id.clone();
     let exists = on_main(&app, move || pane(&id).is_some()).await?;
@@ -214,7 +323,7 @@ pub async fn place(
             if let Some(reason) = super::guard_url(&url, super::dev_server(&handle).as_ref()) {
                 return Err(reason);
             }
-            create(&handle, &window, &id, &url)
+            create(&handle, &window, &id, &url, adopt)
         })
         .await??;
     }
@@ -323,11 +432,16 @@ fn clip(pane: &Pane, bounds: BrowserRect, holes: &[BrowserRect]) {
 /// handlers are in, so no page runs before them; the blank entry also keeps a page
 /// from calling `window.close()`, which Chromium only allows at a history length of
 /// one and which stock wry answers by destroying the HWND.
+///
+/// An ADOPTED pane is the exception on both counts. A webview handed to `SetNewWindow`
+/// must not have navigated, so it is born on nothing, and the page that opened it can
+/// close it: a popup sign-in flow does exactly that when it is done (`PaneEvent::Closed`).
 fn create(
     app: &tauri::AppHandle,
     window: &tauri::Window,
     pane_id: &str,
     url: &str,
+    adopt: Option<u64>,
 ) -> Result<(), String> {
     let first = match url.trim() {
         "" | "about:blank" => None,
@@ -336,12 +450,16 @@ fn create(
     let dev_url = super::dev_server(app);
     let dirs = super::data_dirs(app);
 
-    let mut context = WebContext::new(dirs.as_ref().map(|(profile, _)| profile.clone()));
-    let builder = WebViewBuilder::new_with_web_context(&mut context)
+    let (profile, _) = dirs.ok_or("no place to keep the browser profile")?;
+    let environment = environment(&profile)?;
+    let adoption = adopt.and_then(|token| ADOPTIONS.with_borrow_mut(|held| held.remove(&token)));
+
+    let mut context = WebContext::new(Some(profile));
+    let mut builder = WebViewBuilder::new_with_web_context(&mut context)
+        .with_environment(environment)
         // ALWAYS ON, because it is fixed per environment for the life of the run: an
         // extension installed from a pane has to load in that pane, with no restart.
         .with_browser_extensions_enabled(true)
-        .with_url("about:blank")
         // EVERY top-level navigation, not just the commands: a link click or a
         // redirect passes through neither.
         .with_navigation_handler(move |to| super::guard_url(&to, dev_url.as_ref()).is_none())
@@ -351,9 +469,12 @@ fn create(
         .with_visible(false)
         .with_devtools(true)
         .with_hotkeys_zoom(true);
-
-    if let Some((profile, _)) = dirs {
-        let _ = std::fs::create_dir_all(profile);
+    if adoption.is_none() {
+        builder = builder.with_url("about:blank");
+    }
+    let look = LOOK.get();
+    if let Some((_, [r, g, b])) = look {
+        builder = builder.with_background_color((r, g, b, 255));
     }
 
     let view = builder
@@ -368,10 +489,16 @@ fn create(
         blocked: Cell::new(0),
         applied: Rc::default(),
         last_crash_reload: Cell::new(None),
+        fullscreen: Cell::new(false),
     });
+    if let Some((dark, _)) = look {
+        let _ = view.set_theme(theme_of(dark));
+    }
     let core = view.webview();
     harden(&core);
     observe(app, pane_id, &view, &core, &shared).map_err(|e| e.to_string())?;
+    observe_chrome(app, pane_id, &view, &core, &shared).map_err(|e| e.to_string())?;
+    super::downloads::observe(&core, &shared).map_err(|e| e.to_string())?;
     let top = shared.clone();
     let count = shared.clone();
     blocker::attach(
@@ -382,7 +509,10 @@ fn create(
     );
     super::extensions::reconcile_once(app, &core);
 
-    if let Some(first) = first {
+    if let Some(adoption) = &adoption {
+        unsafe { adoption.args.SetNewWindow(&core) }
+            .map_err(|e| format!("could not open the window: {e}"))?;
+    } else if let Some(first) = first {
         view.load_url(&first)
             .map_err(|e| format!("could not open the page: {e}"))?;
     }
@@ -512,12 +642,11 @@ fn observe(
 
     // WITHOUT THIS EVERY `target="_blank"` LINK DID NOTHING: with no handler of its
     // own to call, stock wry answers `SetHandled(true)` and the request vanishes.
-    // User-initiated only, or any page could open panes in a loop.
-    //
-    // shortcut: a new pane loads the url fresh, so `window.opener` is gone and a
-    // popup-style OAuth flow cannot post back. Adopting the new window with
-    // `SetNewWindow` would keep it.
+    // User-initiated only, or any page could open panes in a loop. A pane then ADOPTS
+    // the window, which keeps `window.opener`: a popup sign-in posts its answer back
+    // through that, and a pane that just loaded the url could not hear it.
     let s = shared.clone();
+    let adopt_app = app.clone();
     let handler = NewWindowRequestedEventHandler::create(Box::new(move |_, args| {
         let Some(args) = args else { return Ok(()) };
         unsafe {
@@ -526,7 +655,8 @@ fn observe(
             args.IsUserInitiated(&mut user)?;
             if user.as_bool() {
                 let url = read_string(|p| args.Uri(p));
-                s.send(PaneEvent::NewWindow { url });
+                let adopt = hold_for_adoption(&adopt_app, args.clone(), args.GetDeferral()?);
+                s.send(PaneEvent::NewWindow { url, adopt });
             }
         }
         Ok(())
@@ -665,6 +795,8 @@ fn observe_process_failure(
             s.send(PaneEvent::Gone);
             let id = pane_id.clone();
             let _ = app.run_on_main_thread(move || {
+                // Its environment died with that process, for every pane.
+                ENVIRONMENT.set(None);
                 let gone = PANES.with_borrow_mut(|panes| panes.remove(&id));
                 drop(gone);
             });
@@ -675,6 +807,85 @@ fn observe_process_failure(
     }));
     let mut token = 0_i64;
     unsafe { core.add_ProcessFailed(&handler, &mut token) }
+}
+
+/// What the toolbar shows about the page that only the engine knows.
+fn observe_chrome(
+    app: &tauri::AppHandle,
+    pane_id: &str,
+    view: &wry::WebView,
+    core: &ICoreWebView2,
+    shared: &Rc<Shared>,
+) -> windows::core::Result<()> {
+    let mut token = 0_i64;
+
+    // Fills the app's window rather than the screen, and goes above any pane beside it,
+    // which are sibling windows the app's own z-order cannot reach.
+    let mut hwnd = HWND::default();
+    unsafe { view.controller().ParentWindow(&mut hwnd)? };
+    let s = shared.clone();
+    let handler =
+        ContainsFullScreenElementChangedEventHandler::create(Box::new(move |sender, _| {
+            let Some(core) = sender else { return Ok(()) };
+            let mut on = BOOL::default();
+            unsafe {
+                core.ContainsFullScreenElement(&mut on)?;
+                if on.as_bool() {
+                    let flags = SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE;
+                    let _ = SetWindowPos(hwnd, Some(HWND_TOP), 0, 0, 0, 0, flags);
+                }
+            }
+            s.fullscreen.set(on.as_bool());
+            s.send(PaneEvent::Fullscreen { on: on.as_bool() });
+            Ok(())
+        }));
+    unsafe { core.add_ContainsFullScreenElementChanged(&handler, &mut token)? };
+
+    // Stock wry destroys the window here whatever else happens, so all that is left to
+    // do is let go of the pane, from a later turn: this callback belongs to it.
+    let s = shared.clone();
+    let (close_app, id) = (app.clone(), pane_id.to_string());
+    let handler = WindowCloseRequestedEventHandler::create(Box::new(move |_, _| {
+        s.send(PaneEvent::Closed);
+        let id = id.clone();
+        let _ = close_app.run_on_main_thread(move || {
+            let gone = PANES.with_borrow_mut(|panes| panes.remove(&id));
+            drop(gone);
+        });
+        Ok(())
+    }));
+    unsafe { core.add_WindowCloseRequested(&handler, &mut token)? };
+
+    let Ok(core8) = core.cast::<ICoreWebView2_8>() else {
+        return Ok(());
+    };
+    let s = shared.clone();
+    let handler = IsDocumentPlayingAudioChangedEventHandler::create(Box::new(move |sender, _| {
+        publish_audio(&s, sender);
+        Ok(())
+    }));
+    unsafe { core8.add_IsDocumentPlayingAudioChanged(&handler, &mut token)? };
+    let s = shared.clone();
+    let handler = IsMutedChangedEventHandler::create(Box::new(move |sender, _| {
+        publish_audio(&s, sender);
+        Ok(())
+    }));
+    unsafe { core8.add_IsMutedChanged(&handler, &mut token) }
+}
+
+fn publish_audio(shared: &Shared, sender: Option<ICoreWebView2>) {
+    let Some(core8) = sender.and_then(|core| core.cast::<ICoreWebView2_8>().ok()) else {
+        return;
+    };
+    let (mut playing, mut muted) = (BOOL::default(), BOOL::default());
+    unsafe {
+        let _ = core8.IsDocumentPlayingAudio(&mut playing);
+        let _ = core8.IsMuted(&mut muted);
+    }
+    shared.send(PaneEvent::Audio {
+        playing: playing.as_bool(),
+        muted: muted.as_bool(),
+    });
 }
 
 /// What a key means to a focused pane, or `None` for "the page's".
@@ -728,6 +939,16 @@ fn observe_keys(
             }
             args.VirtualKey(&mut key)?;
             args.KeyEventLParam(&mut lparam)?;
+        }
+        // Browser keys are off, and in fullscreen nothing else on screen can end it.
+        if key == u32::from(VK_ESCAPE.0) && s.fullscreen.get() {
+            unsafe { args.SetHandled(true)? };
+            if let Some(core) = controller.and_then(|c| unsafe { c.CoreWebView2() }.ok()) {
+                let done = ExecuteScriptCompletedHandler::create(Box::new(|_, _| Ok(())));
+                let script = HSTRING::from("document.exitFullscreen?.()");
+                let _ = unsafe { core.ExecuteScript(&script, &done) };
+            }
+            return Ok(());
         }
         let down = |vk: u16| unsafe { (GetKeyState(i32::from(vk)) as u16 & 0x8000) != 0 };
         let Some(action) = classify_key(key, down(VK_CONTROL.0), down(VK_SHIFT.0), down(VK_MENU.0))
@@ -821,6 +1042,9 @@ pub async fn close(app: tauri::AppHandle, pane_id: String) -> Result<(), String>
         // Dropped outside the borrow: closing a controller can pump messages.
         let gone = PANES.with_borrow_mut(|panes| panes.remove(&pane_id));
         drop(gone);
+        if PANES.with_borrow(HashMap::is_empty) {
+            ENVIRONMENT.set(None);
+        }
     })
     .await
 }
@@ -869,6 +1093,7 @@ pub async fn cdp(
     pane_id: String,
     method: String,
     params: String,
+    session: Option<String>,
 ) -> Result<String, String> {
     let (reply, rx) = cdp_bridge::reply();
     let name = method.clone();
@@ -881,7 +1106,7 @@ pub async fn cdp(
                 let _ = unsafe { core3.Resume() };
             }
         }
-        cdp_bridge::send(&core, &name, &params, reply);
+        cdp_bridge::send_in(&core, session.as_deref(), &name, &params, reply);
         Ok(())
     })
     .await?;
@@ -1030,6 +1255,57 @@ pub async fn devtools(app: tauri::AppHandle, pane_id: String) -> Result<(), Stri
     .await
 }
 
+pub async fn action(app: tauri::AppHandle, pane_id: String, action: String) -> Result<(), String> {
+    with_pane(&app, pane_id, move |pane| {
+        // Off the screen now, whatever becomes of the webview. A remount places it again.
+        if action == "hide" {
+            pane.visible.set(false);
+            return pane.view.set_visible(false).map_err(|e| e.to_string());
+        }
+        let core = pane.view.webview();
+        let run = || -> windows::core::Result<()> {
+            unsafe {
+                match action.as_str() {
+                    "print" => core
+                        .cast::<ICoreWebView2_16>()?
+                        .ShowPrintUI(COREWEBVIEW2_PRINT_DIALOG_KIND_BROWSER),
+                    "saveAs" => {
+                        let done = ShowSaveAsUICompletedHandler::create(Box::new(|_, _| Ok(())));
+                        core.cast::<ICoreWebView2_25>()?.ShowSaveAsUI(&done)
+                    }
+                    "mute" => core.cast::<ICoreWebView2_8>()?.SetIsMuted(true),
+                    "unmute" => core.cast::<ICoreWebView2_8>()?.SetIsMuted(false),
+                    _ => Ok(()),
+                }
+            }
+        };
+        run().map_err(|e| e.to_string())
+    })
+    .await
+}
+
+fn theme_of(dark: bool) -> wry::Theme {
+    if dark {
+        wry::Theme::Dark
+    } else {
+        wry::Theme::Light
+    }
+}
+
+/// Follow the app's light or dark mode. Kept for a pane that does not exist yet.
+pub async fn look(app: tauri::AppHandle, dark: bool, background: [u8; 3]) -> Result<(), String> {
+    on_main(&app, move || {
+        LOOK.set(Some((dark, background)));
+        let all: Vec<Rc<Pane>> = PANES.with_borrow(|panes| panes.values().cloned().collect());
+        let [r, g, b] = background;
+        for pane in all {
+            let _ = pane.view.set_theme(theme_of(dark));
+            let _ = pane.view.set_background_color((r, g, b, 255));
+        }
+    })
+    .await
+}
+
 pub fn set_blocker(
     app: &tauri::AppHandle,
     enabled: bool,
@@ -1047,7 +1323,20 @@ pub async fn blocked_count(app: tauri::AppHandle, pane_id: String) -> Result<u32
 
 #[cfg(test)]
 mod tests {
-    use super::{classify_key, parse_log_entry};
+    use super::{classify_key, parse_log_entry, PANE_BROWSER_ARGS};
+
+    #[test]
+    fn a_page_runs_on_a_browsers_settings_not_the_apps() {
+        for app_only in [
+            "msSmartScreenProtection",
+            "remote-debugging-port",
+            "autoplay-policy",
+            "background-timer-throttling",
+            "renderer-backgrounding",
+        ] {
+            assert!(!PANE_BROWSER_ARGS.contains(app_only), "{app_only}");
+        }
+    }
 
     #[test]
     fn the_pane_takes_only_the_chords_it_means() {

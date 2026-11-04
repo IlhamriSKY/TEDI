@@ -1,33 +1,27 @@
 import {
   Bot,
-  Calendar,
   ChevronRight,
   CircleAlert,
   Copy,
   Download,
-  Eye,
   File,
   FilePen,
   FilePlus,
   FileSearch,
   FolderOpen,
   FolderPlus,
-  Layers,
-  List,
   ListChecks,
-  NotepadText,
   Move,
   Replace,
   Search,
-  Sparkles,
   SquareCheckBig,
   SquarePen,
   SquarePlay,
-  SquarePlus,
   Terminal,
   Trash2,
   Wrench,
 } from "lucide-react";
+import { extToolMedia, gatewayArgs } from "@mcp/tools.mjs";
 import type { LucideIcon } from "lucide-react";
 ("use client");
 
@@ -72,31 +66,12 @@ const TOOL_META: Record<string, { label: string; icon: LucideIcon }> = {
   bash_kill: { label: "Kill", icon: Terminal },
   // Data / web
   fetch: { label: "Fetch", icon: Download },
-  // Panes, terminals, browser and app control - TEDI's own in-process MCP
-  // server (`ai/lib/tediMcpServer.ts`). Keyed on the `mcp__<server>__` name the
-  // model calls, and the label keeps that prefix: an MCP call and a native one
-  // are different things to approve, and this header is where that shows.
-  mcp__tedi__sh: { label: "MCP TEDI SH", icon: SquarePlay },
-  mcp__tedi__read: { label: "MCP TEDI READ", icon: Eye },
-  mcp__tedi__state: { label: "MCP TEDI STATE", icon: List },
-  mcp__tedi__wait_for_terminal: { label: "MCP TEDI WAIT", icon: Terminal },
-  mcp__tedi__focus_pane: { label: "MCP TEDI FOCUS", icon: SquarePlus },
-  mcp__tedi__pane: { label: "MCP TEDI PANE", icon: Layers },
-  mcp__tedi__ssh: { label: "MCP TEDI SSH", icon: Terminal },
-  mcp__tedi__inspect: { label: "MCP TEDI INSPECT", icon: Search },
-  mcp__tedi__run_command: { label: "MCP TEDI COMMAND", icon: Sparkles },
-  mcp__tedi__set_setting: { label: "MCP TEDI SETTING", icon: FilePen },
-  mcp__tedi__extension: { label: "MCP TEDI EXTENSION", icon: SquarePlus },
-  // Scheduling
-  schedule_command: { label: "Schedule", icon: Calendar },
-  list_schedules: { label: "Schedules", icon: Calendar },
-  cancel_schedule: { label: "Cancel schedule", icon: Calendar },
+  // The app itself: every verb goes through this one tool (`ai/tools/tedi.ts`).
+  tedi: { label: "TEDI", icon: SquarePlay },
   // Delegation / planning
   run_subagent: { label: "Subagent", icon: Bot },
   run_subagents: { label: "Subagents", icon: Bot },
   todo_write: { label: "Todos", icon: ListChecks },
-  notes_read: { label: "Notes & todos", icon: NotepadText },
-  notes_write: { label: "Notes & todos", icon: NotepadText },
 };
 
 // Icon color per tool state: the color indicator lives on the icon itself,
@@ -165,26 +140,14 @@ function deriveSummary(toolName: string, input: unknown): string | null {
       const rep = str("replacement");
       return rep == null ? pat : `${pat} → ${rep}`;
     }
-    // TEDI's own MCP surface. Each names the one argument worth seeing in a
-    // collapsed header - the command, the url, the verb - the same way the
-    // native tools above do.
-    case "mcp__tedi__sh":
-      return str("command");
-    case "mcp__tedi__read":
-      return str("selector") ?? str("source");
-    case "mcp__tedi__pane":
-    case "mcp__tedi__extension":
-      return str("action");
-    case "mcp__tedi__ssh":
-      return str("id") ?? str("action");
-    case "mcp__tedi__run_command":
-      return str("id");
-    case "mcp__tedi__set_setting":
-      return str("key");
-    case "mcp__tedi__inspect":
-      return str("what");
-    case "mcp__tedi__wait_for_terminal":
-      return str("text");
+    // The verb, and the one argument worth seeing in a collapsed header.
+    case "tedi": {
+      const a = gatewayArgs(i.args);
+      const detail = [a.command, a.what, a.source, a.action, a.id, a.key, a.path].find(
+        (v) => typeof v === "string",
+      );
+      return detail ? `${str("verb")} ${detail}` : str("verb");
+    }
     case "run_subagent": {
       const desc = str("description");
       const type = str("type");
@@ -1035,6 +998,20 @@ function renderToolOutput(toolName: string, output: unknown): ReactNode | null {
         </div>
       </div>
     );
+  }
+
+  if (toolName === "tedi") {
+    // A picture, not a card full of base64.
+    const media = extToolMedia(o);
+    if (media?.mimeType.startsWith("image/")) {
+      return (
+        <img
+          src={`data:${media.mimeType};base64,${media.data}`}
+          alt="The TEDI window"
+          className="border-border/60 max-h-96 w-full rounded-md border object-contain"
+        />
+      );
+    }
   }
 
   if (toolName === "browser_screenshot") {

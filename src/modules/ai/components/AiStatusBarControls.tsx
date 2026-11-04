@@ -125,13 +125,14 @@ export function AiStatusBarControls() {
         </IconBtn>
       )}
 
-      <span className="tedi-ai-model-control min-w-0">
+      {/* flex, or the trigger inside keeps its full width and runs under the next control. */}
+      <span className="tedi-ai-model-control flex min-w-0">
         <ModelDropdown />
       </span>
 
       {/* Renders nothing unless the selected model has a real reasoning
           parameter, so the toolbar gains no width for models without one. */}
-      <span className="tedi-ai-reasoning-control">
+      <span className="tedi-ai-reasoning-control shrink-0">
         <ReasoningDropdown />
       </span>
 

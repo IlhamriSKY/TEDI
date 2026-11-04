@@ -20,10 +20,8 @@
  *      left to check is that the table itself is well-formed and that its
  *      validator agrees with what the schemas declare.
  *
- * The in-process server itself cannot be imported here: `tediMcpServer.ts` pulls
- * in the settings and extension stores, which pull in Tauri. So this exercises
- * the shared table through the same SDK primitives that file uses, which is the
- * part that was actually broken.
+ * This exercises the shared table through the SDK's own primitives, which is the part that was
+ * actually broken.
  */
 import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
@@ -107,6 +105,20 @@ else ok("a string for a number argument is refused");
 if (validateArgs("state", { tail: 3 })) fail("state.tail rejected a valid number");
 else ok("a valid call passes");
 
+// The handler would spread this string and press E, n, t, e, r.
+if (!validateArgs("keys", { chords: "Enter" })) fail("keys.chords accepted a string");
+else ok("a string for a list is refused");
+if (validateArgs("keys", { chords: ["Enter"] })) fail("keys.chords rejected a list");
+if (!validateArgs("run_command", { id: "x", args: [] })) fail("run_command.args accepted a list");
+
+// A misspelt argument is ignored by the handler, so the call does something else and says it
+// worked. The error names what there is, which is how a model recovers in one step.
+const misspelt = validateArgs("pane", { action: "open", folder: "x" });
+if (!misspelt?.includes("folder") || !misspelt.includes("cwd")) {
+  fail(`an unknown argument was not refused with the real ones: ${misspelt}`);
+} else ok("an unknown argument is refused, and the error lists what is allowed");
+if (!validateArgs("state", { constructor: 1 })) fail("a key on Object.prototype passed as known");
+
 /** Fill in a tool's required args so an enum test fails on the enum, not on a
  *  missing sibling. */
 function seedRequired(name: string): Record<string, unknown> {
@@ -186,11 +198,11 @@ if (guardAt < 0) {
   fail("callTool checks surface.disabled AFTER looking the tool up - the check cannot refuse it");
 } else ok("callTool refuses a disabled tool before it reaches the handler table");
 
-// The same rule on the in-process side: never register what is switched off.
-const tediSrc = await readFile("src/modules/ai/lib/tediMcpServer.ts", "utf8");
-if (!/off\.has\(name\)/.test(tediSrc)) {
-  fail("tediMcpServer no longer filters on the disabled list");
-} else ok("the in-process server neither advertises nor dispatches a disabled tool");
+// The same rule for TEDI's own agent, which reaches everything through one tool.
+const tediSrc = await readFile("src/modules/ai/tools/tedi.ts", "utf8");
+if (!/surface\.disabledTools\.includes\(toolName\)/.test(tediSrc)) {
+  fail("tools/tedi.ts no longer checks the pack switches");
+} else ok("TEDI's own agent is refused a tool a pack switched off");
 
 // ---------------------------------------------------------------------------
 // 5. The security-relevant preferences an agent must not write.
@@ -223,7 +235,7 @@ if (!/AGENT_DENIED_PREFS\.has\(key as PrefKey\)/.test(storeSrc)) {
 // ever reached the first, so switching one off in the picker hid it and left it
 // callable by name. `disabledTools` is denied to the agent precisely because it
 // decides what the agent MAY DO; a door that ignores it makes that meaningless.
-if (!/disabledTools\.includes\(key\)/.test(tediSrc)) {
+if (!/isOff\(extensionToolKey\(String\(a\.id\)\)\)/.test(tediSrc)) {
   fail("run_command does not check the tool picker - a switched-off extension tool is callable");
 } else ok("run_command refuses an extension AI tool the picker switched off");
 if (!/extensionToolKey/.test(tediSrc)) {
@@ -247,7 +259,11 @@ async function collectImports(file: string): Promise<void> {
   if (reachable.has(file)) return;
   reachable.add(file);
   const src = await readFile(`scripts/mcp/${file}`, "utf8");
-  for (const m of src.matchAll(/from "\.\/([A-Za-z0-9_.-]+)"/g)) await collectImports(m[1]);
+  // A dynamic import is still a file the installed app needs. `sweep` is the exception: a dev
+  // verb, which drives a window over the debug port from the repo.
+  for (const m of src.matchAll(/(?:from |import\()"\.\/([A-Za-z0-9_.-]+)"/g)) {
+    if (m[1] !== "sweep.mjs") await collectImports(m[1]);
+  }
 }
 await collectImports("server.mjs");
 await collectImports("cli.mjs");

@@ -83,7 +83,7 @@ impl ShellSession {
         // hopping to a throwaway thread and blocking on a channel.
         let flag = Arc::new(AtomicBool::new(false));
         self.running.lock().unwrap().push(flag.clone());
-        let raw = run_blocking(wrapped, Some(cwd), timeout, Some(flag.clone()));
+        let raw = run_blocking(wrapped, Some(cwd), timeout, Some(flag.clone()), None);
         self.running
             .lock()
             .unwrap()

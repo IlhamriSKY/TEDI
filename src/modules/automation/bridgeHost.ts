@@ -33,10 +33,11 @@ import "./domState";
 import "@/modules/scm/worktreeAutomation";
 // Registers the `notes` capability, so an outside AI CLI reaches the user's own
 // notes and todos over MCP - the panel the in-app agent already reads through
-// its native `notes_read` / `notes_write`. Side-effect import, same as above.
+// the `tedi` tool. Side-effect import, same as above.
 import "@/modules/notes/notesAutomation";
 // Registers `agentSessions`, the saved Claude Code and Codex sessions behind `inspect sessions`.
 import "@/modules/agentSessions/api";
+import "./capabilities";
 
 type BridgeCall = { callId: string; name: string; args?: unknown[] };
 
