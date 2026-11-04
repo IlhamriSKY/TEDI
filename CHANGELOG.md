@@ -4,7 +4,7 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
-## [Unreleased]
+## [0.4.80] - 04-11-2026
 
 ### Added
 
@@ -33,8 +33,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 - **A word narrows any list**: `tedi settings font`, `tedi extensions sql`, `tedi commands pane`.
 - **`tedi tools --json` and `tedi help <verb> --json`** give the same reference as data.
 
+- **Point at part of a page and hand it to the AI**: it reaches the composer as a chip with a picture,
+  naming the component, source file and CSS rules a dev build exposes, and the likely files in the open
+  project. Needs the Browser extension's next release. See
+  [mentionSources.ts](src/modules/ai/lib/mentionSources.ts).
+- **Browser panes gain** a download list, audio, fullscreen, `window.open` adoption, and a local page that
+  reloads when its source is saved. The `browser` tool gains `inspect` and `style`. See
+  [native.rs](src-tauri/src/modules/browser/native.rs).
+- **Extensions can** put a chip in the composer and add entries to its `@` picker (`ctx.ai.attachContext`,
+  `registerMentionSource`, new permission `ai:context`), hear which files changed under a folder
+  (`watchFiles`), and close their own pane (`closeExtensionPane`). See
+  [tedi.d.ts](extensions/tedi.d.ts).
+
 ### Changed
 
+- **The Workspaces section moves its row actions to the right-click menu**, and loading indicators are
+  one ring everywhere.
+- **A model that cannot read images gets the same request without them**, where one picture used to
+  fail the whole turn. See [imageFallback.ts](src/modules/ai/lib/imageFallback.ts).
 - **One tool spawns sub-agents, for one or many**, and their descriptions got shorter, which takes
   about 900 more tokens off every step of a turn that has sub-agents on.
 - **The built-in agent costs about a third of what it did on every step.** What is sent besides the
@@ -56,6 +72,8 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 ### Fixed
 
+- **A browser pane kept every CSS animation on the main thread**, because its placement loop kept asking
+  for a frame when nothing could move. It stops now.
 - **`tedi sh` typed into a pane running a command**, though its own description said that was
   refused. It refuses now, and still types into an AI CLI or a full-screen program.
 - **`tedi term` and `tedi wait` with nothing named answered from whichever pane opened last.** With
@@ -69,6 +87,9 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 ### Security
 
+- **A browser pane has its own WebView2 environment.** It was inheriting the app's flags: forced
+  autoplay, no background throttling, SmartScreen off and, with automation on, a debug port on the
+  logged-in profile.
 - **No tool falls back to the DevTools port any more.** It has no authentication, and with the
   bridge down it could send real keystrokes into another TEDI that held the port.
 - **The local bridge bounds a client that has not shown its token**: 5 seconds and 1 KB, where a
