@@ -34,6 +34,7 @@ const TICK: Duration = Duration::from_secs(1);
 const REFRESH_FOLDERS_EVERY: u32 = 10;
 /// A file younger than this may still be being written; look again next tick.
 const SETTLE: Duration = Duration::from_millis(500);
+const ANNOTATED_KEEP: Duration = Duration::from_secs(7 * 24 * 60 * 60);
 const IMAGE_EXTS: [&str; 8] = ["png", "jpg", "jpeg", "webp", "bmp", "tif", "tiff", "heic"];
 
 static ENABLED: AtomicBool = AtomicBool::new(false);
@@ -276,6 +277,68 @@ fn mac_capture_location() -> Option<PathBuf> {
     }
 }
 
+/// Save a marked-up copy of a screenshot and return its path. In the cache folder,
+/// never beside the original: the watched folder would report it as a new capture,
+/// and a personal Screenshots folder is often synced. Each save gets a new name, as
+/// the AI composer dedupes attachments by path and would keep an earlier version.
+#[tauri::command]
+pub async fn snapshot_save_annotated(source: String, data_url: String) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let dir = dirs::cache_dir()
+            .ok_or("no cache folder on this system")?
+            .join("tedi")
+            .join("annotated");
+        save_annotated(&dir, &source, &data_url, SystemTime::now())
+            .map(|p| p.to_string_lossy().into_owned())
+    })
+    .await
+    .map_err(|e| format!("snapshot_save_annotated join error: {e}"))?
+}
+
+fn save_annotated(
+    dir: &Path,
+    source: &str,
+    data_url: &str,
+    now: SystemTime,
+) -> Result<PathBuf, String> {
+    use base64::{engine::general_purpose::STANDARD as B64, Engine};
+    let b64 = data_url
+        .strip_prefix("data:image/png;base64,")
+        .ok_or("not a PNG data URL")?;
+    let bytes = B64.decode(b64).map_err(|e| e.to_string())?;
+    if !bytes.starts_with(b"\x89PNG\r\n\x1a\n") {
+        return Err("not a PNG".into());
+    }
+    fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    prune_annotated(dir, now);
+    // The stem only, so nothing in `source` can steer the write out of `dir`.
+    let stem = Path::new(source)
+        .file_stem()
+        .map_or_else(|| "Screenshot".into(), |s| s.to_string_lossy());
+    let ms = now
+        .duration_since(SystemTime::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    let path = dir.join(format!("{stem} marked {ms}.png"));
+    fs::write(&path, bytes).map_err(|e| e.to_string())?;
+    Ok(path)
+}
+
+/// A path typed into a terminal must outlive the drop by a while, but nothing needs
+/// these for long.
+fn prune_annotated(dir: &Path, now: SystemTime) {
+    let Ok(rd) = fs::read_dir(dir) else { return };
+    for e in rd.flatten() {
+        let old = e
+            .metadata()
+            .and_then(|m| m.modified())
+            .is_ok_and(|t| now.duration_since(t).unwrap_or_default() > ANNOTATED_KEEP);
+        if old {
+            let _ = fs::remove_file(e.path());
+        }
+    }
+}
+
 /// Start a native OS drag of the screenshot at `path`, so it can be dropped
 /// anywhere: a TEDI terminal (which types its path through the ordinary file
 /// drop handler), the AI composer, an editor pane, Explorer / Finder / Files, a
@@ -446,6 +509,42 @@ mod tests {
         );
         // Already reported: nothing new.
         assert_eq!(newest_image(&dir, mtime, later), Scan::Nothing);
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn annotated_copy_stays_in_its_folder_and_old_ones_go() {
+        let dir = std::env::temp_dir().join(format!("tedi-annotated-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&dir);
+        // The PNG signature is all the check reads: base64 of its eight bytes.
+        let png = "data:image/png;base64,iVBORw0KGgo=";
+        let now = SystemTime::now();
+
+        assert!(save_annotated(&dir, "a.png", "data:text/html;base64,iVBORw0KGgo=", now).is_err());
+        assert!(save_annotated(&dir, "a.png", "data:image/png;base64,aGVsbG8=", now).is_err());
+
+        let source =
+            std::path::MAIN_SEPARATOR_STR.to_string() + "x" + std::path::MAIN_SEPARATOR_STR;
+        let saved =
+            save_annotated(&dir, &format!("{source}..{source}Shot 1.png"), png, now).unwrap();
+        assert_eq!(saved.parent(), Some(dir.as_path()));
+        assert!(saved
+            .file_name()
+            .unwrap()
+            .to_string_lossy()
+            .starts_with("Shot 1 marked "));
+
+        let stale = dir.join("stale.png");
+        fs::write(&stale, b"x").unwrap();
+        save_annotated(
+            &dir,
+            "b.png",
+            png,
+            now + ANNOTATED_KEEP + Duration::from_secs(60),
+        )
+        .unwrap();
+        assert!(!stale.exists());
 
         let _ = fs::remove_dir_all(&dir);
     }

@@ -886,6 +886,7 @@ pub fn run() {
             clipboard::clipboard_read_text,
             snapshot::snapshot_watch,
             snapshot::snapshot_drag,
+            snapshot::snapshot_save_annotated,
             browser::browser_place,
             browser::browser_close,
             browser::browser_navigate,
