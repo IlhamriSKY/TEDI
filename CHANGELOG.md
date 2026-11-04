@@ -4,6 +4,33 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.82] - 04-11-2026
+
+### Added
+
+- **Mark up a screenshot before you send it.** The preview card has an Edit button: click for a number,
+  drag for a numbered box or arrow, then drag the result straight from the card into a terminal, the AI
+  composer or another app, so an AI can be told "fix number 2". The card stays small enough to keep your
+  drop target in view, and the original file is never touched. See
+  [SnapshotPreview.tsx](src/modules/snapshot/SnapshotPreview.tsx).
+
+### Changed
+
+- **The built-in agent no longer opens a diff tab by itself when it edits a file.** Your screen stays
+  where you left it. An approval card has a Review diff button for when you want to look. See
+  [AiToolApproval.tsx](src/modules/ai/components/AiToolApproval.tsx).
+- **The Agents list holds every agent running, in any folder.** A Claude Code session running outside
+  TEDI's panes moved there from History, and a CLI in a workspace not opened yet now shows while its shell
+  is alive. History is now only what nothing is running. See
+  [api.ts](src/modules/agentSessions/api.ts).
+- **The Workspaces panel is tidier.** Every accordion arrow sits on the right in one column, rows line up
+  with the folder above them, a folder without git gets a group like any other, and a row's task no longer
+  leads with a spinner character. See [WorkspaceRow.tsx](src/modules/workspaces/WorkspaceRow.tsx).
+
+### Removed
+
+- **The "N agents" text in the status bar.** The Agents list says the same and more.
+
 ## [0.4.81] - 04-11-2026
 
 ### Added
