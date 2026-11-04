@@ -6805,7 +6805,7 @@ dependencies = [
 
 [[package]]
 name = "tedi"
-version = "0.4.80"
+version = "0.4.81"
 dependencies = [
  "adblock",
  "arboard",
