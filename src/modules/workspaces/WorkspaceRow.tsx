@@ -39,6 +39,7 @@ import {
   AlarmClock,
   ChevronRight,
   Columns2,
+  Folder,
   FolderGit2,
   GitBranch,
   GitFork,
@@ -155,7 +156,7 @@ function WorktreeRowItem({
           <button
             type="button"
             onClick={onOpen}
-            className="text-sidebar-foreground/85 hover:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 pr-1.5 pl-11 text-[11px] transition-colors"
+            className="text-sidebar-foreground/85 hover:bg-sidebar-accent/40 flex h-6 w-full items-center gap-1.5 pr-1.5 pl-12 text-[11px] transition-colors"
           >
             <GitFork size={11} strokeWidth={2} className="text-icon-branch shrink-0" />
             <span className="min-w-0 flex-1 truncate text-left">{label}</span>
@@ -325,12 +326,14 @@ export function SortableWorkspaceRow({
    * worktree path is what makes that true - every checkout of a repository
    * resolves to the same main, so different folders still land together.
    *
-   * Rows that belong to no repository (an SSH pane, an editor, a standalone tab)
-   * keep their place in an unnamed group rather than being sorted to the end,
-   * so the list still reads in the order the tab strip does.
+   * A local terminal outside any repository is grouped by its own folder, so a
+   * project without git does not break the list's rhythm. Rows with no local folder
+   * (an SSH pane, an editor, a standalone tab) keep their place in an unnamed group
+   * rather than being sorted to the end, so the list still reads in the order the
+   * tab strip does.
    */
   type RowGroup = {
-    /** Main worktree path; "" for the rows that belong to no repository. */
+    /** Main worktree path, or the folder outside a repo; "" for rows with no folder. */
     key: string;
     name: string;
     rows: EntryRow[];
@@ -349,7 +352,8 @@ export function SortableWorkspaceRow({
       if (rowQuery && !entryMatches(r.entry, r.title, rowQuery)) continue;
       const cwd = localTerminalCwd(r.entry);
       const list = cwd ? worktrees[cwd] : undefined;
-      const main = list?.find((x) => x.main)?.path;
+      // An empty list is a folder git says is no repository; none yet is still loading.
+      const main = list?.find((x) => x.main)?.path ?? (list?.length === 0 ? cwd : undefined);
       if (!cwd || !main || !list) {
         const last = groups[groups.length - 1];
         if (last && last.key === "") last.rows.push(r);
@@ -556,7 +560,7 @@ export function SortableWorkspaceRow({
                     the workspace above it is not. */}
                 {g.name ? (
                   <ContextMenu>
-                    <ContextMenuTrigger asChild>
+                    <ContextMenuTrigger asChild disabled={g.list.length === 0}>
                       <li>
                         <button
                           type="button"
@@ -569,19 +573,28 @@ export function SortableWorkspaceRow({
                             })
                           }
                           aria-expanded={!shut}
-                          className="text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-6 text-[11px] transition-colors"
+                          // The folder icon lines up with the workspace's name, a row's
+                          // icon with the folder's name, and the count and chevron with
+                          // the workspace's own.
+                          className="text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-[30px] text-[11px] transition-colors"
                         >
-                          <ChevronRight
-                            size={10}
-                            strokeWidth={2.25}
-                            className={cn("shrink-0 transition-transform", !shut && "rotate-90")}
-                          />
-                          <FolderGit2 size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                          {g.list.length > 0 ? (
+                            <FolderGit2 size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                          ) : (
+                            <Folder size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                          )}
                           <span className="min-w-0 flex-1 truncate text-left font-medium">
                             {g.name}
                           </span>
                           <span className="shrink-0 text-[10px] tabular-nums opacity-50">
                             {g.rows.length + g.linked.length}
+                          </span>
+                          <span className="flex size-4 shrink-0 items-center justify-center opacity-60">
+                            <ChevronRight
+                              size={11}
+                              strokeWidth={2.25}
+                              className={cn("transition-transform", !shut && "rotate-90")}
+                            />
                           </span>
                         </button>
                       </li>
@@ -656,7 +669,7 @@ export function SortableWorkspaceRow({
                         // Also on the row, not only on the group header: this is
                         // where the action was first learned, and a row sits in
                         // exactly one project too.
-                        onNewWorktree={g.cwd ? () => onNewWorktree(g.cwd) : undefined}
+                        onNewWorktree={g.list.length > 0 ? () => onNewWorktree(g.cwd) : undefined}
                         // Inside a named group the row's own label repeats the
                         // project three lines running, so it leads with the
                         // branch instead - the fact that tells checkouts apart.
@@ -683,7 +696,7 @@ export function SortableWorkspaceRow({
                 <DropdownMenuTrigger asChild>
                   <button
                     type="button"
-                    className="text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground flex h-6 w-full items-center gap-1.5 pr-1.5 pl-7 text-left text-[11px] transition-colors"
+                    className="text-muted-foreground hover:bg-foreground/[0.06] hover:text-foreground flex h-6 w-full items-center gap-1.5 pr-1.5 pl-[30px] text-left text-[11px] transition-colors"
                   >
                     <Plus size={12} strokeWidth={2} className="shrink-0" />
                     New
@@ -766,8 +779,14 @@ function EntryRowItem({
   // A shell titles itself with its own binary (`C:\...\pwsh.exe`, `/bin/bash`),
   // which is the same string on every row and drowned the branch beside it. The
   // useful case is an AGENT naming its task, and a task is not an absolute path.
+  // An agent also leads its title with a spinner glyph, which the row's icon already says.
+  const taskTitle = title?.replace(/^[^\p{L}\p{N}]+/u, "");
   const showTitle =
-    !!title && title !== e.label && title !== cwd && !/^([A-Za-z]:[\\/]|\/)/.test(title);
+    !!title &&
+    !!taskTitle &&
+    taskTitle !== e.label &&
+    title !== cwd &&
+    !/^([A-Za-z]:[\\/]|\/)/.test(title);
   // A remote pane reads its branch over its OWN session, so the answer is the
   // branch on that box rather than on this one. An ad-hoc connection has no
   // saved profile but does have a live session, so it resolves here too.
@@ -802,7 +821,7 @@ function EntryRowItem({
   // row underneath it.
   if (renaming && e.kind === "pane-leaf") {
     return (
-      <li className={cn("flex h-6 items-center gap-1.5 pr-1.5", nested ? "pl-11" : "pl-7")}>
+      <li className={cn("flex h-6 items-center gap-1.5 pr-1.5", nested ? "pl-12" : "pl-[30px]")}>
         <EntryIcon entry={e} />
         <InlineInput
           // Same seed as the tab strip: the name without the kind tag.
@@ -834,7 +853,10 @@ function EntryRowItem({
       )}
     >
       <span
-        className={cn("flex h-6 w-full items-center gap-1.5 pr-1.5", nested ? "pl-11" : "pl-7")}
+        className={cn(
+          "flex h-6 w-full items-center gap-1.5 pr-1.5",
+          nested ? "pl-12" : "pl-[30px]",
+        )}
       >
         <EntryIcon entry={e} />
         {repeatsProject ? (
@@ -842,7 +864,7 @@ function EntryRowItem({
         ) : null}
         <span className={cn("min-w-0 flex-1 truncate text-left", entryLabelClass(e))}>
           {repeatsProject ? branch : e.label}
-          {showTitle ? <span className="opacity-60"> · {title}</span> : null}
+          {showTitle ? <span className="opacity-60"> · {taskTitle}</span> : null}
         </span>
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
         {/* Snoozed tabs are off the strip, so this list is the only place
@@ -858,7 +880,7 @@ function EntryRowItem({
         <span
           className={cn(
             "text-muted-foreground flex w-full items-center gap-1 pr-1.5 pb-0.5 text-[10px]",
-            nested ? "pl-[2.6rem]" : "pl-[1.6rem]",
+            nested ? "pl-12" : "pl-[30px]",
           )}
         >
           <GitBranch size={9} strokeWidth={2} className="text-icon-branch shrink-0" />
