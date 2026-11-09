@@ -4,6 +4,24 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.84] - 09-11-2026
+
+### Changed
+
+- **Workspaces and Agents are one list.** The separate Agents block is gone: every pane under a
+  workspace shows its agent's state (working, needs you, done, idle) and how long it has been in it,
+  and a folded workspace shows the most urgent of its agents on its own row. A snoozed tab carries a
+  state of its own, beside whatever its agent is doing. Agents running outside any pane are listed under
+  the workspaces as "Running elsewhere". See
+  [WorkspaceRow.tsx](src/modules/workspaces/WorkspaceRow.tsx) and
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **Tree lines in the Workspaces list.** A guide runs down from each workspace to its panes and from
+  each project to its rows, so what belongs where reads at a glance.
+- **TEDI holds less memory while it sits in the background (Windows).** A minute after the window loses
+  focus, its renderer is asked to shed memory, and it goes back to normal the moment you return. Measured
+  on one machine, a forced collection freed about 340 MB the renderer was holding as garbage. See
+  [lib.rs](src-tauri/src/lib.rs).
+
 ## [0.4.83] - 09-11-2026
 
 ### Fixed
