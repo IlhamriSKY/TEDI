@@ -409,63 +409,7 @@ const AGENT_SECTIONS: { state: AiCliState; label: string }[] = [
   { state: "idle", label: "Idle" },
 ];
 
-export type AgentSection = {
-  id: string;
-  label: string;
-  /** The state its heading already names, so a row need not spell it out. */
-  state: AiCliState | null;
-  rows: AgentRow[];
-};
-
-/**
- * The Agents list: pins first, then by urgency, or by workspace when `workspaces`
- * is given. Looking at a finished agent turns `done` into `idle`, so `heldDone`
- * keeps that pane under Done until focus leaves it: the row must not jump away
- * from under the click that opened it.
- */
-export function agentSections(
-  rows: AgentRow[],
-  opts: {
-    heldDone: number | null;
-    pinnedKeys: Set<string>;
-    workspaces: { id: string; name: string }[] | null;
-  },
-): AgentSection[] {
-  const { heldDone, pinnedKeys, workspaces } = opts;
-  const isPinned = (r: AgentRow) => !!r.session && pinnedKeys.has(sessionKey(r.session));
-  const rest = rows.filter((r) => !isPinned(r));
-  const stateOf = (r: AgentRow) =>
-    r.pane.leafId === heldDone && r.status.state === "idle" ? "done" : r.status.state;
-  const sections: AgentSection[] = workspaces
-    ? [
-        ...workspaces.map((w) => ({
-          id: `workspace:${w.id}`,
-          label: w.name,
-          state: null,
-          rows: rest.filter((r) => r.pane.workspaceId === w.id),
-        })),
-        {
-          id: "elsewhere",
-          label: RUNNING_SECTION,
-          state: null,
-          rows: rest.filter((r) => r.pane.workspaceId === null),
-        },
-      ]
-    : AGENT_SECTIONS.map(({ state, label }) => ({
-        id: state,
-        label,
-        state,
-        rows: rest
-          .filter((r) => stateOf(r) === state)
-          .sort((a, b) => b.status.since - a.status.since || a.pane.leafId - b.pane.leafId),
-      }));
-  return [
-    { id: "pinned", label: PINNED_SECTION, state: null, rows: rows.filter(isPinned) },
-    ...sections,
-  ].filter((sec) => sec.rows.length > 0);
-}
-
-/** What a folded heading shows for the rows it hides. */
+/** What a workspace row shows for the agents in it. */
 export function mostUrgent(rows: AgentRow[]): AiCliState | null {
   return (
     AGENT_SECTIONS.find(({ state }) => rows.some((r) => r.status.state === state))?.state ?? null

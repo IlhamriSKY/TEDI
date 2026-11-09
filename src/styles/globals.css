@@ -902,6 +902,44 @@
   display: none;
 }
 
+/* Tree guides under a Workspaces row: a trunk from the parent's icon and an
+ * elbow into each child, the last child ending in a corner. `--tree-x` is the
+ * parent icon's centre. Drawn above the row so an active row's fill cannot hide it. */
+.tedi-tree {
+  --tree-x: 15px;
+  --tree-line: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
+}
+.tedi-tree-nested {
+  --tree-x: 36px;
+}
+.tedi-tree > li {
+  position: relative;
+}
+.tedi-tree > li::before,
+.tedi-tree > li::after {
+  content: "";
+  position: absolute;
+  left: var(--tree-x);
+  z-index: 1;
+  pointer-events: none;
+}
+.tedi-tree > li::before {
+  top: 0;
+  bottom: 0;
+  border-left: 1px solid var(--tree-line);
+}
+.tedi-tree > li:last-child::before {
+  display: none;
+}
+/* From 4px above, to meet the parent icon's lower edge, down to the first line's middle. */
+.tedi-tree > li::after {
+  top: -4px;
+  height: 16px;
+  width: 9px;
+  border-left: 1px solid var(--tree-line);
+  border-bottom: 1px solid var(--tree-line);
+}
+
 /* Editor + terminal canvas transparency under the single "App opacity"
  * glass mode (`data-tedi-glass`). Only `.cm-editor` carries the alpha tint;
  * inner scrollers, content, and gutters go fully transparent so the layers

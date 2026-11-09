@@ -30,13 +30,14 @@ import { useGitBranch } from "@/modules/scm/branch";
 import { type Worktree } from "@/modules/scm/worktrees";
 import { basename, toForwardSlash } from "@/lib/path";
 import { statusLabel, statusLabelClass } from "@/modules/ssh/status";
-import { aiCliLabel } from "@/modules/terminal/lib/aiCliStatus";
+import { aiCliLabel, type AiCliState } from "@/modules/terminal/lib/aiCliStatus";
+import { ago, type AgentRow } from "@/modules/agentSessions/api";
+import { StatusGlyph } from "@/modules/agentSessions/StatusGlyph";
 import { useSortable } from "@dnd-kit/sortable";
 import { CSS } from "@dnd-kit/utilities";
 import { Fragment, useEffect, useRef, useState } from "react";
 import { type Workspace } from "./store";
 import {
-  AlarmClock,
   ChevronRight,
   Columns2,
   Folder,
@@ -183,6 +184,10 @@ type RowProps = {
   draft: string;
   tabCount: number;
   rows: EntryRow[];
+  /** The agent running in each of this workspace's panes, by leaf id. */
+  agents: Map<number, AgentRow>;
+  /** The most urgent of them, for the workspace's own row. */
+  agentState: AiCliState | null;
   /** List only the rows this search hits. `rows` stays whole, since the
    *  last-tab and worktree rules are about what is open, not what is listed. */
   rowQuery: string;
@@ -231,6 +236,8 @@ export function SortableWorkspaceRow({
   draft,
   tabCount,
   rows,
+  agents,
+  agentState,
   rowQuery,
   canClose,
   sortable,
@@ -304,6 +311,7 @@ export function SortableWorkspaceRow({
    *    cannot disagree.
    */
   const canCloseEntry = isActive && !!onCloseEntry && rows.length > 1;
+  const now = Date.now();
 
   /** Distinct project folders in this workspace, in row order. Plural on
    *  purpose: one workspace commonly holds panes in two of them. */
@@ -436,6 +444,8 @@ export function SortableWorkspaceRow({
                 <span className="flex-1" />
               </>
             )}
+            {/* Idle asks nothing of anyone, so only a state that does shows here. */}
+            {agentState && agentState !== "idle" ? <StatusGlyph state={agentState} /> : null}
             <Tooltip>
               <TooltipTrigger asChild>
                 <span
@@ -556,136 +566,130 @@ export function SortableWorkspaceRow({
       {isExpanded && hasRows && (
         // Not a drag surface: stop pointerdown so scrolling/clicking the list
         // never starts a workspace reorder.
-        <ul onPointerDown={(e) => e.stopPropagation()} className="mt-0.5 mb-1 flex flex-col gap-px">
+        <ul onPointerDown={(e) => e.stopPropagation()} className="tedi-tree mb-1 flex flex-col">
           {groups.map((g) => {
             const shut = !rowQuery && g.name !== "" && shutGroups.has(g.key);
+            const item = (r: EntryRow) => (
+              <EntryRowItem
+                key={r.entry.key}
+                row={r}
+                agent={r.entry.kind === "pane-leaf" ? agents.get(r.entry.leafId) : undefined}
+                now={now}
+                nested={g.name !== ""}
+                isActiveLeaf={
+                  activeLeafId != null &&
+                  r.live &&
+                  r.entry.kind === "pane-leaf" &&
+                  r.entry.leafId === activeLeafId
+                }
+                renaming={
+                  r.live && r.entry.kind === "pane-leaf" && renamingLeafId === r.entry.leafId
+                }
+                onOpen={() => {
+                  if (r.live && onFocusLeaf) {
+                    // Standalone tabs have no leaf; -1 matches none, so
+                    // the tab side activates the tab and leaves its
+                    // panes alone.
+                    onFocusLeaf(r.entry.tabId, r.entry.kind === "pane-leaf" ? r.entry.leafId : -1);
+                  } else if (!isActive) onSwitch(w.id);
+                }}
+                onRename={onRenameLeaf}
+                onSetRenaming={onSetRenamingLeaf}
+                // A pane splits where it is, so this names which one: the
+                // split would otherwise land on whichever had the focus.
+                onSplit={
+                  r.live && r.entry.kind === "pane-leaf" && r.entry.leafKind === "terminal"
+                    ? (what) =>
+                        onAdd(
+                          w.id,
+                          what,
+                          r.entry.kind === "pane-leaf"
+                            ? { tabId: r.entry.tabId, leafId: r.entry.leafId }
+                            : undefined,
+                        )
+                    : undefined
+                }
+                // Live ids only exist for the active workspace. Waking is
+                // always allowed; snoozing needs another awake tab left,
+                // the same rule the tab strip applies.
+                onToggleSnooze={
+                  isActive &&
+                  r.live &&
+                  onSetTabSnoozed &&
+                  (r.entry.snoozed ||
+                    rows.some((x) => x.entry.tabId !== r.entry.tabId && !x.entry.snoozed))
+                    ? () => onSetTabSnoozed(r.entry.tabId, !r.entry.snoozed)
+                    : undefined
+                }
+                onRequestClose={canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined}
+                // Also on the row, not only on the group header: this is
+                // where the action was first learned, and a row sits in
+                // exactly one project too.
+                onNewWorktree={g.list.length > 0 ? () => onNewWorktree(g.cwd) : undefined}
+                // Inside a named group the row's own label repeats the
+                // project three lines running, so it leads with the
+                // branch instead - the fact that tells checkouts apart.
+                projectName={g.name || undefined}
+              />
+            );
+            // Rows with no project are the workspace's own children; a project's
+            // sit one level down, under its header, with their own guide.
+            if (!g.name)
+              return <Fragment key={`loose:${g.rows[0]?.entry.key}`}>{g.rows.map(item)}</Fragment>;
             return (
-              <Fragment key={g.key || `loose:${g.rows[0]?.entry.key}`}>
+              <li key={g.key}>
                 {/* Project header. Its own accordion, and the unambiguous place
                     to make a worktree: a GROUP is exactly one repository, which
                     the workspace above it is not. */}
-                {g.name ? (
-                  <ContextMenu>
-                    <ContextMenuTrigger asChild disabled={g.list.length === 0}>
-                      <li>
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setShutGroups((prev) => {
-                              const next = new Set(prev);
-                              if (next.has(g.key)) next.delete(g.key);
-                              else next.add(g.key);
-                              return next;
-                            })
-                          }
-                          aria-expanded={!shut}
-                          // The folder icon lines up with the workspace's name, a row's
-                          // icon with the folder's name, and the count and chevron with
-                          // the workspace's own.
-                          className="text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-[30px] text-[11px] transition-colors"
-                        >
-                          {g.list.length > 0 ? (
-                            <FolderGit2 size={12} strokeWidth={2} className="shrink-0 opacity-70" />
-                          ) : (
-                            <Folder size={12} strokeWidth={2} className="shrink-0 opacity-70" />
-                          )}
-                          <span className="min-w-0 flex-1 truncate text-left font-medium">
-                            {g.name}
-                          </span>
-                          <span className="shrink-0 text-[10px] tabular-nums opacity-50">
-                            {g.rows.length + g.linked.length}
-                          </span>
-                          <span className="flex size-4 shrink-0 items-center justify-center opacity-60">
-                            <ChevronRight
-                              size={11}
-                              strokeWidth={2.25}
-                              className={cn("transition-transform", !shut && "rotate-90")}
-                            />
-                          </span>
-                        </button>
-                      </li>
-                    </ContextMenuTrigger>
-                    <ContextMenuContent className="min-w-44">
-                      <ContextMenuItem onSelect={() => onNewWorktree(g.cwd)}>
-                        New Worktree
-                      </ContextMenuItem>
-                    </ContextMenuContent>
-                  </ContextMenu>
-                ) : null}
-                {shut
-                  ? null
-                  : g.rows.map((r) => (
-                      <EntryRowItem
-                        key={r.entry.key}
-                        row={r}
-                        nested={g.name !== ""}
-                        isActiveLeaf={
-                          activeLeafId != null &&
-                          r.live &&
-                          r.entry.kind === "pane-leaf" &&
-                          r.entry.leafId === activeLeafId
-                        }
-                        renaming={
-                          r.live &&
-                          r.entry.kind === "pane-leaf" &&
-                          renamingLeafId === r.entry.leafId
-                        }
-                        onOpen={() => {
-                          if (r.live && onFocusLeaf) {
-                            // Standalone tabs have no leaf; -1 matches none, so
-                            // the tab side activates the tab and leaves its
-                            // panes alone.
-                            onFocusLeaf(
-                              r.entry.tabId,
-                              r.entry.kind === "pane-leaf" ? r.entry.leafId : -1,
-                            );
-                          } else if (!isActive) onSwitch(w.id);
-                        }}
-                        onRename={onRenameLeaf}
-                        onSetRenaming={onSetRenamingLeaf}
-                        // A pane splits where it is, so this names which one: the
-                        // split would otherwise land on whichever had the focus.
-                        onSplit={
-                          r.live && r.entry.kind === "pane-leaf" && r.entry.leafKind === "terminal"
-                            ? (what) =>
-                                onAdd(
-                                  w.id,
-                                  what,
-                                  r.entry.kind === "pane-leaf"
-                                    ? { tabId: r.entry.tabId, leafId: r.entry.leafId }
-                                    : undefined,
-                                )
-                            : undefined
-                        }
-                        // Live ids only exist for the active workspace. Waking is
-                        // always allowed; snoozing needs another awake tab left,
-                        // the same rule the tab strip applies.
-                        onToggleSnooze={
-                          isActive &&
-                          r.live &&
-                          onSetTabSnoozed &&
-                          (r.entry.snoozed ||
-                            rows.some((x) => x.entry.tabId !== r.entry.tabId && !x.entry.snoozed))
-                            ? () => onSetTabSnoozed(r.entry.tabId, !r.entry.snoozed)
-                            : undefined
-                        }
-                        onRequestClose={
-                          canCloseEntry ? () => setConfirmingEntry(r.entry) : undefined
-                        }
-                        // Also on the row, not only on the group header: this is
-                        // where the action was first learned, and a row sits in
-                        // exactly one project too.
-                        onNewWorktree={g.list.length > 0 ? () => onNewWorktree(g.cwd) : undefined}
-                        // Inside a named group the row's own label repeats the
-                        // project three lines running, so it leads with the
-                        // branch instead - the fact that tells checkouts apart.
-                        projectName={g.name || undefined}
-                      />
-                    ))}
-                {/* The checkouts of this project nobody has opened yet. */}
-                {shut
-                  ? null
-                  : g.linked.map((x) => (
+                <ContextMenu>
+                  <ContextMenuTrigger asChild disabled={g.list.length === 0}>
+                    <button
+                      type="button"
+                      onClick={() =>
+                        setShutGroups((prev) => {
+                          const next = new Set(prev);
+                          if (next.has(g.key)) next.delete(g.key);
+                          else next.add(g.key);
+                          return next;
+                        })
+                      }
+                      aria-expanded={!shut}
+                      // The folder icon lines up with the workspace's name, a row's
+                      // icon with the folder's name, and the count and chevron with
+                      // the workspace's own.
+                      className="text-sidebar-foreground/70 hover:bg-sidebar-accent/40 hover:text-sidebar-foreground flex h-6 w-full items-center gap-1.5 rounded pr-1.5 pl-[30px] text-[11px] transition-colors"
+                    >
+                      {g.list.length > 0 ? (
+                        <FolderGit2 size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                      ) : (
+                        <Folder size={12} strokeWidth={2} className="shrink-0 opacity-70" />
+                      )}
+                      <span className="min-w-0 flex-1 truncate text-left font-medium">
+                        {g.name}
+                      </span>
+                      <span className="shrink-0 text-[10px] tabular-nums opacity-50">
+                        {g.rows.length + g.linked.length}
+                      </span>
+                      <span className="flex size-4 shrink-0 items-center justify-center opacity-60">
+                        <ChevronRight
+                          size={11}
+                          strokeWidth={2.25}
+                          className={cn("transition-transform", !shut && "rotate-90")}
+                        />
+                      </span>
+                    </button>
+                  </ContextMenuTrigger>
+                  <ContextMenuContent className="min-w-44">
+                    <ContextMenuItem onSelect={() => onNewWorktree(g.cwd)}>
+                      New Worktree
+                    </ContextMenuItem>
+                  </ContextMenuContent>
+                </ContextMenu>
+                {shut ? null : (
+                  <ul className="tedi-tree tedi-tree-nested flex flex-col">
+                    {g.rows.map(item)}
+                    {/* The checkouts of this project nobody has opened yet. */}
+                    {g.linked.map((x) => (
                       <WorktreeRowItem
                         key={x.path}
                         worktree={x}
@@ -693,7 +697,9 @@ export function SortableWorkspaceRow({
                         onOpen={() => onOpenWorktree(x, g.list)}
                       />
                     ))}
-              </Fragment>
+                  </ul>
+                )}
+              </li>
             );
           })}
           {!rowQuery ? (
@@ -732,6 +738,8 @@ export function SortableWorkspaceRow({
  */
 function EntryRowItem({
   row,
+  agent,
+  now,
   isActiveLeaf,
   renaming,
   onOpen,
@@ -745,6 +753,9 @@ function EntryRowItem({
   nested,
 }: {
   row: EntryRow;
+  /** The agent this pane runs, from the same list History is told about. */
+  agent?: AgentRow;
+  now: number;
   isActiveLeaf: boolean;
   renaming: boolean;
   onOpen: () => void;
@@ -769,7 +780,9 @@ function EntryRowItem({
    *  branch instead. */
   projectName?: string;
 }) {
-  const { entry: e, title } = row;
+  const { entry: e } = row;
+  // A session names its task better than the terminal title an agent sets.
+  const title = agent?.session?.title ?? row.title;
   const isLeaf = e.kind === "pane-leaf";
   // Renaming writes `customTitle` on a LEAF, so a standalone tab (SCM, a diff,
   // an extension tab) has nothing to write to. A cold workspace's ids are
@@ -778,7 +791,9 @@ function EntryRowItem({
   const hasMenu = !!onSplit || canRename || !!onToggleSnooze || !!onNewWorktree || !!onRequestClose;
   const cwd = e.kind === "pane-leaf" ? e.cwd : undefined;
   const sshStatus = e.kind === "pane-leaf" ? e.sshStatus : undefined;
-  const ai = e.kind === "pane-leaf" ? e.aiCliStatus : undefined;
+  // A cold pane has no detector, so its state comes from the agent list.
+  const ai = (e.kind === "pane-leaf" ? e.aiCliStatus : undefined) ?? agent?.status;
+  const since = ai && ai.since > 0 ? ago(ai.since, now) : null;
   const isPrivate = e.kind === "pane-leaf" && e.isPrivate === true;
   // The OSC title repeats the label often enough (a shell that titles itself
   // after its folder) that showing both would just read as a stutter.
@@ -873,11 +888,13 @@ function EntryRowItem({
           {showTitle ? <span className="opacity-60"> · {taskTitle}</span> : null}
         </span>
         {e.dirty ? <span className="bg-foreground/60 size-1.5 shrink-0 rounded-full" /> : null}
-        {/* Snoozed tabs are off the strip, so this list is the only place
-            they show; the clock says why this row has no chip up top. */}
-        {e.snoozed ? (
-          <AlarmClock size={11} strokeWidth={1.75} className="text-muted-foreground shrink-0" />
+        {since ? (
+          <span className="text-muted-foreground shrink-0 text-[10px] tabular-nums">{since}</span>
         ) : null}
+        {/* Snoozed tabs are off the strip, so this list is the only place they
+            show; it is a state of its own, beside whatever the agent is doing. */}
+        {e.snoozed ? <StatusGlyph state="snoozed" /> : null}
+        {ai ? <StatusGlyph state={ai.state} /> : null}
       </span>
       {/* Branch of this pane's working directory. Absent entirely outside a
           repository, rather than a placeholder row saying nothing. Indented to
@@ -916,7 +933,12 @@ function EntryRowItem({
                 {statusLabel(sshStatus)}
               </span>
             ) : null}
-            {ai ? <span className="text-muted-foreground">{aiCliLabel(ai)}</span> : null}
+            {ai ? (
+              <span className="text-muted-foreground">
+                {aiCliLabel(ai)}
+                {since ? ` for ${since}` : ""}
+              </span>
+            ) : null}
             {isPrivate ? (
               <span className="text-destructive">Not visible to the native AI agent</span>
             ) : null}

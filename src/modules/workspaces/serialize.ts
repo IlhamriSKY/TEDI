@@ -438,6 +438,16 @@ export function savedToTab(saved: SavedTab, allocId: () => number): Tab | null {
 /** Restore a workspace's tabs, dropping the ones that no longer come back.
  *  Every caller wanted the same `map` + filter; having it once means a new
  *  droppable kind cannot be handled in three places and missed in a fourth. */
+/**
+ * Display-only ids for the panes of a workspace not opened this session. NEGATIVE,
+ * so they never match a live leaf, and banded by the workspace's position, so the
+ * agent status and the workspace tree mint the same id for the same cold pane.
+ */
+export function coldIdAllocator(workspaceIndex: number): () => number {
+  let next = -1 - workspaceIndex * 1_000_000;
+  return () => next--;
+}
+
 export function restoreTabs(saved: SavedTab[], allocId: () => number): Tab[] {
   const out: Tab[] = [];
   for (const s of saved) {

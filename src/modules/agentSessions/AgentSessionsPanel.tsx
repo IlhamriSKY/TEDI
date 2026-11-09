@@ -18,7 +18,6 @@ import {
 } from "@/components/ui/context-menu";
 import { IconTooltip } from "@/components/ui/icon-tooltip";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { Spinner } from "@/components/ui/spinner";
 import { toast } from "@/components/ui/toast";
 import { CliAgentIcon } from "@/components/CliAgentIcon";
 import { IconSwap } from "@/components/IconMorph";
@@ -34,26 +33,18 @@ import { usePreferencesStore } from "@/modules/settings/preferences";
 import { setPinnedAgentSessions } from "@/modules/settings/store";
 import { type Tab } from "@/modules/tabs";
 import { leaves } from "@/modules/terminal";
-import {
-  aiCliLabel,
-  aiCliStateColorClass,
-  type AiCliState,
-} from "@/modules/terminal/lib/aiCliStatus";
+import { aiCliLabel, aiCliStateColorClass } from "@/modules/terminal/lib/aiCliStatus";
 import { useSshHosts, type SshConnection } from "@/modules/ssh/connections";
 import { useAiCliStatuses } from "@/modules/terminal/lib/aiCliStatusStore";
-import { useTerminalTitles } from "@/modules/terminal/lib/terminalTitles";
-import { restoreTabs } from "@/modules/workspaces/serialize";
+import { coldIdAllocator, restoreTabs } from "@/modules/workspaces/serialize";
 import { useWorkspacesStore, type Workspace } from "@/modules/workspaces/store";
 import {
   ChevronRight,
   ChevronsDownUp,
   ChevronsUpDown,
-  Circle,
-  CircleAlert,
   Folder,
   FolderSearch,
   GitBranch,
-  Layers,
   Pin,
   RefreshCw,
   Trash2,
@@ -71,7 +62,6 @@ import {
 } from "react";
 import {
   agentRows,
-  agentSections,
   agentTitle,
   ago,
   canResume,
@@ -82,7 +72,6 @@ import {
   listAllSessions,
   listRunningSessions,
   listSessions,
-  mostUrgent,
   openSessions,
   PINNED_SECTION,
   renameSession,
@@ -91,11 +80,13 @@ import {
   SESSION_AGENTS,
   sessionKey,
   type AgentPane,
+  RUNNING_SECTION,
   type AgentRow,
   type AgentSession,
   type RunningSession,
   type SessionAgent,
 } from "./api";
+import { StatusGlyph } from "./StatusGlyph";
 
 type LiveTabsCache = Map<string, { tabs: Tab[]; activeId: number | null }>;
 
@@ -107,24 +98,20 @@ type Props = {
   liveTabs: Tab[];
   cachedTabsByWorkspace?: RefObject<LiveTabsCache>;
   activeLeafId?: number | null;
-  onSwitch: (workspaceId: string) => void;
-  onFocusLeaf?: (tabId: number, leafId: number) => void;
+  /** The workspace tree, given every agent that has a pane, and the list of those
+   *  that do not, to place inside its own scroll. */
+  children: (agents: AgentRow[], elsewhere: ReactNode) => ReactNode;
 };
 
 // Survives a collapse and a move between columns (both remount the panel), so
 // reopening paints the last list at once and refreshes underneath.
 let cached: AgentSession[] | null = null;
-// What the user folded, kept the same way. Idle starts OPEN: a turn that ends while
-// its pane is focused goes straight to idle, and a shut Idle made that row vanish.
-let foldedAgents = new Set<string>();
 let foldedDays = new Set<string>();
-let agentsOpenCache = true;
 let historyOpenCache = true;
 let onlyFolderCache = false;
 const SECTION_PAGE = 50;
 const AGENTS_TICK_MS = 30_000;
 const LIVENESS_MS = 3_000;
-const AGENTS_SORT_KEY = "tedi:agents:sort";
 
 const togglePin = (key: string) => {
   const pins = usePreferencesStore.getState().pinnedAgentSessions;
@@ -143,16 +130,17 @@ function allPanes(
   hosts: Map<string, SshConnection>,
   alivePtys: string[],
 ): AgentPane[] {
-  // Same throwaway NEGATIVE ids as the panel's cold rows: they must never match a
-  // live leaf.
-  let next = -1;
-  const allocId = () => next--;
   const out: AgentPane[] = [];
-  for (const w of workspaces) {
+  workspaces.forEach((w, index) => {
     const isActive = w.id === activeWorkspace;
     const hit = isActive ? undefined : cache?.get(w.id);
     const cold = !isActive && !hit?.tabs.length;
-    const tabs = isActive ? liveTabs : cold ? restoreTabs(w.tabs, allocId) : (hit?.tabs ?? []);
+    // The same throwaway ids the workspace tree mints for this cold pane, so its row finds this status.
+    const tabs = isActive
+      ? liveTabs
+      : cold
+        ? restoreTabs(w.tabs, coldIdAllocator(index))
+        : (hit?.tabs ?? []);
     for (const t of tabs) {
       if (t.kind !== "pane") continue;
       for (const l of leaves(t.paneTree)) {
@@ -173,53 +161,9 @@ function allPanes(
         });
       }
     }
-  }
+  });
   return out;
 }
-
-/**
- * Round, as svgs: globals.css squares every element's border-radius, and a square
- * ring reads as a checkbox. A row shows its state as this and the colour of its
- * agent's icon, with no word on screen; the word is for a screen reader and the
- * tooltip.
- */
-function StatusGlyph({ state }: { state: AiCliState }) {
-  const box = cn("flex w-3.5 shrink-0 justify-center", aiCliStateColorClass(state));
-  const word = STATE_WORD[state];
-  switch (state) {
-    case "working":
-      return (
-        <span role="img" aria-label={word} className={box}>
-          <Spinner aria-hidden role="presentation" className="size-3" />
-        </span>
-      );
-    case "blocking":
-      return (
-        <span role="img" aria-label={word} className={box}>
-          <CircleAlert size={13} strokeWidth={2.25} />
-        </span>
-      );
-    case "done":
-      return (
-        <span role="img" aria-label={word} className={box}>
-          <Circle size={10} fill="currentColor" strokeWidth={0} />
-        </span>
-      );
-    case "idle":
-      return (
-        <span role="img" aria-label={word} className={box}>
-          <Circle size={10} strokeWidth={2.5} />
-        </span>
-      );
-  }
-}
-
-const STATE_WORD: Record<AiCliState, string> = {
-  blocking: "Needs you",
-  done: "Done",
-  working: "Working",
-  idle: "Idle",
-};
 
 /** The second line of a row: where it ran. */
 function PlaceLine({ place, branch }: { place: string | null; branch: string | null }) {
@@ -240,13 +184,6 @@ function PlaceLine({ place, branch }: { place: string | null; branch: string | n
     </span>
   );
 }
-
-const SECTION_LABEL_COLOR: Record<AiCliState, string> = {
-  blocking: "text-icon-blocked",
-  done: "text-icon-done",
-  working: "text-icon-working",
-  idle: "text-muted-foreground",
-};
 
 function BlockHeader({
   label,
@@ -356,274 +293,109 @@ function copy(text: string) {
 }
 
 /**
- * The Agents list: one entry per pane running an AI CLI, most urgent first or
- * by workspace. A click goes to that pane and never starts anything. Every
- * section starts open; a folded one still shows the focused pane, so the terminal
- * in front of you can always be found here.
+ * An agent running outside every pane here, listed under the workspaces, since it
+ * has no workspace of its own to sit under. Nothing to go to, so its row only
+ * informs, and its right-click can still name or resume it elsewhere.
  */
-function AgentsBlock({
+function ElsewhereAgents({
   rows,
-  filter,
-  activeLeafId,
-  workspaces,
-  folderNames,
+  now,
   renaming,
   onRename,
   onStartRename,
   onCancelRename,
-  onGo,
 }: {
   rows: AgentRow[];
-  filter: string;
-  activeLeafId: number | null;
-  workspaces: Workspace[];
-  folderNames: (r: AgentRow) => string | null;
+  now: number;
   renaming: string | null;
   onRename: (s: AgentSession, title: string) => void;
   onStartRename: (key: string) => void;
   onCancelRename: () => void;
-  onGo: (pane: AgentPane) => void;
 }) {
-  const [open, setOpen] = useState(agentsOpenCache);
-  const [folded, setFolded] = useState(foldedAgents);
-  const [byWorkspace, setByWorkspace] = useState(
-    () => localStorage.getItem(AGENTS_SORT_KEY) === "workspace",
-  );
-  const titles = useTerminalTitles((s) => s.titles);
-  const pinnedKeys = usePreferencesStore((s) => s.pinnedAgentSessions);
-
-  // Its "4m" goes stale with nothing else to re-render it.
-  const [, tick] = useReducer((n: number) => n + 1, 0);
-  const anyRows = rows.length > 0;
-  useEffect(() => {
-    if (!anyRows || !open) return;
-    const timer = setInterval(tick, AGENTS_TICK_MS);
-    return () => clearInterval(timer);
-  }, [anyRows, open]);
-
-  // Looking at a finished agent turns it idle, which would drop the row out from
-  // under the click that opened it. See `agentSections`.
-  const [heldDone, setHeldDone] = useState<number | null>(null);
-  const focusedState = rows.find((r) => r.pane.leafId === activeLeafId)?.status.state;
-  useEffect(() => {
-    setHeldDone((prev) =>
-      focusedState === "done" ? (activeLeafId ?? null) : prev === activeLeafId ? prev : null,
-    );
-  }, [focusedState, activeLeafId]);
-
-  const q = filter.trim().toLowerCase();
-  const titleOf = (r: AgentRow) => agentTitle(r, titles[r.pane.leafId]);
-  const shown = q
-    ? rows.filter((r) => `${titleOf(r)} ${r.pane.cwd ?? ""}`.toLowerCase().includes(q))
-    : rows;
-  const sections = agentSections(shown, {
-    heldDone,
-    pinnedKeys: new Set(pinnedKeys),
-    workspaces: byWorkspace ? workspaces : null,
-  });
-  const now = Date.now();
-
+  if (rows.length === 0) return null;
   return (
-    // Never squeezed below what it lists, short of its cap: this is the list that asks for attention.
-    <div className="flex max-h-[40%] shrink-0 flex-col">
-      <BlockHeader
-        label="Agents"
-        hint="Every AI CLI running right now, in any folder, most urgent first. Click one to go to its pane."
-        count={shown.length}
-        open={open}
-        onToggle={() => setOpen((agentsOpenCache = !open))}
-      >
-        <IconTooltip
-          label={
-            byWorkspace
-              ? "Grouped by workspace. Click to sort by urgency"
-              : "Sorted by urgency. Click to group by workspace"
-          }
-          side="bottom"
-        >
-          <Button
-            onClick={() => {
-              localStorage.setItem(AGENTS_SORT_KEY, byWorkspace ? "urgency" : "workspace");
-              setByWorkspace(!byWorkspace);
-            }}
-            aria-label="Group agents by workspace"
-            aria-pressed={byWorkspace}
-            variant="ghost"
-            size="icon"
-            className={cn("size-5", byWorkspace ? HEADER_TOGGLE_ACTIVE : HEADER_TOGGLE_IDLE)}
-          >
-            <Layers size={12} strokeWidth={2} />
-          </Button>
-        </IconTooltip>
-      </BlockHeader>
-      {open ? (
-        <ScrollArea className="min-h-0 flex-1">
-          <div className="px-1 pr-2.5 pb-1">
-            {shown.length === 0 ? (
-              <p className="text-muted-foreground px-1 py-1 text-[11px]">
-                {q
-                  ? "No matching agents."
-                  : "No AI CLI is running. Start one in a terminal, or resume a session below."}
-              </p>
-            ) : null}
-            {sections.map((sec) => {
-              const isShut = !q && folded.has(sec.id);
-              const hiddenTop = isShut && !sec.state ? mostUrgent(sec.rows) : null;
-              return (
-                <section key={sec.id}>
-                  <SectionHeading
-                    label={sec.label}
-                    count={sec.rows.length}
-                    open={!isShut}
-                    className={sec.state ? SECTION_LABEL_COLOR[sec.state] : "text-muted-foreground"}
-                    trailing={
-                      hiddenTop && hiddenTop !== "idle" ? <StatusGlyph state={hiddenTop} /> : null
-                    }
-                    onToggle={() => {
-                      const next = new Set(folded);
-                      if (!next.delete(sec.id)) next.add(sec.id);
-                      setFolded((foldedAgents = next));
-                    }}
-                  />
-                  <ul className="flex flex-col gap-px">
-                    {sec.rows
-                      .filter((r) => !isShut || r.pane.leafId === activeLeafId)
-                      .map((r) => {
-                        const key = r.session ? sessionKey(r.session) : null;
-                        const title = titleOf(r);
-                        const folder = folderNames(r);
-                        const isActive = r.pane.leafId === activeLeafId;
-                        if (r.session && renaming === key) {
-                          const s = r.session;
-                          return (
-                            <li key={r.pane.leafId} className="p-0.5">
-                              <InlineInput
-                                initial={s.title}
-                                placeholder="Session name"
-                                onCommit={(v) => onRename(s, v)}
-                                onCancel={onCancelRename}
-                              />
-                            </li>
-                          );
-                        }
-                        const pinned = key !== null && pinnedKeys.includes(key);
-                        const workspace = workspaces.find((w) => w.id === r.pane.workspaceId);
-                        const since = r.status.since > 0 ? ago(r.status.since, now) : null;
-                        const outside = r.pane.workspaceId === null;
-                        const row = (
-                          <li key={r.pane.leafId} className="group/row relative">
-                            <IconTooltip
-                              side="right"
-                              delayDuration={500}
-                              contentClassName="max-w-sm"
-                              label={
-                                <span className="flex flex-col gap-0.5">
-                                  <span className="font-medium break-words">{title}</span>
-                                  <span className="opacity-70">
-                                    {aiCliLabel(r.status)}
-                                    {since ? ` for ${since}` : ""}
-                                  </span>
-                                  {r.session?.cwd || r.pane.cwd ? (
-                                    <span className="break-all opacity-70">
-                                      {r.session?.cwd ?? r.pane.cwd}
-                                    </span>
-                                  ) : null}
-                                  {workspace ? (
-                                    <span className="opacity-70">In {workspace.name}</span>
-                                  ) : null}
-                                  {r.session ? (
-                                    <span className="font-mono text-[10px] opacity-50">
-                                      {r.session.id}
-                                    </span>
-                                  ) : null}
-                                  <span className="opacity-70">
-                                    {outside
-                                      ? "Running outside any pane here"
-                                      : isActive
-                                        ? "This is the focused pane"
-                                        : "Click to go to its pane"}
-                                  </span>
-                                </span>
-                              }
-                            >
-                              <button
-                                type="button"
-                                onClick={() => onGo(r.pane)}
-                                onKeyDown={(e) => {
-                                  if (e.key === "F2" && key) {
-                                    e.preventDefault();
-                                    onStartRename(key);
-                                  }
-                                }}
-                                aria-current={isActive ? "true" : undefined}
-                                aria-disabled={outside || undefined}
-                                className={cn(
-                                  "flex w-full flex-col gap-0.5 px-1.5 py-1 text-left outline-none",
-                                  isActive
-                                    ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
-                                    : "hover:bg-sidebar-accent/40 focus-visible:bg-sidebar-accent/40",
-                                )}
-                              >
-                                <span className="flex w-full items-center gap-2 text-xs">
-                                  <CliAgentIcon
-                                    agentId={r.status.tool}
-                                    size={13}
-                                    className={cn("shrink-0", aiCliStateColorClass(r.status.state))}
-                                  />
-                                  <span
-                                    className={cn(
-                                      "min-w-0 flex-1 truncate",
-                                      !isActive &&
-                                        (r.status.state === "idle"
-                                          ? "text-muted-foreground"
-                                          : "text-sidebar-foreground/90"),
-                                    )}
-                                  >
-                                    {title}
-                                  </span>
-                                  <StatusGlyph state={r.status.state} />
-                                </span>
-                                <span className="text-muted-foreground flex w-full items-center gap-2 pl-[21px] text-[10px] tabular-nums">
-                                  <PlaceLine place={folder} branch={r.session?.branch ?? null} />
-                                  {since ? <span className="shrink-0">{since}</span> : null}
-                                </span>
-                              </button>
-                            </IconTooltip>
-                          </li>
-                        );
-                        if (!r.session) return row;
-                        const s = r.session;
-                        return (
-                          <ContextMenu key={r.pane.leafId}>
-                            <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
-                            <ContextMenuContent>
-                              <ContextMenuItem disabled={outside} onSelect={() => onGo(r.pane)}>
-                                Go to pane
-                              </ContextMenuItem>
-                              <ContextMenuItem onSelect={() => togglePin(sessionKey(s))}>
-                                {pinned ? "Unpin" : "Pin to the top"}
-                              </ContextMenuItem>
-                              <ContextMenuItem onSelect={() => onStartRename(sessionKey(s))}>
-                                Rename session
-                              </ContextMenuItem>
-                              <ContextMenuItem onSelect={() => copy(s.id)}>
-                                Copy session id
-                              </ContextMenuItem>
-                              <ContextMenuItem onSelect={() => copy(resumeCommand(s.agent, s.id))}>
-                                Copy resume command
-                              </ContextMenuItem>
-                            </ContextMenuContent>
-                          </ContextMenu>
-                        );
-                      })}
-                  </ul>
-                </section>
-              );
-            })}
-          </div>
-        </ScrollArea>
-      ) : null}
-    </div>
+    <section className="px-1 pr-2.5 pb-1">
+      <h3 className="text-muted-foreground flex h-6 items-center gap-1 px-1.5 text-[11px] font-normal">
+        <span className="min-w-0 flex-1 truncate">{RUNNING_SECTION}</span>
+        <span className="tabular-nums opacity-70">{rows.length}</span>
+      </h3>
+      <ul className="flex flex-col gap-px">
+        {rows.map((r) => {
+          const s = r.session;
+          const key = s ? sessionKey(s) : null;
+          if (s && renaming === key)
+            return (
+              <li key={r.pane.leafId} className="p-0.5">
+                <InlineInput
+                  initial={s.title}
+                  placeholder="Session name"
+                  onCommit={(v) => onRename(s, v)}
+                  onCancel={onCancelRename}
+                />
+              </li>
+            );
+          const title = agentTitle(r);
+          const cwd = s?.cwd ?? r.pane.cwd;
+          const since = r.status.since > 0 ? ago(r.status.since, now) : null;
+          const row = (
+            <li key={r.pane.leafId}>
+              <IconTooltip
+                side="right"
+                delayDuration={500}
+                contentClassName="max-w-sm"
+                label={
+                  <span className="flex flex-col gap-0.5">
+                    <span className="font-medium break-words">{title}</span>
+                    <span className="opacity-70">
+                      {aiCliLabel(r.status)}
+                      {since ? ` for ${since}` : ""}
+                    </span>
+                    {cwd ? <span className="break-all opacity-70">{cwd}</span> : null}
+                    <span className="opacity-70">Running outside any pane here</span>
+                  </span>
+                }
+              >
+                <div className="flex w-full flex-col gap-0.5 px-1.5 py-1">
+                  <span className="flex w-full items-center gap-2 text-xs">
+                    <CliAgentIcon
+                      agentId={r.status.tool}
+                      size={13}
+                      className={cn("shrink-0", aiCliStateColorClass(r.status.state))}
+                    />
+                    <span className="text-sidebar-foreground/90 min-w-0 flex-1 truncate">
+                      {title}
+                    </span>
+                    <StatusGlyph state={r.status.state} />
+                  </span>
+                  <span className="text-muted-foreground flex w-full items-center gap-2 pl-[21px] text-[10px] tabular-nums">
+                    <PlaceLine
+                      place={cwd ? basename(toForwardSlash(cwd)) || null : null}
+                      branch={s?.branch ?? null}
+                    />
+                    {since ? <span className="shrink-0">{since}</span> : null}
+                  </span>
+                </div>
+              </IconTooltip>
+            </li>
+          );
+          if (!s) return row;
+          return (
+            <ContextMenu key={r.pane.leafId}>
+              <ContextMenuTrigger asChild>{row}</ContextMenuTrigger>
+              <ContextMenuContent>
+                <ContextMenuItem onSelect={() => onStartRename(sessionKey(s))}>
+                  Rename session
+                </ContextMenuItem>
+                <ContextMenuItem onSelect={() => copy(s.id)}>Copy session id</ContextMenuItem>
+                <ContextMenuItem onSelect={() => copy(resumeCommand(s.agent, s.id))}>
+                  Copy resume command
+                </ContextMenuItem>
+              </ContextMenuContent>
+            </ContextMenu>
+          );
+        })}
+      </ul>
+    </section>
   );
 }
 
@@ -987,8 +759,7 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
   liveTabs,
   cachedTabsByWorkspace,
   activeLeafId = null,
-  onSwitch,
-  onFocusLeaf,
+  children,
 }: Props) {
   const [sessions, setSessions] = useState<AgentSession[] | null>(cached);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -1138,11 +909,14 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
     if (activeCwd) setFolderKey(folderKeyOf(activeCwd));
   }, [activeCwd]);
 
-  const go = (pane: AgentPane) => {
-    if (pane.workspaceId === null) return;
-    if (pane.workspaceId !== activeWorkspace) onSwitch(pane.workspaceId);
-    if (!pane.cold) onFocusLeaf?.(pane.tabId, pane.leafId);
-  };
+  // Its "4m" goes stale with nothing else to re-render it.
+  const [, tick] = useReducer((n: number) => n + 1, 0);
+  const anyRows = rows.length > 0;
+  useEffect(() => {
+    if (collapsed || !anyRows) return;
+    const timer = setInterval(tick, AGENTS_TICK_MS);
+    return () => clearInterval(timer);
+  }, [collapsed, anyRows]);
 
   const commitRename = useCallback(
     async (s: AgentSession, title: string) => {
@@ -1209,21 +983,17 @@ export const AgentSessionsPanel = memo(function AgentSessionsPanel({
 
   return (
     <>
-      <AgentsBlock
-        rows={rows}
-        filter={filter}
-        activeLeafId={activeLeafId}
-        workspaces={workspaces}
-        folderNames={(r) => {
-          const cwd = r.session?.cwd ?? r.pane.cwd;
-          return r.pane.host ?? (cwd ? basename(toForwardSlash(cwd)) || null : null);
-        }}
-        renaming={renaming}
-        onRename={rename}
-        onStartRename={setRenaming}
-        onCancelRename={cancelRename}
-        onGo={go}
-      />
+      {children(
+        rows,
+        <ElsewhereAgents
+          rows={rows.filter((r) => r.pane.workspaceId === null)}
+          now={Date.now()}
+          renaming={renaming}
+          onRename={rename}
+          onStartRename={setRenaming}
+          onCancelRename={cancelRename}
+        />,
+      )}
       <HistoryBlock
         sessions={sessions}
         loadError={loadError}

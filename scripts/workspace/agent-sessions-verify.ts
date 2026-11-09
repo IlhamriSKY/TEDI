@@ -9,7 +9,6 @@
  */
 import {
   agentRows,
-  agentSections,
   agentTitle,
   ago,
   canResume,
@@ -24,7 +23,6 @@ import {
   registryStatus,
   resumeCommand,
   resumeHint,
-  RUNNING_SECTION,
   sessionKey,
   type AgentSession,
 } from "../../src/modules/agentSessions/api";
@@ -263,70 +261,11 @@ console.log("\n[openSessions] which pane runs which session");
       three.title,
   );
 
-  console.log("\n[agentSections] most urgent first");
+  console.log("\n[mostUrgent] a workspace row's state");
   const r = (leafId: number, state: State, since = 0) =>
     agentRows([pane(leafId, null, cli("aider", state, since))], new Map(), [], [])[0];
-  const mixed = [
-    r(1, "idle"),
-    r(2, "working", 1),
-    r(3, "done"),
-    r(4, "blocking"),
-    r(5, "working", 9),
-  ];
-  const opts = { heldDone: null, pinnedKeys: new Set<string>(), workspaces: null };
-  const secs = agentSections(mixed, opts);
   ok(
-    "Needs you, Done, Working, Idle",
-    secs.map((s) => s.label).join() === "Needs you,Done,Working,Idle",
-  );
-  ok(
-    "the latest change leads its section",
-    secs[2].rows.map((x) => x.pane.leafId).join() === "5,2",
-  );
-  ok(
-    "a section with nothing in it is not listed",
-    agentSections([r(1, "idle")], opts).length === 1,
-  );
-  const held = agentSections([r(1, "idle"), r(2, "idle")], { ...opts, heldDone: 1 });
-  ok(
-    "a viewed done stays under Done until focus leaves it",
-    held[0].label === "Done" && held[0].rows[0].pane.leafId === 1 && held[1].label === "Idle",
-  );
-  ok(
-    "held only covers that transition, not a new turn",
-    agentSections([r(1, "working")], { ...opts, heldDone: 1 })[0].label === "Working",
-  );
-  const withSession = { ...r(7, "idle"), session: one };
-  const pinnedRows = agentSections([r(4, "blocking"), withSession], {
-    ...opts,
-    pinnedKeys: new Set([sessionKey(one)]),
-  });
-  ok(
-    "a pinned agent heads the list, whatever its state, and only once",
-    pinnedRows[0].label === PINNED_SECTION &&
-      pinnedRows[0].rows[0].pane.leafId === 7 &&
-      pinnedRows[1].rows.every((x) => x.pane.leafId !== 7),
-  );
-  const elsewhere = { ...r(8, "working"), pane: { ...r(8, "working").pane, workspaceId: "w2" } };
-  const grouped = agentSections([r(1, "idle"), elsewhere], {
-    ...opts,
-    workspaces: [
-      { id: "w", name: "One" },
-      { id: "w2", name: "Two" },
-      { id: "w3", name: "Empty" },
-    ],
-  });
-  ok(
-    "by workspace, in their order, skipping one with no agent",
-    grouped.map((s) => s.label).join() === "One,Two" && grouped[0].state === null,
-  );
-  ok(
-    "by workspace, a process in no pane is not dropped",
-    agentSections(rows, { ...opts, workspaces: [{ id: "w", name: "One" }] }).at(-1)?.label ===
-      RUNNING_SECTION,
-  );
-  ok(
-    "a folded group reports its most urgent row",
+    "a workspace reports its most urgent agent",
     mostUrgent([r(1, "idle"), r(2, "working"), r(3, "blocking")]) === "blocking" &&
       mostUrgent([]) === null,
   );
