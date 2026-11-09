@@ -120,7 +120,9 @@ export function AgentsSection() {
             New agent
           </Button>
         </div>
-        <div className="grid grid-cols-2 gap-2">
+        {/* auto-fill: as many columns as the width holds, so the boxes reflow
+            with the Settings window instead of a fixed two. */}
+        <div className="grid grid-cols-[repeat(auto-fill,minmax(15rem,1fr))] gap-1.5">
           {allAgents.map((a) => {
             const overridden = a.builtIn && !!builtinOverrides[a.id];
             return (
@@ -355,51 +357,36 @@ function AgentCard({
   return (
     <div
       className={cn(
-        "group bg-card relative flex flex-col gap-1.5 rounded-lg border px-3 py-2.5 transition-colors",
+        "group bg-card flex min-w-0 items-center gap-2 rounded-lg border px-2.5 py-2 transition-colors",
         active
           ? "border-foreground/30 ring-foreground/10 ring-1"
           : "border-border/60 hover:border-border",
       )}
     >
-      <div className="flex items-start gap-2">
-        <div className="bg-muted/40 flex size-7 shrink-0 items-center justify-center rounded-md">
-          <Icon size={14} strokeWidth={1.5} />
-        </div>
-        <div className="flex min-w-0 flex-1 flex-col">
-          <span className="flex items-center gap-1.5 text-[12.5px] font-medium">
-            {agent.name}
-            {agent.builtIn ? (
-              <span className="bg-muted/50 text-muted-foreground rounded px-1 py-0.5 text-[9px] tracking-wide uppercase">
-                Built-in
-              </span>
-            ) : null}
-            {overridden ? (
-              <span className="bg-icon-working/15 text-icon-working text-icon-working rounded px-1 py-0.5 text-[9px] tracking-wide uppercase">
-                Edited
-              </span>
-            ) : null}
-          </span>
-          <span className="text-muted-foreground line-clamp-2 text-[10.5px] leading-relaxed">
+      <div className="bg-muted/40 flex size-6 shrink-0 items-center justify-center rounded-md">
+        <Icon size={13} strokeWidth={1.5} />
+      </div>
+      <div className="flex min-w-0 flex-1 flex-col">
+        <span className="flex min-w-0 items-center gap-1.5 text-[12px] font-medium">
+          <span className="truncate">{agent.name}</span>
+          {agent.builtIn ? (
+            <span className="bg-muted/50 text-muted-foreground shrink-0 rounded px-1 text-[9px] tracking-wide uppercase">
+              Built-in
+            </span>
+          ) : null}
+          {overridden ? (
+            <span className="bg-icon-working/15 text-icon-working shrink-0 rounded px-1 text-[9px] tracking-wide uppercase">
+              Edited
+            </span>
+          ) : null}
+        </span>
+        {agent.description ? (
+          <span className="text-muted-foreground truncate text-[10.5px]" title={agent.description}>
             {agent.description}
           </span>
-        </div>
+        ) : null}
       </div>
-      <div className="mt-0.5 flex items-center justify-between gap-1">
-        <Button
-          size="sm"
-          variant={active ? "default" : "outline"}
-          onClick={onActivate}
-          className="h-6 gap-1 px-2 text-[10.5px]"
-        >
-          {active ? (
-            <>
-              <CircleCheck size={10} strokeWidth={2} />
-              Active
-            </>
-          ) : (
-            "Use agent"
-          )}
-        </Button>
+      <div className="flex shrink-0 items-center gap-0.5">
         <div className="flex gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100">
           {onEdit ? (
             <IconTooltip label="Edit" side="top">
@@ -441,6 +428,21 @@ function AgentCard({
             </IconTooltip>
           ) : null}
         </div>
+        <Button
+          size="sm"
+          variant={active ? "default" : "outline"}
+          onClick={onActivate}
+          className="h-6 gap-1 px-2 text-[10.5px]"
+        >
+          {active ? (
+            <>
+              <CircleCheck size={10} strokeWidth={2} />
+              Active
+            </>
+          ) : (
+            "Use"
+          )}
+        </Button>
       </div>
     </div>
   );
