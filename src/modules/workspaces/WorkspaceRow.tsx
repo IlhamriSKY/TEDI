@@ -271,15 +271,18 @@ export function SortableWorkspaceRow({
    * rather than shutting what the click came to see.
    */
   const clickToggled = useRef(false);
+  const nameRef = useRef<HTMLButtonElement>(null);
+  // Only a double-click ON the name renames; elsewhere every click toggles, however fast.
+  const onName = (e: React.MouseEvent) => !!nameRef.current?.contains(e.target as Node);
   const onRowClick = (e: React.MouseEvent) => {
-    if (isEditing || e.detail > 1) return;
+    if (isEditing || (e.detail > 1 && onName(e))) return;
     clickToggled.current = hasRows && (isActive || !isExpanded);
     if (!isActive) onSwitch(w.id);
     if (clickToggled.current) onToggleExpanded(w.id);
   };
   // The first click of the pair already toggled, and a rename is not asking for that.
-  const onRowDoubleClick = () => {
-    if (isEditing) return;
+  const onRowDoubleClick = (e: React.MouseEvent) => {
+    if (isEditing || !onName(e)) return;
     if (clickToggled.current) onToggleExpanded(w.id);
     clickToggled.current = false;
     onStartEdit(w.id, w.name);
@@ -426,9 +429,12 @@ export function SortableWorkspaceRow({
               />
             ) : (
               // The row handles the click. This button is its keyboard way in.
-              <button type="button" className="min-w-0 flex-1 truncate text-left">
-                {w.name}
-              </button>
+              <>
+                <button ref={nameRef} type="button" className="min-w-0 truncate text-left">
+                  {w.name}
+                </button>
+                <span className="flex-1" />
+              </>
             )}
             <Tooltip>
               <TooltipTrigger asChild>

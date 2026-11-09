@@ -114,8 +114,9 @@ type Props = {
 // Survives a collapse and a move between columns (both remount the panel), so
 // reopening paints the last list at once and refreshes underneath.
 let cached: AgentSession[] | null = null;
-// What the user folded, kept the same way. Idle starts shut: it needs nobody.
-let foldedAgents = new Set<string>(["idle"]);
+// What the user folded, kept the same way. Idle starts OPEN: a turn that ends while
+// its pane is focused goes straight to idle, and a shut Idle made that row vanish.
+let foldedAgents = new Set<string>();
 let foldedDays = new Set<string>();
 let agentsOpenCache = true;
 let historyOpenCache = true;
@@ -356,8 +357,8 @@ function copy(text: string) {
 
 /**
  * The Agents list: one entry per pane running an AI CLI, most urgent first or
- * by workspace. A click goes to that pane and never starts anything. Idle starts
- * folded, but the focused pane stays on screen whatever its state, so the terminal
+ * by workspace. A click goes to that pane and never starts anything. Every
+ * section starts open; a folded one still shows the focused pane, so the terminal
  * in front of you can always be found here.
  */
 function AgentsBlock({
@@ -809,7 +810,7 @@ const HistoryBlock = memo(function HistoryBlock({
                             size="icon-sm"
                             className={cn(
                               DESTRUCTIVE_ACTION,
-                              "pointer-events-none absolute top-0.5 right-6 size-5 rounded opacity-0 group-hover/heading:pointer-events-auto group-hover/heading:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
+                              "pointer-events-none absolute top-0.5 right-[26px] size-5 justify-end rounded opacity-0 group-hover/heading:pointer-events-auto group-hover/heading:opacity-100 focus-visible:pointer-events-auto focus-visible:opacity-100",
                             )}
                           >
                             <Trash2 size={11} strokeWidth={1.75} />
