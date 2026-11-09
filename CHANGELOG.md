@@ -4,6 +4,27 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.83] - 09-11-2026
+
+### Fixed
+
+- **A second OpenAI-compatible endpoint no longer asks you to set a key it already has.** Every endpoint
+  keeps its own key, but the model picker only checked the first one's, so an added endpoint read "Set
+  key", greyed out its pinned models and sent a pick to Settings instead of selecting it. The chat picker
+  and the default-model picker in Settings both read each endpoint's own key now. See
+  [ModelDropdown.tsx](src/modules/ai/components/ModelDropdown.tsx).
+- **Idle agents are on screen again.** The Idle group in the Agents list starts open, so a turn that ends
+  while you are looking at its pane no longer makes the row vanish. See
+  [AgentSessionsPanel.tsx](src/modules/agentSessions/AgentSessionsPanel.tsx).
+- **Clicking a workspace quickly no longer starts a rename.** Only a double-click on the name renames it;
+  anywhere else on the row every click folds or opens it. See
+  [WorkspaceRow.tsx](src/modules/workspaces/WorkspaceRow.tsx).
+
+### Changed
+
+- **The Agents boxes in Settings are compact and reflow with the window.** One row per agent, as many
+  columns as fit. See [AgentsSection.tsx](src/settings/sections/AgentsSection.tsx).
+
 ## [0.4.82] - 04-11-2026
 
 ### Added
