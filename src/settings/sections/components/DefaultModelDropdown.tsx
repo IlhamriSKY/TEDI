@@ -12,6 +12,7 @@ import {
   PROVIDERS,
   getDetectedModels,
   groupOpenAICompatibleByInstance,
+  openAICompatibleInstanceKey,
   parseOpenAICompatibleModelId,
   providerNeedsKey,
   tryGetModel,
@@ -210,7 +211,7 @@ export function DefaultModelDropdown({
                 p.id === "openai-compatible" && s.instanceId
                   ? isOpenAICompatibleInstanceReady(
                       oaiCompatInstances.find((i) => i.id === s.instanceId)?.baseURL ?? "",
-                      keys[p.id],
+                      openAICompatibleInstanceKey(s.instanceId) ?? keys[p.id],
                     )
                   : !!keys[p.id];
               // Detection status: SumoPod has one stream; each OAC endpoint reads

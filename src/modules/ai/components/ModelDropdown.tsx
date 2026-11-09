@@ -16,9 +16,11 @@ import {
   getDetectedModels,
   groupOpenAICompatibleByInstance,
   MODELS,
+  openAICompatibleInstanceKey,
   providerIsConnected,
   PROVIDERS,
   resolveModelInfo,
+  resolveOpenAICompatibleModel,
   type DynamicModelId,
   type ModelInfo,
   type ProviderId,
@@ -79,13 +81,20 @@ export function ModelDropdown() {
   // warning for a model that works. Mirrors the send path (resolveModelInfo), and
   // never throws for runtime-detected ids missing from MODELS.
   const current = resolveModelInfo(selected, selectedProvider);
-  const currentProviderHasKey = providerIsConnected(current.provider, apiKeys);
+
+  // An OpenAI-compatible model is usable when ITS endpoint is registered (each
+  // has its own key); the shared apiKeys slot only covers the default endpoint.
+  const modelUsable = (id: string, providerId: ProviderId): boolean =>
+    providerId === "openai-compatible"
+      ? resolveOpenAICompatibleModel(id) != null
+      : providerIsConnected(providerId, apiKeys);
+  const currentProviderHasKey = modelUsable(selected, current.provider);
 
   const onPick = (id: DynamicModelId, providerId: ProviderId) => {
     // Keyless providers (LM Studio) have no apiKeys entry, and ChatGPT is
     // connected by signing in rather than by a key - `providerIsConnected` is
     // the question worth asking, "does it take a key" is not.
-    if (!providerIsConnected(providerId, apiKeys)) {
+    if (!modelUsable(id, providerId)) {
       void openSettingsWindow("models");
       return;
     }
@@ -273,7 +282,7 @@ export function ModelDropdown() {
               models={pinnedFiltered.map(({ model, provider }) => ({
                 model,
                 provider,
-                hasKey: providerIsConnected(provider.id, apiKeys),
+                hasKey: modelUsable(model.id, provider.id),
               }))}
               collapsed={!isSectionOpen("__pinned")}
               onToggle={() => toggleSection("__pinned", isSectionOpen("__pinned"))}
@@ -296,7 +305,7 @@ export function ModelDropdown() {
               p.id === "openai-compatible" && s.instanceId
                 ? isOpenAICompatibleInstanceReady(
                     oaiCompatInstances.find((i) => i.id === s.instanceId)?.baseURL ?? "",
-                    apiKeys[p.id],
+                    openAICompatibleInstanceKey(s.instanceId) ?? apiKeys[p.id],
                   )
                 : providerIsConnected(p.id, apiKeys);
             // Detection status note for gateways whose catalogue is fetched

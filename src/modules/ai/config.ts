@@ -524,6 +524,10 @@ export function setOpenAICompatibleRuntime(id: string, baseURL: string, apiKey: 
 export function clearOpenAICompatibleRuntime(id: string): void {
   oaiCompatRuntime.delete(id);
 }
+// The instance's OWN key; `apiKeys["openai-compatible"]` only holds the default instance's.
+export function openAICompatibleInstanceKey(id: string): string | null {
+  return oaiCompatRuntime.get(id)?.apiKey || null;
+}
 export function resolveOpenAICompatibleModel(
   modelId: string,
 ): (OAIRuntime & { instanceId: string; rawModelId: string }) | null {
