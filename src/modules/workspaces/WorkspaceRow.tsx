@@ -869,7 +869,8 @@ function EntryRowItem({
       className={cn(
         "flex w-full flex-col justify-center text-left text-[11px] transition-colors",
         isActiveLeaf
-          ? "bg-sidebar-accent text-sidebar-accent-foreground shadow-[inset_2px_0_0_0_var(--ring)]"
+          ? // No inset accent bar here: it read as a second, thicker tree line.
+            "bg-sidebar-accent text-sidebar-accent-foreground"
           : "text-sidebar-foreground/85 hover:bg-sidebar-accent/40",
       )}
     >

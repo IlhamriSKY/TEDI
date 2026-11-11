@@ -1278,22 +1278,21 @@ export function SourceControlPanel({
               onValueChange={(v) => setTab(v as "changes" | "graph" | "prs")}
               className="flex min-h-0 flex-1 flex-col gap-0"
             >
-              {compact ? null : (
-                <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
-                  <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                    Changes
-                  </TabsTrigger>
-                  <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                    History
-                  </TabsTrigger>
-                  {/* "PRs" rather than "Pull Requests": three full words do not
-                      fit this row at sidebar width, and a truncated tab label is
-                      worse than the abbreviation GitHub itself uses. */}
-                  <TabsTrigger value="prs" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
-                    PRs
-                  </TabsTrigger>
-                </TabsList>
-              )}
+              {/* Always shown: compact folds the commit box, never the way to History and PRs. */}
+              <TabsList className="bg-muted/40 mx-2 mt-2 mb-1 h-7 w-auto px-1">
+                <TabsTrigger value="changes" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  Changes
+                </TabsTrigger>
+                <TabsTrigger value="graph" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  History
+                </TabsTrigger>
+                {/* "PRs" rather than "Pull Requests": three full words do not
+                    fit this row at sidebar width, and a truncated tab label is
+                    worse than the abbreviation GitHub itself uses. */}
+                <TabsTrigger value="prs" className="h-6 flex-1 gap-1.5 px-2.5 text-[11.5px]">
+                  PRs
+                </TabsTrigger>
+              </TabsList>
 
               <TabsContent value="changes" className="flex min-h-0 flex-1 flex-col">
                 {compact ? null : (

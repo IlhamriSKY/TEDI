@@ -787,6 +787,15 @@
     cursor: pointer;
   }
 
+  /* One press effect for every button, raw or <Button>: the icon dips a little.
+   * Only the svg moves, so the button box and its neighbours never shift. */
+  button svg {
+    transition: transform 90ms ease-out;
+  }
+  button:not(:disabled):active svg {
+    transform: scale(0.86);
+  }
+
   /* Kill the webview's native image-drag gesture. Icons (favicons, file-type
    * glyphs) are <img> elements, draggable by default; grabbing a tab or pane
    * over one hijacks our pointer-based (dnd-kit) drag and shows an ugly native
@@ -907,10 +916,13 @@
  * parent icon's centre. Drawn above the row so an active row's fill cannot hide it. */
 .tedi-tree {
   --tree-x: 15px;
+  /* Elbow length: stops 2px short of the child's icon (30px top level, 48px nested). */
+  --tree-arm: 12px;
   --tree-line: color-mix(in srgb, var(--muted-foreground) 45%, transparent);
 }
 .tedi-tree-nested {
   --tree-x: 36px;
+  --tree-arm: 9px;
 }
 .tedi-tree > li {
   position: relative;
@@ -935,7 +947,7 @@
 .tedi-tree > li::after {
   top: -4px;
   height: 16px;
-  width: 9px;
+  width: var(--tree-arm);
   border-left: 1px solid var(--tree-line);
   border-bottom: 1px solid var(--tree-line);
 }

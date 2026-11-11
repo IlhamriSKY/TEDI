@@ -29,7 +29,16 @@ import {
   type DragEndEvent,
 } from "@dnd-kit/core";
 import { SortableContext, verticalListSortingStrategy } from "@dnd-kit/sortable";
-import { memo, useCallback, useMemo, useState, type ReactNode, type RefObject } from "react";
+import {
+  memo,
+  useCallback,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+  type ReactNode,
+  type RefObject,
+} from "react";
 import { coldIdAllocator, countSavedTabEntries, restoreTabs } from "./serialize";
 import {
   SortableWorkspaceRow,
@@ -163,6 +172,8 @@ function savedTitles(tabs: SavedTab[]): (string | undefined)[] {
   return out;
 }
 
+const LIST_HEIGHT_KEY = "tedi.workspaces.listHeight";
+
 // Memoized. Props are stable callbacks plus the counts map, so shallow equality skips re-renders.
 function WorkspacesPanelInner({
   onSwitch,
@@ -203,6 +214,40 @@ function WorkspacesPanelInner({
   // One box for all three lists: workspaces and their tabs, agents, history. It stays
   // shut until asked for, like the one in Files, and closing it ends the search.
   const [searching, setSearching] = useState(false);
+  // Height the user dragged the Workspaces list to, so expanding a row stops moving
+  // History up and down. Null until first dragged: the list sizes to its rows.
+  const [listHeight, setListHeight] = useState<number | null>(() => {
+    const n = Number(localStorage.getItem(LIST_HEIGHT_KEY));
+    return n > 0 ? n : null;
+  });
+  const listRef = useRef<HTMLDivElement>(null);
+  const startListResize = (ev: ReactPointerEvent<HTMLDivElement>) => {
+    const box = listRef.current;
+    const panel = box?.parentElement;
+    if (!box || !panel) return;
+    ev.preventDefault();
+    const handle = ev.currentTarget;
+    handle.setPointerCapture(ev.pointerId);
+    const startY = ev.clientY;
+    const startH = box.getBoundingClientRect().height;
+    // Leave History its header plus a little list.
+    const maxH = panel.getBoundingClientRect().bottom - box.getBoundingClientRect().top - 64;
+    let h = startH;
+    const move = (e: PointerEvent) => {
+      h = Math.round(Math.min(Math.max(startH + e.clientY - startY, 48), Math.max(48, maxH)));
+      setListHeight(h);
+    };
+    const up = () => {
+      handle.removeEventListener("pointermove", move);
+      handle.removeEventListener("pointerup", up);
+      handle.removeEventListener("pointercancel", up);
+      // A plain click (or the first half of the double-click reset) moved nothing.
+      if (h !== startH) localStorage.setItem(LIST_HEIGHT_KEY, String(h));
+    };
+    handle.addEventListener("pointermove", move);
+    handle.addEventListener("pointerup", up);
+    handle.addEventListener("pointercancel", up);
+  };
   const [search, setSearch] = useState("");
   const query = search.trim().toLowerCase();
   const closeSearch = () => {
@@ -411,7 +456,11 @@ function WorkspacesPanelInner({
           <>
             {/* Capped by a wrapper, not on the ScrollArea: its viewport inherits a
               max-height, and a percentage would resolve a second time against it. */}
-            <div className="flex max-h-[60%] min-h-0 flex-col">
+            <div
+              ref={listRef}
+              style={listHeight ? { height: listHeight } : undefined}
+              className={cn("relative flex min-h-0 flex-col", !listHeight && "max-h-[60%]")}
+            >
               <ScrollArea className="min-h-0 flex-1">
                 <DndContext
                   sensors={sensors}
@@ -521,6 +570,18 @@ function WorkspacesPanelInner({
                   </DragOverlay>
                 </DndContext>
               </ScrollArea>
+              {/* Drag to size the list against History; double-click goes back to auto. */}
+              <div
+                role="separator"
+                aria-orientation="horizontal"
+                aria-label="Resize Workspaces list"
+                onPointerDown={startListResize}
+                onDoubleClick={() => {
+                  setListHeight(null);
+                  localStorage.removeItem(LIST_HEIGHT_KEY);
+                }}
+                className="hover:bg-ring/60 absolute inset-x-0 -bottom-0.5 z-10 h-1 cursor-row-resize transition-colors"
+              />
             </div>
           </>
         )}
