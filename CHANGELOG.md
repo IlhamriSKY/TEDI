@@ -4,6 +4,43 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.85] - 11-11-2026
+
+### Fixed
+
+- **Unsaved editor text survives a split.** Splitting a pane, closing its neighbour, switching workspace
+  or flipping between canvas and tabs rebuilt the editor and reloaded the file from disk, so typed edits
+  were lost along with the dirty dot. They are now kept for that pane until it really closes, and keys
+  typed while a save is still writing stay marked unsaved. See
+  [unsavedBuffers.ts](src/modules/editor/lib/unsavedBuffers.ts).
+- **Closing a pane asks about unsaved changes.** The tab-strip X, the pane X and Ctrl+W in a split
+  closed a dirty editor without asking, and closing a whole tab checked only the pane in focus. Every
+  close path now follows one rule: unsaved text first, then a running process. See
+  [tabHelpers.ts](src/modules/tabs/lib/tabHelpers.ts).
+- **Commands the AI or the agent launcher types into a PowerShell terminal count as running.** Closing
+  that tab now asks first, the same as for a command you typed yourself.
+- **The AI composer follows the chat you switch to.** Switching between two running chats showed Send
+  on a turn that was still going, Stop or "Send now" could leave the next queued prompt stuck, Stop
+  cleared the session's token usage, and a slow history load could switch you back to a chat you had
+  already left. See [composer.tsx](src/modules/ai/lib/composer.tsx).
+- **A failed jump-host connection shows where it broke.** A wrong password or an unreachable jump host
+  left every hop pulsing amber as if still dialling; the hops that never came up now turn red. See
+  [status.ts](src/modules/ssh/status.ts).
+- **The extension review dialog stays closed when you cancel it**, a dismissed install no longer closes
+  the next review, and Esc cannot close the dialog mid-install.
+- **A local OpenAI-compatible endpoint without a key reads as configured** and offers Detect, and a Test
+  result clears when you edit the URL or key, so it never vouches for input it did not test.
+- **Clicking a pane under another workspace in the Workspaces list switches to it** instead of leaving
+  the window blank.
+- **Stash and Tag keep what you typed when the operation fails**, and an extension pane whose extension
+  was uninstalled says so instead of loading forever.
+
+### Changed
+
+- **Buttons press in.** The icon in any button dips slightly while pressed, without moving the button.
+- **The Workspaces list can be sized against History.** Drag the line under it, double-click to go back
+  to automatic.
+
 ## [0.4.84] - 09-11-2026
 
 ### Changed
