@@ -137,7 +137,8 @@ export function buildSubagentTools(ctx: ToolContext) {
             type: z
               .string()
               .describe("Sub-agent id; explore, review or implement map to the closest."),
-            prompt: z.string().describe("Self-contained instruction."),
+            // English: AgentRouter refuses a long non-English user message however it is wrapped (probed 2026-11-11).
+            prompt: z.string().describe("Self-contained instruction, written in English."),
             description: z.string().optional().describe("Short card label."),
             depends_on: flexArrayOpt(z.preprocess(coerceInt, z.number().int())).describe(
               "0-based indices of tasks to wait for.",

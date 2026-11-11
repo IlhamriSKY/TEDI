@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
 import { useEffect } from "react";
 import type { Todo } from "../lib/todos";
 import { useTodosStore } from "../store/todoStore";
-import { Square, SquareCheckBig, X } from "lucide-react";
+import { Check, X } from "lucide-react";
 
 type Props = { sessionId: string | null };
 
@@ -65,17 +65,25 @@ function TodoRow({ todo }: { todo: Todo }) {
   const row = (
     <li
       className={cn(
-        "flex items-start gap-2 rounded px-1.5 py-1 text-[11px] leading-snug",
-        isInProgress && "border-foreground/50 bg-muted/40 border-l-2",
+        "flex items-start gap-2 rounded-none border-l border-transparent px-1.5 py-1 text-[11px] leading-snug",
+        isInProgress && "border-foreground/50 bg-muted/40",
       )}
     >
-      <span className="mt-[2px] inline-flex size-3.5 shrink-0 items-center justify-center">
+      <span
+        className={cn(
+          "text-muted-foreground mt-0.5 inline-flex size-3 shrink-0 items-center justify-center",
+          isInProgress && "text-foreground",
+        )}
+      >
         <IconSwap
+          className="size-3"
           active={isInProgress ? 0 : todo.status === "completed" ? 1 : 2}
           icons={[
             isInProgress && <Spinner className="size-3" />,
-            <SquareCheckBig strokeWidth={1.75} />,
-            <Square strokeWidth={1.75} />,
+            <span className="inline-flex size-3 items-center justify-center rounded-none border border-current">
+              <Check size={10} className="size-2.5" strokeWidth={1} absoluteStrokeWidth />
+            </span>,
+            <span className="size-3 rounded-none border border-current" />,
           ]}
         />
       </span>

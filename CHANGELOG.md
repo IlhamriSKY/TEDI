@@ -4,6 +4,22 @@ All notable changes to **TEDI**. Format follows [Keep a Changelog](https://keepa
 
 > TEDI is a fork of [crynta/terax-ai](https://github.com/crynta/terax-ai), starting from upstream **Terax v0.5.9**. Earlier history belongs to the upstream project: see [Terax CHANGELOG](https://github.com/crynta/terax-ai/blob/main/CHANGELOG.md).
 
+## [0.4.86] - 11-11-2026
+
+### Fixed
+
+- **A sub-agent that stalls part-way resumes where it stopped.** A provider error after some steps had
+  finished used to end the run as partial, because a retry would have restarted from the brief. The
+  retry now picks up after the last finished step, so work already done is not redone. See
+  [runSubagent.ts](src/modules/ai/agents/runSubagent.ts).
+- **Sub-agent briefs are written in English**, since some providers refuse a long non-English message.
+- **Tree lines in the Workspaces list draw one even weight** instead of darker where segments overlapped.
+
+### Changed
+
+- **The AI todo list uses square checkboxes** that match the rest of the chrome, and the Workspaces list
+  resize handle shows a 1px line while keeping a wider grab area.
+
 ## [0.4.85] - 11-11-2026
 
 ### Fixed

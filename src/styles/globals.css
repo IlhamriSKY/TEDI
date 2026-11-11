@@ -935,21 +935,27 @@
   z-index: 1;
   pointer-events: none;
 }
+/* The segments only meet end to end: the line is translucent, so any overlap
+   draws darker and reads as a thicker line. */
 .tedi-tree > li::before {
-  top: 0;
+  top: 12px;
   bottom: 0;
   border-left: 1px solid var(--tree-line);
 }
 .tedi-tree > li:last-child::before {
   display: none;
 }
-/* From 4px above, to meet the parent icon's lower edge, down to the first line's middle. */
 .tedi-tree > li::after {
-  top: -4px;
-  height: 16px;
+  top: 0;
+  height: 12px;
   width: var(--tree-arm);
   border-left: 1px solid var(--tree-line);
   border-bottom: 1px solid var(--tree-line);
+}
+/* The first one starts 4px above, to meet the parent icon's lower edge. */
+.tedi-tree > li:first-child::after {
+  top: -4px;
+  height: 16px;
 }
 
 /* Editor + terminal canvas transparency under the single "App opacity"

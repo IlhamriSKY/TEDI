@@ -570,7 +570,8 @@ function WorkspacesPanelInner({
                   </DragOverlay>
                 </DndContext>
               </ScrollArea>
-              {/* Drag to size the list against History; double-click goes back to auto. */}
+              {/* Drag to size the list against History; double-click goes back to auto.
+                  Keep the grab area wider than the 1px hover line. */}
               <div
                 role="separator"
                 aria-orientation="horizontal"
@@ -580,7 +581,7 @@ function WorkspacesPanelInner({
                   setListHeight(null);
                   localStorage.removeItem(LIST_HEIGHT_KEY);
                 }}
-                className="hover:bg-ring/60 absolute inset-x-0 -bottom-0.5 z-10 h-1 cursor-row-resize transition-colors"
+                className="hover:after:bg-ring/60 absolute inset-x-0 -bottom-0.5 z-10 h-1 cursor-row-resize after:pointer-events-none after:absolute after:inset-x-0 after:top-0.5 after:h-px after:transition-colors"
               />
             </div>
           </>

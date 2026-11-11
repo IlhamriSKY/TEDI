@@ -247,5 +247,99 @@ console.log("\n[provider options] the endpoint refuses BOTH omissions, not just 
   );
 }
 
+console.log("\n[resume] a stall after finished steps resumes there, never from the brief");
+// 2026-11-11: AgentRouter stalled 120 s on step 8 of a read-only explorer, and
+// the run ended PARTIAL because a retry would have restarted from the brief.
+{
+  check(
+    "a transient failure is retried even after steps ran",
+    !runSubagentSrc.includes("liveSteps > stepsBefore") &&
+      runSubagentSrc.includes("messages: [...messages, ...prefix]"),
+  );
+  let call = 0;
+  const seen: unknown[][] = [];
+  const model = new MockLanguageModelV3({
+    doStream: async ({ prompt }: { prompt: unknown[] }) => {
+      seen.push(prompt);
+      call++;
+      if (call === 2) throw Object.assign(new Error("upstream stalled mid-stream (idle timeout)"));
+      const chunks =
+        call === 1
+          ? [
+              { type: "tool-call", toolCallId: "c1", toolName: "read", input: "{}" },
+              {
+                type: "finish",
+                finishReason: "tool-calls",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              },
+            ]
+          : [
+              { type: "text-start", id: "t" },
+              { type: "text-delta", id: "t", delta: "done" },
+              { type: "text-end", id: "t" },
+              {
+                type: "finish",
+                finishReason: "stop",
+                usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+              },
+            ];
+      return {
+        stream: simulateReadableStream({
+          chunks: chunks as never[],
+          chunkDelayInMs: null,
+          initialDelayInMs: null,
+        }),
+      };
+    },
+  });
+  const { tool } = await import("ai");
+  const { z } = await import("zod");
+  let reads = 0;
+  const tools = {
+    read: tool({ inputSchema: z.object({}), execute: async () => (reads++, "file") }),
+  };
+  // The same bookkeeping `runSubagent` does in onStepFinish.
+  let resumeFrom: unknown[] = [];
+  const run = async () => {
+    const prefix = resumeFrom;
+    let err: unknown;
+    const s = streamText({
+      model,
+      messages: [{ role: "user", content: "go" }, ...prefix],
+      tools,
+      stopWhen: [stepCountIs(5)],
+      maxRetries: 0,
+      onStepFinish: (step: { response: { messages: unknown[] } }) => {
+        resumeFrom = [...prefix, ...step.response.messages];
+      },
+      onError: ({ error }: { error: unknown }) => {
+        err = error;
+      },
+    } as never);
+    try {
+      await s.steps;
+    } catch (e) {
+      throw err ?? e;
+    }
+    if (err) throw err;
+    return s.text;
+  };
+  let first: unknown;
+  try {
+    await run();
+  } catch (e) {
+    first = e;
+  }
+  check("the stall surfaces after step 1", String(first).includes("stalled"));
+  const text = await run();
+  check("the resumed run finishes", text === "done");
+  check("the finished tool call is NOT re-run", reads === 1, reads);
+  check(
+    "the resume request carries step 1's call and result",
+    JSON.stringify(seen[2]).includes("c1") &&
+      seen[2].some((m) => (m as { role?: string }).role === "tool"),
+  );
+}
+
 if (failed > 0) throw new Error(`${failed} check(s) FAILED`);
 console.log("\nALL PASS");

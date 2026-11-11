@@ -215,6 +215,9 @@ export async function runSubagent({
   // Every completed step, so a run that fails PART-WAY can still report the
   // work it did instead of throwing it away (or, worse, retrying it).
   const collected: unknown[] = [];
+  // History up to the last finished step, so a retry RESUMES there instead of
+  // restarting from the brief and redoing work already done.
+  let resumeFrom: ModelMessage[] = [];
   let stopped: string | null = null;
   type Outcome = { steps?: unknown[]; text?: string; reasoningText?: string };
   let result: Outcome;
@@ -227,14 +230,15 @@ export async function runSubagent({
       // the same model and token. One transport for both paths, so a provider
       // that only streams can no longer be dead on one of them.
       let streamError: unknown;
+      const prefix = resumeFrom;
       const stream = streamText({
         model,
-        messages,
+        messages: [...messages, ...prefix],
         tools: hooked as never,
         // No low step cap (powerful sub-agents): natural finish plus the main
         // agent's anti-loop guards terminate; the count is just a runaway backstop.
         stopWhen: [
-          stepCountIs(SUBAGENT_STEP_BUDGET),
+          stepCountIs(Math.max(1, SUBAGENT_STEP_BUDGET - collected.length)),
           noToolRepetition<ToolSet>(3),
           noProgressStop<ToolSet>(2),
         ] as never,
@@ -262,7 +266,7 @@ export async function runSubagent({
           const messages = applyStepCacheBreakpoints(compacted, info.provider);
           // Not on a model that refuses a forced choice (DeepSeek thinking):
           // there the prompt alone has to get the first call made.
-          return stepNumber === 0 && acceptsForcedToolChoice(info.id)
+          return stepNumber === 0 && !prefix.length && acceptsForcedToolChoice(info.id)
             ? { messages, toolChoice: "required" }
             : { messages };
         },
@@ -278,9 +282,12 @@ export async function runSubagent({
         onStepFinish: (step: {
           toolCalls?: Array<{ toolName: string; input?: unknown }>;
           text?: string;
+          response?: { messages?: ModelMessage[] };
         }) => {
           liveSteps += 1;
           collected.push(step);
+          // `response.messages` is cumulative within this call.
+          resumeFrom = [...prefix, ...(step.response?.messages ?? [])];
           onStep?.(describeStep(step), liveSteps);
         },
         // A streaming failure is delivered as an error PART, not a throw, and when
@@ -309,7 +316,8 @@ export async function runSubagent({
       // say). Surface it: withRateLimitRetry has to see it to back off, and half a
       // summary that reads as success is worse than a retry.
       if (streamError) throw streamError;
-      return { steps, text, reasoningText } as Outcome;
+      // `collected`, not `steps`: after a resume `steps` holds only this call's.
+      return { steps: collected.length ? collected : steps, text, reasoningText } as Outcome;
     });
   } catch (err) {
     // Steps already ran (edits made, commands run): report them as a partial
@@ -352,7 +360,6 @@ export async function runSubagent({
     let lastErr: unknown;
     for (let attempt = 0; attempt <= SUBAGENT_MAX_RETRIES; attempt++) {
       if (abortSignal?.aborted) throw new Error("aborted");
-      const stepsBefore = liveSteps;
       try {
         return await fn();
       } catch (err) {
@@ -361,13 +368,14 @@ export async function runSubagent({
         const code = classifyError(err);
         const transient =
           code === TediErrorCode.RATE_LIMITED || code === TediErrorCode.PROVIDER_UNAVAILABLE;
-        // A retry restarts from the BRIEF. Once a step has run it would redo
-        // auto-approved writes and commands on a half-edited tree, so only a
-        // failure before any step is retried; later ones are salvaged above.
-        if (!transient || attempt === SUBAGENT_MAX_RETRIES || liveSteps > stepsBefore) throw err;
+        // A retry resumes after the last finished step (`resumeFrom`), so steps
+        // already run are not redone. A failure part-way through a step can still
+        // repeat that one step's tool call; a mid-stream stall on AgentRouter is
+        // the case this exists for.
+        if (!transient || attempt === SUBAGENT_MAX_RETRIES) throw err;
         const base = SUBAGENT_RETRY_BASE_MS * Math.pow(2, attempt);
         const wait = Math.round(base * (0.75 + Math.random() * 0.5));
-        onStep?.(`Rate limited - retrying in ${Math.round(wait / 1000)}s`, liveSteps);
+        onStep?.(`Provider error - retrying in ${Math.round(wait / 1000)}s`, liveSteps);
         await new Promise<void>((resolve) => setTimeout(resolve, wait));
       }
     }
