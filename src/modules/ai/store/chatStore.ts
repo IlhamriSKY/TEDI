@@ -349,7 +349,9 @@ function hibernateOldestChat(): void {
 const seedMessages = new Map<string, UIMessage[]>();
 
 // Monotonic token so a slow loadMessages from an earlier switchSession can't
-// flip the active session after a newer switch already won.
+// flip the active session after a newer switch already won. EVERY change of
+// the active session bumps it, the instant ones included: a pending load must
+// lose to a cached switch or a new chat as much as to another load.
 let switchSeq = 0;
 
 // Trailing debounce for per-token persistence. Without it we'd serialize the
@@ -794,6 +796,7 @@ export const useChatStore = create<StoreState>((set, get) => ({
     };
     const next = [meta, ...get().sessions];
     unsavedSessions.add(id);
+    switchSeq++;
     set({ sessions: next, activeSessionId: id, agentMeta: IDLE_META });
     // No `saveSessionsList` here: see `unsavedSessions`. `saveActiveId` still
     // runs so a first message resumes on the right chat; hydrate already drops
@@ -812,11 +815,11 @@ export const useChatStore = create<StoreState>((set, get) => ({
       set({ activeSessionId: id, agentMeta: IDLE_META });
       void saveActiveId(id);
     };
+    const myTurn = ++switchSeq;
     if (chats.has(id) || seedMessages.has(id)) {
       flip();
       return;
     }
-    const myTurn = ++switchSeq;
     void loadMessages(id).then((m) => {
       if (myTurn !== switchSeq) return; // a newer switch superseded this one
       if (m && m.length > 0 && !chats.has(id)) seedMessages.set(id, m);

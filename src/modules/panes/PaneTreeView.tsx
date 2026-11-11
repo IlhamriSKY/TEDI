@@ -612,6 +612,7 @@ export const LeafBody = memo(function LeafBody({
           onClose={b.onCloseLeaf}
           mdPreview={mdPreview}
           sshSessionId={sshSessionId}
+          leafId={node.id}
           aiDisabled={node.private === true}
         />
       </Suspense>

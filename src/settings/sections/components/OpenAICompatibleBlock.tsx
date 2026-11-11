@@ -18,7 +18,7 @@ import {
 } from "@/modules/ai/lib/openaiCompatible";
 import { setOpenAICompatibleInstances } from "@/modules/settings/store";
 import { usePreferencesStore } from "@/modules/settings/preferences";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { ProviderIcon } from "../../components/ProviderIcon";
 import { RevealKeyButton } from "../../components/RevealKeyButton";
 import { Pencil, X } from "lucide-react";
@@ -51,7 +51,8 @@ export function OpenAICompatibleBlock({
 }) {
   const initialURL = instance?.baseURL ?? OPENAI_COMPATIBLE_DEFAULT_BASE_URL;
   const initialLabel = instance?.label ?? "";
-  const configured = !!instance && !!apiKey;
+  // The same rule Detect and the model picker use: a local server needs no key.
+  const configured = !!instance && isOpenAICompatibleInstanceReady(instance.baseURL, apiKey);
 
   const [labelDraft, setLabelDraft] = useState(initialLabel);
   const [urlDraft, setUrlDraft] = useState(initialURL);
@@ -64,6 +65,14 @@ export function OpenAICompatibleBlock({
   const [testError, setTestError] = useState<string | null>(null);
 
   useEffect(() => setUrlDraft(initialURL), [initialURL]);
+  // A Test result describes the URL and key it ran against: editing either
+  // retires it (and any Test still in flight), so it never vouches for new input.
+  const testSeq = useRef(0);
+  useEffect(() => {
+    testSeq.current++;
+    setTestStatus("idle");
+    setTestError(null);
+  }, [urlDraft, keyDraft]);
   useEffect(() => setLabelDraft(initialLabel), [initialLabel]);
   useEffect(() => {
     setKeyDraft("");
@@ -102,6 +111,12 @@ export function OpenAICompatibleBlock({
   };
 
   const testEndpoint = async () => {
+    const seq = ++testSeq.current;
+    const settle = (ok: boolean, err: string | null) => {
+      if (seq !== testSeq.current) return;
+      setTestStatus(ok ? "ok" : "fail");
+      setTestError(err);
+    };
     setTestStatus("testing");
     setTestError(null);
     try {
@@ -124,13 +139,16 @@ export function OpenAICompatibleBlock({
       void res.body?.cancel().catch(() => {});
       const html = /^\s*text\/html/i.test(res.headers.get("content-type") ?? "");
       const reachable = res.status >= 200 && res.status < 400 && !html;
-      setTestStatus(reachable ? "ok" : "fail");
-      if (!reachable) {
-        setTestError(html ? "not an API base URL - it usually ends in /v1" : `HTTP ${res.status}`);
-      }
+      settle(
+        reachable,
+        reachable
+          ? null
+          : html
+            ? "not an API base URL - it usually ends in /v1"
+            : `HTTP ${res.status}`,
+      );
     } catch (e) {
-      setTestStatus("fail");
-      setTestError(e instanceof Error ? e.message : String(e));
+      settle(false, e instanceof Error ? e.message : String(e));
     }
   };
 

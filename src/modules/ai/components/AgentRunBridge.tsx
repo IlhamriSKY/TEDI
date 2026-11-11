@@ -209,7 +209,10 @@ function Bridge({ sessionId, openAiDiffTab, setAiDiffStatus }: { sessionId: stri
       ...(runStatus === "idle" || runStatus === "error" ? { step: null } : {}),
       ...(runStatus === "idle" ? { error: null } : {}),
     });
-  }, [status, approvalsPending, patch]);
+    // `sessionId` too: a switch resets agentMeta to idle, and two chats that are
+    // both streaming have equal `status`, so without it the new chat stayed
+    // "idle" and the composer offered Send on a running turn.
+  }, [status, approvalsPending, patch, sessionId]);
 
   useEffect(() => {
     if (approvalsPending > 0) openMini();

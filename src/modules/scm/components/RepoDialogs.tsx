@@ -88,7 +88,8 @@ type StashProps = {
   changeCount: number;
   stagedCount: number;
   load: () => Promise<GitStash[]>;
-  onStash: (message: string, staged: boolean) => Promise<void>;
+  /** Resolves false when the stash did not happen (already toasted). */
+  onStash: (message: string, staged: boolean) => Promise<boolean>;
   onApply: (ref: string, pop: boolean) => Promise<void>;
   onDrop: (ref: string) => Promise<void>;
 };
@@ -125,11 +126,11 @@ export function StashDialog({
     refresh();
   }, [open, refresh]);
 
-  const run = async (fn: () => Promise<void>) => {
+  const run = async (fn: () => Promise<unknown>) => {
     setBusy(true);
     try {
-      await fn();
-      setMessage("");
+      // A failed stash keeps the typed message, so a retry needs no retyping.
+      if ((await fn()) !== false) setMessage("");
       refresh();
     } finally {
       setBusy(false);
@@ -235,7 +236,8 @@ type TagProps = {
   onOpenChange: (open: boolean) => void;
   branch: string | null;
   load: () => Promise<string[]>;
-  onCreate: (name: string, message: string) => Promise<void>;
+  /** Resolves false when no tag was made (already toasted). */
+  onCreate: (name: string, message: string) => Promise<boolean>;
   onDelete: (name: string) => Promise<void>;
   onPush: (name: string) => Promise<void>;
 };
@@ -282,7 +284,8 @@ export function TagDialog({
   const create = () => {
     if (!name.trim() || bad) return;
     void run(async () => {
-      await onCreate(name.trim(), message);
+      // A failed create (the tag exists, say) keeps what was typed.
+      if (!(await onCreate(name.trim(), message))) return;
       setName("");
       setMessage("");
     });

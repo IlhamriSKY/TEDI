@@ -20,6 +20,7 @@ import {
   buildSshRoute,
   failPendingSshHops,
   markSshHop,
+  routeForSshStatus,
   SSH_USER_CLOSE_REASON,
   sshAttemptOutcome,
   sshHopDetail,
@@ -136,6 +137,18 @@ check(
   failedHop && sshHopDetail(failedHop),
   "root@prod-db:22",
 );
+
+console.log("\n[routeForSshStatus] an attempt that is over never shows a hop still dialling");
+// A wrong password or unreachable bastion REJECTS ssh_open; the session's exit
+// handler never runs, so the emit point is the only place that can settle it.
+const dialling = markSshHop(buildSshRoute([bastion], target)!, 0, "up");
+ok("connecting keeps pending hops pending", routeForSshStatus(dialling, "connecting") === dialling);
+for (const kind of ["reconnecting", "disconnected", "error"] as const) {
+  check(`${kind} freezes the unfinished hop as failed`, states(routeForSshStatus(dialling, kind)), [
+    "up",
+    "failed",
+  ]);
+}
 
 // ---------------------------------------------------------------------------
 // The connect overlay keeps ONE card up from the first dial until this says the

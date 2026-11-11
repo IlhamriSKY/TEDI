@@ -101,7 +101,7 @@ export function InstallReviewDialog({
         : "Install";
 
   return (
-    <Dialog open={open} onOpenChange={(o) => !o && onCancel()}>
+    <Dialog open={open} onOpenChange={(o) => !o && !busy && onCancel()}>
       <DialogContent className="max-w-md">
         <DialogHeader>
           <DialogTitle>{title}</DialogTitle>

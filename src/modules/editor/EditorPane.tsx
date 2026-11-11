@@ -124,6 +124,8 @@ type Props = {
   /** Edits a remote file over SFTP on the matching russh session id.
    *  Forwarded to `useDocument` so reads/writes hit the SSH backend. */
   sshSessionId?: number;
+  /** Pane leaf id, so unsaved text survives a remount of the same leaf. */
+  leafId?: number;
   /** When true the inline AI autocomplete is force-disabled regardless of
    *  user preferences. Set by PaneStack on editor leaves inside a private
    *  tab so file content never reaches a model provider. */
@@ -271,6 +273,7 @@ export function EditorPane({
   onClose,
   mdPreview,
   sshSessionId,
+  leafId,
   aiDisabled,
   ref,
 }: Props) {
@@ -286,6 +289,7 @@ export function EditorPane({
     path,
     onDirtyChange,
     sshSessionId,
+    leafId,
   });
   const reloadRef = useRef(reload);
   reloadRef.current = reload;

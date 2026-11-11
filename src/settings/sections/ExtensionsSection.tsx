@@ -92,6 +92,10 @@ export function ExtensionsSection() {
   const [tab, setTab] = useState<InstallTab>("zip");
   const [repoInput, setRepoInput] = useState("");
   const [pending, setPending] = useState<Pending | null>(null);
+  // Bumped whenever the review dialog is opened or dismissed: a peek or install
+  // that settles after that belongs to a review the user already left, and must
+  // not reopen the dialog or close the next one.
+  const reviewSeq = useRef(0);
   const [busy, setBusy] = useState(false);
   const [installError, setInstallError] = useState<string | null>(null);
   const [checkingAll, setCheckingAll] = useState(false);
@@ -258,6 +262,10 @@ export function ExtensionsSection() {
     // Open the dialog immediately in a loading state. The peek call reads
     // the package manifest and icon with no install side effects; failures
     // surface as an error preview rather than hiding the dialog.
+    const seq = ++reviewSeq.current;
+    const show = (preview: Pending["preview"]) => {
+      if (seq === reviewSeq.current) setPending({ source, preview });
+    };
     setInstallError(null);
     setPending({ source, preview: { status: "loading", sourceLabel } });
     try {
@@ -268,14 +276,7 @@ export function ExtensionsSection() {
 
       const parsed = safeParseManifest(raw.manifest);
       if (!parsed.ok) {
-        setPending({
-          source,
-          preview: {
-            status: "error",
-            sourceLabel,
-            message: `Invalid manifest: ${parsed.error}`,
-          },
-        });
+        show({ status: "error", sourceLabel, message: `Invalid manifest: ${parsed.error}` });
         return;
       }
 
@@ -288,19 +289,16 @@ export function ExtensionsSection() {
       // pass the previously-approved permissions so the dialog can highlight
       // what's NEW and the user re-approves any escalation.
       const installed = list.find((e) => e.id === parsed.manifest.id);
-      setPending({
-        source,
-        preview: {
-          status: "ready",
-          sourceLabel,
-          manifest: parsed.manifest,
-          iconUrl,
-          priorApproved: installed ? installed.approved_permissions : null,
-        },
+      show({
+        status: "ready",
+        sourceLabel,
+        manifest: parsed.manifest,
+        iconUrl,
+        priorApproved: installed ? installed.approved_permissions : null,
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      setPending({ source, preview: { status: "error", sourceLabel, message } });
+      show({ status: "error", sourceLabel, message });
     }
   };
 
@@ -320,6 +318,7 @@ export function ExtensionsSection() {
 
   const onConfirmInstall = async () => {
     if (!pending) return;
+    const seq = reviewSeq.current;
     setBusy(true);
     setInstallError(null);
     try {
@@ -336,11 +335,11 @@ export function ExtensionsSection() {
       toast(`Installed "${ext.manifest.name}" v${ext.manifest.version}`, {
         variant: "success",
       });
-      setPending(null);
+      if (seq === reviewSeq.current) setPending(null);
       setRepoInput("");
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      setInstallError(msg);
+      if (seq === reviewSeq.current) setInstallError(msg);
     } finally {
       setBusy(false);
     }
@@ -567,6 +566,7 @@ export function ExtensionsSection() {
         busy={busy}
         installError={installError}
         onCancel={() => {
+          reviewSeq.current++;
           setPending(null);
           setInstallError(null);
         }}

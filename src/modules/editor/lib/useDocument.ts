@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { sftpReadFile, sftpWriteFile } from "@/modules/ssh/sftp";
 import type { FsReadResult } from "@/lib/ipc";
 import { notifyMemoryPathChanged } from "@/modules/ai/lib/memoryCache";
+import { stashUnsavedBuffer, takeUnsavedBuffer } from "./unsavedBuffers";
 
 type ReadResult = FsReadResult;
 
@@ -17,13 +18,16 @@ export type DocumentState =
 type Options = {
   path: string;
   onDirtyChange?: (dirty: boolean) => void;
+  /** Pane leaf this document renders in. With it, unsaved text survives a
+   *  remount of the same leaf (split, unsplit, workspace switch). */
+  leafId?: number;
   /** Route read/write through SFTP on the matching russh session instead of
    *  the local FS. Remote files are text-only (the SFTP wrapper rejects
    *  non-UTF-8), so binary/image previews aren't supported remotely. */
   sshSessionId?: number;
 };
 
-export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
+export function useDocument({ path, onDirtyChange, sshSessionId, leafId }: Options) {
   const [doc, setDoc] = useState<DocumentState>({ status: "loading" });
   const [dirty, setDirty] = useState(false);
   const [reloadCounter, setReloadCounter] = useState(0);
@@ -62,6 +66,19 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
     if (dirtyRef.current && loadedPathRef.current === path) return;
     loadedPathRef.current = path;
     let cancelled = false;
+    const restored = leafId !== undefined ? takeUnsavedBuffer(leafId, path) : null;
+    if (restored) {
+      savedRef.current = restored.saved;
+      bufferRef.current = restored.buffer;
+      setLiveContent(restored.buffer);
+      setDoc({
+        status: "ready",
+        content: restored.buffer,
+        size: new TextEncoder().encode(restored.buffer).length,
+      });
+      setDirty(true);
+      return;
+    }
     setDoc({ status: "loading" });
     setDirty(false);
 
@@ -125,7 +142,18 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
     return () => {
       cancelled = true;
     };
-  }, [path, sshSessionId, reloadCounter]);
+    // `leafId` is fixed for a mounted pane, so it never re-runs this load.
+  }, [path, sshSessionId, reloadCounter, leafId]);
+
+  // Unmounting with unsaved edits: keep them for the remount of this same leaf.
+  useEffect(
+    () => () => {
+      const path = loadedPathRef.current;
+      if (leafId === undefined || !dirtyRef.current || path === null) return;
+      stashUnsavedBuffer(leafId, { path, saved: savedRef.current, buffer: bufferRef.current });
+    },
+    [leafId],
+  );
 
   /** Re-reads the file from disk. Silent no-op when dirty (preserves
    *  unsaved edits). Returns whether reload ran. */
@@ -160,7 +188,8 @@ export function useDocument({ path, onDirtyChange, sshSessionId }: Options) {
       notifyMemoryPathChanged(path);
       savedRef.current = content;
       if (usingOverride) bufferRef.current = content;
-      setDirty(false);
+      // Keys typed while the write was in flight are still unsaved.
+      setDirty(bufferRef.current !== content);
     },
     [path, sshSessionId, dirty],
   );

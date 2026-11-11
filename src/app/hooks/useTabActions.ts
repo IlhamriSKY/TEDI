@@ -2,7 +2,7 @@ import { toast } from "@/components/ui/toast";
 import { toForwardSlash } from "@/lib/path";
 import { isSelfReferenceUrl, SELF_REFERENCE_NOTICE } from "@/lib/proxy";
 import { activeLeaf, MAX_PANES_PER_TAB, type Tab } from "@/modules/tabs";
-import { stripTabs } from "@/modules/tabs/lib/tabHelpers";
+import { closeBlocker, stripTabs } from "@/modules/tabs/lib/tabHelpers";
 import {
   agentToolKind,
   MAX_AGENT_SPAWN,
@@ -12,6 +12,7 @@ import {
 import type { AiCliKind } from "@/modules/terminal/lib/aiCliStatus";
 import { setWorktreeOpener, type OpenWorktreeInput } from "@/modules/scm/worktreeBridge";
 import {
+  findLeaf,
   hasLeaf,
   leafIds,
   leaves,
@@ -129,45 +130,33 @@ export function useTabActions({
     return term ? term.isProcessRunning() : false;
   }, []);
 
-  // True when any terminal pane in the tab is running a process.
-  const tabHasRunningProcess = useCallback(
-    (tab: Tab): boolean => {
-      if (tab.kind !== "pane") return false;
-      return leaves(tab.paneTree).some(
-        (l) => l.leafKind === "terminal" && leafHasRunningProcess(l.id),
-      );
-    },
-    [leafHasRunningProcess],
-  );
-
-  // Whole-tab close. Confirms first on unsaved editor changes or a running
-  // terminal process; otherwise disposes immediately.
+  // Whole-tab close. Confirms first when any pane in it has unsaved editor
+  // changes or a running process (`closeBlocker`); otherwise disposes now.
   const handleClose = useCallback(
     (id: number) => {
       const t = tabs.find((x) => x.id === id);
-      if (t?.kind === "pane" && t.dirty) {
-        setPendingClose({ target: { kind: "tab", tabId: id }, reason: "unsaved", title: t.title });
-        return;
-      }
-      if (t?.kind === "pane" && tabHasRunningProcess(t)) {
-        setPendingClose({ target: { kind: "tab", tabId: id }, reason: "running", title: t.title });
+      const reason =
+        t?.kind === "pane" ? closeBlocker(leaves(t.paneTree), leafHasRunningProcess) : null;
+      if (t && reason) {
+        setPendingClose({ target: { kind: "tab", tabId: id }, reason, title: t.title });
         return;
       }
       disposeTab(id);
     },
-    [tabs, disposeTab, tabHasRunningProcess],
+    [tabs, disposeTab, leafHasRunningProcess],
   );
 
   // Single-pane close (tab-strip leaf X, pane-header X, Ctrl+W on a split).
-  // Confirms when the pane is a terminal running a process; otherwise drops the
-  // pane immediately. Every other leaf kind closes without a prompt.
+  // Same rule as a whole-tab close, applied to this one pane.
   const requestCloseLeaf = useCallback(
     (leafId: number) => {
-      if (leafHasRunningProcess(leafId)) {
-        const tab = tabsRef.current.find((x) => x.kind === "pane" && hasLeaf(x.paneTree, leafId));
+      const tab = tabsRef.current.find((x) => x.kind === "pane" && hasLeaf(x.paneTree, leafId));
+      const leaf = tab?.kind === "pane" ? findLeaf(tab.paneTree, leafId) : null;
+      const reason = leaf ? closeBlocker([leaf], leafHasRunningProcess) : null;
+      if (reason) {
         setPendingClose({
           target: { kind: "leaf", leafId },
-          reason: "running",
+          reason,
           title: tab?.kind === "pane" ? tab.title : undefined,
         });
         return;

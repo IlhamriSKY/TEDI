@@ -146,6 +146,19 @@ export function failPendingSshHops(route: SshRouteHop[]): SshRouteHop[] {
 }
 
 /**
+ * The route a status of this kind may carry. `pending` means "dialling", which
+ * is only true while connecting (or before the first attempt); any other kind
+ * means the attempt is over, so its unfinished hops are frozen as failed. Applied
+ * at the one emit point because most connect failures reject `ssh_open` and never
+ * reach the session's own exit handler.
+ */
+export function routeForSshStatus(route: SshRouteHop[], kind: SshStatus["kind"]): SshRouteHop[] {
+  return kind === "idle" || kind === "connecting" || kind === "connected"
+    ? route
+    : failPendingSshHops(route);
+}
+
+/**
  * How a SAVED connection stands across every terminal leaf that uses it,
  * collapsed from the per-leaf statuses above.
  *

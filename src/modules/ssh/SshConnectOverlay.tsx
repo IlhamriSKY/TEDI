@@ -116,7 +116,7 @@ export function SshConnectOverlay({ status, connectionId }: Props) {
   // A direct connection has no route (see `buildSshRoute`), so draw the one hop
   // it does have: this PC to the target - and colour it by the outcome, since
   // there is no per-hop state to read. A ROUTED attempt needs none of that: its
-  // unfinished hops were already marked failed by `failPendingSshHops`, so the
+  // unfinished hops were already marked failed by `routeForSshStatus`, so the
   // chain names the link that broke on its own.
   const hops: Node[] = route?.length
     ? route.map((h) => ({ host: h.host, state: done ? "up" : h.state }))

@@ -604,12 +604,25 @@ export function lastCommandOutput(leafId: number): string | null {
   return s && cmd ? readCommandOutput(s.term, cmd, Number.MAX_SAFE_INTEGER) : null;
 }
 
-/** Write raw bytes to a leaf's PTY without React state. Returns false if no live PTY. */
-export function writeToLeaf(leafId: number, data: string): boolean {
+/**
+ * Write input to a leaf's PTY on the program's behalf (the AI, a launcher, a
+ * drop). It never passes through xterm's `onData`, so it is fed to the same
+ * command tracker the keyboard is: pwsh never sends OSC 133;C, and without this
+ * an injected `npm run dev` never counted as running, so closing the tab
+ * killed it without the confirm a typed command gets. Returns false if no PTY.
+ */
+export function writePtyInput(leafId: number, data: string): boolean {
   const s = sessions.get(leafId);
   if (!s || !s.pty) return false;
+  trackCommandInput(s, leafId, data);
   s.pty.write(data);
-  s.term.focus();
+  return true;
+}
+
+/** Write raw bytes to a leaf's PTY and focus it. Returns false if no live PTY. */
+export function writeToLeaf(leafId: number, data: string): boolean {
+  if (!writePtyInput(leafId, data)) return false;
+  sessions.get(leafId)?.term.focus();
   return true;
 }
 

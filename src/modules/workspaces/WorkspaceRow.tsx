@@ -583,17 +583,24 @@ export function SortableWorkspaceRow({
                   r.entry.leafId === activeLeafId
                 }
                 renaming={
-                  r.live && r.entry.kind === "pane-leaf" && renamingLeafId === r.entry.leafId
+                  isActive &&
+                  r.live &&
+                  r.entry.kind === "pane-leaf" &&
+                  renamingLeafId === r.entry.leafId
                 }
                 onOpen={() => {
-                  if (r.live && onFocusLeaf) {
+                  // Same rule as `canCloseEntry`: a visited workspace's rows are
+                  // `live` too, but their ids address ITS cached strip, so
+                  // focusing one from here activated a tab the live strip does
+                  // not have and blanked the window. Those switch instead.
+                  if (isActive && r.live && onFocusLeaf) {
                     // Standalone tabs have no leaf; -1 matches none, so
                     // the tab side activates the tab and leaves its
                     // panes alone.
                     onFocusLeaf(r.entry.tabId, r.entry.kind === "pane-leaf" ? r.entry.leafId : -1);
                   } else if (!isActive) onSwitch(w.id);
                 }}
-                onRename={onRenameLeaf}
+                onRename={isActive ? onRenameLeaf : undefined}
                 onSetRenaming={onSetRenamingLeaf}
                 // A pane splits where it is, so this names which one: the
                 // split would otherwise land on whichever had the focus.

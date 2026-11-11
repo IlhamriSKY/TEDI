@@ -1,4 +1,5 @@
 import { type EditorPaneHandle } from "@/modules/editor";
+import { dropUnsavedBuffersExcept } from "@/modules/editor/lib/unsavedBuffers";
 import { type AiCliStatus } from "@/modules/terminal/lib/aiCliStatus";
 import { type SshStatus } from "@/modules/ssh/status";
 import { type Tab } from "@/modules/tabs";
@@ -69,6 +70,8 @@ export function useSessionDisposal({
       if (!liveTerm.has(k)) detectedUrls.current.delete(k);
     for (const k of [...editorRefs.current.keys()])
       if (!liveEditor.has(k)) editorRefs.current.delete(k);
+    // A remounted editor took its buffer back already; what is left is closed.
+    dropUnsavedBuffersExcept(liveEditor);
     setSshStatuses((prev) => {
       let mutated = false;
       const next = new Map(prev);

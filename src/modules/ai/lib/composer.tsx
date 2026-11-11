@@ -586,9 +586,20 @@ export function AiComposerProvider({ children }: ProviderProps) {
     // the tail, so without this an armed `/goal` would settle and immediately
     // send itself a continuation. Paused, not dropped: `/goal` resumes it.
     if (useGoalStore.getState().runs[sessionId]) pauseGoalRun(sessionId, "stopped by you");
-    void getOrCreateChat(sessionId).stop();
-    // Reset transient agent meta so a stuck error or step label doesn't linger.
-    useChatStore.getState().resetAgentMeta();
+    const chat = getOrCreateChat(sessionId);
+    const running = chat.status === "submitted" || chat.status === "streaming";
+    void chat.stop();
+    if (chat.status === "error") chat.clearError();
+    // A running turn reaches idle through AgentRunBridge once the abort lands.
+    // That busy -> idle edge is what fires the next queued prompt ("Send now"),
+    // so forcing idle here first swallowed it and left the prompt stuck. Only a
+    // turn that is not running (hung approval, error) is cleared by hand, and
+    // the session's usage numbers are kept either way.
+    if (!running) {
+      useChatStore
+        .getState()
+        .patchAgentMeta({ status: "idle", step: null, error: null, approvalsPending: 0 });
+    }
   }, [sessionId]);
 
   const canSend =

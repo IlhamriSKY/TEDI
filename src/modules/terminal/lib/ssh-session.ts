@@ -18,8 +18,8 @@ import { hostKeyOwners, useHostKeyPrompt } from "@/modules/ssh/hostKeyPrompt";
 import {
   allSshHopsUp,
   buildSshRoute,
-  failPendingSshHops,
   markSshHop,
+  routeForSshStatus,
   SSH_USER_CLOSE_REASON,
   type SshStatus,
 } from "@/modules/ssh/status";
@@ -64,6 +64,7 @@ export function emitSshStatus(s: Session, next: SshStatus): void {
   // Carry the route on every status so no emit site has to remember to, and so
   // the chain stays visible while disconnected/errored - which is exactly when
   // the user needs to see WHICH hop failed.
+  if (s.sshRoute) s.sshRoute = routeForSshStatus(s.sshRoute, next.kind);
   const withRoute: SshStatus = s.sshRoute ? { ...next, route: s.sshRoute } : next;
   s.sshStatus = withRoute;
   s.callbacks.onSshStatus?.(withRoute);
@@ -136,9 +137,7 @@ export async function openSshForSession(
     // Clear terminal modes the dead program left enabled (mouse tracking, alt
     // screen, ...) so they don't leak into the reconnected shell as garbage.
     s.term.write(TERM_MODE_RESET);
-    // Whichever hop had not come up is where the chain broke; freeze that into
-    // the route so the indicator names the failing link.
-    if (s.sshRoute) s.sshRoute = failPendingSshHops(s.sshRoute);
+    // The hop that had not come up is frozen as failed by `emitSshStatus`.
     if (s.sshUserClose) {
       emitSshStatus(s, {
         kind: "disconnected",

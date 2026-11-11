@@ -314,3 +314,19 @@ export function nextActiveAfterClose(
   const back = mru.find((id) => id !== closedId && remaining.includes(id));
   return back ?? remaining[Math.max(0, idx - 1)];
 }
+
+/**
+ * Why closing these panes needs the user's OK, or null when it does not. The
+ * ONE rule every close path shares (tab X, pane X, Ctrl+W, the Workspaces
+ * list): unsaved text outranks a running process, since a process can be
+ * restarted and lost edits cannot. It reads every leaf, not the tab's mirror of
+ * its ACTIVE leaf, so a dirty editor in the other half of a split still asks.
+ */
+export function closeBlocker(
+  closing: readonly PaneLeaf[],
+  isRunning: (leafId: number) => boolean,
+): "unsaved" | "running" | null {
+  if (closing.some((l) => l.leafKind === "editor" && l.dirty)) return "unsaved";
+  if (closing.some((l) => l.leafKind === "terminal" && isRunning(l.id))) return "running";
+  return null;
+}

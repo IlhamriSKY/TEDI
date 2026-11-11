@@ -17,7 +17,13 @@ import {
 } from "./pty-lifecycle";
 import { disconnectSsh, reconnectSsh, retrySsh } from "./ssh-session";
 import { loadWebglRenderer, disposeWebglRenderer, syncRendererForWallpaper } from "./webgl";
-import { ensureSession, attachSession, detachSession, canFit } from "./session-lifecycle";
+import {
+  ensureSession,
+  attachSession,
+  detachSession,
+  canFit,
+  writePtyInput,
+} from "./session-lifecycle";
 
 export type { TediOpenInput, TediSpawnTabInput };
 export { disconnectSsh, reconnectSsh, respawnSession };
@@ -345,7 +351,7 @@ export function useTerminalSession({
     if (focused) s.term.focus();
   }, [leafId, visible, focused]);
 
-  const write = useCallback((data: string) => sessions.get(leafId)?.pty?.write(data), [leafId]);
+  const write = useCallback((data: string) => void writePtyInput(leafId, data), [leafId]);
 
   /**
    * Start an AI CLI in this pane and tag it as running `tool`. `write` goes
@@ -356,10 +362,8 @@ export function useTerminalSession({
    */
   const launchAgent = useCallback(
     (command: string, tool: AiCliKind | null) => {
-      const s = sessions.get(leafId);
-      if (!s?.pty) return;
-      s.pty.write(`${command}\r`);
-      if (tool) s.aiCliDetector?.activate(tool);
+      if (!writePtyInput(leafId, `${command}\r`)) return;
+      if (tool) sessions.get(leafId)?.aiCliDetector?.activate(tool);
     },
     [leafId],
   );

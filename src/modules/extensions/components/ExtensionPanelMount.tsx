@@ -88,7 +88,9 @@ export function ExtensionPanelMount({
   // has to re-render when the extension is enabled again, so the pane recovers
   // on its own instead of needing the tab reopened.
   const installed = useExtensionsStore((st) => st.list.find((e) => e.id === extensionId));
-  const listLoaded = useExtensionsStore((st) => st.list.length > 0);
+  // The store's own "first read done" flag: an empty list is a real answer once
+  // it has loaded (the only extension was uninstalled), not "still loading".
+  const listLoaded = useExtensionsStore((st) => st.hydrated);
   // Wrap with `() => fn` so React doesn't call the renderer as a state-updater.
   const [renderer, setRenderer] = useState<PanelRenderer | null>(() =>
     panelRenderersRegistry.get(extensionId, panelId),

@@ -1354,9 +1354,7 @@ export function SourceControlPanel({
         changeCount={sorted.length}
         stagedCount={staged.length}
         load={async () => (ops ? ops.stashes() : [])}
-        onStash={async (msg, stagedOnly) => {
-          await runOp("stash", "stage", (o) => o.stash(msg, stagedOnly));
-        }}
+        onStash={(msg, stagedOnly) => runOp("stash", "stage", (o) => o.stash(msg, stagedOnly))}
         onApply={async (ref, pop) => {
           await runOp("stash", "stage", (o) => o.stashApply(ref, pop));
         }}
@@ -1370,9 +1368,7 @@ export function SourceControlPanel({
         onOpenChange={(o) => setDialog(o ? "tags" : null)}
         branch={status?.branch ?? null}
         load={async () => (ops ? ops.tags() : [])}
-        onCreate={async (name, msg) => {
-          await runOp("tag", "branch", (o) => o.createTag(name, msg));
-        }}
+        onCreate={(name, msg) => runOp("tag", "branch", (o) => o.createTag(name, msg))}
         onDelete={async (name) => {
           await runOp("tag", "branch", (o) => o.deleteTag(name));
         }}
